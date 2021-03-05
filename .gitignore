@@ -4,3 +4,5 @@
 worker/src/svc/*
 !worker/src/svc/oaworks
 server/dist/
+*.tmp
+*.swp

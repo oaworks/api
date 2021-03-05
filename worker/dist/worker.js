@@ -27,7 +27,7 @@ if (S.name == null) {
 }
 
 if (S.version == null) {
-  S.version = '5.1.428';
+  S.version = '5.2.0';
 }
 
 if (S.env == null) {
@@ -7240,4 +7240,4 @@ try {
   S.src.google.secrets = JSON.parse(SECRETS_GOOGLE);
 } catch (error1) {}
 
-S.built = "Fri Mar 5 10:30:17 GMT 2021";
+S.built = "Fri Mar 5 11:52:23 GMT 2021";

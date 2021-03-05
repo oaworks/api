@@ -16,7 +16,7 @@
 try S = JSON.parse SECRETS_SETTINGS # from CF variable this will need parsed, so just default to passing them as strings and parsing them
 S ?= {} # and just in case it wasn't found
 S.name ?= 'N2'
-S.version ?= '5.1.428'
+S.version ?= '5.2.0'
 S.env ?= 'dev'
 S.dev ?= S.env is 'dev'
 S.bg ?= 'https://dev.api.cottagelabs.com/log/remote'
@@ -4845,4 +4845,4 @@ S.src.google ?= {}
 try S.src.google.secrets = JSON.parse SECRETS_GOOGLE
 
 
-S.built = "Fri Mar 5 10:30:17 GMT 2021"
+S.built = "Fri Mar 5 11:52:23 GMT 2021"

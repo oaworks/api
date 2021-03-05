@@ -27,6 +27,8 @@ else
   echo -e "Deployment to cloudflare requires at least a secrets/env file containing CF_ACCOUNT_ID, CF_SCRIPT_ID, CF_API_TOKEN\n"
 fi
 
+DATE=`date`
+
 if [ $# -eq 0 ] || [[ $@ == *"build"* ]]; then
   if [ $# -eq 0 ] || [[ $@ == *"worker"* ]]; then
     cd worker
@@ -37,7 +39,6 @@ if [ $# -eq 0 ] || [[ $@ == *"build"* ]]; then
     fi
     npm install
     find src/ -name '*.coffee' -exec cat {} \; > dist/worker.coffee
-    DATE=`date`
     BUILT="\n\nS.built = \"$DATE\""
     echo -e $BUILT >> dist/worker.coffee
     coffee -c dist/worker.coffee
@@ -82,6 +83,7 @@ if [ -d "worker/secrets" ]; then
             if [ -z "$CF_ACCOUNT_ID" ] || [ -z "$CF_API_TOKEN" ] || [ -z "$CF_SCRIPT_ID" ]; then
               echo "To push secrets to cloudflare, cloudflare account ID, API token, and script ID must be set to vars CF_ACCOUNT_ID, CF_API_TOKEN, CF_SCRIPT_ID, in secrets/env or directly on command line"
             else
+              echo "Sending $SECRETS_NAME to cloudflare"
               curl -X PUT "$CF_SECRETS_URL" -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/javascript" --data "$SECRETS_OBJECT" | grep \"success\"
             fi
           fi
@@ -133,7 +135,8 @@ if [ $# -eq 0 ] || [[ $@ == *"deploy"* ]]; then
       if [ -z "$CF_ACCOUNT_ID" ] || [ -z "$CF_API_TOKEN" ] || [ -z "$CF_SCRIPT_ID" ]; then
         echo "To deploy worker to cloudflare, cloudflare account ID, API token, and script ID must be set to vars CF_ACCOUNT_ID, CF_API_TOKEN, CF_SCRIPT_ID, in secrets/env or directly on command line"
       else
-        curl -X PUT "$CF_URL" -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/javascript" --data-binary "@worker/dist/worker.min.js" | grep success|message\"
+        echo "Sending worker to cloudflare"
+        curl -X PUT "$CF_URL" -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/javascript" --data-binary "@worker/dist/worker.min.js" | grep -e \"success\" -e \"message\"
       fi
     else
       echo -e "No worker file available to deploy to cloudflare at worker/dist/worker.min.js\n"
