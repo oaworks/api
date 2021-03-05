@@ -1,0 +1,8 @@
+
+# a user should be able to set a list of endpoints they want to receive notifications for
+# could also wildcard* match
+# note if there are lots of notifications, may need to group them
+# user won't need auth for the endpoint because it won't give any info about the result - just that it happened?
+# or if results are wanted, auth for the endpoint would be necessary
+# notifications from this will go to a google chat bot webhook
+# notifications will be triggered by log analysis, a scheduled job will need to check through them

@@ -1,0 +1,35 @@
+{
+  "name": "Paradigm",
+  "version": "4.0.0",
+  "description": "A radically distributed API",
+  "author": "Mark MacGillivray",
+  "email": "mark@cottagelabs.com",
+  "keywords": [
+    "api"
+  ],
+  "homepage": "https://github.com/oaworks/paradigm",
+  "repository": {
+    "type": "git",
+    "url": "github:oaworks/paradign"
+  },
+  "license": "MIT",
+  "main": "dist/worker.min.js",
+  "scripts": {
+    "build": "webpack",
+    "build:watch": "webpack --watch",
+    "preview": "workers-preview < dist/worker.min.js --preview-url http://localhost:4000"
+  },
+  "devDependencies": {
+    "coffee-loader": "^0.9.0",
+    "coffeescript": "^2.5.1",
+    "serverless-cloudflare-workers": "^0.1.1",
+    "webpack": "^4.44.2",
+    "webpack-cli": "^3.3.12",
+    "workers-preview": "^1.0.6"
+  },
+  "dependencies": {
+    "moment": "^2.29.1",
+    "nanoid": "^3.1.16",
+    "underscore": "^1.11.0"
+  }
+}

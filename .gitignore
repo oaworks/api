@@ -1,0 +1,6 @@
+*node_modules*
+*package-lock*
+*secrets*
+worker/src/svc/*
+!worker/src/svc/oaworks
+server/dist/

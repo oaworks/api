@@ -1,0 +1,59 @@
+
+server {
+    listen          80;
+    server_name     EXAMPLE.com api.EXAMPLE.com static.EXAMPLE.com;
+
+    location ^~ /.well-known/acme-challenge/ {
+        default_type "text/plain";
+        root /var/www/letsencrypt;
+    }
+    location = /.well-known/acme-challenge/ {
+        return 404;
+    }
+    #location /.well-known/acme-challenge/ {
+    #    allow all;
+    #    default_type text/plain;
+    #    root /var/www/letsencrypt;
+    #}
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+
+}
+
+server {
+    listen          443;
+    server_name     api.EXAMPLE.com;
+
+    ssl_certificate /etc/letsencrypt/live/api.EXAMPLE.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/api.EXAMPLE.com/privkey.pem;
+
+    location / {
+        proxy_pass https://localhost:4000;
+        proxy_redirect off;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+
+server {
+    server_name static.EXAMPLE.com;
+    listen 443;
+
+    ssl_certificate /etc/letsencrypt/live/static.EXAMPLE.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/static.EXAMPLE.com/privkey.pem;
+
+    ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
+    ssl_ciphers "HIGH:!aNULL:!MD5 or HIGH:!aNULL:!MD5:!3DES";
+    ssl_prefer_server_ciphers on;
+
+    root /home/cloo/static;
+
+    location / {
+        expires           0;
+        add_header        Cache-Control private;
+        add_header Access-Control-Allow-Origin *;
+        autoindex on;
+    }
+}

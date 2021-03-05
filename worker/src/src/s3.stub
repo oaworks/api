@@ -1,0 +1,8 @@
+
+# allow the data store to store files in amazon s3
+# use amazon file POST etc to send files straight there
+# make unique link refs to them, and delete them when no longer needed
+# e.g we want to store stuff then later send it to zenodo or institutional repo
+
+# https://docs.aws.amazon.com/AmazonS3/latest/API/Type_API_Reference.html
+# https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-post-example.html
