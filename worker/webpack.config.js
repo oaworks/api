@@ -12,5 +12,8 @@ module.exports = {
   resolve: {
     extensions: ['.js', '.json'],
     plugins: []
+  },
+  optimization: {
+    //minimize: false
   }
 };

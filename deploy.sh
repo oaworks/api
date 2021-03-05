@@ -38,7 +38,8 @@ if [ $# -eq 0 ] || [[ $@ == *"build"* ]]; then
       mkdir dist
     fi
     npm install
-    find src/ -name '*.coffee' | sort -k11 -exec cat {} \; > dist/worker.coffee
+    #find src/ -name '*.coffee' -exec cat {} \; > dist/worker.coffee
+    find src/ -name '*.coffee' | sort -k11 | while IFS= read -r filename; do cat "$filename" >> dist/worker.coffee; done
     BUILT="\n\nS.built = \"$DATE\""
     echo -e $BUILT >> dist/worker.coffee
     coffee -c dist/worker.coffee
@@ -54,7 +55,8 @@ if [ $# -eq 0 ] || [[ $@ == *"build"* ]]; then
       mkdir dist
     fi
     npm install
-    find src/ -name '*.coffee' | sort -k11 -exec cat {} \; > dist/server.coffee
+    #find src/ -name '*.coffee' -exec cat {} \; > dist/server.coffee
+    find src/ -name '*.coffee' | sort -k11 | while IFS= read -r filename; do cat "$filename" >> dist/server.coffee; done
     coffee -c dist/server.coffee
     cat ../worker/dist/worker.js dist/server.js > $$.tmp && mv $$.tmp dist/server.js
     cd ../
