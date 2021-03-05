@@ -16,7 +16,7 @@
 try S = JSON.parse SECRETS_SETTINGS # from CF variable this will need parsed, so just default to passing them as strings and parsing them
 S ?= {} # and just in case it wasn't found
 S.name ?= 'N2'
-S.version ?= '5.2.0'
+S.version ?= '5.2.1'
 S.env ?= 'dev'
 S.dev ?= S.env is 'dev'
 S.bg ?= 'https://dev.api.cottagelabs.com/log/remote'
@@ -106,11 +106,11 @@ P = () ->
 
   _return = (fn, n) =>
     fn._index ?= true if fn._sheet
-    if not (fn._index or fn._kv) and typeof fn is 'object' and not Array.isArray(fn) and typeof fn[@request.method] isnt 'function'
+    if not fn._index and not fn._kv and typeof fn is 'object' and not Array.isArray(fn) and typeof fn[@request.method] isnt 'function'
       return JSON.parse JSON.stringify fn
-    else if (fn._index or fn._kv) and typeof fn isnt 'function'
+    else if not fn._index and not fn._kv and typeof fn isnt 'function'
       return fn
-    else if n.indexOf('.') is -1 or n.split('.').pop().indexOf('_') is 0 # don't wrap top-level or underscored methods
+    else if not fn._index and not fn._kv and n.indexOf('.') is -1 or n.split('.').pop().indexOf('_') is 0 # don't wrap top-level or underscored methods
       return fn.bind @
     else
       _wrapped = () ->
