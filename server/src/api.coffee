@@ -46,10 +46,10 @@ http.createServer((req, res) ->
         pb.bg = true
         pr.body = JSON.stringify pb, '', 2
         pr.headers['Content-Length'] = Buffer.byteLength pr.body
-    if typeof pr.body isnt 'string' # could there be buffers here?
-      try
-        pr.body = JSON.stringify pr.body, '', 2
-        pr.headers['Content-Length'] = Buffer.byteLength pr.body
+    #if typeof pr.body isnt 'string' # could there be buffers here?
+    #  try
+    #    pr.body = JSON.stringify pr.body, '', 2
+    #    pr.headers['Content-Length'] = Buffer.byteLength pr.body
     res.writeHead pr.status, pr.headers # where would these be in a Response object from P?
     res.end pr.body
   catch err

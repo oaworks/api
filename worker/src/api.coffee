@@ -263,7 +263,7 @@ P._response = (res) ->
   if not res?
     res = 404
     status = 404
-  else if typeof res is 'object' and not Array.isArray(res) and ((typeof res.status is 'number' and res.status > 300 and res.status < 600) or res.headers)
+  else if @fn isnt 'status' and typeof res is 'object' and not Array.isArray(res) and ((typeof res.status is 'number' and res.status > 300 and res.status < 600) or res.headers)
     if res.headers?
       @S.headers[h] = res.headers[h] for h of res.headers
       delete res.headers
