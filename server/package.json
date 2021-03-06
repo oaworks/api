@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "busboy": "^0.3.1",
+    "https": "^1.0.0",
     "moment": "^2.29.1",
     "nanoid": "^3.1.16",
     "node-fetch": "^2.6.1",

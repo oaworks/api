@@ -587,6 +587,7 @@ P._cache = (request, response, age=120) ->
           # it has to be a GET for it to be accepted by the CF cache
           # could use just the URL string as key (and then, which query params to consider, if any?)
           # but if using just the URL string how would the refresh timeout be checked?
+          response = response.clone() # body of response can only be read once, so clone it
           rp = new Response response.body, response
           rp.headers.append "Cache-Control", "max-age=" + age
           @waitUntil caches.default.put ck, rp
@@ -1397,9 +1398,10 @@ P.fetch = (url, params) ->
           delete params.verbose
         else
           verbose = false
-        if url.indexOf('localhost') isnt -1
-          # allow local https connections without check cert, e.g. to connect to https://localhost where cert doesn't need to be externally valid
-          params.agent ?= new https.Agent rejectUnauthorized: false
+        try
+          if url.indexOf('localhost') isnt -1
+            # allow local https connections on backend server without check cert
+            params.agent ?= new https.Agent rejectUnauthorized: false
         response = await fetch url, params
         console.log response.status # status code can be found here
         if verbose
@@ -4867,4 +4869,4 @@ P.flatten = (data) ->
 '''
 
 
-S.built = "Sat Mar 6 05:36:34 GMT 2021"
+S.built = "Sat Mar 6 05:52:59 GMT 2021"

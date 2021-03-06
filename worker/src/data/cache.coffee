@@ -53,6 +53,7 @@ P._cache = (request, response, age=120) ->
           # it has to be a GET for it to be accepted by the CF cache
           # could use just the URL string as key (and then, which query params to consider, if any?)
           # but if using just the URL string how would the refresh timeout be checked?
+          response = response.clone() # body of response can only be read once, so clone it
           rp = new Response response.body, response
           rp.headers.append "Cache-Control", "max-age=" + age
           @waitUntil caches.default.put ck, rp

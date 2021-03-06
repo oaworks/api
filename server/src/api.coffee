@@ -4,6 +4,7 @@
 
 import fetch from 'node-fetch' # used in fetch - does this expose wide enough scope or does it need hoisted?
 import http from 'http'
+import https from 'https' # allows fetch to control https security for local connections
 import Busboy from 'busboy'
 
 http.createServer((req, res) ->
