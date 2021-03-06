@@ -5,8 +5,6 @@ S.log ?= {}
 # what about a param to pass to avoid logging?
 
 P.log = (msg) ->
-  return undefined if S.log is false
-
   store = not msg? # an empty call to log stores everything in the _logs list
 
   if typeof msg is 'string'
@@ -67,6 +65,10 @@ P.log = (msg) ->
     @kv msg
   else
     @_logs.push msg
+
+  if S.log is false or S.bg is true # is this useful?
+    console.log 'Server not logging:'
+    console.log msg
 
 
 P.log.schedule = () ->

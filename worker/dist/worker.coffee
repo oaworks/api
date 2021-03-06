@@ -16,7 +16,7 @@
 try S = JSON.parse SECRETS_SETTINGS # from CF variable this will need parsed, so just default to passing them as strings and parsing them
 S ?= {} # and just in case it wasn't found
 S.name ?= 'N2'
-S.version ?= '5.2.1'
+S.version ?= '5.2.5'
 S.env ?= 'dev'
 S.dev ?= S.env is 'dev'
 S.bg ?= 'https://dev.api.cottagelabs.com/log/remote'
@@ -46,7 +46,7 @@ try
 
 P = () ->
   @started = Date.now() # not strictly accurate in a workers environment, but handy nevertheless
-  try console.log(S.version) if S.dev # handy for CF edit UI debug to see if code has updated yet
+  try console.log(S.version) if S.dev and S.bg isnt true # handy for CF edit UI debug to see if code has updated yet
   # this header is defined later because the built date is added to the end of the file by the deploy script, so it's not known until now
   try S.headers['X-' + S.name] ?= (if S.version then 'v' + S.version else '') + (if S.env then ' ' + S.env else '') + (if S.built then ' built ' + S.built  else '')
   @S = JSON.parse JSON.stringify S
@@ -63,27 +63,38 @@ P = () ->
         @params[kp[0]] = kpn if not isNaN kpn
       if typeof @params[kp[0]] is 'string' and (@params[kp[0]].startsWith('[') or @params[kp[0]].startsWith('{'))
         try @params[kp[0]] = JSON.parse @params[kp[0]]
-  if @request.bodyUsed
-    try
-      @body = JSON.parse(@request.body) if @request.body.startsWith('{') or @request.body.startsWith('[')
-      if typeof @body is 'object' and not Array.isArray @body
-        @params[qp] ?= @body[qp] for qp of @body
-    try @body ?= @request.body
+  try
+    @body = JSON.parse(@request.body) if @request.body.startsWith('{') or @request.body.startsWith('[')
+    if typeof @body is 'object' and not Array.isArray @body
+      @params[qp] ?= @body[qp] for qp of @body
+  try @body ?= @request.body
   if @params.refresh
     @refresh = @params.refresh
     delete @params.refresh
-  try @rid = @request.headers.get('cf-ray').slice(0, -4)
+  try
+    @headers = {}
+    @headers[hd[0]] = hd[1] for hd in [...@request.headers] # request headers is an immutable Headers instance, not a normal object, so would appear empty unless using get/set, so parse it out here
+  catch
+    @headers = @request.headers # backend server passes a normal object
+    if typeof @waitUntil isnt 'function'
+      @waitUntil = (fn) -> 
+        console.log 'waitUntil'
+        return true
+  try @rid = @headers['cf-ray'].slice(0, -4)
   # how / when to remove various auth headers before logging / matching cache?
   # e.g apikey, id, resume, token, access_token, email?
-  try @id = @request.headers.get('x-id') ? @request.headers.get('id') ? @request.headers.get('_id') ? @params._id ? @params.id
-  try @apikey = @request.headers.get('x-apikey') ? @request.headers.get('apikey') ? @params.apikey ? @params.apiKey
+  try @id = @headers['x-id'] ? @headers.id ? @headers._id ? @params._id ? @params.id
+  try @apikey = @headers['x-apikey'] ? @headers.apikey ? @params.apikey ? @params.apiKey
   delete @params.apikey if @params.apikey
-  try @cookie = @request.headers.get 'cookie'
-  @headers = {}
-  @headers[hd[0]] = hd[1] for hd in [...@request.headers] # request headers is an immutable Headers instance, not a normal object, so would appear empty unless using get/set, so parse it out here
-  @url = @request.url.split('?')[0].replace(/\/$/,'').split('://')[1]
-  @parts = @url.split '/'
-  @base = @parts.shift()
+  try @cookie = @headers.cookie
+  if @request.url.indexOf('://') is -1
+    @url = @request.url.split('?')[0].replace(/^\//,'').replace(/\/$/,'')
+    @parts = if @url.length then @url.split('/') else []
+    # there's no base to the URL passed on the server
+  else
+    @url = @request.url.split('?')[0].replace(/\/$/,'').split('://')[1]
+    @parts = @url.split '/'
+    @base = @parts.shift()
   @route = @parts.join '/'
   @_logs = [] # place for a running request to dump multiple logs, which will combine and save at the end of the overall request
 
@@ -218,7 +229,7 @@ P = () ->
       else if fn._cache isnt false and not @refresh and @request.method in ['GET'] and res = await @_cache() # this will return empty if nothing relevant was ever put in there anyway
         # how about POSTs that are obviously queries? how about caching of responses to logged in users, by param or header?
         @cached = 'cache'
-        resp = new Response res.body, res
+        resp = new Response res.body, res # no need to catch this for backend execution because cache functionwill never find anything on backend anyway
         resp.headers.append 'x-' + @S.name + '-cached', 'cache' # this would leave any prior "index" value, for example. Or use .set to overwrite
         resp.headers.delete 'x-' + @S.name + '-took'
         @log()
@@ -243,7 +254,7 @@ P = () ->
   resp = await @_response res
   if @parts.length and @parts[0] not in ['log','status'] and @request.method not in ['HEAD', 'OPTIONS'] and res? and res isnt ''
     if fn? and fn._cache isnt false and @completed and resp.status is 200
-      @_cache undefined, resp.clone(), fn._cache # need to clone here? or is at cache enough? Has to be cached before being read and returned
+      @_cache undefined, resp #.clone() # need to clone here? or is at cache enough? Has to be cached before being read and returned
     @log() # logging from the top level here should save the log to kv - don't log if unlog is present and its value matches a secret key?
   return resp
 
@@ -273,7 +284,10 @@ P._response = (res) ->
   try @S.headers['x-' + @S.name + '-took'] = Date.now() - @started
   try @S.headers['x-' + @S.name + '-cached'] = @cached if @cached
   # TODO add formatting if the URL ended with .csv or something like that (or header requested particular format)
-  return new Response res, {status: status, headers: @S.headers}
+  try
+    return new Response res, {status: status, headers: @S.headers}
+  catch
+    return status: status, headers: @S.headers, body: res
 
 P.src = {}
 P.svc = {}
@@ -542,7 +556,7 @@ P._cache = (request, response, age=120) ->
   # age is max age in seconds until removal from cache (note this is not strict, CF could remove for other reasons)
   # request and response needs to be an actual Request and Response objects
   # returns promise wrapping the Response object
-  if @S.cache is false
+  if @S.cache is false or @S.bg is true # can change this if a backend cache mechanism is added later (prob not worthwhile)
     return undefined
   else
     try
@@ -1484,8 +1498,6 @@ S.log ?= {}
 # what about a param to pass to avoid logging?
 
 P.log = (msg) ->
-  return undefined if S.log is false
-
   store = not msg? # an empty call to log stores everything in the _logs list
 
   if typeof msg is 'string'
@@ -1546,6 +1558,10 @@ P.log = (msg) ->
     @kv msg
   else
     @_logs.push msg
+
+  if S.log is false or S.bg is true # is this useful?
+    console.log 'Server not logging:'
+    console.log msg
 
 
 P.log.schedule = () ->
@@ -4845,4 +4861,4 @@ P.flatten = (data) ->
 '''
 
 
-S.built = "Fri Mar 5 14:37:07 GMT 2021"
+S.built = "Sat Mar 6 00:40:29 GMT 2021"

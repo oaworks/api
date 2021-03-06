@@ -22,7 +22,7 @@ P._cache = (request, response, age=120) ->
   # age is max age in seconds until removal from cache (note this is not strict, CF could remove for other reasons)
   # request and response needs to be an actual Request and Response objects
   # returns promise wrapping the Response object
-  if @S.cache is false
+  if @S.cache is false or @S.bg is true # can change this if a backend cache mechanism is added later (prob not worthwhile)
     return undefined
   else
     try

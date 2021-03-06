@@ -37,11 +37,22 @@ http.createServer((req, res) ->
       
   try
     pr = await P.call request: req # how does this req compare to the event.request passed by fetch in P?
+    try console.log(pr.status + ' ' + req.url) if S.dev
+    try pr.headers['x-' + S.name + '-bg'] = true
+    if req.url is '/'
+      try
+        pb = JSON.parse pr.body
+        pb.bg = true
+        pr.body = JSON.stringify pb, '', 2
+        pr.headers['Content-Length'] = Buffer.byteLength pr.body
     res.writeHead pr.status, pr.headers # where would these be in a Response object from P?
     res.end pr.body
-  catch
+  catch err
+    try console.log err
     headers = {}
+    headers['x-' + S.name + '-bg'] = true
     res.writeHead 405, headers # where would these be in a Response object from P?
     res.end '405'
 ).listen S.port ? 4000, 'localhost'
 
+console.log S.name + ' v' + S.version + ' built ' + S.built + ', listening on ' + (S.port ? 4000)

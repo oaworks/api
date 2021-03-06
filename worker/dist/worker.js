@@ -27,7 +27,7 @@ if (S.name == null) {
 }
 
 if (S.version == null) {
-  S.version = '5.2.1';
+  S.version = '5.2.5';
 }
 
 if (S.env == null) {
@@ -79,7 +79,7 @@ P = async function() {
   var _lp, _racer, _return, _save, authd, base, base1, fn, hd, i1, kp, kpn, len, len1, name, pk, prs, qp, ref, ref1, ref10, ref11, ref12, ref13, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, resp, w;
   this.started = Date.now(); // not strictly accurate in a workers environment, but handy nevertheless
   try {
-    if (S.dev) { // handy for CF edit UI debug to see if code has updated yet
+    if (S.dev && S.bg !== true) { // handy for CF edit UI debug to see if code has updated yet
       console.log(S.version);
     }
   } catch (error1) {}
@@ -113,56 +113,70 @@ P = async function() {
       }
     }
   }
-  if (this.request.bodyUsed) {
-    try {
-      if (this.request.body.startsWith('{') || this.request.body.startsWith('[')) {
-        this.body = JSON.parse(this.request.body);
-      }
-      if (typeof this.body === 'object' && !Array.isArray(this.body)) {
-        for (qp in this.body) {
-          if ((base1 = this.params)[qp] == null) {
-            base1[qp] = this.body[qp];
-          }
+  try {
+    if (this.request.body.startsWith('{') || this.request.body.startsWith('[')) {
+      this.body = JSON.parse(this.request.body);
+    }
+    if (typeof this.body === 'object' && !Array.isArray(this.body)) {
+      for (qp in this.body) {
+        if ((base1 = this.params)[qp] == null) {
+          base1[qp] = this.body[qp];
         }
       }
-    } catch (error1) {}
-    try {
-      if (this.body == null) {
-        this.body = this.request.body;
-      }
-    } catch (error1) {}
-  }
+    }
+  } catch (error1) {}
+  try {
+    if (this.body == null) {
+      this.body = this.request.body;
+    }
+  } catch (error1) {}
   if (this.params.refresh) {
     this.refresh = this.params.refresh;
     delete this.params.refresh;
   }
   try {
-    this.rid = this.request.headers.get('cf-ray').slice(0, -4);
+    this.headers = {};
+    ref1 = [...this.request.headers];
+    // request headers is an immutable Headers instance, not a normal object, so would appear empty unless using get/set, so parse it out here
+    for (i1 = 0, len1 = ref1.length; i1 < len1; i1++) {
+      hd = ref1[i1];
+      this.headers[hd[0]] = hd[1];
+    }
+  } catch (error1) {
+    this.headers = this.request.headers; // backend server passes a normal object
+    if (typeof this.waitUntil !== 'function') {
+      this.waitUntil = function(fn) {
+        console.log('waitUntil');
+        return true;
+      };
+    }
+  }
+  try {
+    this.rid = this.headers['cf-ray'].slice(0, -4);
   } catch (error1) {}
   try {
     // how / when to remove various auth headers before logging / matching cache?
     // e.g apikey, id, resume, token, access_token, email?
-    this.id = (ref1 = (ref2 = (ref3 = (ref4 = this.request.headers.get('x-id')) != null ? ref4 : this.request.headers.get('id')) != null ? ref3 : this.request.headers.get('_id')) != null ? ref2 : this.params._id) != null ? ref1 : this.params.id;
+    this.id = (ref2 = (ref3 = (ref4 = (ref5 = this.headers['x-id']) != null ? ref5 : this.headers.id) != null ? ref4 : this.headers._id) != null ? ref3 : this.params._id) != null ? ref2 : this.params.id;
   } catch (error1) {}
   try {
-    this.apikey = (ref5 = (ref6 = (ref7 = this.request.headers.get('x-apikey')) != null ? ref7 : this.request.headers.get('apikey')) != null ? ref6 : this.params.apikey) != null ? ref5 : this.params.apiKey;
+    this.apikey = (ref6 = (ref7 = (ref8 = this.headers['x-apikey']) != null ? ref8 : this.headers.apikey) != null ? ref7 : this.params.apikey) != null ? ref6 : this.params.apiKey;
   } catch (error1) {}
   if (this.params.apikey) {
     delete this.params.apikey;
   }
   try {
-    this.cookie = this.request.headers.get('cookie');
+    this.cookie = this.headers.cookie;
   } catch (error1) {}
-  this.headers = {};
-  ref8 = [...this.request.headers];
-  // request headers is an immutable Headers instance, not a normal object, so would appear empty unless using get/set, so parse it out here
-  for (i1 = 0, len1 = ref8.length; i1 < len1; i1++) {
-    hd = ref8[i1];
-    this.headers[hd[0]] = hd[1];
+  if (this.request.url.indexOf('://') === -1) {
+    this.url = this.request.url.split('?')[0].replace(/^\//, '').replace(/\/$/, '');
+    this.parts = this.url.length ? this.url.split('/') : [];
+  } else {
+    // there's no base to the URL passed on the server
+    this.url = this.request.url.split('?')[0].replace(/\/$/, '').split('://')[1];
+    this.parts = this.url.split('/');
+    this.base = this.parts.shift();
   }
-  this.url = this.request.url.split('?')[0].replace(/\/$/, '').split('://')[1];
-  this.parts = this.url.split('/');
-  this.base = this.parts.shift();
   this.route = this.parts.join('/');
   this._logs = []; // place for a running request to dump multiple logs, which will combine and save at the end of the overall request
   if (this.route === '') {
@@ -375,7 +389,7 @@ P = async function() {
       } else if (fn._cache !== false && !this.refresh && ((ref11 = this.request.method) === 'GET') && (res = (await this._cache()))) { // this will return empty if nothing relevant was ever put in there anyway
         // how about POSTs that are obviously queries? how about caching of responses to logged in users, by param or header?
         this.cached = 'cache';
-        resp = new Response(res.body, res);
+        resp = new Response(res.body, res); // no need to catch this for backend execution because cache functionwill never find anything on backend anyway
         resp.headers.append('x-' + this.S.name + '-cached', 'cache'); // this would leave any prior "index" value, for example. Or use .set to overwrite
         resp.headers.delete('x-' + this.S.name + '-took');
         this.log();
@@ -415,7 +429,7 @@ P = async function() {
   resp = (await this._response(res));
   if (this.parts.length && ((ref12 = this.parts[0]) !== 'log' && ref12 !== 'status') && ((ref13 = this.request.method) !== 'HEAD' && ref13 !== 'OPTIONS') && (res != null) && res !== '') {
     if ((fn != null) && fn._cache !== false && this.completed && resp.status === 200) {
-      this._cache(void 0, resp.clone(), fn._cache); // need to clone here? or is at cache enough? Has to be cached before being read and returned
+      this._cache(void 0, resp); //.clone() # need to clone here? or is at cache enough? Has to be cached before being read and returned
     }
     this.log(); // logging from the top level here should save the log to kv - don't log if unlog is present and its value matches a secret key?
   }
@@ -467,11 +481,19 @@ P._response = function(res) {
       this.S.headers['x-' + this.S.name + '-cached'] = this.cached;
     }
   } catch (error1) {}
-  // TODO add formatting if the URL ended with .csv or something like that (or header requested particular format)
-  return new Response(res, {
-    status: status,
-    headers: this.S.headers
-  });
+  try {
+    // TODO add formatting if the URL ended with .csv or something like that (or header requested particular format)
+    return new Response(res, {
+      status: status,
+      headers: this.S.headers
+    });
+  } catch (error1) {
+    return {
+      status: status,
+      headers: this.S.headers,
+      body: res
+    };
+  }
 };
 
 P.src = {};
@@ -859,7 +881,7 @@ P._cache = async function(request, response, age = 120) {
   // age is max age in seconds until removal from cache (note this is not strict, CF could remove for other reasons)
   // request and response needs to be an actual Request and Response objects
   // returns promise wrapping the Response object
-  if (this.S.cache === false) {
+  if (this.S.cache === false || this.S.bg === true) { // can change this if a backend cache mechanism is added later (prob not worthwhile)
     return void 0;
   } else {
     try {
@@ -2526,9 +2548,6 @@ if (S.log == null) {
 // what about a param to pass to avoid logging?
 P.log = function(msg) {
   var i1, l, len, len1, ref1, ref2, ref3, store, w;
-  if (S.log === false) {
-    return void 0;
-  }
   store = msg == null; // an empty call to log stores everything in the _logs list
   if (typeof msg === 'string') {
     if (msg.indexOf('/') !== -1 && msg.indexOf(' ') === -1) {
@@ -2632,9 +2651,13 @@ P.log = function(msg) {
       msg.took = Date.now() - this.started;
     } catch (error1) {}
     msg._id = 'log/' + ((ref3 = this.rid) != null ? ref3 : this.uid());
-    return this.kv(msg);
+    this.kv(msg);
   } else {
-    return this._logs.push(msg);
+    this._logs.push(msg);
+  }
+  if (S.log === false || S.bg === true) { // is this useful?
+    console.log('Server not logging:');
+    return console.log(msg);
   }
 };
 
@@ -7241,4 +7264,4 @@ P.flatten = (data) ->
     return res
 `;
 
-S.built = "Fri Mar 5 14:37:07 GMT 2021";
+S.built = "Sat Mar 6 00:40:29 GMT 2021";

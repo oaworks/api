@@ -31,6 +31,7 @@ DATE=`date`
 
 if [ $# -eq 0 ] || [[ $@ == *"build"* ]]; then
   if [ $# -eq 0 ] || [[ $@ == *"worker"* ]]; then
+    echo "Building worker"
     cd worker
     if [ -d "dist" ]; then
       rm dist/*
@@ -48,6 +49,7 @@ if [ $# -eq 0 ] || [[ $@ == *"build"* ]]; then
   fi
 
   if [ $# -eq 0 ] || [[ $@ == *"server"* ]]; then
+    echo "Building server"
     cd server
     if [ -d "dist" ]; then
       rm dist/*
@@ -137,7 +139,7 @@ if [ $# -eq 0 ] || [[ $@ == *"deploy"* ]]; then
       if [ -z "$CF_ACCOUNT_ID" ] || [ -z "$CF_API_TOKEN" ] || [ -z "$CF_SCRIPT_ID" ]; then
         echo "To deploy worker to cloudflare, cloudflare account ID, API token, and script ID must be set to vars CF_ACCOUNT_ID, CF_API_TOKEN, CF_SCRIPT_ID, in secrets/env or directly on command line"
       else
-        echo "Sending worker to cloudflare"
+        echo "Deploying worker to cloudflare"
         curl -X PUT "$CF_URL" -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/javascript" --data-binary "@worker/dist/worker.min.js" | grep -e \"success\" -e \"message\"
       fi
     else
