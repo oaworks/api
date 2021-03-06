@@ -571,24 +571,27 @@ P._cache = (request, response, age=120) ->
             url = url.split('&' + h + '=')[0] # it's the last param, remove from end
         cu = new URL url
     if request?
-      cu ?= new URL request.url
-      # if request method is POST try changing to GET? and should any headers be removed?
-      ck = new Request cu.toString(), request
-      if not response? or response is ''
-        rs = await caches.default.match ck
-        if response is ''
-          @waitUntil caches.default.delete ck
-        return rs
-      else
-        # what about things like apikey, refresh and other params, headers not wanted in cache?
-        # need to build a request object here, and include a Last-Modified header? or cacheTtl would just let it time out?
-        # and what about overriding the method? Always do that here or allow it to be done before here?
-        # it has to be a GET for it to be accepted by the CF cache
-        # could use just the URL string as key (and then, which query params to consider, if any?)
-        # but if using just the URL string how would the refresh timeout be checked?
-        rp = new Response response.body, response
-        rp.headers.append "Cache-Control", "max-age=" + age
-        @waitUntil caches.default.put ck, rp
+      try
+        cu ?= new URL request.url
+        # if request method is POST try changing to GET? and should any headers be removed?
+        ck = new Request cu.toString(), request
+        if not response? or response is ''
+          rs = await caches.default.match ck
+          if response is ''
+            @waitUntil caches.default.delete ck
+          return rs
+        else
+          # what about things like apikey, refresh and other params, headers not wanted in cache?
+          # need to build a request object here, and include a Last-Modified header? or cacheTtl would just let it time out?
+          # and what about overriding the method? Always do that here or allow it to be done before here?
+          # it has to be a GET for it to be accepted by the CF cache
+          # could use just the URL string as key (and then, which query params to consider, if any?)
+          # but if using just the URL string how would the refresh timeout be checked?
+          rp = new Response response.body, response
+          rp.headers.append "Cache-Control", "max-age=" + age
+          @waitUntil caches.default.put ck, rp
+      catch
+        return undefined
     else
       return undefined
 
@@ -1394,6 +1397,9 @@ P.fetch = (url, params) ->
           delete params.verbose
         else
           verbose = false
+        if url.indexOf('localhost') isnt -1
+          # allow local https connections without check cert, e.g. to connect to https://localhost where cert doesn't need to be externally valid
+          params.agent ?= new https.Agent rejectUnauthorized: false
         response = await fetch url, params
         console.log response.status # status code can be found here
         if verbose
@@ -4861,4 +4867,4 @@ P.flatten = (data) ->
 '''
 
 
-S.built = "Sat Mar 6 00:40:29 GMT 2021"
+S.built = "Sat Mar 6 05:36:34 GMT 2021"

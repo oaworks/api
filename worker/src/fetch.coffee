@@ -50,6 +50,9 @@ P.fetch = (url, params) ->
           delete params.verbose
         else
           verbose = false
+        if url.indexOf('localhost') isnt -1
+          # allow local https connections without check cert, e.g. to connect to https://localhost where cert doesn't need to be externally valid
+          params.agent ?= new https.Agent rejectUnauthorized: false
         response = await fetch url, params
         console.log response.status # status code can be found here
         if verbose
