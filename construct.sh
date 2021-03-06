@@ -65,9 +65,32 @@ if [ $# -eq 0 ] || [[ $@ == *"build"* ]]; then
   fi
 fi
 
-# NOTE only up to 32 variables are allowed, a combined count of secret variables and normal env variables (e.g. set via CF UI)
-# each uploaded secret can only be up to 1KB in size
+if [ $# -eq 0 ] || [[ $@ == *"server"* ]]; then
+  if [ -d "server/secrets" ]; then
+    if find server/secrets -mindepth 1 | read; then
+      for F in server/secrets/*.json; do
+        SECRETS_DATA="$(cat $F | sed 's/\"/\\"/g' | tr '\n' ' ')"
+        SECRETS_NAME=${F#"server/secrets/"}
+        SECRETS_NAME=${SECRETS_NAME%".json"}
+        SECRETS_NAME=${SECRETS_NAME%"secrets"}
+        SECRETS_NAME=${SECRETS_NAME^^}
+        if [[ $SECRETS_NAME != "env" ]]; then # not really needed but just in case someone accidentally puts their env in env.json instead of just env
+          echo "Saving server $SECRETS_NAME secrets to server file"
+          echo "var SECRETS_$SECRETS_NAME = '$SECRETS_DATA'" | cat - server/dist/server.js > $$.tmp && mv $$.tmp server/dist/server.js
+          #echo "var SECRETS_$SECRETS_NAME = '$SECRETS_DATA'" >> server/dist/server.js
+        fi
+      done
+    else
+      echo -e "No server secrets json files present, so no server secrets built into server script\n"
+    fi
+  else
+    echo -e "No server secrets folder present so no server secrets built into server script"\n
+  fi
+fi
 
+# NOTE only up to 32 cloudflare workers variables are allowed, a combined count of 
+# secret variables and normal env variables (e.g. set via CF UI)
+# each uploaded secret can only be up to 1KB in size
 CF_URL="https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/workers/scripts/$CF_SCRIPT_ID"
 CF_SECRETS_URL="$CF_URL/secrets"
 
@@ -87,12 +110,13 @@ if [ -d "worker/secrets" ]; then
             if [ -z "$CF_ACCOUNT_ID" ] || [ -z "$CF_API_TOKEN" ] || [ -z "$CF_SCRIPT_ID" ]; then
               echo "To push secrets to cloudflare, cloudflare account ID, API token, and script ID must be set to vars CF_ACCOUNT_ID, CF_API_TOKEN, CF_SCRIPT_ID, in secrets/env or directly on command line"
             else
-              echo "Sending $SECRETS_NAME to cloudflare"
+              echo "Sending $SECRETS_NAME secrets to cloudflare"
               curl -X PUT "$CF_SECRETS_URL" -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/javascript" --data "$SECRETS_OBJECT" | grep \"success\"
             fi
           fi
         fi
         if [ $# -eq 0 ] || [[ $@ == *"server"* ]]; then
+          echo "Saving worker $SECRETS_NAME secrets to server file"
           echo "var SECRETS_$SECRETS_NAME = '$SECRETS_DATA'" | cat - server/dist/server.js > $$.tmp && mv $$.tmp server/dist/server.js
         fi
       fi
@@ -102,27 +126,6 @@ if [ -d "worker/secrets" ]; then
   fi
 else
   echo -e "No worker secrets folder present, so no worker secrets imported to cloudflare or built into server script"\n
-fi
-
-if [ $# -eq 0 ] || [[ $@ == *"server"* ]]; then
-  if [ -d "server/secrets" ]; then
-    if find server/secrets -mindepth 1 | read; then
-      for F in server/secrets/*.json; do
-        SECRETS_DATA="$(cat $F | sed 's/\"/\\"/g' | tr '\n' ' ')"
-        SECRETS_NAME=${F#"server/secrets/"}
-        SECRETS_NAME=${SECRETS_NAME%".json"}
-        SECRETS_NAME=${SECRETS_NAME%"secrets"}
-        SECRETS_NAME=${SECRETS_NAME^^}
-        if [[ $SECRETS_NAME != "env" ]]; then # not really needed but just in case someone accidentally puts their env in env.json instead of just env
-          echo "var SECRETS_$SECRETS_NAME = '$SECRETS_DATA'" | cat - server/dist/server.js > $$.tmp && mv $$.tmp server/dist/server.js
-        fi
-      done
-    else
-      echo -e "No server secrets json files present, so no server secrets built into server script\n"
-    fi
-  else
-    echo -e "No server secrets folder present so no server secrets built into server script"\n
-  fi
 fi
 
 if [ $# -eq 0 ] || [[ $@ == *"build"* ]]; then
