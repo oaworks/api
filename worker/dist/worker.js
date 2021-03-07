@@ -38,10 +38,6 @@ if (S.dev == null) {
   S.dev = S.env === 'dev';
 }
 
-if (S.bg == null) {
-  S.bg = 'https://dev.api.cottagelabs.com/log/remote';
-}
-
 // TODO replace bg with a proper bg endpoint for workers to send to (or fail open)
 // once bg goes into permanent settings, the background server starter shouod remove it and replace it with true or nothing
 if (S.headers == null) {
@@ -197,7 +193,7 @@ P = async function() {
     if (f._index && (f._kv === false || this.S.kv === false || this.S.index.immediate === true)) { // all indexing is bulked through kv unless _kv is false or overall kv is disabled in settings, or immediate indexing is true
       if (!(indexed = (await this.index(k, r)))) { // later, the _schedule should automatically move anything in kv that matches an indexed endpoint
         // try creating it - if already done it just returns a 404 anyway
-        if (!(indexed = (await this.index(r.split('/')[0], (typeof f._index !== 'object' ? {} : {
+        if (!(indexed = (await this.index(k.split('/')[0], (typeof f._index !== 'object' ? {} : {
           settings: f._index.settings,
           mappings: f._index.mappings,
           aliases: f._index.aliases
@@ -214,25 +210,29 @@ P = async function() {
     }
   };
   _return = (fn, n) => {
-    var _wrapped;
+    var _wrapped, wp;
     if (fn._sheet) {
+      // if fn._sheet is true, look for corresponding sheet value in setttings? Don't do it where fn._sheet is defined in case settings get overridden?
       if (fn._index == null) {
         fn._index = true;
       }
     }
-    if (!fn._index && !fn._kv && typeof fn === 'object' && !Array.isArray(fn) && typeof fn[this.request.method] !== 'function') {
+    wp = fn._index || fn._kv || (fn._bg && this.S.bg !== true); // what about _async?
+    if (!wp && typeof fn === 'object' && !Array.isArray(fn) && typeof fn[this.request.method] !== 'function') {
       return JSON.parse(JSON.stringify(fn));
-    } else if (!fn._index && !fn._kv && typeof fn !== 'function') {
+    } else if (!wp && !fn._kv && typeof fn !== 'function') {
       return fn;
-    } else if (!fn._index && !fn._kv && n.indexOf('.') === -1 || n.split('.').pop().indexOf('_') === 0) { // don't wrap top-level or underscored methods
+    } else if (!wp && !fn._kv && n.indexOf('.') === -1 || n.split('.').pop().indexOf('_') === 0) { // don't wrap top-level or underscored methods
       return fn.bind(this);
     } else {
       _wrapped = async function() {
-        var chd, key, lg, ref10, ref11, ref12, ref13, res, rt, st;
+        var bgd, bu, bup, chd, key, lg, ref10, ref11, ref12, ref13, res, rt, st;
         st = Date.now(); // again, not necessarily going to be accurate in a workers environment
         rt = n.replace(/\./g, '_');
         chd = false;
-        if (fn._index && ((this.fn === n && this.index._q(this.params)) || (this.fn !== n && (arguments.length === 1 && this.index._q(arguments[0]))) || (arguments.length === 2 && this.index._q(arguments[1])))) {
+        key = false;
+        bgd = false;
+        if ((!fn._bg || this.S.bg === true) && fn._index && ((this.fn === n && this.index._q(this.params)) || (this.fn !== n && (arguments.length === 1 && this.index._q(arguments[0]))) || (arguments.length === 2 && this.index._q(arguments[1])))) {
           res = this.index((arguments.length === 2 ? (ref10 = arguments[0]) != null ? ref10 : rt : rt), (arguments.length === 2 ? arguments[1] : arguments.length === 1 ? arguments[1] : this.params));
         }
         // TODO what about a kv direct read or write? should that be handled here too?
@@ -257,11 +257,31 @@ P = async function() {
         if (chd && this.fn.startsWith(n)) { // record whether or not the main function result was cached in index or kv
           this.cached = chd;
         }
-        key = false;
+        if ((res == null) && (fn._bg || fn._sheet) && typeof this.S.bg === 'string' && this.S.bg.indexOf('http') === 0) {
+          bu = this.S.bg + '/' + n.replace(/\./g, '/') + (arguments.length && typeof arguments[0] === 'string' ? arguments[0] : '');
+          bup = arguments.length && typeof arguments[0] === 'object' ? {
+            method: 'POST',
+            body: arguments[0]
+          } : n === fn ? {
+            method: 'POST',
+            body: this.params
+          } : {};
+          if (this.S.name && this.S.system) {
+            bup.headers = {};
+            bup.headers['x-' + S.name + '-system'] = this.S.system;
+          }
+          try {
+            res = (await this.fetch(bu, bup)); // does the worker timeout at 15s even if just waiting, not CPU time? test to find out. If so, race this and async it if necessary
+            bgd = true;
+          } catch (error1) {}
+        }
         if (res == null) {
           // if it's an index function with a sheet setting, or a sheet param has been provided, what to do by default?
           if (typeof fn === 'function') { // it could also be an index or kv config object with no default function
             res = (await ((ref12 = fn[this.request.method]) != null ? ref12 : fn).apply(this, arguments));
+          }
+          if ((res == null) && fn._sheet) { // this should happen on background where possible, because above will have routed to bg if it was available
+            res = (await this.src.google.sheets(fn._sheet));
           }
           if (res != null) {
             if (fn._kv || fn._index) {
@@ -291,6 +311,7 @@ P = async function() {
         lg = {
           fn: n,
           cached: (chd ? chd : void 0),
+          bg: (bg ? bg : void 0),
           key: (key ? key : chd && arguments.length ? arguments[0].toLowerCase() : void 0)
         };
         //try lg.result = if key then undefined else if chd then (if arguments.length then arguments[0] else undefined) else undefined
@@ -368,18 +389,23 @@ P = async function() {
   // check the blacklist
   res = void 0;
   if (typeof fn === 'function') {
-    authd = this.auth(); // check auth even if no function?
-    if (typeof authd === 'object' && authd._id && authd.email) {
-      this.user = authd;
-    }
-    if (typeof fn._auth === 'function') {
-      authd = (await fn._auth());
-    } else if (fn._auth === true && (this.user != null)) { // just need a logged in user if true
-      authd = true;
-    } else if (fn._auth != null) {
-      authd = (await this.auth.role(fn._auth)); // _auth should be true or name of required group.role
+    if (this.S.name && this.S.system && this.headers['x-' + S.name + '-system'] === this.S.system) {
+      authd = true; // would this be sufficient or could original user be required too
     } else {
-      authd = true; // which should be a string...
+      authd = this.auth(); // check auth even if no function?
+      if (typeof authd === 'object' && authd._id && authd.email) {
+        this.user = authd;
+      }
+      if (typeof fn._auth === 'function') {
+        authd = (await fn._auth());
+      } else if (fn._auth === true && (this.user != null)) { // just need a logged in user if true
+        authd = true;
+      } else if (fn._auth) { // which should be a string... comma-separated, or a list
+        // how to default to a list of the role groups corresponding to the URL route? empty list?
+        authd = (await this.auth.role(fn._auth)); // _auth should be true or name of required group.role
+      } else {
+        authd = true;
+      }
     }
     if (authd) { // auth needs to be checked whether the item is cached or not.
       // OR cache could use auth creds as part of the key?
@@ -394,6 +420,9 @@ P = async function() {
         resp.headers.delete('x-' + this.S.name + '-took');
         this.log();
         return resp;
+      } else if (this.S.bg === true) { // we're on the background server, no need to race a timeout
+        res = (await fn());
+        this.completed = true;
       } else {
         // if function set to bg, just pass through? if function times out, pass through? or fail?
         // or only put bg functions in bg code and pass through any routes to unknown functions?
@@ -429,7 +458,7 @@ P = async function() {
   resp = (await this._response(res));
   if (this.parts.length && ((ref12 = this.parts[0]) !== 'log' && ref12 !== 'status') && ((ref13 = this.request.method) !== 'HEAD' && ref13 !== 'OPTIONS') && (res != null) && res !== '') {
     if ((fn != null) && fn._cache !== false && this.completed && resp.status === 200) {
-      this._cache(void 0, resp); //.clone() # need to clone here? or is at cache enough? Has to be cached before being read and returned
+      this._cache(void 0, resp, fn._cache); //.clone() # need to clone here? or is at cache enough? Has to be cached before being read and returned
     }
     this.log(); // logging from the top level here should save the log to kv - don't log if unlog is present and its value matches a secret key?
   }
@@ -444,7 +473,7 @@ P._response = function(res) {
   if (res == null) {
     res = 404;
     status = 404;
-  } else if (typeof res === 'object' && !Array.isArray(res) && ((typeof res.status === 'number' && res.status > 300 && res.status < 600) || res.headers)) {
+  } else if (this.fn !== 'status' && typeof res === 'object' && !Array.isArray(res) && ((typeof res.status === 'number' && res.status > 300 && res.status < 600) || res.headers)) {
     if (res.headers != null) {
       for (h in res.headers) {
         this.S.headers[h] = res.headers[h];
@@ -510,6 +539,14 @@ P.svc = {};
 // and store a resume token at auth/resume/:UID/:RESUMETOKEN (value is a timestamp) (autoexpire resume tokens at about six months 15768000s, but rotate them on non-cookie use)
 P.auth = async function(key, val) {
   var cookie, eml, ref, ref1, ref2, ref3, ref4, ref5, restok, resume, uid, upd, user;
+  try {
+    if (this.S.name && this.S.system && this.headers['x-' + S.name + '-system'] === this.S.system) {
+      // TODO add a check for a system header that the workers can pass to indicate they're already authorised
+      // should this be here and/or in roles, or in the main api file? and what does it return?
+      return true;
+    }
+  } catch (error1) {}
+  
   //if key? and val?
   // if at least key provided directly, just look up the user
   // if params.auth, someone looking up the URL route for this acc. Who would have the right to see that?
@@ -715,6 +752,11 @@ P.auth.logout = function(user) { // how about triggering a logout on a different
 // https://stackoverflow.com/questions/8529265/google-authenticator-implementation-in-python/8549884#8549884
 // https://github.com/google/google-authenticator
 // http://blog.tinisles.com/2011/10/google-authenticator-one-time-password-algorithm-in-javascript/
+//P.authenticator = () ->
+// TODO if an authenticator app token is provided, check it within the 30s window
+// delay responses to 1 per second to stop brute force attacks
+// also need to provide the token/qr to initialise the authenticator app with the service
+//  return false
 
 // device fingerprinting was available in the old code but no explicit requirement for it so not added here yet
 // old code also had xsrf tokens for FORM POSTs, add that back in if relevant
@@ -876,8 +918,11 @@ P.auth._update = async function(r, user) {
 // https://support.cloudflare.com/hc/en-us/articles/200168276
 
 // https://developers.cloudflare.com/workers/examples/cache-api
-P._cache = async function(request, response, age = 120) {
+P._cache = async function(request, response, age) {
   var ck, cu, h, hp, len, ref, rp, rs, url, w;
+  if (typeof age !== 'number') {
+    age = typeof this.S.cache === 'number' ? this.S.cache : this.S.dev ? 300 : 3600; // how long should default cache be?
+  }
   // age is max age in seconds until removal from cache (note this is not strict, CF could remove for other reasons)
   // request and response needs to be an actual Request and Response objects
   // returns promise wrapping the Response object
@@ -2356,7 +2401,7 @@ P.example.deep.deeper.deepest = function() {
 
 // https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch
 P.fetch = async function(url, params) {
-  var _f, ct, len, r, ref1, ref2, res, response, w;
+  var _f, ct, len, ref1, ref2, res, w;
   // TODO if asked to fetch a URL that is the same as the @url this worker served on, then needs to switch to a bg call if bg URL available
   if (typeof url === 'object' && (params == null)) {
     params = url;
@@ -2370,110 +2415,98 @@ P.fetch = async function(url, params) {
   if (params == null) {
     params = {};
   }
-  if (false) { //(@opts.bg or @opts.proxy?) and not S.bg
-    // TODO this should combine the bg address with the current route, but for now just sending to old system to monitor
-    response = (await fetch(S.bg, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(params)
-    }));
-    r = (await response.text());
-    return r;
+  if (!url && params.url) {
+    url = params.url;
+    delete params.url;
+  }
+  // if params is provided, and headers is in it, may want to merge with some default headers
+  // see below for other things that can be set
+  if (params.username && params.password) {
+    params.auth = params.username + ':' + params.password;
+    delete params.username;
+    delete params.password;
+  }
+  if (url.split('//')[1].split('@')[0].indexOf(':') !== -1) {
+    params.auth = url.split('//')[1].split('@')[0];
+    url = url.replace(params.auth + '@', '');
+  }
+  if (params.auth) {
+    if (params.headers == null) {
+      params.headers = {};
+    }
+    params.headers['Authorization'] = 'Basic ' + Buffer.from(params.auth).toString('base64'); // should be fine on node
+    delete params.auth;
+  }
+  ref1 = ['data', 'content', 'json'];
+  // where else might body content reasonably be?
+  for (w = 0, len = ref1.length; w < len; w++) {
+    ct = ref1[w];
+    if (params[ct] != null) {
+      params.body = params[ct];
+      delete params[ct];
+    }
+  }
+  if (params.body != null) {
+    if (params.headers == null) {
+      params.headers = {};
+    }
+    if ((params.headers['Content-Type'] == null) && (params.headers['content-type'] == null)) {
+      params.headers['Content-Type'] = typeof params.body === 'object' ? 'application/json' : 'text/plain';
+    }
+    if ((ref2 = typeof params.body) === 'object' || ref2 === 'boolean' || ref2 === 'number') { // or just everything?
+      params.body = JSON.stringify(params.body);
+    }
+  }
+  console.log(url);
+  if (typeof url !== 'string') {
+    return false;
   } else {
-    if (!url && params.url) {
-      url = params.url;
-      delete params.url;
-    }
-    // if params is provided, and headers is in it, may want to merge with some default headers
-    // see below for other things that can be set
-    if (params.username && params.password) {
-      params.auth = params.username + ':' + params.password;
-      delete params.username;
-      delete params.password;
-    }
-    if (url.split('//')[1].split('@')[0].indexOf(':') !== -1) {
-      params.auth = url.split('//')[1].split('@')[0];
-      url = url.replace(params.auth + '@', '');
-    }
-    if (params.auth) {
-      if (params.headers == null) {
-        params.headers = {};
+    // if on the background server and not a worker, it will need node-fetch installed or an alternative to fetch must be used here
+    _f = async() => {
+      var r, response, verbose;
+      if (params.verbose) {
+        verbose = true;
+        delete params.verbose;
+      } else {
+        verbose = false;
       }
-      params.headers['Authorization'] = 'Basic ' + Buffer.from(params.auth).toString('base64'); // should be fine on node
-      delete params.auth;
-    }
-    ref1 = ['data', 'content', 'json'];
-    // where else might body content reasonably be?
-    for (w = 0, len = ref1.length; w < len; w++) {
-      ct = ref1[w];
-      if (params[ct] != null) {
-        params.body = params[ct];
-        delete params[ct];
-      }
-    }
-    if (params.body != null) {
-      if (params.headers == null) {
-        params.headers = {};
-      }
-      if ((params.headers['Content-Type'] == null) && (params.headers['content-type'] == null)) {
-        params.headers['Content-Type'] = typeof params.body === 'object' ? 'application/json' : 'text/plain';
-      }
-      if ((ref2 = typeof params.body) === 'object' || ref2 === 'boolean' || ref2 === 'number') { // or just everything?
-        params.body = JSON.stringify(params.body);
-      }
-    }
-    console.log(url);
-    if (typeof url !== 'string') {
-      return false;
-    } else {
-      // if on the background server and not a worker, it will need node-fetch installed or an alternative to fetch must be used here
-      _f = async() => {
-        var verbose;
-        if (params.verbose) {
-          verbose = true;
-          delete params.verbose;
-        } else {
-          verbose = false;
-        }
-        try {
-          if (url.indexOf('localhost') !== -1) {
-            // allow local https connections on backend server without check cert
-            if (params.agent == null) {
-              params.agent = new https.Agent({
-                rejectUnauthorized: false
-              });
-            }
-          }
-        } catch (error1) {}
-        response = (await fetch(url, params));
-        console.log(response.status); // status code can be found here
-        if (verbose) {
-          return response;
-        } else {
-          // json() # what if there is no json or text? how to tell? what other types are there? will json also always be presented as text?
-          // what if the method is a POST, or the response is a stream?
-          // does it make any difference if it can all be found in text() and converted here anyway?
-          ct = response.headers.get('content-type');
-          if (typeof ct === 'string' && ct.toLowerCase().indexOf('json') !== -1) {
-            r = (await response.json());
-          } else {
-            r = (await response.text());
-          }
-          if (response.status === 404) {
-            return void 0;
-          } else if (response.status >= 400) {
-            console.log(r);
-            return {
-              status: response.status
-            };
-          } else {
-            return r;
+      try {
+        if (url.indexOf('localhost') !== -1) {
+          // allow local https connections on backend server without check cert
+          if (params.agent == null) {
+            params.agent = new https.Agent({
+              rejectUnauthorized: false
+            });
           }
         }
-      };
-      `if params.timeout
+      } catch (error1) {}
+      response = (await fetch(url, params));
+      console.log(response.status); // status code can be found here
+      if (verbose) {
+        return response;
+      } else {
+        // json() # what if there is no json or text? how to tell? what other types are there? will json also always be presented as text?
+        // what if the method is a POST, or the response is a stream?
+        // does it make any difference if it can all be found in text() and converted here anyway?
+        ct = response.headers.get('content-type');
+        if (typeof ct === 'string' && ct.toLowerCase().indexOf('json') !== -1) {
+          r = (await response.json());
+        } else {
+          r = (await response.text());
+        }
+        if (response.status === 404) {
+          return void 0;
+        } else if (response.status >= 400) {
+          console.log(r);
+          return {
+            status: response.status
+          };
+        } else {
+          return r;
+        }
+      }
+    };
+    `if params.timeout
   params.retry ?= 1
   params.timeout = 30000 if params.timeout is true
 if params.retry
@@ -2486,15 +2519,14 @@ if params.retry
       delete params[rk]
   res = @retry.call this, _f, [url, params], opts
 else`;
-      res = (await _f());
-      try {
-        res = res.trim();
-        if (res.indexOf('[') === 0 || res.indexOf('{') === 0) {
-          res = JSON.parse(res);
-        }
-      } catch (error1) {}
-      return res;
-    }
+    res = (await _f());
+    try {
+      res = res.trim();
+      if (res.indexOf('[') === 0 || res.indexOf('{') === 0) {
+        res = JSON.parse(res);
+      }
+    } catch (error1) {}
+    return res;
   }
 };
 
@@ -2898,6 +2930,10 @@ P.mail.validate = async function(e, apikey) {
     f = (ref3 = this != null ? this.fetch : void 0) != null ? ref3 : P.fetch;
     return (await f('https://api.mailgun.net/v3/address/validate?syntax_only=false&address=' + encodeURIComponent(e.params.email) + '&api_key=' + apikey));
   }
+};
+
+P.puppet = {
+  _bg: true
 };
 
 if (S.mail == null) {
@@ -3335,7 +3371,6 @@ P.src.google.sheets = async function(opts) {
     url = 'https://spreadsheets.google.com/feeds/list/' + opts.sheetid + '/' + opts.sheet + '/public/values?alt=json';
   }
   g = (await this.fetch(url));
-// TODO add caching to the fetch, or save values to a KV, using some timeout or stale/refresh and buster option
   for (l in g.feed.entry) {
     val = {};
     for (k in g.feed.entry[l]) {
@@ -3349,6 +3384,8 @@ P.src.google.sheets = async function(opts) {
   }
   return values;
 };
+
+P.src.google.sheets._bg = true;
 
 // https://developers.google.com/hangouts/chat
 // NOTE this will need oauth configuration for a full bot. For now just a web hook
@@ -3757,11 +3794,13 @@ P.status = function() {
     ref2 = ['id', 'request', 'params', 'parts', 'opts', 'headers', 'cookie', 'user', 'fn', 'routes'];
     for (w = 0, len = ref2.length; w < len; w++) {
       k = ref2[w];
-      try {
-        if (res[k] == null) {
-          res[k] = this[k];
-        }
-      } catch (error1) {}
+      if (this.S.bg !== true || k !== 'request') {
+        try {
+          if (res[k] == null) {
+            res[k] = this[k];
+          }
+        } catch (error1) {}
+      }
     }
   }
   // add an uncached check that the backend is responding, and whether or not an index/kv is available, and whether on a worker or a backend
@@ -7279,4 +7318,4 @@ P.flatten = (data) ->
     return res
 `;
 
-S.built = "Sat Mar 6 05:52:59 GMT 2021";
+S.built = "Sun Mar 7 03:36:22 GMT 2021";

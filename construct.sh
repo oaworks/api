@@ -34,7 +34,8 @@ if [ $# -eq 0 ] || [[ $@ == *"build"* ]]; then
     echo "Building worker"
     cd worker
     if [ -d "dist" ]; then
-      rm dist/*
+      rm dist/worker.coffee
+      rm dist/worker.js
     else
       mkdir dist
     fi
@@ -52,7 +53,8 @@ if [ $# -eq 0 ] || [[ $@ == *"build"* ]]; then
     echo "Building server"
     cd server
     if [ -d "dist" ]; then
-      rm dist/*
+      rm dist/server.coffee
+      rm dist/server.js
     else
       mkdir dist
     fi

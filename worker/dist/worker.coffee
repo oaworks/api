@@ -19,7 +19,6 @@ S.name ?= 'N2'
 S.version ?= '5.2.5'
 S.env ?= 'dev'
 S.dev ?= S.env is 'dev'
-S.bg ?= 'https://dev.api.cottagelabs.com/log/remote'
 # TODO replace bg with a proper bg endpoint for workers to send to (or fail open)
 # once bg goes into permanent settings, the background server starter shouod remove it and replace it with true or nothing
 S.headers ?= {}
@@ -110,25 +109,29 @@ P = () ->
     if f._index and (f._kv is false or @S.kv is false or @S.index.immediate is true)  # all indexing is bulked through kv unless _kv is false or overall kv is disabled in settings, or immediate indexing is true
       if not indexed = await @index k, r # later, the _schedule should automatically move anything in kv that matches an indexed endpoint
         # try creating it - if already done it just returns a 404 anyway
-        if not indexed = await @index r.split('/')[0], (if typeof f._index isnt 'object' then {} else {settings: f._index.settings, mappings: f._index.mappings, aliases: f._index.aliases})
+        if not indexed = await @index k.split('/')[0], (if typeof f._index isnt 'object' then {} else {settings: f._index.settings, mappings: f._index.mappings, aliases: f._index.aliases})
           @log fn: r.split('/')[0].replace(/\_/g, '.'), msg: 'Could not save/create index', level: 'error'
         else
           @index k, r
 
   _return = (fn, n) =>
+    # if fn._sheet is true, look for corresponding sheet value in setttings? Don't do it where fn._sheet is defined in case settings get overridden?
     fn._index ?= true if fn._sheet
-    if not fn._index and not fn._kv and typeof fn is 'object' and not Array.isArray(fn) and typeof fn[@request.method] isnt 'function'
+    wp = fn._index or fn._kv or (fn._bg and @S.bg isnt true) # what about _async?
+    if not wp and typeof fn is 'object' and not Array.isArray(fn) and typeof fn[@request.method] isnt 'function'
       return JSON.parse JSON.stringify fn
-    else if not fn._index and not fn._kv and typeof fn isnt 'function'
+    else if not wp and not fn._kv and typeof fn isnt 'function'
       return fn
-    else if not fn._index and not fn._kv and n.indexOf('.') is -1 or n.split('.').pop().indexOf('_') is 0 # don't wrap top-level or underscored methods
+    else if not wp and not fn._kv and n.indexOf('.') is -1 or n.split('.').pop().indexOf('_') is 0 # don't wrap top-level or underscored methods
       return fn.bind @
     else
       _wrapped = () ->
         st = Date.now() # again, not necessarily going to be accurate in a workers environment
         rt = n.replace /\./g, '_'
         chd = false
-        if fn._index and ((@fn is n and @index._q @params) or (@fn isnt n and (arguments.length is 1 and @index._q(arguments[0]))) or (arguments.length is 2 and @index._q(arguments[1])))
+        key = false
+        bgd = false
+        if (not fn._bg or @S.bg is true) and fn._index and ((@fn is n and @index._q @params) or (@fn isnt n and (arguments.length is 1 and @index._q(arguments[0]))) or (arguments.length is 2 and @index._q(arguments[1])))
           res = @index (if arguments.length is 2 then (arguments[0] ? rt) else rt), (if arguments.length is 2 then arguments[1] else if arguments.length is 1 then arguments[1] else @params)
         # TODO what about a kv direct read or write? should that be handled here too?
         if not res? and not @refresh and (@request.method in ['GET'] or @fn isnt n) and (@fn is n or arguments.length is 1) and (fn._kv or fn._index)
@@ -143,11 +146,21 @@ P = () ->
             res = await @index if arguments.length then rt + '/' + arguments[0].replace(/\//g, '_').replace(rt + '_', '') else undefined
             chd = 'index' if res?
         @cached = chd if chd and @fn.startsWith n # record whether or not the main function result was cached in index or kv
-        key = false
+        if not res? and (fn._bg or fn._sheet) and typeof @S.bg is 'string' and @S.bg.indexOf('http') is 0
+          bu = @S.bg + '/' + n.replace(/\./g, '/') + if arguments.length and typeof arguments[0] is 'string' then arguments[0] else ''
+          bup = if arguments.length and typeof arguments[0] is 'object' then {method: 'POST', body: arguments[0]} else if n is fn then {method: 'POST', body: @params} else {}
+          if @S.name and @S.system
+            bup.headers = {}
+            bup.headers['x-' + S.name + '-system'] = @S.system
+          try
+            res = await @fetch bu, bup # does the worker timeout at 15s even if just waiting, not CPU time? test to find out. If so, race this and async it if necessary
+            bgd = true
         if not res?
           # if it's an index function with a sheet setting, or a sheet param has been provided, what to do by default?
           if typeof fn is 'function' # it could also be an index or kv config object with no default function
             res = await (fn[@request.method] ? fn).apply @, arguments
+          if not res? and fn._sheet # this should happen on background where possible, because above will have routed to bg if it was available
+            res = await @src.google.sheets fn._sheet
           if res?
             if fn._kv or fn._index
               try
@@ -164,7 +177,7 @@ P = () ->
             else if fn._kv
               res = '' # return blank to indicate kv is present, because kv listing or counting is an expensive operation
         #if n isnt @fn # main fn will log at the end - or should each part log as well anyway?
-        lg = fn: n, cached: (if chd then chd else undefined), key: (if key then key else if chd and arguments.length then arguments[0].toLowerCase() else undefined)
+        lg = fn: n, cached: (if chd then chd else undefined), bg: (if bg then bg else undefined), key: (if key then key else if chd and arguments.length then arguments[0].toLowerCase() else undefined)
         #try lg.result = if key then undefined else if chd then (if arguments.length then arguments[0] else undefined) else undefined
         #JSON.stringify res # is it worth storing the whole result here? only if history? or always?
         # if fn._diff, need to decide when or how often to do a diff check and alert
@@ -211,16 +224,20 @@ P = () ->
   # check the blacklist
   res = undefined
   if typeof fn is 'function'
-    authd = @auth() # check auth even if no function?
-    @user = authd if typeof authd is 'object' and authd._id and authd.email
-    if typeof fn._auth is 'function'
-      authd = await fn._auth()
-    else if fn._auth is true and @user? # just need a logged in user if true
-      authd = true
-    else if fn._auth? # which should be a string...
-      authd = await @auth.role fn._auth # _auth should be true or name of required group.role
+    if @S.name and @S.system and @headers['x-' + S.name + '-system'] is @S.system
+      authd = true # would this be sufficient or could original user be required too
     else
-      authd = true
+      authd = @auth() # check auth even if no function?
+      @user = authd if typeof authd is 'object' and authd._id and authd.email
+      if typeof fn._auth is 'function'
+        authd = await fn._auth()
+      else if fn._auth is true and @user? # just need a logged in user if true
+        authd = true
+      else if fn._auth # which should be a string... comma-separated, or a list
+        # how to default to a list of the role groups corresponding to the URL route? empty list?
+        authd = await @auth.role fn._auth # _auth should be true or name of required group.role
+      else
+        authd = true
     if authd # auth needs to be checked whether the item is cached or not.
       # OR cache could use auth creds as part of the key?
       # but then what about where the result can be the same but served to different people? very likely, so better to auth first every time anyway
@@ -234,6 +251,9 @@ P = () ->
         resp.headers.delete 'x-' + @S.name + '-took'
         @log()
         return resp
+      else if @S.bg is true # we're on the background server, no need to race a timeout
+        res = await fn()
+        @completed = true
       else
         # if function set to bg, just pass through? if function times out, pass through? or fail?
         # or only put bg functions in bg code and pass through any routes to unknown functions?
@@ -254,7 +274,7 @@ P = () ->
   resp = await @_response res
   if @parts.length and @parts[0] not in ['log','status'] and @request.method not in ['HEAD', 'OPTIONS'] and res? and res isnt ''
     if fn? and fn._cache isnt false and @completed and resp.status is 200
-      @_cache undefined, resp #.clone() # need to clone here? or is at cache enough? Has to be cached before being read and returned
+      @_cache undefined, resp, fn._cache #.clone() # need to clone here? or is at cache enough? Has to be cached before being read and returned
     @log() # logging from the top level here should save the log to kv - don't log if unlog is present and its value matches a secret key?
   return resp
 
@@ -263,7 +283,7 @@ P._response = (res) ->
   if not res?
     res = 404
     status = 404
-  else if typeof res is 'object' and not Array.isArray(res) and ((typeof res.status is 'number' and res.status > 300 and res.status < 600) or res.headers)
+  else if @fn isnt 'status' and typeof res is 'object' and not Array.isArray(res) and ((typeof res.status is 'number' and res.status > 300 and res.status < 600) or res.headers)
     if res.headers?
       @S.headers[h] = res.headers[h] for h of res.headers
       delete res.headers
@@ -303,6 +323,10 @@ P.svc = {}
 # and store a resume token at auth/resume/:UID/:RESUMETOKEN (value is a timestamp) (autoexpire resume tokens at about six months 15768000s, but rotate them on non-cookie use)
 
 P.auth = (key, val) ->
+  # TODO add a check for a system header that the workers can pass to indicate they're already authorised
+  # should this be here and/or in roles, or in the main api file? and what does it return?
+  try return true if @S.name and @S.system and @headers['x-' + S.name + '-system'] is @S.system
+  
   #if key? and val?
   # if at least key provided directly, just look up the user
   # if params.auth, someone looking up the URL route for this acc. Who would have the right to see that?
@@ -444,9 +468,17 @@ P.auth.logout = (user) -> # how about triggering a logout on a different user ac
 # https://stackoverflow.com/questions/8529265/google-authenticator-implementation-in-python/8549884#8549884
 # https://github.com/google/google-authenticator
 # http://blog.tinisles.com/2011/10/google-authenticator-one-time-password-algorithm-in-javascript/
+#P.authenticator = () ->
+# TODO if an authenticator app token is provided, check it within the 30s window
+# delay responses to 1 per second to stop brute force attacks
+# also need to provide the token/qr to initialise the authenticator app with the service
+#  return false
 
 # device fingerprinting was available in the old code but no explicit requirement for it so not added here yet
 # old code also had xsrf tokens for FORM POSTs, add that back in if relevant
+
+
+
 
 P.oauth = (token, cid) ->
   # https://developers.google.com/identity/protocols/OAuth2UserAgent#validatetoken
@@ -552,7 +584,9 @@ P.auth._update = (r, user) ->
 
 # https://developers.cloudflare.com/workers/examples/cache-api
 
-P._cache = (request, response, age=120) ->
+P._cache = (request, response, age) ->
+  if typeof age isnt 'number'
+    age = if typeof @S.cache is 'number' then @S.cache else if @S.dev then 300 else 3600 # how long should default cache be?
   # age is max age in seconds until removal from cache (note this is not strict, CF could remove for other reasons)
   # request and response needs to be an actual Request and Response objects
   # returns promise wrapping the Response object
@@ -1356,90 +1390,84 @@ P.fetch = (url, params) ->
     url = params.url
   try params ?= @copy @params
   params ?= {}
-  if false #(@opts.bg or @opts.proxy?) and not S.bg
-    # TODO this should combine the bg address with the current route, but for now just sending to old system to monitor
-    response = await fetch S.bg, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(params)}
-    r = await response.text()
-    return r
+  if not url and params.url
+    url = params.url
+    delete params.url
+  # if params is provided, and headers is in it, may want to merge with some default headers
+  # see below for other things that can be set
+  if params.username and params.password
+    params.auth = params.username + ':' + params.password
+    delete params.username
+    delete params.password
+  if url.split('//')[1].split('@')[0].indexOf(':') isnt -1
+    params.auth = url.split('//')[1].split('@')[0]
+    url = url.replace params.auth+'@', ''
+  if params.auth
+    params.headers ?= {}
+    params.headers['Authorization'] = 'Basic ' + Buffer.from(params.auth).toString('base64') # should be fine on node
+    delete params.auth
+  for ct in ['data', 'content', 'json'] # where else might body content reasonably be?
+    if params[ct]?
+      params.body = params[ct]
+      delete params[ct]
+  if params.body?
+    params.headers ?= {} # content-type is necessary for ES to accept, for example
+    if not params.headers['Content-Type']? and not params.headers['content-type']?
+      params.headers['Content-Type'] = if typeof params.body is 'object' then 'application/json' else 'text/plain'
+    params.body = JSON.stringify(params.body) if typeof params.body in ['object', 'boolean', 'number'] # or just everything?
+  console.log url
+  if typeof url isnt 'string'
+    return false
   else
-    if not url and params.url
-      url = params.url
-      delete params.url
-    # if params is provided, and headers is in it, may want to merge with some default headers
-    # see below for other things that can be set
-    if params.username and params.password
-      params.auth = params.username + ':' + params.password
-      delete params.username
-      delete params.password
-    if url.split('//')[1].split('@')[0].indexOf(':') isnt -1
-      params.auth = url.split('//')[1].split('@')[0]
-      url = url.replace params.auth+'@', ''
-    if params.auth
-      params.headers ?= {}
-      params.headers['Authorization'] = 'Basic ' + Buffer.from(params.auth).toString('base64') # should be fine on node
-      delete params.auth
-    for ct in ['data', 'content', 'json'] # where else might body content reasonably be?
-      if params[ct]?
-        params.body = params[ct]
-        delete params[ct]
-    if params.body?
-      params.headers ?= {} # content-type is necessary for ES to accept, for example
-      if not params.headers['Content-Type']? and not params.headers['content-type']?
-        params.headers['Content-Type'] = if typeof params.body is 'object' then 'application/json' else 'text/plain'
-      params.body = JSON.stringify(params.body) if typeof params.body in ['object', 'boolean', 'number'] # or just everything?
-    console.log url
-    if typeof url isnt 'string'
-      return false
-    else
-      # if on the background server and not a worker, it will need node-fetch installed or an alternative to fetch must be used here
-      _f = () =>
-        if params.verbose
-          verbose = true
-          delete params.verbose
-        else
-          verbose = false
-        try
-          if url.indexOf('localhost') isnt -1
-            # allow local https connections on backend server without check cert
-            params.agent ?= new https.Agent rejectUnauthorized: false
-        response = await fetch url, params
-        console.log response.status # status code can be found here
-        if verbose
-          return response
-        else
-          # json() # what if there is no json or text? how to tell? what other types are there? will json also always be presented as text?
-          # what if the method is a POST, or the response is a stream?
-          # does it make any difference if it can all be found in text() and converted here anyway?
-          ct = response.headers.get('content-type')
-          if typeof ct is 'string' and ct.toLowerCase().indexOf('json') isnt -1
-            r = await response.json()
-          else
-            r = await response.text()
-          if response.status is 404
-            return undefined
-          else if response.status >= 400
-            console.log r
-            return status: response.status
-          else
-            return r
-      '''if params.timeout
-        params.retry ?= 1
-        params.timeout = 30000 if params.timeout is true
-      if params.retry
-        params.retry = 3 if params.retry is true
-        opts = retry: params.retry
-        delete params.retry
-        for rk in ['pause', 'increment', 'check', 'timeout']
-          if params[rk]?
-            opts[rk] = params[rk]
-            delete params[rk]
-        res = @retry.call this, _f, [url, params], opts
-      else'''
-      res = await _f()
+    # if on the background server and not a worker, it will need node-fetch installed or an alternative to fetch must be used here
+    _f = () =>
+      if params.verbose
+        verbose = true
+        delete params.verbose
+      else
+        verbose = false
       try
-        res = res.trim()
-        res = JSON.parse(res) if res.indexOf('[') is 0 or res.indexOf('{') is 0
-      return res
+        if url.indexOf('localhost') isnt -1
+          # allow local https connections on backend server without check cert
+          params.agent ?= new https.Agent rejectUnauthorized: false
+      response = await fetch url, params
+      console.log response.status # status code can be found here
+      if verbose
+        return response
+      else
+        # json() # what if there is no json or text? how to tell? what other types are there? will json also always be presented as text?
+        # what if the method is a POST, or the response is a stream?
+        # does it make any difference if it can all be found in text() and converted here anyway?
+        ct = response.headers.get('content-type')
+        if typeof ct is 'string' and ct.toLowerCase().indexOf('json') isnt -1
+          r = await response.json()
+        else
+          r = await response.text()
+        if response.status is 404
+          return undefined
+        else if response.status >= 400
+          console.log r
+          return status: response.status
+        else
+          return r
+    '''if params.timeout
+      params.retry ?= 1
+      params.timeout = 30000 if params.timeout is true
+    if params.retry
+      params.retry = 3 if params.retry is true
+      opts = retry: params.retry
+      delete params.retry
+      for rk in ['pause', 'increment', 'check', 'timeout']
+        if params[rk]?
+          opts[rk] = params[rk]
+          delete params[rk]
+      res = @retry.call this, _f, [url, params], opts
+    else'''
+    res = await _f()
+    try
+      res = res.trim()
+      res = JSON.parse(res) if res.indexOf('[') is 0 or res.indexOf('{') is 0
+    return res
 
 
 '''
@@ -1773,6 +1801,9 @@ P.mail.validate = (e, apikey) ->
 
 
 
+
+P.puppet = _bg: true
+
 S.mail ?= {}
 S.mail.from ?= "alert@cottagelabs.com"
 S.mail.to ?= "mark@cottagelabs.com"
@@ -2036,7 +2067,6 @@ P.src.google.sheets = (opts) ->
 		url = 'https://spreadsheets.google.com/feeds/list/' + opts.sheetid + '/' + opts.sheet + '/public/values?alt=json'
 
 	g = await @fetch url
-	# TODO add caching to the fetch, or save values to a KV, using some timeout or stale/refresh and buster option
 	for l of g.feed.entry
 		val = {}
 		for k of g.feed.entry[l]
@@ -2044,6 +2074,8 @@ P.src.google.sheets = (opts) ->
 		values.push val
 
 	return values
+
+P.src.google.sheets._bg = true
 
 
 # https://developers.google.com/hangouts/chat
@@ -2394,7 +2426,8 @@ P.status = ->
   res = name: S.name, version: S.version, env: S.env, built: S.built
   if S.dev
     for k in ['id', 'request', 'params', 'parts', 'opts', 'headers', 'cookie', 'user', 'fn', 'routes']
-      try res[k] ?= @[k]
+      if @S.bg isnt true or k isnt 'request'
+        try res[k] ?= @[k]
   # add an uncached check that the backend is responding, and whether or not an index/kv is available, and whether on a worker or a backend
   # if index is available get some info about it - from index.status
   # if there are status endpoints further down the stack, call them all too if a certain param is passed
@@ -4869,4 +4902,4 @@ P.flatten = (data) ->
 '''
 
 
-S.built = "Sat Mar 6 05:52:59 GMT 2021"
+S.built = "Sun Mar 7 03:36:22 GMT 2021"
