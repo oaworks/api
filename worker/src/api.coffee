@@ -19,7 +19,6 @@ S.name ?= 'N2'
 S.version ?= '5.2.5'
 S.env ?= 'dev'
 S.dev ?= S.env is 'dev'
-S.bg ?= 'https://dev.api.cottagelabs.com/log/remote'
 # TODO replace bg with a proper bg endpoint for workers to send to (or fail open)
 # once bg goes into permanent settings, the background server starter shouod remove it and replace it with true or nothing
 S.headers ?= {}
@@ -110,25 +109,29 @@ P = () ->
     if f._index and (f._kv is false or @S.kv is false or @S.index.immediate is true)  # all indexing is bulked through kv unless _kv is false or overall kv is disabled in settings, or immediate indexing is true
       if not indexed = await @index k, r # later, the _schedule should automatically move anything in kv that matches an indexed endpoint
         # try creating it - if already done it just returns a 404 anyway
-        if not indexed = await @index r.split('/')[0], (if typeof f._index isnt 'object' then {} else {settings: f._index.settings, mappings: f._index.mappings, aliases: f._index.aliases})
+        if not indexed = await @index k.split('/')[0], (if typeof f._index isnt 'object' then {} else {settings: f._index.settings, mappings: f._index.mappings, aliases: f._index.aliases})
           @log fn: r.split('/')[0].replace(/\_/g, '.'), msg: 'Could not save/create index', level: 'error'
         else
           @index k, r
 
   _return = (fn, n) =>
+    # if fn._sheet is true, look for corresponding sheet value in setttings? Don't do it where fn._sheet is defined in case settings get overridden?
     fn._index ?= true if fn._sheet
-    if not fn._index and not fn._kv and typeof fn is 'object' and not Array.isArray(fn) and typeof fn[@request.method] isnt 'function'
+    wp = fn._index or fn._kv or (fn._bg and @S.bg isnt true) # what about _async?
+    if not wp and typeof fn is 'object' and not Array.isArray(fn) and typeof fn[@request.method] isnt 'function'
       return JSON.parse JSON.stringify fn
-    else if not fn._index and not fn._kv and typeof fn isnt 'function'
+    else if not wp and not fn._kv and typeof fn isnt 'function'
       return fn
-    else if not fn._index and not fn._kv and n.indexOf('.') is -1 or n.split('.').pop().indexOf('_') is 0 # don't wrap top-level or underscored methods
+    else if not wp and not fn._kv and n.indexOf('.') is -1 or n.split('.').pop().indexOf('_') is 0 # don't wrap top-level or underscored methods
       return fn.bind @
     else
       _wrapped = () ->
         st = Date.now() # again, not necessarily going to be accurate in a workers environment
         rt = n.replace /\./g, '_'
         chd = false
-        if fn._index and ((@fn is n and @index._q @params) or (@fn isnt n and (arguments.length is 1 and @index._q(arguments[0]))) or (arguments.length is 2 and @index._q(arguments[1])))
+        key = false
+        bgd = false
+        if (not fn._bg or @S.bg is true) and fn._index and ((@fn is n and @index._q @params) or (@fn isnt n and (arguments.length is 1 and @index._q(arguments[0]))) or (arguments.length is 2 and @index._q(arguments[1])))
           res = @index (if arguments.length is 2 then (arguments[0] ? rt) else rt), (if arguments.length is 2 then arguments[1] else if arguments.length is 1 then arguments[1] else @params)
         # TODO what about a kv direct read or write? should that be handled here too?
         if not res? and not @refresh and (@request.method in ['GET'] or @fn isnt n) and (@fn is n or arguments.length is 1) and (fn._kv or fn._index)
@@ -143,11 +146,21 @@ P = () ->
             res = await @index if arguments.length then rt + '/' + arguments[0].replace(/\//g, '_').replace(rt + '_', '') else undefined
             chd = 'index' if res?
         @cached = chd if chd and @fn.startsWith n # record whether or not the main function result was cached in index or kv
-        key = false
+        if not res? and (fn._bg or fn._sheet) and typeof @S.bg is 'string' and @S.bg.indexOf('http') is 0
+          bu = @S.bg + '/' + n.replace(/\./g, '/') + if arguments.length and typeof arguments[0] is 'string' then arguments[0] else ''
+          bup = if arguments.length and typeof arguments[0] is 'object' then {method: 'POST', body: arguments[0]} else if n is fn then {method: 'POST', body: @params} else {}
+          if @S.name and @S.system
+            bup.headers = {}
+            bup.headers['x-' + S.name + '-system'] = @S.system
+          try
+            res = await @fetch bu, bup # does the worker timeout at 15s even if just waiting, not CPU time? test to find out. If so, race this and async it if necessary
+            bgd = true
         if not res?
           # if it's an index function with a sheet setting, or a sheet param has been provided, what to do by default?
           if typeof fn is 'function' # it could also be an index or kv config object with no default function
             res = await (fn[@request.method] ? fn).apply @, arguments
+          if not res? and fn._sheet # this should happen on background where possible, because above will have routed to bg if it was available
+            res = await @src.google.sheets fn._sheet
           if res?
             if fn._kv or fn._index
               try
@@ -164,7 +177,7 @@ P = () ->
             else if fn._kv
               res = '' # return blank to indicate kv is present, because kv listing or counting is an expensive operation
         #if n isnt @fn # main fn will log at the end - or should each part log as well anyway?
-        lg = fn: n, cached: (if chd then chd else undefined), key: (if key then key else if chd and arguments.length then arguments[0].toLowerCase() else undefined)
+        lg = fn: n, cached: (if chd then chd else undefined), bg: (if bg then bg else undefined), key: (if key then key else if chd and arguments.length then arguments[0].toLowerCase() else undefined)
         #try lg.result = if key then undefined else if chd then (if arguments.length then arguments[0] else undefined) else undefined
         #JSON.stringify res # is it worth storing the whole result here? only if history? or always?
         # if fn._diff, need to decide when or how often to do a diff check and alert
@@ -211,16 +224,20 @@ P = () ->
   # check the blacklist
   res = undefined
   if typeof fn is 'function'
-    authd = @auth() # check auth even if no function?
-    @user = authd if typeof authd is 'object' and authd._id and authd.email
-    if typeof fn._auth is 'function'
-      authd = await fn._auth()
-    else if fn._auth is true and @user? # just need a logged in user if true
-      authd = true
-    else if fn._auth? # which should be a string...
-      authd = await @auth.role fn._auth # _auth should be true or name of required group.role
+    if @S.name and @S.system and @headers['x-' + S.name + '-system'] is @S.system
+      authd = true # would this be sufficient or could original user be required too
     else
-      authd = true
+      authd = @auth() # check auth even if no function?
+      @user = authd if typeof authd is 'object' and authd._id and authd.email
+      if typeof fn._auth is 'function'
+        authd = await fn._auth()
+      else if fn._auth is true and @user? # just need a logged in user if true
+        authd = true
+      else if fn._auth # which should be a string... comma-separated, or a list
+        # how to default to a list of the role groups corresponding to the URL route? empty list?
+        authd = await @auth.role fn._auth # _auth should be true or name of required group.role
+      else
+        authd = true
     if authd # auth needs to be checked whether the item is cached or not.
       # OR cache could use auth creds as part of the key?
       # but then what about where the result can be the same but served to different people? very likely, so better to auth first every time anyway
@@ -234,6 +251,9 @@ P = () ->
         resp.headers.delete 'x-' + @S.name + '-took'
         @log()
         return resp
+      else if @S.bg is true # we're on the background server, no need to race a timeout
+        res = await fn()
+        @completed = true
       else
         # if function set to bg, just pass through? if function times out, pass through? or fail?
         # or only put bg functions in bg code and pass through any routes to unknown functions?
@@ -254,7 +274,7 @@ P = () ->
   resp = await @_response res
   if @parts.length and @parts[0] not in ['log','status'] and @request.method not in ['HEAD', 'OPTIONS'] and res? and res isnt ''
     if fn? and fn._cache isnt false and @completed and resp.status is 200
-      @_cache undefined, resp #.clone() # need to clone here? or is at cache enough? Has to be cached before being read and returned
+      @_cache undefined, resp, fn._cache #.clone() # need to clone here? or is at cache enough? Has to be cached before being read and returned
     @log() # logging from the top level here should save the log to kv - don't log if unlog is present and its value matches a secret key?
   return resp
 

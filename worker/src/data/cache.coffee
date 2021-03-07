@@ -18,7 +18,9 @@
 
 # https://developers.cloudflare.com/workers/examples/cache-api
 
-P._cache = (request, response, age=120) ->
+P._cache = (request, response, age) ->
+  if typeof age isnt 'number'
+    age = if typeof @S.cache is 'number' then @S.cache else if @S.dev then 300 else 3600 # how long should default cache be?
   # age is max age in seconds until removal from cache (note this is not strict, CF could remove for other reasons)
   # request and response needs to be an actual Request and Response objects
   # returns promise wrapping the Response object

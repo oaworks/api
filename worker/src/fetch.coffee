@@ -8,90 +8,84 @@ P.fetch = (url, params) ->
     url = params.url
   try params ?= @copy @params
   params ?= {}
-  if false #(@opts.bg or @opts.proxy?) and not S.bg
-    # TODO this should combine the bg address with the current route, but for now just sending to old system to monitor
-    response = await fetch S.bg, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(params)}
-    r = await response.text()
-    return r
+  if not url and params.url
+    url = params.url
+    delete params.url
+  # if params is provided, and headers is in it, may want to merge with some default headers
+  # see below for other things that can be set
+  if params.username and params.password
+    params.auth = params.username + ':' + params.password
+    delete params.username
+    delete params.password
+  if url.split('//')[1].split('@')[0].indexOf(':') isnt -1
+    params.auth = url.split('//')[1].split('@')[0]
+    url = url.replace params.auth+'@', ''
+  if params.auth
+    params.headers ?= {}
+    params.headers['Authorization'] = 'Basic ' + Buffer.from(params.auth).toString('base64') # should be fine on node
+    delete params.auth
+  for ct in ['data', 'content', 'json'] # where else might body content reasonably be?
+    if params[ct]?
+      params.body = params[ct]
+      delete params[ct]
+  if params.body?
+    params.headers ?= {} # content-type is necessary for ES to accept, for example
+    if not params.headers['Content-Type']? and not params.headers['content-type']?
+      params.headers['Content-Type'] = if typeof params.body is 'object' then 'application/json' else 'text/plain'
+    params.body = JSON.stringify(params.body) if typeof params.body in ['object', 'boolean', 'number'] # or just everything?
+  console.log url
+  if typeof url isnt 'string'
+    return false
   else
-    if not url and params.url
-      url = params.url
-      delete params.url
-    # if params is provided, and headers is in it, may want to merge with some default headers
-    # see below for other things that can be set
-    if params.username and params.password
-      params.auth = params.username + ':' + params.password
-      delete params.username
-      delete params.password
-    if url.split('//')[1].split('@')[0].indexOf(':') isnt -1
-      params.auth = url.split('//')[1].split('@')[0]
-      url = url.replace params.auth+'@', ''
-    if params.auth
-      params.headers ?= {}
-      params.headers['Authorization'] = 'Basic ' + Buffer.from(params.auth).toString('base64') # should be fine on node
-      delete params.auth
-    for ct in ['data', 'content', 'json'] # where else might body content reasonably be?
-      if params[ct]?
-        params.body = params[ct]
-        delete params[ct]
-    if params.body?
-      params.headers ?= {} # content-type is necessary for ES to accept, for example
-      if not params.headers['Content-Type']? and not params.headers['content-type']?
-        params.headers['Content-Type'] = if typeof params.body is 'object' then 'application/json' else 'text/plain'
-      params.body = JSON.stringify(params.body) if typeof params.body in ['object', 'boolean', 'number'] # or just everything?
-    console.log url
-    if typeof url isnt 'string'
-      return false
-    else
-      # if on the background server and not a worker, it will need node-fetch installed or an alternative to fetch must be used here
-      _f = () =>
-        if params.verbose
-          verbose = true
-          delete params.verbose
-        else
-          verbose = false
-        try
-          if url.indexOf('localhost') isnt -1
-            # allow local https connections on backend server without check cert
-            params.agent ?= new https.Agent rejectUnauthorized: false
-        response = await fetch url, params
-        console.log response.status # status code can be found here
-        if verbose
-          return response
-        else
-          # json() # what if there is no json or text? how to tell? what other types are there? will json also always be presented as text?
-          # what if the method is a POST, or the response is a stream?
-          # does it make any difference if it can all be found in text() and converted here anyway?
-          ct = response.headers.get('content-type')
-          if typeof ct is 'string' and ct.toLowerCase().indexOf('json') isnt -1
-            r = await response.json()
-          else
-            r = await response.text()
-          if response.status is 404
-            return undefined
-          else if response.status >= 400
-            console.log r
-            return status: response.status
-          else
-            return r
-      '''if params.timeout
-        params.retry ?= 1
-        params.timeout = 30000 if params.timeout is true
-      if params.retry
-        params.retry = 3 if params.retry is true
-        opts = retry: params.retry
-        delete params.retry
-        for rk in ['pause', 'increment', 'check', 'timeout']
-          if params[rk]?
-            opts[rk] = params[rk]
-            delete params[rk]
-        res = @retry.call this, _f, [url, params], opts
-      else'''
-      res = await _f()
+    # if on the background server and not a worker, it will need node-fetch installed or an alternative to fetch must be used here
+    _f = () =>
+      if params.verbose
+        verbose = true
+        delete params.verbose
+      else
+        verbose = false
       try
-        res = res.trim()
-        res = JSON.parse(res) if res.indexOf('[') is 0 or res.indexOf('{') is 0
-      return res
+        if url.indexOf('localhost') isnt -1
+          # allow local https connections on backend server without check cert
+          params.agent ?= new https.Agent rejectUnauthorized: false
+      response = await fetch url, params
+      console.log response.status # status code can be found here
+      if verbose
+        return response
+      else
+        # json() # what if there is no json or text? how to tell? what other types are there? will json also always be presented as text?
+        # what if the method is a POST, or the response is a stream?
+        # does it make any difference if it can all be found in text() and converted here anyway?
+        ct = response.headers.get('content-type')
+        if typeof ct is 'string' and ct.toLowerCase().indexOf('json') isnt -1
+          r = await response.json()
+        else
+          r = await response.text()
+        if response.status is 404
+          return undefined
+        else if response.status >= 400
+          console.log r
+          return status: response.status
+        else
+          return r
+    '''if params.timeout
+      params.retry ?= 1
+      params.timeout = 30000 if params.timeout is true
+    if params.retry
+      params.retry = 3 if params.retry is true
+      opts = retry: params.retry
+      delete params.retry
+      for rk in ['pause', 'increment', 'check', 'timeout']
+        if params[rk]?
+          opts[rk] = params[rk]
+          delete params[rk]
+      res = @retry.call this, _f, [url, params], opts
+    else'''
+    res = await _f()
+    try
+      res = res.trim()
+      res = JSON.parse(res) if res.indexOf('[') is 0 or res.indexOf('{') is 0
+    return res
 
 
 '''

@@ -9,6 +9,10 @@
 # and store a resume token at auth/resume/:UID/:RESUMETOKEN (value is a timestamp) (autoexpire resume tokens at about six months 15768000s, but rotate them on non-cookie use)
 
 P.auth = (key, val) ->
+  # TODO add a check for a system header that the workers can pass to indicate they're already authorised
+  # should this be here and/or in roles, or in the main api file? and what does it return?
+  try return true if @S.name and @S.system and @headers['x-' + S.name + '-system'] is @S.system
+  
   #if key? and val?
   # if at least key provided directly, just look up the user
   # if params.auth, someone looking up the URL route for this acc. Who would have the right to see that?
@@ -150,9 +154,17 @@ P.auth.logout = (user) -> # how about triggering a logout on a different user ac
 # https://stackoverflow.com/questions/8529265/google-authenticator-implementation-in-python/8549884#8549884
 # https://github.com/google/google-authenticator
 # http://blog.tinisles.com/2011/10/google-authenticator-one-time-password-algorithm-in-javascript/
+#P.authenticator = () ->
+# TODO if an authenticator app token is provided, check it within the 30s window
+# delay responses to 1 per second to stop brute force attacks
+# also need to provide the token/qr to initialise the authenticator app with the service
+#  return false
 
 # device fingerprinting was available in the old code but no explicit requirement for it so not added here yet
 # old code also had xsrf tokens for FORM POSTs, add that back in if relevant
+
+
+
 
 P.oauth = (token, cid) ->
   # https://developers.google.com/identity/protocols/OAuth2UserAgent#validatetoken

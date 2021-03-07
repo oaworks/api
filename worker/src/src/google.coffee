@@ -33,7 +33,6 @@ P.src.google.sheets = (opts) ->
 		url = 'https://spreadsheets.google.com/feeds/list/' + opts.sheetid + '/' + opts.sheet + '/public/values?alt=json'
 
 	g = await @fetch url
-	# TODO add caching to the fetch, or save values to a KV, using some timeout or stale/refresh and buster option
 	for l of g.feed.entry
 		val = {}
 		for k of g.feed.entry[l]
@@ -41,6 +40,8 @@ P.src.google.sheets = (opts) ->
 		values.push val
 
 	return values
+
+P.src.google.sheets._bg = true
 
 
 # https://developers.google.com/hangouts/chat
