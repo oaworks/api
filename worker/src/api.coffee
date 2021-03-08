@@ -86,10 +86,11 @@ P = () ->
   try @apikey = @headers['x-apikey'] ? @headers.apikey ? @params.apikey ? @params.apiKey
   delete @params.apikey if @params.apikey
   try @cookie = @headers.cookie
-  if @request.url.indexOf('://') is -1
+  if @request.url.indexOf('http://') isnt 0 and @request.url.indexOf('https://') isnt 0
+    # in case there's a url param with them as well, check if they're at the start
+    # there's no base to the URL passed on the backend server, so here the @base isn't shifted from the parts list
     @url = @request.url.split('?')[0].replace(/^\//,'').replace(/\/$/,'')
     @parts = if @url.length then @url.split('/') else []
-    # there's no base to the URL passed on the server
   else
     @url = @request.url.split('?')[0].replace(/\/$/,'').split('://')[1]
     @parts = @url.split '/'
