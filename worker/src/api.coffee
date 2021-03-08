@@ -16,7 +16,7 @@
 try S = JSON.parse SECRETS_SETTINGS # from CF variable this will need parsed, so just default to passing them as strings and parsing them
 S ?= {} # and just in case it wasn't found
 S.name ?= 'N2'
-S.version ?= '5.2.5'
+S.version ?= '5.2.6'
 S.env ?= 'dev'
 S.dev ?= S.env is 'dev'
 # TODO replace bg with a proper bg endpoint for workers to send to (or fail open)
