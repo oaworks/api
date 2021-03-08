@@ -26,7 +26,7 @@ P.log = (msg) ->
       msg.request =
         url: @request.url
         method: @request.method
-        body: @request.bodyUsed
+    try msg.request.body = @body?
     try
       msg.request.cf =
         colo: @request.cf.colo
@@ -66,7 +66,7 @@ P.log = (msg) ->
   else
     @_logs.push msg
 
-  if S.log is false or S.bg is true # is this useful?
+  if @S.log is false or @S.bg is true # is this useful?
     console.log 'Server not logging:'
     console.log msg
 

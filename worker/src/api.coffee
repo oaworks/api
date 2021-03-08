@@ -13,10 +13,14 @@
 # _.history (if true save a copy of every change and the request that changed somewhere. Or enough just to save the requests and replay them?)
 
 
-try S = JSON.parse SECRETS_SETTINGS # from CF variable this will need parsed, so just default to passing them as strings and parsing them
+try
+  S = JSON.parse SECRETS_SETTINGS # from CF variable this will need parsed, so just default to passing them as strings and parsing them
+catch err
+  console.log 'ERROR LOADING SETTINGS'
+  console.log err
 S ?= {} # and just in case it wasn't found
 S.name ?= 'N2'
-S.version ?= '5.2.6'
+S.version ?= '5.2.7'
 S.env ?= 'dev'
 S.dev ?= S.env is 'dev'
 # TODO replace bg with a proper bg endpoint for workers to send to (or fail open)
@@ -121,9 +125,9 @@ P = () ->
     wp = fn._index or fn._kv or (fn._bg and @S.bg isnt true) # what about _async?
     if not wp and typeof fn is 'object' and not Array.isArray(fn) and typeof fn[@request.method] isnt 'function'
       return JSON.parse JSON.stringify fn
-    else if not wp and not fn._kv and typeof fn isnt 'function'
+    else if not wp and typeof fn isnt 'function'
       return fn
-    else if not wp and not fn._kv and n.indexOf('.') is -1 or n.split('.').pop().indexOf('_') is 0 # don't wrap top-level or underscored methods
+    else if not wp and (n.indexOf('.') is -1 or n.split('.').pop().indexOf('_') is 0) # don't wrap top-level or underscored methods
       return fn.bind @
     else
       _wrapped = () ->
@@ -149,7 +153,7 @@ P = () ->
         @cached = chd if chd and @fn.startsWith n # record whether or not the main function result was cached in index or kv
         if not res? and (fn._bg or fn._sheet) and typeof @S.bg is 'string' and @S.bg.indexOf('http') is 0
           bu = @S.bg + '/' + n.replace(/\./g, '/') + if arguments.length and typeof arguments[0] is 'string' then arguments[0] else ''
-          bup = if arguments.length and typeof arguments[0] is 'object' then {method: 'POST', body: arguments[0]} else if n is fn then {method: 'POST', body: @params} else {}
+          bup = if arguments.length and typeof arguments[0] is 'object' then {method: 'POST', body: arguments[0]} else if n is @fn then {method: 'POST', body: @params} else {}
           if @S.name and @S.system
             bup.headers = {}
             bup.headers['x-' + S.name + '-system'] = @S.system
@@ -178,7 +182,7 @@ P = () ->
             else if fn._kv
               res = '' # return blank to indicate kv is present, because kv listing or counting is an expensive operation
         #if n isnt @fn # main fn will log at the end - or should each part log as well anyway?
-        lg = fn: n, cached: (if chd then chd else undefined), bg: (if bg then bg else undefined), key: (if key then key else if chd and arguments.length then arguments[0].toLowerCase() else undefined)
+        lg = fn: n, cached: (if chd then chd else undefined), bg: (if bgd then bgd else undefined), key: (if key then key else if chd and arguments.length then arguments[0].toLowerCase() else undefined)
         #try lg.result = if key then undefined else if chd then (if arguments.length then arguments[0] else undefined) else undefined
         #JSON.stringify res # is it worth storing the whole result here? only if history? or always?
         # if fn._diff, need to decide when or how often to do a diff check and alert
@@ -271,7 +275,7 @@ P = () ->
       await @sleep 200 * (1 + Math.random())
       res = status: 401
 
-  res ?= '' if @url.replace('.ico','').replace('.gif','').replace('.png','').endsWith '/favicon'
+  res ?= '' if @url.replace('.ico','').replace('.gif','').replace('.png','').endsWith 'favicon'
   resp = await @_response res
   if @parts.length and @parts[0] not in ['log','status'] and @request.method not in ['HEAD', 'OPTIONS'] and res? and res isnt ''
     if fn? and fn._cache isnt false and @completed and resp.status is 200

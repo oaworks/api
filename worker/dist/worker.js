@@ -10,11 +10,15 @@
 // _.async (start the function but don't wait for it to finish, get an ID to query its result later?)
 // _.retry (a number of times to retry, or a retry settings obj see below)
 // _.history (if true save a copy of every change and the request that changed somewhere. Or enough just to save the requests and replay them?)
-var P, S;
+var P, S, err;
 
 try {
   S = JSON.parse(SECRETS_SETTINGS); // from CF variable this will need parsed, so just default to passing them as strings and parsing them
-} catch (error) {}
+} catch (error) {
+  err = error;
+  console.log('ERROR LOADING SETTINGS');
+  console.log(err);
+}
 
 if (S == null) {
   S = {};
@@ -25,7 +29,7 @@ if (S.name == null) {
 }
 
 if (S.version == null) {
-  S.version = '5.2.6';
+  S.version = '5.2.7';
 }
 
 if (S.env == null) {
@@ -212,9 +216,9 @@ P = async function() {
     wp = fn._index || fn._kv || (fn._bg && this.S.bg !== true); // what about _async?
     if (!wp && typeof fn === 'object' && !Array.isArray(fn) && typeof fn[this.request.method] !== 'function') {
       return JSON.parse(JSON.stringify(fn));
-    } else if (!wp && !fn._kv && typeof fn !== 'function') {
+    } else if (!wp && typeof fn !== 'function') {
       return fn;
-    } else if (!wp && !fn._kv && n.indexOf('.') === -1 || n.split('.').pop().indexOf('_') === 0) { // don't wrap top-level or underscored methods
+    } else if (!wp && (n.indexOf('.') === -1 || n.split('.').pop().indexOf('_') === 0)) { // don't wrap top-level or underscored methods
       return fn.bind(this);
     } else {
       _wrapped = async function() {
@@ -254,7 +258,7 @@ P = async function() {
           bup = arguments.length && typeof arguments[0] === 'object' ? {
             method: 'POST',
             body: arguments[0]
-          } : n === fn ? {
+          } : n === this.fn ? {
             method: 'POST',
             body: this.params
           } : {};
@@ -303,7 +307,7 @@ P = async function() {
         lg = {
           fn: n,
           cached: (chd ? chd : void 0),
-          bg: (bg ? bg : void 0),
+          bg: (bgd ? bgd : void 0),
           key: (key ? key : chd && arguments.length ? arguments[0].toLowerCase() : void 0)
         };
         //try lg.result = if key then undefined else if chd then (if arguments.length then arguments[0] else undefined) else undefined
@@ -442,7 +446,7 @@ P = async function() {
       };
     }
   }
-  if (this.url.replace('.ico', '').replace('.gif', '').replace('.png', '').endsWith('/favicon')) {
+  if (this.url.replace('.ico', '').replace('.gif', '').replace('.png', '').endsWith('favicon')) {
     if (res == null) {
       res = '';
     }
@@ -922,11 +926,6 @@ P.example = function() {
       }
     } catch (error) {}
     try {
-      if (res.request == null) {
-        res.request = this.request;
-      }
-    } catch (error) {}
-    try {
       if (res.parts == null) {
         res.parts = this.parts;
       }
@@ -957,7 +956,6 @@ P.example.deep = async function() {
   var res;
   res = {
     example: 'deep',
-    request: this.request,
     deeper: (await this.example.deep.deeper())
   };
   try {
@@ -1004,15 +1002,15 @@ P.example.deep.deeper.deepest = function() {
 P.fetch = async function(url, params) {
   var _f, ct, i, len, ref, ref1, res;
   // TODO if asked to fetch a URL that is the same as the @url this worker served on, then needs to switch to a bg call if bg URL available
+  if ((url == null) && (params == null)) {
+    try {
+      params = this.copy(this.params);
+    } catch (error) {}
+  }
   if (typeof url === 'object' && (params == null)) {
     params = url;
     url = params.url;
   }
-  try {
-    if (params == null) {
-      params = this.copy(this.params);
-    }
-  } catch (error) {}
   if (params == null) {
     params = {};
   }
@@ -1057,8 +1055,10 @@ P.fetch = async function(url, params) {
     if ((ref1 = typeof params.body) === 'object' || ref1 === 'boolean' || ref1 === 'number') { // or just everything?
       params.body = JSON.stringify(params.body);
     }
+    if (params.method == null) {
+      params.method = 'POST';
+    }
   }
-  console.log(url);
   if (typeof url !== 'string') {
     return false;
   } else {
@@ -1082,7 +1082,7 @@ P.fetch = async function(url, params) {
         }
       } catch (error) {}
       response = (await fetch(url, params));
-      console.log(response.status); // status code can be found here
+      console.log(response.status + ' ' + url); // status code can be found here
       if (verbose) {
         return response;
       } else {
@@ -1163,9 +1163,11 @@ P.log = function(msg) {
     try {
       msg.request = {
         url: this.request.url,
-        method: this.request.method,
-        body: this.request.bodyUsed
+        method: this.request.method
       };
+    } catch (error) {}
+    try {
+      msg.request.body = this.body != null;
     } catch (error) {}
     try {
       msg.request.cf = {
@@ -1236,7 +1238,7 @@ P.log = function(msg) {
   } else {
     this._logs.push(msg);
   }
-  if (S.log === false || S.bg === true) { // is this useful?
+  if (this.S.log === false || this.S.bg === true) { // is this useful?
     console.log('Server not logging:');
     return console.log(msg);
   }
@@ -6221,4 +6223,4 @@ P.svc.oaworks.scrape = async function(content, doi) {
 };
 
 
-S.built = "Mon Mar 08 2021 05:10:31 GMT+0000";
+S.built = "Mon Mar 08 2021 08:50:59 GMT+0000";

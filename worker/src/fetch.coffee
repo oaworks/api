@@ -3,10 +3,11 @@
 
 P.fetch = (url, params) ->
   # TODO if asked to fetch a URL that is the same as the @url this worker served on, then needs to switch to a bg call if bg URL available
+  if not url? and not params?
+    try params = @copy @params
   if typeof url is 'object' and not params?
     params = url
     url = params.url
-  try params ?= @copy @params
   params ?= {}
   if not url and params.url
     url = params.url
@@ -33,7 +34,7 @@ P.fetch = (url, params) ->
     if not params.headers['Content-Type']? and not params.headers['content-type']?
       params.headers['Content-Type'] = if typeof params.body is 'object' then 'application/json' else 'text/plain'
     params.body = JSON.stringify(params.body) if typeof params.body in ['object', 'boolean', 'number'] # or just everything?
-  console.log url
+    params.method ?= 'POST'
   if typeof url isnt 'string'
     return false
   else
@@ -49,7 +50,7 @@ P.fetch = (url, params) ->
           # allow local https connections on backend server without check cert
           params.agent ?= new https.Agent rejectUnauthorized: false
       response = await fetch url, params
-      console.log response.status # status code can be found here
+      console.log response.status + ' ' + url # status code can be found here
       if verbose
         return response
       else

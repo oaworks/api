@@ -24,14 +24,13 @@ if not args.length
 DATE = new Date().toString().split(' (')[0]
 
 CF = {}
-if not args.length or ('deploy' in args and ('secrets' in args or 'worker' in args))
-  if fs.existsSync './secrets/cf.json'
-    CF = JSON.parse fs.readFileSync('./secrets/cf.json').toString()
-  else
-    console.log "No cloudflare config loaded."
-    console.log "A folder called secrets should be placed at the top level directory / root of the project, and also one each in server/ and worker/"
-    console.log "Anything in these folders will be ignored by any future git commits, so it is safe to put secret data in them."
-    console.log "Deployment to cloudflare requires at least a secrets/cf.json file containing an object with keys ACCOUNT_ID, SCRIPT_ID, API_TOKEN"
+if fs.existsSync './secrets/construct.json'
+  CF = JSON.parse fs.readFileSync('./secrets/construct.json').toString()
+else
+  console.log "No cloudflare config loaded."
+  console.log "A folder called secrets should be placed at the top level directory / root of the project, and also one each in server/ and worker/"
+  console.log "Anything in these folders will be ignored by any future git commits, so it is safe to put secret data in them."
+  console.log "Deployment to cloudflare requires a ./secrets/construct.json file containing an object with keys ACCOUNT_ID, SCRIPT_ID, API_TOKEN"
 
 _put = (data) ->
   # data is either an object to send to secrets, or a file handle to stream to worker
@@ -83,6 +82,9 @@ _walk = (drt, names=[]) ->
   return names
 
 _w = () ->
+  # add checks for things that need to be installed? could be handy
+  #console.log await _exec 'which google-chrome'
+
   wfl = ''
   if not args.length or 'build' in args
     if not args.length or 'worker' in args
@@ -104,6 +106,12 @@ _w = () ->
 
     if not args.length or 'server' in args
       console.log "Building server"
+      if args.length and 'worker' not in args
+        if fs.existsSync './worker/dist/worker.js'
+          wfl = fs.readFileSync('./worker/dist/worker.js').toString()
+        else
+          console.log 'Server build cannot complete until worker build has run at least once, making ./worker/dist/worker.js available for incorporation'
+          process.exit()
       if fs.existsSync './server/dist'
         try fs.unlinkSync './server/dist/server.js'
       else
@@ -143,10 +151,10 @@ _w = () ->
         if not args.length or 'worker' in args
           if not args.length or 'secrets' in args
             if not CF.ACCOUNT_ID or not CF.API_TOKEN or not CF.SCRIPT_ID
-              console.log "To push secrets to cloudflare, cloudflare account ID, API token, and script ID must be set to keys ACCOUNT_ID, API_TOKEN, SCRIPT_ID, in secrets/cf.json"
+              console.log "To push secrets to cloudflare, cloudflare account ID, API token, and script ID must be set to keys ACCOUNT_ID, API_TOKEN, SCRIPT_ID, in ./secrets/construct.json"
             else
               console.log 'Sending worker ' + SECRETS_NAME + ' secrets to cloudflare'
-              _put {name: SECRETS_NAME, text: "'" + JSON.stringify(SECRETS_DATA) + "'"}, true
+              _put {name: SECRETS_NAME, text: JSON.stringify(SECRETS_DATA)}, true
         if not args.length or 'server' in args
           console.log 'Saving worker ' + SECRETS_NAME + ' to server file'
           wfl = "var " + SECRETS_NAME + " = '" + JSON.stringify(SECRETS_DATA) + "';\n" + wfl
@@ -173,14 +181,20 @@ _w = () ->
   
     if not args.length or 'server' in args
       if fs.existsSync './server/dist/server.min.js'
-        console.log "\nServer package ready to deploy - this should be configured separately e.g. via githooks or other CI/CD method"
-        console.log "However for convenience if a key called scp is added to ./secrets/cf.json it will be used to scp the server file"
-        console.log "scp should be a server URL and directory path, such as example.com:/home/username/myfolder"
-        console.log "Note this currently requires a linux command line with scp available, and a valid publickey that will allow the scp to succeed\n"
         if CF.scp
+          console.log "Deploying server to " + CF.scp
           console.log await _exec 'scp ./server/dist/server.min.js ' + CF.scp
-
-  try fs.writeFileSync './construct.js', coffee.compile fs.readFileSync('./construct.coffee').toString(), bare: true
+        else
+          console.log "\nServer package ready to deploy - this should be configured separately e.g. via githooks or other CI/CD method"
+          console.log "However for convenience if a key called scp is added to ./secrets/construct.json it will be used to scp the server file"
+          console.log "scp should be a server URL and directory path, such as example.com:/home/username/myfolder"
+          console.log "Note this currently requires a linux command line with scp available, and a valid publickey that will allow the scp to succeed\n"
+      else
+        console.log "No server file available to deploy to server at server/dist/server.min.js\n"
+  
+  if 'construct' in args
+    # not done by default, and not mentioned. Unnecessary, because even if a js is constructed, it still needs coffee for the translation stage
+    try fs.writeFileSync './construct.js', coffee.compile fs.readFileSync('./construct.coffee').toString(), bare: true
 
   VERSION = wfl.split('S.version = ')[1].split('\n')[0].replace(/"/g, '').replace(/'/g, '').replace(';','').trim()
   console.log 'v' + VERSION + ' built at ' + DATE
