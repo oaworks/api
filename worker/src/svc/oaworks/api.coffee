@@ -5,10 +5,14 @@ catch
   S.svc.oaworks = {}
   
 P.svc.oaworks = () ->
-  return name: 'OA.works API'
+  return
+    name: 'OA.Works API'
+    version: @S.version
+    built: @S.built
 
 
-# email templates - convert to a read from a sheet instead of currently in the repo
+P.svc.oaworks.templates = _key: 'name', _sheet: '16Qm8n3Rmx3QyttFpSGj81_7T6ehfLAtYRSvmDf3pAzg/1'
+
 # oab status and stats
 # make all request admin via sheet somehow
 
@@ -35,30 +39,27 @@ P.svc.oaworks.bug = () ->
     else
       subject += ' Other'
     subject += ' ' + Date.now()
-    try
-      if @body?.form in ['wrong','uninstall']
-        whoto.push 'natalia.norori@openaccessbutton.org'
-    @mail {
-      service: 'openaccessbutton',
-      from: 'natalia.norori@openaccessbutton.org',
-      to: whoto,
-      subject: subject,
+    if @body?.form in ['wrong','uninstall']
+      whoto.push 'natalia.norori@openaccessbutton.org'
+    @waitUntil @mail
+      service: 'openaccessbutton'
+      from: 'natalia.norori@openaccessbutton.org'
+      to: whoto
+      subject: subject
       text: text
-    }
-    return {
-      status: 302,
-      headers: {
-        'Content-Type': 'text/plain',
+    return
+      status: 302
+      headers:
+        'Content-Type': 'text/plain'
         'Location': (if @S.dev then 'https://dev.openaccessbutton.org' else 'https://openaccessbutton.org') + '/feedback#defaultthanks'
-      },
       body: 'Location: ' + (if @S.dev then 'https://dev.openaccessbutton.org' else 'https://openaccessbutton.org') + '/feedback#defaultthanks'
-    }
 
 
 P.svc.oaworks.blacklist = (url) ->
+  url ?= @params.url
   url = url.toString() if typeof url is 'number'
   return false if url? and (url.length < 4 or url.indexOf('.') is -1)
-  bl = await @src.google.sheets @S.svc.oaworks?.google?.sheets?.blacklist, stale
+  bl = await @src.google.sheets @S.svc.oaworks?.google?.sheets?.blacklist
   blacklist = []
   blacklist.push(i.url) for i in bl
   if url
@@ -72,14 +73,15 @@ P.svc.oaworks.blacklist = (url) ->
     return blacklist
 
 
-API.service.oab.validate = (email, domain, verify=true) ->
+P.svc.oaworks.validate = (email, domain, verify=true) ->
+  email ?= @params.email
   bad = ['eric@talkwithcustomer.com']
   if typeof email isnt 'string' or email.indexOf(',') isnt -1 or email in bad
     return false
   else if email.indexOf('@openaccessbutton.org') isnt -1 or email.indexOf('@email.ghostinspector.com') isnt -1 #or email in []
     return true
   else
-    v = @mail.validate email, @S.svc.oaworks.mail.pubkey
+    v = await @mail.validate email, @S.svc.oaworks.mail.pubkey
     if v.is_valid and (not verify or v.mailbox_verification in [true,'true'])
       return true
     else if v.did_you_mean

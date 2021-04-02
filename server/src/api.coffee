@@ -3,11 +3,12 @@
 # https://www.digitalocean.com/community/tutorials/how-to-set-up-a-node-js-application-for-production-on-ubuntu-16-04
 
 import fetch from 'node-fetch' # used in fetch - does this expose wide enough scope or does it need hoisted?
+import crypto from 'crypto' # used in utilities for hash generation
 import http from 'http'
 import https from 'https' # allows fetch to control https security for local connections
 import Busboy from 'busboy'
 
-http.createServer((req, res) ->
+server = http.createServer (req, res) ->
   try
     if req.headers?['content-type']?.match /^multipart\/form\-data/
       # example: curl -X POST 'https://example.com/convert?from=xls&to=csv' -F file=@anexcelfile.xlsx
@@ -42,9 +43,15 @@ http.createServer((req, res) ->
       while waiting
         await new Promise (resolve) => setTimeout resolve, 100
 
+  # TODO find the event where the user disconnects before completion
+  # if they do, save the response somehwere for later retrieval?
+  #req.on 'error', (err) -> console.log err
+  # https://nodejs.org/api/http.html
+
   try
+    try console.log(req.method + ' ' + req.url) if S.dev
     pr = await P.call request: req # how does this req compare to the event.request passed by fetch in P?
-    try console.log(pr.status + ' ' + req.method + ' ' + req.url) if S.dev
+    try console.log(pr.status) if S.dev
     try pr.headers['x-' + S.name + '-bg'] = true
     if req.url is '/'
       try
@@ -52,6 +59,7 @@ http.createServer((req, res) ->
         pb.bg = true
         pr.body = JSON.stringify pb, '', 2
         pr.headers['Content-Length'] = Buffer.byteLength pr.body
+    #console.log req.destroyed
     res.writeHead pr.status, pr.headers # where would these be in a Response object from P?
     res.end pr.body
   catch err
@@ -60,6 +68,20 @@ http.createServer((req, res) ->
     headers['x-' + S.name + '-bg'] = true
     res.writeHead 405, headers # where would these be in a Response object from P?
     res.end '405'
-).listen S.port ? 4000, 'localhost'
 
-console.log S.name + ' v' + S.version + ' built ' + S.built + ', listening on ' + (S.port ? 4000)
+#server.on 'clientError', (err, socket) ->
+#  #if err.code is 'ECONNRESET' or not socket.writable
+#  console.log err
+#  console.log socket
+
+S.port ?= if S.dev then 4000 else 3000
+server.listen S.port, 'localhost'
+
+console.log S.name + ' v' + S.version + ' built ' + S.built + ', listening on ' + S.port
+
+if S.demo
+  console.log 'Congrats! You have a demo up and running'
+  console.log 'NOTE: withhout any settings, this is only running locally for you, and should NOT be relied upon to store data'
+  console.log 'Read more in the docs about settings and secrets, storing data in elasticsearch, and deployment options.'
+  console.log 'You\'ll get this msg on each startup until you make some settings :)'
+  console.log 'Thanks for trying Paradigm! Learn more, and support us, at ' + S.docs

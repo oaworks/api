@@ -5,67 +5,64 @@
 # need to handle old/new user configs somehow - just store all the old ones and let the UI pick them up
 # make sure all users submit the config with the incoming query (for those that still don't, temporarily copy them from old imported ones)
 
-'''
-P.svc.oaworks.deposit = (options={}, files) ->
-  # so need some metadata in options.metadata
 
-  d.deposit ?= []
-  dep = {createdAt: Date.now(), zenodo: {}}
-  dep.embedded = options.embedded if options.embedded
-  dep.demo = options.demo if options.demo
-  dep.pilot = options.pilot if options.pilot
-  if typeof dep.pilot is 'boolean' or dep.pilot in ['true','false'] # catch possible old erros with live/pilot values
-    dep.pilot = if dep.pilot is true or dep.pilot is 'true' then Date.now() else undefined
-  dep.live = options.live if options.live
-  if typeof dep.live is 'boolean' or dep.live in ['true','false']
-    dep.live = if dep.live is true or dep.live is 'true' then Date.now() else undefined
+# NOTE to receive files cloudflare should be setup to DNS route this directly to backend, and any calls to it should call that dns subdomain
+# because otherwise cloudflare will limit file upload size (100mb by default, and enterprise plans required for more)
+# however also busboy is required, so needs to be a direct call to backend
+P.svc.oaworks.deposit = (params, files, dev) ->
+  # so need some metadata in params.metadata
+  params ?= @copy @params
+  files ?= @request.files # TODO check where these will end up - will they only work on bg with busboy?
+
+  dep = {zenodo: {}}
+  dep[k] = params[k] for k in ['embedded', 'demo', 'pilot', 'live', 'email', 'plugin']
+  dep.pilot = if dep.pilot is true then Date.now() else undefined
+  dep.live = if dep.live is true then Date.now() else undefined
   dep.name = (files[0].filename ? files[0].name) if files? and files.length
-  dep.email = options.email if options.email
-  dep.from = options.from if options.from and options.from isnt 'anonymous' # should it still be possible to deposit anonymously?
-  dep.plugin = options.plugin if options.plugin
-  dep.confirmed = decodeURIComponent(options.confirmed) if options.confirmed
+  dep.from = params.from if params.from isnt 'anonymous' # should it still be possible to deposit anonymously?
+  dep.confirmed = decodeURIComponent(params.confirmed) if params.confirmed # if confirmed is true the submitter has confirmed this is the right file. If confirmed is the checksum this is a resubmit by an admin
 
-  uc = options.config # should exist but may not
+  uc = params.config # should exist but may not
+  if not params.config and params.from
+    uc = await @fetch 'https://' + (if @S.dev or dev then 'dev.' else '') + 'api.cottagelabs.com/service/oab/deposit/config?uid=' + params.from
 
-  perms = @svc.oaworks.permissions d, files, undefined, dep.confirmed # if confirmed is true the submitter has confirmed this is the right file. If confirmed is the checksum this is a resubmit by an admin
+  perms = await @svc.oaworks.permissions params.metadata # should metadata be retrieved if not present? default to looking for a doi or similar somewhere else in params?
+  # TODO move file check into here, not in permissions any more
   if perms.file?.archivable and ((dep.confirmed? and dep.confirmed is perms.file.checksum) or not dep.confirmed) # if the depositor confirms we don't deposit, we manually review - only deposit on admin confirmation (but on dev allow it)
-    zn = {}
-    zn.content = files[0].data
-    zn.name = perms.file.name
+    zn = content: files[0].data, name: perms.file.name
     zn.publish = @S.svc.oaworks?.deposit?.zenodo is true
     creators = []
-    try
-      for a in d.metadata.author
-        if a.family?
-          at = {name: a.family + (if a.given then ', ' + a.given else '')}
-          try at.orcid = a.ORCID.split('/').pop() if a.ORCID
-          try at.affiliation = a.affiliation.name if typeof a.affiliation is 'object' and a.affiliation.name?
-          creators.push at 
+    for a in params.metadata?.author ? []
+      if a.family?
+        at = {name: a.family + (if a.given then ', ' + a.given else '')}
+        try at.orcid = a.ORCID.split('/').pop() if a.ORCID
+        try at.affiliation = a.affiliation.name if typeof a.affiliation is 'object' and a.affiliation.name?
+        creators.push at 
     creators = [{name:'Unknown'}] if creators.length is 0
-    description = if d.metadata.abstract then d.metadata.abstract + '<br><br>' else ''
-    description += perms.best_permission?.deposit_statement ? (if d.metadata.doi? then 'The publisher\'s final version of this work can be found at https://doi.org/' + d.metadata.doi else '')
+    description = if params.metadata.abstract then params.metadata.abstract + '<br><br>' else ''
+    description += perms.best_permission?.deposit_statement ? (if params.metadata.doi? then 'The publisher\'s final version of this work can be found at https://doi.org/' + d.metadata.doi else '')
     description = description.trim()
     description += '.' if description.lastIndexOf('.') isnt description.length-1
     description += ' ' if description.length
     description += '<br><br>Deposited by shareyourpaper.org and openaccessbutton.org. We\'ve taken reasonable steps to ensure this content doesn\'t violate copyright. However, if you think it does you can request a takedown by emailing help@openaccessbutton.org.'
     meta =
-      title: d.metadata.title ? 'Unknown',
+      title: params.metadata.title ? 'Unknown',
       description: description.trim(),
       creators: creators,
       version: if perms.file.version is 'preprint' then 'Submitted Version' else if perms.file.version is 'postprint' then 'Accepted Version' else if perms.file.version is 'publisher pdf' then 'Published Version' else 'Accepted Version',
-      journal_title: d.metadata.journal
-      journal_volume: d.metadata.volume
-      journal_issue: d.metadata.issue
-      journal_pages: d.metadata.page
-    meta.keywords = d.metadata.keyword if _.isArray(d.metadata.keyword) and d.metadata.keyword.length and typeof d.metadata.keyword[0] is 'string'
-    if d.metadata.doi?
-      in_zenodo = @src.zenodo.records.doi d.metadata.doi
-      if in_zenodo and dep.confirmed isnt perms.file.checksum and not @S.dev
+      journal_title: params.metadata.journal
+      journal_volume: params.metadata.volume
+      journal_issue: params.metadata.issue
+      journal_pages: params.metadata.page
+    #meta.keywords = params.metadata.keyword if Array.isArray(params.metadata.keyword) and params.metadata.keyword.length and typeof params.metadata.keyword[0] is 'string'
+    if params.metadata.doi?
+      in_zenodo = await @src.zenodo.records.doi params.metadata.doi
+      if in_zenodo and dep.confirmed isnt perms.file.checksum and not @S.dev and not dev
         dep.zenodo.already = in_zenodo.id # we don't put it in again although we could with doi as related field - but leave for review for now
       else if in_zenodo
         meta['related_identifiers'] = [{relation: (if meta.version is 'postprint' or meta.version is 'AAM' or meta.version is 'preprint' then 'isPreviousVersionOf' else 'isIdenticalTo'), identifier: d.metadata.doi}]
       else
-        meta.doi = d.metadata.doi
+        meta.doi = params.metadata.doi
     else if @S.svc.oaworks.zenodo?.prereserve_doi
       meta.prereserve_doi = true
     meta['access_right'] = 'open'
@@ -77,7 +74,7 @@ P.svc.oaworks.deposit = (options={}, files) ->
       if perms.best_permission?.embargo_end and moment(perms.best_permission.embargo_end,'YYYY-MM-DD').valueOf() > Date.now()
         meta['access_right'] = 'embargoed'
         meta['embargo_date'] = perms.best_permission.embargo_end # check date format required by zenodo
-    try meta['publication_date'] = d.metadata.published if d.metadata.published? and typeof d.metadata.published is 'string'
+    try meta['publication_date'] = params.metadata.published if params.metadata.published? and typeof params.metadata.published is 'string'
     if uc
       uc.community = uc.community_ID if uc.community_ID? and not uc.community?
       if uc.community
@@ -88,13 +85,13 @@ P.svc.oaworks.deposit = (options={}, files) ->
         uc.communities = [uc.communities] if not Array.isArray uc.communities
         meta['communities'] = []
         meta.communities.push(if typeof com is 'string' then {identifier: com} else com) for com in uc.communities
-    tk = if @S.dev or dep.demo then @S.svc.oaworks?.zenodo?.sandbox else @S.svc.oaworks?.zenodo?.token
+    tk = if @S.dev or dev or dep.demo then @S.svc.oaworks?.zenodo?.sandbox else @S.svc.oaworks?.zenodo?.token
     if tk
       if not dep.zenodo.already
-        z = @src.zenodo.deposition.create meta, zn, tk
+        z = await @src.zenodo.deposition.create meta, zn, tk
         if z.id
           dep.zenodo.id = z.id
-          dep.zenodo.url = 'https://' + (if @S.dev or dep.demo then 'sandbox.' else '') + 'zenodo.org/record/' + z.id
+          dep.zenodo.url = 'https://' + (if @S.dev or dev or dep.demo then 'sandbox.' else '') + 'zenodo.org/record/' + z.id
           dep.zenodo.doi = z.metadata.prereserve_doi.doi if z.metadata?.prereserve_doi?.doi?
           dep.zenodo.file = z.uploaded?.links?.download ? z.uploaded?.links?.download
         else
@@ -109,24 +106,22 @@ P.svc.oaworks.deposit = (options={}, files) ->
     dep.type = 'zenodo'
   else if dep.error? and dep.error.toLowerCase().indexOf('zenodo') isnt -1
     dep.type = 'review'
-  else if options.from and (not dep.embedded or (dep.embedded.indexOf('openaccessbutton.org') is -1 and dep.embedded.indexOf('shareyourpaper.org') is -1))
+  else if options.from and (not dep.embedded or (dep.embedded.indexOf('oa.works') is -1 and dep.embedded.indexOf('openaccessbutton.org') is -1 and dep.embedded.indexOf('shareyourpaper.org') is -1))
     dep.type = if options.redeposit then 'redeposit' else if files? and files.length then 'forward' else 'dark'
   else
     dep.type = 'review'
-  # save the deposit record somewhere for later review
 
-  bcc = ['joe@righttoresearch.org','natalia.norori@openaccessbutton.org']
+  bcc = ['joe@openaccessbutton.org', 'natalia.norori@openaccessbutton.org']
   tos = []
   if typeof uc?.owner is 'string' and uc.owner.indexOf('@') isnt -1
     tos.push uc.owner
-  else if dep.from and iacc = API.accounts.retrieve dep.from
-    try tos.push iacc.email ? iacc.emails[0].address # the institutional user may set a config value to use as the contact email address but for now it is the account address
+  else if uc.email
+    tos.push uc.email
   if tos.length is 0
-    tos = _.clone bcc
+    tos = @copy bcc
     bcc = []
 
-  dep.permissions = perms
-  dep.url = if typeof options.redeposit is 'string' then options.redeposit else if d.url then d.url else undefined
+  dep.url = if typeof options.redeposit is 'string' then options.redeposit else if options.url then options.url else undefined
 
   ed = @copy dep
   if ed.metadata?.author?
@@ -141,22 +136,20 @@ P.svc.oaworks.deposit = (options={}, files) ->
     ed.confirmed = encodeURIComponent perms.file.checksum
     ed.adminlink += 'confirmed=' + ed.confirmed + '&'
   ed.adminlink += 'email=' + ed.email
-  tmpl = API.mail.template dep.type + '_deposit.html'
-  sub = API.service.oab.substitute tmpl.content, ed
+  tmpl = await @svc.oaworks.templates dep.type + '_deposit.html'
+  tmpl = tmpl.content
   if perms.file?.archivable isnt false # so when true or when undefined if no file is given
     ml =
       from: 'deposits@openaccessbutton.org'
       to: tos
+      template: tmpl
+      vars: ed
       subject: (sub.subject ? dep.type + ' deposit')
       html: sub.content
     ml.bcc = bcc if bcc.length # passing undefined to mail seems to cause errors, so only set if definitely exists
-    ml.attachments = [{filename: (files[0].filename ? files[0].name), content: files[0].data}] if _.isArray(files) and files.length
-    @mail ml
+    ml.attachments = [{filename: (files[0].filename ? files[0].name), content: files[0].data}] if Array.isArray(files) and files.length
+    @waitUntil @mail ml
 
-  dep.z = z if @S.dev and dep.zenodo.id? and dep.zenodo.id isnt 'EXAMPLE'
-  
-  if dep.embargo
-    try dep.embargo_UI = moment(dep.embargo).format "Do MMMM YYYY"
   return dep
 
-'''
+P.svc.oaworks.deposit._index = true # store a record of all deposits

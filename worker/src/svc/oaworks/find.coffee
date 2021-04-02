@@ -1,6 +1,6 @@
 
-P.svc.oaworks.metadata = () ->
-  res = await @svc.oaworks.find()
+P.svc.oaworks.metadata = (doi) ->
+  res = await @svc.oaworks.find doi # may not be a DOI, but most likely thing
   return res.metadata
 
 
@@ -8,18 +8,26 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
   res = {}
 
   _metadata = (input) =>
-    for k of ct = await @svc.oaworks.citation input
+    ct = await @svc.oaworks.citation input
+    for k of ct
       if k in ['url', 'paywall']
         res[k] ?= ct[k]
       else
         metadata[k] ?= ct[k]
+    return true
 
+  options = {doi: options} if typeof options is 'string'
   try options ?= @copy @params
   options ?= {}
-  options.doi ?= options.find
-  content ?= options.dom ? @request.body
+  content ?= options.dom ? (if typeof @body is 'string' then @body else undefined)
 
-  options.url = (options.q ? options.id) if options.q or options.id
+  if options.find
+    if options.find.indexOf('10.') is 0 and options.find.indexOf('/') isnt -1
+      options.doi = options.find
+    else
+      options.url = options.find
+    delete options.find
+  options.url ?= options.q ? options.id
   if options.url
     options.url = options.url.toString() if typeof options.url is 'number'
     if options.url.indexOf('/10.') isnt -1
@@ -62,30 +70,39 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
   if not metadata.title and content and typeof options.url is 'string' and (options.url.indexOf('alma.exlibrisgroup.com') isnt -1 or options.url.indexOf('/exlibristest') isnt -1)
     delete options.url
 
+  # set a demo tag in certain cases
+  # e.g. for instantill/shareyourpaper/other demos - dev and live demo accounts
+  res.demo = options.demo if options.demo?
+  res.demo ?= true if (metadata.doi is '10.1234/567890' or (metadata.doi? and metadata.doi.indexOf('10.1234/oab-syp-') is 0)) or metadata.title is 'Engineering a Powerfully Simple Interlibrary Loan Experience with InstantILL' or options.from in ['qZooaHWRz9NLFNcgR','eZwJ83xp3oZDaec86']
+  res.test ?= true if res.demo # don't save things coming from the demo accounts into the catalogue later
+
+
   _searches = () =>
     if (content? or options.url?) and not (metadata.doi or metadata.pmid? or metadata.pmcid? or metadata.title?)
-      await _metadata await @svc.oaworks.scrape content ? options.url
+      scraped = await @svc.oaworks.scrape content ? options.url
+      await _metadata scraped
 
     if not metadata.doi
       if metadata.pmid or metadata.pmcid
         epmc = await @src.epmc[if metadata.pmcid then 'pmc' else 'pmid'] (metadata.pmcid ? metadata.pmid)
         await _metadata epmc
       if metadata.title and not metadata.doi
-        _crt = () =>
-          await _metadata(await @src.crossref.works metadata.title) if not metadata.doi
-          return true
-        _mst = () =>
-          await _metadata(await @src.microsoft.graph metadata.title) if not metadata.doi
-          return true
-        _pmt = () =>
-          await _metadata(await @src.epmc.title metadata.title) if not epmc? and not metadata.doi
-          return true
-        await Promise.all [_crt(), _mst(), _pmt()]
-  
+        metadata.title = metadata.title.replace /\+/g, ' ' # some+titles+come+in+like+this
+        cr = await @src.crossref.works.title metadata.title
+        if cr?.type and cr?.DOI
+          await _metadata cr
+        if not metadata.doi
+          mag = await @src.microsoft.graph metadata.title
+          if mag?.PaperTitle
+            await _metadata mag
+        if not metadata.doi and not epmc? # run this only if we don't find in our own stores
+          epmc = await @src.epmc.title metadata.title
+          await _metadata epmc
+
     if metadata.doi
       _oad = () =>
         oad = await @src.oadoi metadata.doi
-        await _metadata(oad) if oad?.doi is metadata.doi
+        await _metadata(oad) if oad?.doi and oad?.doi.toLowerCase() is metadata.doi.toLowerCase()
         return true
       _crd = () =>
         cr = await @src.crossref.works metadata.doi
@@ -97,7 +114,7 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
           await _metadata cr
         return true
       await Promise.all [_oad(), _crd()]
-    
+
     return true
 
   await _searches()
@@ -119,25 +136,21 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
         await _searches() # run again if anything more useful found
 
   _ill = () =>
-    if (metadata.doi or metadata.title) and (options.from? or options.config?) and (options.plugin is 'instantill' or options.ill is true)
-      res.ill ?= {} # terms and openurl can be done client-side by new embed but old embed can't so keep these a while longer
-      try res.ill.terms = options.config?.terms ? await @svc.oaworks.ill.terms options.from
-      try res.ill.openurl = await @svc.oaworks.ill.openurl (options.config ? options.from), metadata
-      try res.ill.subscription = await @svc.oaworks.ill.subscription (options.config ? options.from), metadata, res.refresh
+    if (metadata.doi or metadata.title) and (options.from or options.config?) and (options.plugin is 'instantill' or options.ill is true)
+      try res.ill ?= subscription: await @svc.oaworks.ill.subscription (options.config ? options.from), metadata
     return true
   _permissions = () =>
-    if metadata.doi and (options.permissions or options.plugin is 'shareyourpaper') # don't get permissions by default now that the permissions check could take longer
-      res.permissions ?= await @svc.oaworks.permissions metadata, (options.config ? options.from)
+    if not res.url and metadata.doi and (options.permissions or options.plugin is 'shareyourpaper')
+      res.permissions ?= await @svc.oaworks.permissions metadata, options.config?.ror, false
     return true
   await Promise.all [_ill(), _permissions()]
 
-  # certain user-provided search values are allowed to override any that we could find ourselves, and we note that we got these from the user
-  # is it worth keeping this in the backend or just have the embed handle it now that embed handles redirects to ill requests?
-  # is this ONLY relevant to ILL? or anything else?
+  # certain user-provided search values are allowed to override any that we could find ourselves
+  # TODO is this ONLY relevant to ILL? or anything else?
   for uo in ['title','journal','year','doi']
     metadata[uo] = options[uo] if options[uo] and options[uo] isnt metadata[uo]
 
-  res.metadata = metadata
+  res.metadata = metadata # if JSON.stringify(metadata) isnt '{}'
   return res
 
 
@@ -151,9 +164,15 @@ P.svc.oaworks.citation = (citation) ->
     try citation = JSON.parse options.citation
 
   if typeof citation is 'object'
-    res.doi ?= citation.DOI ? citation.doi
-    try res.type ?= citation.type ? citation.genre
+    res.doi = citation.DOI ? citation.doi
+    res.pmid = citation.pmid if citation.pmid
+    res.pmcid = citation.pmcid if citation.pmcid
+    try res.type = citation.type ? citation.genre
     res.issn ?= citation.ISSN ? citation.issn ? citation.journalInfo?.journal?.issn ? citation.journal?.issn
+    if citation.journalInfo?.journal?.eissn?
+      res.issn ?= []
+      res.issn = [res.issn] if typeof res.issn is 'string'
+      res.issn.push citation.journalInfo.journal.eissn
     res.issn ?= citation.journal_issns.split(',') if citation.journal_issns
     try res.title ?= citation.title[0] if Array.isArray citation.title
     try
@@ -161,86 +180,98 @@ P.svc.oaworks.citation = (citation) ->
         res.title += ': ' + citation.subtitle[0]
     res.title ?= citation.dctitle ? citation.bibjson?.title
     res.title ?= citation.title if citation.title not in [404,'404']
-    res.title = res.title.replace(/\s\s+/g,' ').trim() if res.title
+    res.title = res.title.replace(/\s\s+/g,' ').trim() if typeof res.title is 'string'
     try res.journal ?= citation['container-title'][0]
     try res.shortname = citation['short-container-title'][0]
+    try res.shortname = citation.journalInfo.journal.isoabbreviation ? citation.journalInfo.journal.medlineAbbreviation
     res.journal ?= citation.journal_name ? citation.journalInfo?.journal?.title ? citation.journal?.title
     res.journal = citation.journal.split('(')[0].trim() if citation.journal
     res.publisher ?= citation.publisher
+    res.publisher = res.publisher.trim() if res.publisher
     try res.issue ?= citation.issue if citation.issue?
+    try res.issue ?= citation.journalInfo.issue if citation.journalInfo?.issue
     try res.volume ?= citation.volume if citation.volume?
+    try res.volume ?= citation.journalInfo.volume if citation.journalInfo?.volume
     try res.page ?= citation.page.toString() if citation.page?
+    res.page = citation.pageInfo.toString() if citation.pageInfo
     for key in ['title','journal']
       if not res[key] and typeof citation[key] is 'string' and (citation[key].charAt(0).toUpperCase() isnt citation[key].charAt(0) or citation[key].toUpperCase() is citation.key or citation[key].toLowerCase() is citation.key)
-        res[key] = citation[key].charAt(0).toUpperCase() + citation[key].slice(1)
-    if not res.year? and (citation.year? or citation.published? or citation.published_date?)
+        res[key] = citation[key].charAt(0).toUpperCase() + citation[key].slice 1
+    res.abstract = citation.abstract ? citation.abstractText if citation.abstract or citation.abstractText
+    try res.abstract = @convert.html2txt(res.abstract).replace(/\n/g,' ').replace('Abstract ','') if res.abstract
+
+    res.year = citation.year if citation.year
+    try res.year ?= citation.journalInfo.yearOfPublication.trim()
+    for p in ['published-print', 'journal-issue.published-print', 'journalInfo.printPublicationDate', 'firstPublicationDate', 'journalInfo.electronicPublicationDate', 'published', 'published_date', 'issued', 'published-online', 'created', 'deposited', 'indexed']
+      if rt = citation[p] ? citation['journal-issue']?[p.replace('journal-issue.','')] ? citation['journalInfo']?[p.replace('journalInfo.','')]
+        rt = rt.toString() if typeof rt is 'number'
+        try rt = rt['date-time'].toString() if typeof rt isnt 'string'
+        if typeof rt isnt 'string'
+          try
+            for dpt in rt['date-parts'][0]
+              dpt[k] = '-01' if typeof dpt[k] not in ['number', 'string']
+            rt = rt['date-parts'][0].join '-'
+        if typeof rt is 'string'
+          res.published = if rt.indexOf('T') isnt -1 then rt.split('T')[0] else rt
+          res.published = res.published.replace(/\//g, '-').replace(/-(\d)-/g, "-0$1-").replace /-(\d)$/, "-0$1"
+          res.published += '-01' if res.published.indexOf('-') is -1
+          res.published += '-01' if res.published.split('-').length isnt 3
+          res.year ?= res.published.split('-')[0]
+          delete res.published if res.published.split('-').length isnt 3
+          delete res.year if res.year.length isnt 4
+        break if res.published
+
+    if not res.author? and (citation.author? or citation.z_authors? or citation.authorList?.author)
+      res.author ?= []
       try
-        for ms in (citation.year ? citation.published ? citation.published_date).split(if (citation.year ? citation.published ? citation.published_date).indexOf('/') isnt -1 then '/' else '-')
-          res.year ?= ms if ms.length is 4
-      try
-        delete res.year if typeof res.year isnt 'number' and (res.year.length isnt 4 or res.year.replace(/[0-9]/gi,'').length isnt 0)
-      res.year = res.year.toString() if typeof res.year is 'number'
-    if not res.year? and not res.published?
-      for p in ['published-print','journal-issue.published-print','issued','published-online','created','deposited','indexed']
-        try
-          if rt = citation[p] ? citation['journal-issue']?[p.replace('journal-issue.','')]
-            if typeof rt['date-time'] is 'string' and rt['date-time'].indexOf('T') isnt -1 and rt['date-time'].split('T')[0].split('-').length is 3
-              res.published ?= rt['date-time'].split('T')[0]
-              res.year ?= res.published.split('-')[0]
-              break
-            else if rt['date-parts']? and rt['date-parts'].length and Array.isArray(rt['date-parts'][0]) and rt['date-parts'][0].length
-              rp = rt['date-parts'][0]
-              pbl = rp[0].toString()
-              if pbl.length > 2 # needs to be a year
-                res.year ?= pbl
-                if rp.length is 1
-                  pbl += '-01-01'
-                else
-                  m = false
-                  d = false
-                  if not isNaN(parseInt(rp[1])) and parseInt(rp[1]) > 12
-                    d = rp[1].toString()
-                  else
-                    m = rp[1].toString()
-                  if rp.length is 2
-                    if d isnt false
-                      m = rp[2].toString()
-                    else
-                      d = rp[2].toString()
-                  m = if m is false then '01' else if m.length is 1 then '0' + m else m
-                  d = if d is false then '01' else if d.length is 1 then '0' + d else d
-                  pbl += '-' + m + '-' + d
-                res.published ?= pbl
-                break
-    try
-      if not res.author? and (citation.author? or citation.z_authors?)
-        res.author ?= []
-        # what formats do we want for authors? how much metadata about them?
-        for a in citation.author ? citation.z_authors
+        for a in citation.author ? citation.z_authors ? citation.authorList.author
           if typeof a is 'string'
-            res.author.push {name: a}
+            res.author.push name: a
           else
+            au = {}
+            au.given = a.given ? a.firstName
+            au.family = a.family ? a.lastName
+            au.name = (if au.given then au.given + ' ' else '') + (au.family ? '')
             if a.affiliation?
-              a.affiliation = a.affiliation[0] if Array.isArray a.affiliation
-              a.affiliation = {name: a.affiliation} if typeof a.affiliation is 'string'
-            res.author.push a
-    #for i of citation # should we grab everything else too? probably not
-    #  res[i] ?= citation[i] if typeof citation[i] is 'string' or Array.isArray citation[i]
+              try
+                for aff in (if au.affiliation then (if Array.isArray(a.affiliation) then a.affiliation else [a.affiliation]) else au.authorAffiliationDetailsList.authorAffiliation)
+                  if typeof aff is 'string'
+                    au.affiliation ?= []
+                    au.affiliation.push name: aff.replace(/\s\s+/g,' ').trim()
+                  else if typeof aff is 'object' and (aff.name or aff.affiliation)
+                    au.affiliation ?= []
+                    au.affiliation.push name: (aff.name ? aff.affiliation).replace(/\s\s+/g,' ').trim()
+            res.author.push au
+
+    try res.subject = citation.subject if citation.subject? and citation.subject.length and typeof citation.subject[0] is 'string'
+    try res.keyword = citation.keywordList.keyword if citation.keywordList?.keyword? and citation.keywordList.keyword.length and typeof citation.keywordList.keyword[0] is 'string'
+    try
+      for m in [...(citation.meshHeadingList?.meshHeading ? []), ...(citation.chemicalList?.chemical ? [])]
+        res.keyword ?= []
+        mn = if typeof m is 'string' then m else m.name ? m.descriptorName
+        res.keyword.push mn if typeof mn is 'string' and mn and mn not in res.keyword
+
+    res.licence = citation.license.trim().replace(/ /g,'-') if typeof citation.license is 'string'
+    res.licence = citation.licence.trim().replace(/ /g,'-') if typeof citation.licence is 'string'
     try res.licence ?= citation.best_oa_location.license if citation.best_oa_location?.license and citation.best_oa_location?.license isnt null
-    if Array.isArray citation.assertion
-      for a in citation.assertion
-        if a.label is 'OPEN ACCESS' and a.URL and a.URL.indexOf('creativecommons') isnt -1
-          res.licence ?= a.URL # and if the record has a URL, it can be used as an open URL rather than a paywall URL, or the DOI can be used
-    if Array.isArray citation.license
-      for l in citation.license ? []
-        if l.URL and l.URL.indexOf('creativecommons') isnt -1 and (not rec.licence or rec.licence.indexOf('creativecommons') is -1)
-          res.licence ?= l.URL
-    if typeof citation.license is 'string'
-      res.licence ?= citation.license
+    if not res.licence
+      if Array.isArray citation.assertion
+        for a in citation.assertion
+          if a.label is 'OPEN ACCESS' and a.URL and a.URL.indexOf('creativecommons') isnt -1
+            res.licence ?= a.URL # and if the record has a URL, it can be used as an open URL rather than a paywall URL, or the DOI can be used
+      if Array.isArray citation.license
+        for l in citation.license ? []
+          if l.URL and l.URL.indexOf('creativecommons') isnt -1 and (not res.licence or res.licence.indexOf('creativecommons') is -1)
+            res.licence ?= l.URL
     if typeof res.licence is 'string' and res.licence.indexOf('/licenses/') isnt -1
-      res.licence = 'cc-' + rec.licence.split('/licenses/')[1].replace(/$\//,'').replace(/\//g, '-')
+      res.licence = 'cc-' + res.licence.split('/licenses/')[1].replace(/$\//,'').replace(/\//g, '-').replace(/-$/, '')
+
     # if there is a URL to use but not open, store it as res.paywall
-    res.url ?= citation.best_oa_location?.url_for_pdf ? citation.best_oa_location?.url ? citation.url # is this always an open URL? check the sources, and check where else the open URL could be. Should it be blacklist checked and dereferenced?
+    res.url ?= citation.best_oa_location?.url_for_pdf ? citation.best_oa_location?.url #? citation.url # is this always an open URL? check the sources, and check where else the open URL could be. Should it be blacklist checked and dereferenced?
+    if not res.url and citation.fullTextUrlList?.fullTextUrl? # epmc fulltexts
+      for cf in citation.fullTextUrlList.fullTextUrl
+        if cf.availabilityCode.toLowerCase() in ['oa','f'] and (not res.url or (cf.documentStyle is 'pdf' and res.url.indexOf('pdf') is -1))
+          res.url = cf.url.split('?')[0]
 
   else if typeof citation is 'string'
     try
@@ -375,8 +406,6 @@ P.svc.oaworks.citation = (citation) ->
   return res
 
 
-
-
 '''
 there would be an index called svc_oaworks_find (possibly namespaced to service name and env, or global)
 may also want to allow explicit naming of the index, not the same as the route
@@ -417,3 +446,57 @@ when .find is called, we need to know whether it is:
 
 what goes into the log as the recorded response for this sort of route?
 '''
+
+
+
+# temporary legacy wrapper for old site front page availability check
+# that page should be moved to use the new embed, like shareyourpaper
+P.svc.oaworks.availability = (params, v2) ->
+  params ?= @copy @params
+  delete @params.dom
+  if params.availability
+    if params.availability.startsWith('10.') and params.availability.indexOf('/') isnt -1
+      params.doi = params.availability
+    else if params.availability.indexOf(' ') isnt -1
+      params.title = params.availability
+    else
+      params.id = params.availability
+    delete params.availability
+  params.url = params.url[0] if Array.isArray params.url
+  if not params.test and params.url and false #await @svc.oaworks.blacklist params.url
+    params.dom = 'redacted' if params.dom
+    return status: 400
+  else
+    afnd = {data: {availability: [], requests: [], accepts: [], meta: {article: {}, data: {}}}}
+    if params?
+      afnd.data.match = params.doi ? params.pmid ? params.pmc ? params.pmcid ? params.title ? params.url ? params.id ? params.citation ? params.q
+    afnd.v2 = v2 if typeof v2 is 'object' and JSON.stringify(v2) isnt '{}' and v2.metadata?
+    afnd.v2 ?= await @svc.oaworks.find params
+    if afnd.v2?
+      afnd.data.match ?= afnd.v2.input ? afnd.v2.metadata?.doi ? afnd.v2.metadata?.title ? afnd.v2.metadata?.pmid ? afnd.v2.metadata?.pmc ? afnd.v2.metadata?.pmcid ? afnd.v2.metadata?.url
+      afnd.data.match = afnd.data.match[0] if Array.isArray afnd.data.match
+      try
+        afnd.data.ill = afnd.v2.ill
+        afnd.data.meta.article = JSON.parse(JSON.stringify(afnd.v2.metadata)) if afnd.v2.metadata?
+        afnd.data.meta.article.url = afnd.data.meta.article.url[0] if Array.isArray afnd.data.meta.article.url
+        if afnd.v2.url? and not afnd.data.meta.article.source?
+          afnd.data.meta.article.source = 'oaworks' # source doesn't play significant role any more, could prob just remove this if not used anywhere
+        if afnd.v2.url
+          afnd.data.availability.push type: 'article', url: (if Array.isArray(afnd.v2.url) then afnd.v2.url[0] else afnd.v2.url)
+      try
+        if afnd.data.availability.length is 0 and (afnd.v2.metadata.doi or afnd.v2.metadata.title or afnd.v2.meadata.url)
+          if afnd.v2.metadata.doi
+            qry = 'doi.exact:"' + afnd.v2.metadata.doi + '"'
+          else if afnd.v2.metadata.title
+            qry = 'title.exact:"' + afnd.v2.metadata.title + '"'
+          else
+            qry = 'url.exact:"' + (if Array.isArray(afnd.v2.metadata.url) then afnd.v2.metadata.url[0] else afnd.v2.metadata.url) + '"'
+          if qry
+            resp = await @fetch 'https://' + (if @S.dev then 'dev.' else '') + 'api.cottagelabs.com/service/oab/requests?q=' + qry + ' AND type:article&sort=createdAt:desc'
+            if resp?.hits?.total
+              request = resp.hits.hits[0]._source
+              rq = type: 'article', _id: request._id
+              rq.ucreated = if params.uid and request.user?.id is params.uid then true else false
+              afnd.data.requests.push rq
+    afnd.data.accepts.push({type:'article'}) if afnd.data.availability.length is 0 and afnd.data.requests.length is 0
+    return afnd

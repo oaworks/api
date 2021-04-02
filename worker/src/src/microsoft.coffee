@@ -11,7 +11,7 @@ P.src.microsoft.bing = (q, key) ->
   q ?= this?.params?.bing ? this?.params?.q ? this?.params?.query
   key ?= S.src.microsoft?.secrets?.bing?.key
   url = 'https://api.cognitive.microsoft.com/bing/v7.0/search?mkt=en-GB&count=20&q=' + q
-  res = await @fetch url, {headers: {'Ocp-Apim-Subscription-Key': key}} # TODO check how to pass the key header with fetch - and set a long cache time on it
+  res = await @fetch url, {headers: {'Ocp-Apim-Subscription-Key': key}} # TODO set a long cache time on it
   if res?.webPages?.value
     return {total: res.data.webPages.totalEstimatedMatches, data: res.data.webPages.value}
   else
@@ -29,53 +29,53 @@ P.src.microsoft.bing = (q, key) ->
 P.src.microsoft.graph = (q) ->
   # NOTE: although there are about 250m papers only about 90m have JournalId - the rest could be books, etc. Import them all?
   _append = (rec) ->
-    if rec.JournalId and j = @src.microsoft.graph.journal rec.JournalId
-      rec.journal = j
-    #if ma = @src.microsoft.graph.abstract rec.PaperId
+    if rec.JournalId
+      j = await @src.microsoft.graph.journal rec.JournalId
+      if j
+        rec.journal = j
+    #if ma = await @src.microsoft.graph.abstract rec.PaperId
     #  rec.abstract = ma
-    #rec.relation = @src.microsoft.graph._relations rec.PaperId, false, false
+    #rec.relation = await @src.microsoft.graph._relations rec.PaperId, false, false
     return rec
 
   q ?= @params.graph ? @params.doi ? @params.title ? @params
   q = q.toString() if typeof q is 'number' # an MS ID like 2517073914 may turn up as number, if so convert to string
-  if typeof q is 'string' and q.indexOf('/') isnt -1 and q.indexOf('10.') is 0 and paper = @src.microsoft.graph.paper 'Doi.exact:"' + q + '"'
-    return _append paper
-  else if typeof q is 'string' and q.indexOf(' ') is -1 and q.length is 10 and paper = @src.microsoft.graph.paper q
-    return _append paper
+  if typeof q is 'string' and q.indexOf('/') isnt -1 and q.indexOf('10.') is 0 and paper = await @src.microsoft.graph.paper 'Doi.exact:"' + q + '"'
+    return await _append paper
+  else if typeof q is 'string' and q.indexOf(' ') is -1 and q.length is 10 and paper = await @src.microsoft.graph.paper q
+    return await _append paper
   else if typeof q is 'string' and q.indexOf(' ') isnt -1
-    title = title.toLowerCase().replace(/['".,\/\^&\*;:!\?#\$%{}=\-\+_`~()]/g,' ').replace(/\s{2,}/g,' ').trim() # MAG PaperTitle is lowercased. OriginalTitle isnt
-    if res = @src.microsoft.graph.paper 'PaperTitle:"' + title + '"'
+    title = q.toLowerCase().replace(/['".,\/\^&\*;:!\?#\$%{}=\-\+_`~()]/g,' ').replace(/\s{2,}/g,' ').trim() # MAG PaperTitle is lowercased. OriginalTitle isnt
+    res = await @src.microsoft.graph.paper 'PaperTitle:"' + title + '"'
+    if res?.PaperTitle
       rt = res.PaperTitle.replace(/['".,\/\^&\*;:!\?#\$%{}=\-\+_`~()]/g,' ').replace(/\s{2,}/g,' ').trim()
       if typeof this?.tdm?.levenshtein is 'function'
-        lvs = @tdm.levenshtein title, rt, false
+        lvs = await @tdm.levenshtein title, rt, false
         longest = if lvs.length.a > lvs.length.b then lvs.length.a else lvs.length.b
         if lvs.distance < 2 or longest/lvs.distance > 10
           #res.relation = await @src.microsoft.graph._relations res.PaperId
           return res
+        else
+          return undefined
       else if title.length < (rt.length * 1.2) and (title.length > rt.length * .8)
         #res.relation = await @src.microsoft.graph._relations res.PaperId
         return res
     return undefined
   else
-    return @src.microsoft.graph.paper q
+    return await @src.microsoft.graph.paper q
   
 
 P.src.microsoft.graph.paper = (q) ->
-  try
-    # for now just get from old index
-    url = 'https://dev.lvatn.com/use/microsoft/graph/paper/?q=' + q
-    res = await @fetch url
-    return res.hits.hits[0]._source
-  catch
-    return undefined
+  # for now just get from old index
+  url = 'https://dev.api.cottagelabs.com/use/microsoft/graph/paper/?q=' + q
+  res = await @fetch url
+  return if res?.hits?.total then res.hits.hits[0]._source else undefined
 
 P.src.microsoft.graph.journal = (q) ->
-  try
-    # for now just get from old index
-    url = 'https://dev.lvatn.com/use/microsoft/graph/journal/' + q
-    return await @fetch url
-  catch
-    return undefined
+  # for now just get from old index
+  url = 'https://dev.api.cottagelabs.com/use/microsoft/graph/journal/' + q
+  res = await @fetch url
+  return res
 
 
 '''

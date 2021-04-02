@@ -1,0 +1,23 @@
+
+'''
+import { spawn } from 'child_process'
+
+P.run = (path='snake_example.py', input=[1,2,3], cmd='python', limit=1000) ->
+  path = process.env.PWD + '/' + path if path.indexOf('/') isnt 0
+  sp = spawn cmd, [path]
+  output = ''
+  done = false
+  sp.stdout.on 'data', (data) -> output += data
+  sp.stdout.on 'end', () -> done = true
+
+  sp.stdin.write JSON.stringify input
+  sp.stdin.end()
+
+  while not done
+    await @sleep limit
+
+  try
+    return JSON.parse output
+  catch
+    return output
+'''

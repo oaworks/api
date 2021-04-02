@@ -7,7 +7,7 @@ P.src.oadoi = (doi) ->
   else
     return undefined
     
+#P.src.oadoi._kv = false
 P.src.oadoi._index = true
-P.src.oadoi._kv = false
 P.src.oadoi._key = 'doi'
 

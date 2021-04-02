@@ -82,7 +82,7 @@ API.add 'service/oab/request/:rid',
               html: sub.content
         return oab_request.get r._id
       else
-        return 404
+        return undefined
   delete:
     roleRequired:'openaccessbutton.user'
     action: () ->

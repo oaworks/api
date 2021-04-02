@@ -1,11 +1,12 @@
 {
   "name": "Paradigm",
-  "version": "4.0.0",
+  "version": "5.3.1",
   "description": "A radically distributed API",
   "author": "Mark MacGillivray",
   "email": "mark@cottagelabs.com",
   "keywords": [
-    "api"
+    "api",
+    "cloudflare"
   ],
   "homepage": "https://github.com/oaworks/paradigm",
   "repository": {
@@ -28,8 +29,6 @@
     "workers-preview": "^1.0.6"
   },
   "dependencies": {
-    "moment": "^2.29.1",
-    "nanoid": "^3.1.16",
-    "underscore": "^1.11.0"
+    "nanoid": "^3.1.16"
   }
 }

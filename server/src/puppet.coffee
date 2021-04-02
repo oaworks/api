@@ -8,7 +8,6 @@ import puppeteer from 'puppeteer'
 # sudo apt-get install google-chrome-stable
 # and check that which google-chrome does give the path used below
 P.puppet = (url, proxy, headers, idle=false) ->
-  console.log @params.url
   try url ?= @params.url
   return '' if not url? or typeof url isnt 'string'
   if url.indexOf('.pdf') isnt -1 or url.indexOf('/pdf') isnt -1 or url.indexOf('.doc') isnt -1
@@ -37,9 +36,10 @@ P.puppet = (url, proxy, headers, idle=false) ->
     # may be worth always waiting for idle, and having the idle option default to true and only override with false when necessary
     popts.waitUntil = if typeof idle is 'string' then idle else if idle then ['load','domcontentloaded','networkidle0','networkidle2'] else 'domcontentloaded'
     opened = await page.goto url, popts
-    content = await page.evaluate(() => new XMLSerializer().serializeToString(document.doctype) + '\n' + document.documentElement.outerHTML)
-    # NOTE may want to change the above if trying to use puppeteer to access XML or other such things
-    #content = await page.evaluate(() => document.querySelector('*').outerHTML)
+    try
+      content = await page.evaluate(() => new XMLSerializer().serializeToString(document.doctype) + '\n' + document.documentElement.outerHTML)
+    catch
+      content = await page.evaluate(() => document.querySelector('*').outerHTML)
     await page.close()
     await browser.close()
     try process.kill(pid) if pid

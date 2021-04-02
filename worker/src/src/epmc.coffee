@@ -15,6 +15,7 @@
 # can search publication date via FIRST_PDATE:1995-02-01 or FIRST_PDATE:[2000-10-14 TO 2010-11-15] to get range
 
 P.src.epmc = (qrystr, from, size) ->
+  qrystr ?= @params.epmc ? @params.doi
   qrystr = 'DOI:' + qrystr if qrystr.indexOf('10.') is 0 and qrystr.indexOf(' ') is -1 and qrystr.split('/').length is 2 
   url = 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=' + qrystr + '%20sort_date:y&resulttype=core&format=json'
   url += '&pageSize=' + size if size? #can handle 1000, have not tried more, docs do not say
@@ -27,21 +28,24 @@ P.src.epmc = (qrystr, from, size) ->
   return ret
 
 P.src.epmc.pmid = (ident) ->
-  res = @src.epmc 'EXT_ID:' + ident + ' AND SRC:MED'
+  ident ?= @params.pmid
+  res = await @src.epmc 'EXT_ID:' + ident + ' AND SRC:MED'
   return if res.total then res.data[0] else undefined
 
 P.src.epmc.pmc = (ident) ->
-  res = @src.epmc 'PMCID:PMC' + ident.toLowerCase().replace 'pmc', ''
+  res = await @src.epmc 'PMCID:PMC' + ident.toLowerCase().replace 'pmc', ''
   return if res.total then res.data[0] else undefined
 
 P.src.epmc.title = (title) ->
+  title ?= @params.title
   try title = title.toLowerCase().replace(/(<([^>]+)>)/g,'').replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' ')
-  res = @src.epmc 'title:"' + title + '"'
+  res = await @src.epmc 'title:"' + title + '"'
   return if res.total then res.data[0] else undefined
 
 P.src.epmc.licence = (pmcid, rec, fulltext) ->
+  pmcid ?= @params.licence ? @params.pmcid
   maybe_licence
-  res = @src.epmc('PMC' + pmcid.toLowerCase().replace('pmc','')) if pmcid and not rec
+  res = await @src.epmc('PMC' + pmcid.toLowerCase().replace('pmc','')) if pmcid and not rec
   if res?.total > 0 or rec or fulltext
     rec ?= res.data[0]
     pmcid = rec.pmcid if not pmcid and rec
@@ -50,27 +54,27 @@ P.src.epmc.licence = (pmcid, rec, fulltext) ->
       licinapi.licence = licinapi.licence.replace(/ /g,'-') if licinapi.licence.indexOf('cc') is 0
       return licinapi
       
-    fulltext = @src.epmc.xml(pmcid) if not fulltext and pmcid
+    fulltext = await @src.epmc.xml(pmcid) if not fulltext and pmcid
     if fulltext isnt 404 and typeof fulltext is 'string' and fulltext.indexOf('<') is 0 and @svc.lantern?
-      licinperms = @svc.lantern.licence undefined,undefined,fulltext,'<permissions>','</permissions>'
+      licinperms = await @svc.lantern.licence undefined, undefined, fulltext, '<permissions>', '</permissions>'
       if licinperms.licence?
         licinperms.source = 'epmc_xml_permissions'
         return licinperms
 
-      licanywhere = @svc.lantern.licence undefined,undefined,fulltext
+      licanywhere = await @svc.lantern.licence undefined, undefined, fulltext
       if licanywhere.licence?
         licanywhere.source = 'epmc_xml_outside_permissions'
         return licanywhere
 
       if fulltext.indexOf('<permissions>') isnt -1
-        maybe_licence = {licence:'non-standard-licence',source:'epmc_xml_permissions'}
+        maybe_licence = licence: 'non-standard-licence', source: 'epmc_xml_permissions'
 
-    if false #pmcid and not noui and @svc?.lantern?.licence?
-      # TODO need a way to rate limit and run puppeteer
-      url = 'https://europepmc.org/articles/PMC' + pmcid.toLowerCase().replace('pmc','')
-      pg = P.job.limit 3000, 'P.http.puppeteer', [url], "EPMCUI"
+    if false #pmcid and @svc?.lantern?.licence?
+      # TODO need a 3s rate limit
+      url = 'https://europepmc.org/articles/PMC' + pmcid.toLowerCase().replace 'pmc', ''
+      pg = await @puppet url
       if typeof pg is 'string'
-        try licsplash = P.service.lantern.licence url, false, pg
+        try licsplash = await @svc.lantern.licence url, false, pg
         if licsplash?.licence?
           licsplash.source = 'epmc_html'
           return licsplash
@@ -80,45 +84,41 @@ P.src.epmc.licence = (pmcid, rec, fulltext) ->
     return false
 
 P.src.epmc.xml = (pmcid) ->
+  pmcid ?= @params.xml ? @params.pmcid
   pmcid = pmcid.toLowerCase().replace('pmc','') if pmcid
-  url = 'https://www.ebi.ac.uk/europepmc/webservices/rest/PMC' + pmcid + '/fullTextXML'
-  r = await @fetch url
-  return r.content
+  return @fetch 'https://www.ebi.ac.uk/europepmc/webservices/rest/PMC' + pmcid + '/fullTextXML'
 
-P.src.epmc.aam = (pmcid, rec, fulltext, noui) ->
+P.src.epmc.aam = (pmcid, rec, fulltext) ->
+  pmcid ?= @params.xml ? @params.pmcid
   if typeof fulltext is 'string' and fulltext.indexOf('pub-id-type=\'manuscript\'') isnt -1 and fulltext.indexOf('pub-id-type="manuscript"') isnt -1
-    return {aam:true,info:'fulltext'}
+    return aam:true, info:'fulltext'
   else
     # if EPMC API authMan / epmcAuthMan / nihAuthMan become reliable we can use those instead
     #rec = @src.epmc.search('PMC' + pmcid.toLowerCase().replace('pmc',''))?.data?[0] if pmcid and not rec
     pmcid ?= rec?.pmcid
     if pmcid
-      fulltext = @src.epmc.xml pmcid
+      fulltext = await @src.epmc.xml pmcid
       if typeof fulltext is 'string' and fulltext.indexOf('pub-id-type=\'manuscript\'') isnt -1 and fulltext.indexOf('pub-id-type="manuscript"') isnt -1
-        resp = {aam:true,info:'fulltext'}
-        return resp
-      else if false #not noui
-        url = 'https://europepmc.org/articles/PMC' + pmcid.toLowerCase().replace('pmc','')
-        pg = P.job.limit 3000, 'P.http.puppeteer', [url], "EPMCUI"
-        if pg is 404
-          resp = {aam:false,info:'not in EPMC (404)'}
-          return resp
-        else if pg is 403
-          return {info: 'EPMC blocking access, AAM status unknown'}
+        return aam: true, info:'fulltext'
+      else if false
+        # NOTE to enable this it needs a 3s rate limit
+        pg = await @puppet 'https://europepmc.org/articles/PMC' + pmcid.toLowerCase().replace 'pmc', ''
+        if not pg?
+          return aam: false, info: 'not in EPMC (404)'
         else if typeof pg is 'string'
           s1 = 'Author Manuscript; Accepted for publication in peer reviewed journal'
           s2 = 'Author manuscript; available in PMC'
           s3 = 'logo-nihpa.gif'
           s4 = 'logo-wtpa2.gif'
           if pg.indexOf(s1) isnt -1 or pg.indexOf(s2) isnt -1 or pg.indexOf(s3) isnt -1 or pg.indexOf(s4) isnt -1
-            resp = {aam:true,info:'splashpage'}
-            return resp
+            return aam:true, info: 'splashpage'
           else
-            resp = {aam:false,info:'EPMC splashpage checked, no indicator found'}
-            return resp
+            return aam: false, info:'EPMC splashpage checked, no indicator found'
+        else if typeof pg is 'object' and pg.status is 403
+          return info: 'EPMC blocking access, AAM status unknown'
         else if pg?
-          return {info: 'EPMC was accessed but aam could not be decided from what was returned'}
+          return info: 'EPMC was accessed but aam could not be decided from what was returned'
         else
-          return {info: 'EPMC was accessed nothing was returned, so aam check could not be performed'}
-  return {aam:false,info:''}
+          return info: 'EPMC was accessed nothing was returned, so aam check could not be performed'
+  return aam: false, info: ''
 

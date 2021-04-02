@@ -8,9 +8,10 @@
 # store a login token at auth/token/:TOKEN (value is email, or maybe email hash) (autoexpire login tokens at 15mins 900s)
 # and store a resume token at auth/resume/:UID/:RESUMETOKEN (value is a timestamp) (autoexpire resume tokens at about six months 15768000s, but rotate them on non-cookie use)
 
+# TODO check how system header auth should affect checks on auth and group/role activities further down the stack
+# ideally should be ok to run anything after system hand-off that already got auth'd at top level, but check
+
 P.auth = (key, val) ->
-  # TODO add a check for a system header that the workers can pass to indicate they're already authorised
-  # should this be here and/or in roles, or in the main api file? and what does it return?
   try return true if @S.name and @S.system and @headers['x-' + S.name + '-system'] is @S.system
   
   #if key? and val?
@@ -19,8 +20,6 @@ P.auth = (key, val) ->
   if typeof key is 'string'
     return await @kv 'user/' + key
   
-  # TODO ensure this only does kv lookups (which cost money) when the necessary values are available
-  # that way it can maybe just run on every request without impact if nothing provided
   if not @params.access_token? or not user = await @oauth()
     if @params.token and eml = await @kv 'auth/token/' + @params.token, '' # true causes delete after found
       if uid = await @kv 'user/email/' + eml

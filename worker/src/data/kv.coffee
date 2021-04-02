@@ -3,11 +3,48 @@
 # Keys are always returned in lexicographically sorted order according to their UTF-8 bytes.
 # NOTE these need to be awaited when necessary, as the val will be a Promise
 
-# should it be possible to call kv context from background at all?
-# if ONLY on background with no worker, something needs to be able to write to kv, or a stand-in of kv
+# TODO test and enable these alternates for when kv is remotely accessed, or wrapped over the index
+'''if typeof S.kv is 'string' and S.kv.startsWith 'http' and not global[S.kv]
+  # kv is a URL back to the worker to access cloudflare kv
+  global[S.kv] = {}
+  global[S.kv].get = (key) ->
+    return await P.fetch S.kv + '/' + key
+  global[S.kv].getWithMetadata = (key) ->
+    ret = await P.fetch S.kv + '/' + key
+    return value: ret, metadata: {} # can't get the metadata remotely
+  global[S.kv].put = (key, data) ->
+    return await P.fetch S.kv + '/' + key, body: data
+  global[S.kv].delete = (key) ->
+    return await P.fetch S.kv + '/' + key, body: ''
+  global[S.kv].list = (prefix, cursor) ->
+    return await P.fetch S.kv + '/list' + (if prefix then '/' + prefix else '') + (if cursor then '?cursor=' + cursor else '')
 
-# if no kv, use an ES index if available as a simple kv store
-# later can also write in a redis fallback here#
+if typeof S.kv isnt 'string' and S.kv isnt false
+  global[S.kv] = {}
+  global[S.kv].get = (key) ->
+    ret = await P.index 'kv/' + key.replace /\//g, '_'
+    try ret.val = JSON.parse ret.val
+    return ret.val
+  global[S.kv].getWithMetadata = (key) ->
+    ret = await P.index 'kv/' + key.replace /\//g, '_'
+    try ret.val = JSON.parse ret.val
+    return value: ret.val, metadata: {} # can't get the metadata remotely
+  global[S.kv].put = (key, data) ->
+    return await P.index 'kv/' + key.replace(/\//g, '_'), key: key, val: JSON.stringify data
+  global[S.kv].delete = (key) ->
+    return await P.index 'kv/' + key.replace(/\//g, '_'), ''
+  global[S.kv].list = (prefix, cursor) ->
+    # cursor on real kv isnt a from count, but use that for now
+    # need to change this to use each properly on index, as from will only go as far as 10k
+    ret = await P.index 'kv', (if prefix then 'key:' + prefix + '*' else '*'), {sort: {key: {order: 'asc'}}, from: cursor}
+    res = keys: []
+    try
+      res.cursor: (cursor ? 0) + 1000
+      res.list_complete = true if res.cursor >= ret.hits.total
+      for k in ret.hits.hits
+        res.keys.push k._source.key
+    return res'''
+
 
 P.kv = (key, val, ttle, metadata, type) ->
   # val can be string, stream, buffer. The type gets inferred.
@@ -36,7 +73,7 @@ P.kv = (key, val, ttle, metadata, type) ->
   if typeof key is 'object' and not val?
     val = key
     key = val._id ? await @uid()
-  if key? and @S.kv and global[@S.kv]?
+  if key? and @S.kv and global[@S.kv] # startup checks this and removes @S.kv if there is no matching global, but check again anyway, in case it is set by a running function #(@S.kv.indexOf('http') is 0 or global[@S.kv]?)
     if val? and val isnt ''
       m = metadata: metadata
       if typeof ttle is 'number'
@@ -49,23 +86,37 @@ P.kv = (key, val, ttle, metadata, type) ->
           ttle = await @kv key # get the current state of the record
         if typeof ttle is 'object' # this is an update to be merged in
           val[k] ?= ttle[k] for k of ttle # handle dot notations?
+      #if @S.kv.indexOf('http') is 0 # has to be a URL route back to the worker
+      #  @fetch @S.kv + '/' + key, body: val # send m as well?
+      #else
       @waitUntil global[@S.kv].put key, (if typeof val is 'object' then JSON.stringify(val) else val), m
       return val
     else
+      #if @S.kv.indexOf('http') is 0
+      #  return await @fetch @S.kv + '/' + key # any way or need to get metadata here too?
+      #else
       {value, metadata} = await global[@S.kv].getWithMetadata key, type
       try value = JSON.parse value
       try metadata = JSON.parse metadata
       if val is ''
+        #if @S.kv.indexOf('http') is 0
+        #  @fetch @S.kv + '/' + key, body: ''
+        #else
         @waitUntil global[@S.kv].delete key # remove a key after retrieval
       return if metadata is true then {value: value, metadata: metadata} else value
   else
     return undefined
 
+P.kv.list = (prefix, cursor) ->
+  try prefix ?= @params.kv ? @params.prefix ? @params.list
+  try cursor ?= @params.cursor
+  return await global[@S.kv].list prefix: prefix, cursor: cursor
+
 # NOTE that count on kv is expensive because it requires listing everything
 P.kv.count = (prefix) ->
   counter = 0
   if @S.kv and global[@S.kv]?
-    prefix ?= @params.kv ? @params.prefix
+    prefix ?= @params.kv ? @params.prefix ? @params.count
     complete = false
     while not complete
       ls = await global[@S.kv].list prefix: prefix, cursor: cursor
@@ -92,9 +143,9 @@ P.kv._each = (prefix, fn, size) ->
         else if fn?
           @waitUntil @kv k.name, fn
         else
-          rs = await @kv k.name
-          rs.id ?= k.name if rs?
-          res.push rs
+          if rs = await @kv k.name
+            rs._id ?= k.name # worthwhile?
+            res.push rs
       complete = if size and counter is size then true else ls.list_complete
   return res
 

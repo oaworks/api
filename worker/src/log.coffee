@@ -5,71 +5,90 @@ S.log ?= {}
 # what about a param to pass to avoid logging?
 
 P.log = (msg) ->
-  store = not msg? # an empty call to log stores everything in the _logs list
+  if @S.log isnt false
+    store = not msg? # an empty call to log stores everything in the _logs list
+    
+    if typeof msg is 'string'
+      if msg.indexOf('/') isnt -1 and msg.indexOf(' ') is -1
+        msg = fn: msg
+      else
+        msg = msg: msg
+    else if Array.isArray msg
+      @_logs.push(l) for l in msg
+      msg = undefined
+  
+    if not msg?
+      if @parts.length is 1 and @parts[0] is 'log' # should a remote log be allowed to send to a sub-route URL as an ID? maybe with particular auth?
+        # receive a remote log
+        msg = if typeof @body is 'object' then {logs: @body} else @params # bunch of logs sent in as POST body, or else just params
+        msg.fn ?= @params.log # the fn, if any, would be in params.log (because @fn would just be log)
+      msg ?= {}
+      try
+        msg.request =
+          url: @request.url
+          method: @request.method
+      try msg.request.body = @body?
+      try
+        msg.request.cf =
+          colo: @request.cf.colo
+          country: @request.cf.country
+      try
+        msg.request.headers =
+          ip: @headers['x-real-ip']
+          'user-agent': @headers['user-agent']
+          referer: @headers.referer
+      try
+        msg.fn ?= @fn
+        msg.refresh = @refresh
+        msg.parts = @parts
+        msg.completed = @completed
+        msg.cached = @cached
+      try
+        # don't stringify the whole obj, allow individual keys, but make them all strings to avoid mapping clashes
+        msg.params = {}
+        for p of @params
+          msg.params[p] = if typeof @params[p] is 'string' then @params[p] else JSON.stringify @params[p]
+      try msg.apikey = @headers.apikey? or @headers['x-apikey']? # only record if apikey was provided or not
+      try msg.user = @user?._id
+      msg.unauthorised = true if @unauthorised
+    else if typeof msg is 'object' and msg.res and msg.args # this indicates the fn had _diff true
+      try # find a previous log for the same thing and if it's different add a diff: true to the log of this one. Or diff: false if same, to track that it was diffed
+        prev = await @index 'log', 'args:"' + msg.args # TODO what if it was a diff on a main log event though? do all log events have child log events now? check. and check what args/params should be compared for diff
+        msg.diff = prev.hits.hits[0]._source.res isnt msg.res
+        # if msg.diff, send an email alert? Or have schedule pick up on those later?
 
-  if typeof msg is 'string'
-    if msg.indexOf('/') isnt -1 and msg.indexOf(' ') is -1
-      msg = fn: msg
+    if store
+      msg.logs ?= []
+      if Array.isArray(this?._logs) and @_logs.length
+        for l in @_logs
+          #msg.msg ?= l.msg
+          msg.alert ?= l.alert
+          msg.notify ?= l.notify
+          msg.logs.push l
+      msg._createdAt ?= Date.now()
+      msg.name ?= S.name
+      msg.version ?= S.version
+      msg.env ?= S.env
+      msg.base = @base
+      msg.bg = true if @S.bg is true
+      msg.system = true if @system is true
+      msg.scheduled = true if @scheduled is true
+      try
+        msg.started = @started
+        msg.took = Date.now() - @started
+      mid = 'log/' + (@rid ? await @uid())
+      if @S.bg is true or @S.kv is false
+        if not indexed = await @index mid, msg
+          await @index 'log', {}
+          @index mid, msg
+      else
+        @kv mid, msg
     else
-      msg = msg: msg
-  else if Array.isArray msg
-    @_logs.push(l) for l in msg
-    msg = undefined
-
-  if not msg?
-    if @parts.length is 1 and @parts[0] is 'log' # should a remote log be allowed to send to a sub-route URL as an ID? maybe with particular auth?
-      # receive a remote log
-      msg = if typeof @body is 'object' then {logs: @body} else @params # bunch of logs sent in as POST body, or else just params
-      msg.fn ?= @params.log # the fn, if any, would be in params.log (because @fn would just be log)
-    msg ?= {}
-    try
-      msg.request =
-        url: @request.url
-        method: @request.method
-    try msg.request.body = @body?
-    try
-      msg.request.cf =
-        colo: @request.cf.colo
-        country: @request.cf.country
-    try
-      msg.request.headers =
-        ip: @headers['x-real-ip']
-        'user-agent': @headers['user-agent']
-        referer: @headers.referer
-    try
-      msg.fn ?= @fn
-      msg.params = @params
-      msg.refresh = @refresh
-      msg.parts = @parts
-      msg.completed = @completed
-      msg.cached = @cached
-    try msg.apikey = @headers.apikey? or @headers['x-apikey']? # only record if apikey was provided or not
-    try msg.user = @user?._id
-
-  if store
-    msg.logs ?= []
-    if Array.isArray(this?._logs) and @_logs.length
-      for l in @_logs
-        #msg.msg ?= l.msg
-        msg.alert ?= l.alert
-        msg.notify ?= l.notify
-        msg.logs.push l
-    msg.createdAt ?= Date.now()
-    msg.name ?= S.name
-    msg.version ?= S.version
-    msg.env ?= S.env
-    try
-      msg.started = @started
-      msg.took = Date.now() - @started
-    msg._id = 'log/' + (@rid ? @uid())
-    @kv msg
-  else
-    @_logs.push msg
-
-  if @S.log is false or @S.bg is true # is this useful?
-    console.log 'Server not logging:'
+      @_logs.push msg
+  else if @S.dev and @S.bg is true
     console.log msg
 
+P.log._schedule = 'log'
 
 P.log.schedule = () ->
   # this should become _schedule but for now is not so I can manually trigger it for testing

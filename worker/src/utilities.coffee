@@ -2,14 +2,35 @@
 import { customAlphabet } from 'nanoid'
 
 P.uid = (r) ->
+  r ?= this?.params?.len ? this?.params?.length ? this?.params?.size ? this?.params?.uid ? 21
+  if typeof r is 'string'
+    rs = parseInt r
+    r = if isNaN(rs) then undefined else rs
   # have to use only lowercase for IDs, because other IDs we receive from users such as DOIs
   # are often provided in upper OR lowercase forms, and they are case-insensitive, so all IDs
   # will be normalised to lowercase. This increases the chance of an ID collision, but still, 
   # without uppercases it's only a 1% chance if generating 100) IDs per second for 131000 years.
-  nanoid = customAlphabet (@params.alphabet ? '0123456789abcdefghijklmnopqrstuvwxyz-'), @params.len ? @params.length ? @params.size ? @params.uid ? 21
+  nanoid = customAlphabet (this?.params?.alphabet ? '0123456789abcdefghijklmnopqrstuvwxyz'), r
   return nanoid()
-
 P.uid._cache = false
+
+P.hash = (content) ->
+  try content ?= @params.hash ? @params.content ? @body ? @params.q ? @params
+  try
+    content = await @fetch(@params.url) if @params.url
+  content = JSON.stringify(content) if typeof content isnt 'string'
+  try
+    content = new TextEncoder().encode content
+    buf = await crypto.subtle.digest "SHA-256", content
+    arr = new Uint8Array buf
+    parts = []
+    for b in arr
+      parts.push ('00' + b.toString(16)).slice(-2)
+    return parts.join ''
+  catch
+    # the above works on CF worker, but crypto.subtle needs to be replaced with standard crypto module on backend
+    # crypto is imported by the server-side main api file
+    return crypto.createHash('sha256').update(content, 'utf8').digest 'hex' # md5 would be preferable but web crypto /subtle doesn't support md5
 
 P.copy = (obj) ->
   try obj ?= @params
@@ -26,39 +47,140 @@ P.sleep = (ms) -> # await this when calling it to actually wait
   try ms ?= @params.ms
   return new Promise (resolve) => setTimeout resolve, ms ? 1000
 
-P.hash = (msg) ->
-  try msg ?= @params.hash ? @request.body ? @params.q ? @params
-  msg = JSON.stringify(msg) if typeof msg isnt 'string'
-  msg = new TextEncoder().encode msg
-  buf = await crypto.subtle.digest "SHA-256", msg 
-  arr = new Uint8Array buf
-  parts = []
-  for b in arr
-    parts.push ('00' + b.toString(16)).slice(-2)
-  return parts.join ''
-# the above works on CF worker, but crypto.subtle probably needs to be replaced with standard crypto module on backend
-# the below is a possible example, but note will need to use same params that generate the same result
-'''P.hash = (str, lowercase=false, uri=true, encoding='utf8', digest) -> # alternatively base64, but can cause problems if later used in URLs
-  str = str.toLowerCase() if lowercase is true
-  str = encodeURIComponent(str) if uri is true
-  hash = crypto.createHash('md5').update(str, encoding)
-  return if digest is 'hex' then hash.digest('hex') else hash.digest('base64').replace(/\//g,'_').replace(/\+/g,'-')
-'''
+P._timeout = (ms, fn) -> # where fn is a promise-able function that has been called
+  # so call this like res = await @_timeout 5000, @fetch url
+  return new Promise (resolve, reject) =>
+    timer = setTimeout () =>
+      reject new Error 'TIMEOUT' # should this error or just return undefined?
+    , ms
+    promise
+      .then value =>
+        clearTimeout timer
+        resolve value
+      .catch reason =>
+        clearTimeout timer
+        reject reason
+
+P.form = (params) ->
+  # return params object x-www-form-urlencoded
+  params ?= @params
+  po = ''
+  for p of params
+    po += '&' if po isnt ''
+    for ppt in (if Array.isArray(params[p]) then params[p] else [params[p]])
+      if ppt?
+        po += '&' if not po.endsWith '&'
+        po += p + '=' + encodeURIComponent (if typeof ppt is 'object' then JSON.stringify(ppt) else ppt)
+  return po
 
 P.dot = (obj, key) ->
   # TODO can add back in a way to pass in values or deletions if necessary, and traversing lists too
-  if typeof obj is 'string' and typeof key is 'object'
-    st = obj
-    obj = key
-    key = st
-  obj = @copy(obj) if obj?
-  if not obj? and this?.params?.key?
-    obj = @copy @params
-    key = obj.key
-    delete obj.key
-  key = key.split('.') if typeof key is 'string'
-  obj = obj[k] for k in key
-  return obj
+  try
+    if typeof obj is 'string' and typeof key is 'object'
+      st = obj
+      obj = key
+      key = st
+    obj = @copy(obj) if obj?
+    if not obj? and this?.params?.key?
+      obj = @copy @params
+      key = obj.key
+      delete obj.key
+    key = key.split('.') if typeof key is 'string'
+    obj = obj[k] for k in key
+    return obj
+  catch
+    return undefined
+
+P.decode = (content) ->
+  _decode = (content) ->
+    # https://stackoverflow.com/questions/44195322/a-plain-javascript-way-to-decode-html-entities-works-on-both-browsers-and-node
+    translator = /&(nbsp|amp|quot|lt|gt);/g
+    translate = {
+      "nbsp":" ",
+      "amp" : "&",
+      "quot": "\"",
+      "lt"  : "<",
+      "gt"  : ">"
+    }
+    return content.replace(translator, ((match, entity) ->
+      return translate[entity]
+    )).replace(/&#(\d+);/gi, ((match, numStr) ->
+      num = parseInt(numStr, 10)
+      return String.fromCharCode(num)
+    ))
+  return _decode(content).replace(/\n/g,'')
+
+P.flatten = (obj) ->
+  obj ?= @params
+  res = {}
+  _flatten = (obj, key) ->
+    for k of obj
+      pk = if key then key + '.' + k else k
+      v = obj[k]
+      if typeof v is 'string'
+        res[pk] = v
+      else if Array.isArray v
+        if typeof v[0] is 'object'
+          for n of v
+            await _flatten v[n], pk + '.' + n
+        else
+          res[pk] = v.join(', ')
+      else
+        await _flatten v, pk
+  if Array.isArray obj
+    results = []
+    for d in data
+      res = {}
+      results.push await _flatten d
+    return results
+  else
+    await _flatten obj
+    return res
+
+P.template = (content, vars) ->
+  content ?= @params.content ? @params.template ? @body
+  vars ?= @params
+  if @params.url or content.startsWith 'http'
+    content = await @fetch @params.url ? content
+  if content.indexOf(' ') is -1 and content.indexOf('.') isnt -1 and content.length < 100
+    try
+      cs = await @_templates content
+      content = cs.content
+  ret = {}
+  _rv = (obj, pre='') ->
+    for o of obj
+      ov = if pre then pre + '.' + o else o
+      if typeof obj[o] is 'object' and not Array.isArray obj[o]
+        _rv obj[o], pre + (if pre is '' then '' else '.') + o
+      else if content.toLowerCase().indexOf('{{'+ov+'}}') isnt -1
+        rg = new RegExp '{{'+ov+'}}', 'gi'
+        content = content.replace rg, (if Array.isArray(obj[o]) then obj[o].join(', ') else (if typeof obj[o] is 'string' then obj[o] else (if obj[o] is true then 'Yes' else (if obj[o] is false then 'No' else ''))))
+  _rv vars # replace all vars that are in the content
+  kg = new RegExp '{{.*?}}', 'gi'
+  if content.indexOf('{{') isnt -1 # retrieve any vars provided IN the content (e.g. a content template can specify a subject for an email to use)
+    vs = ['subject','from','to','cc','bcc']
+    # the could be vars in content that themselves contain vars, e.g {{subject I am the subject about {{id}} yes I am}}
+    # and some of those vars may fail to get filled in. So define the list of possible vars names THEN go through the content with them
+    for cp in content.toLowerCase().split '{{'
+      pcp = cp.split('{{')[0].split('}}')[0].split(' ')[0]
+      vs.push(pcp) if pcp not in vs
+    for k in vs
+      key = if content.toLowerCase().indexOf('{{'+k) isnt -1 then k else undefined
+      if key
+        keyu = if content.indexOf('{{'+key.toUpperCase()) isnt -1 then key.toUpperCase() else key
+        val = content.split('{{'+keyu)[1]
+        val = val.replace(kg,'') if val.split('}}')[0].indexOf('{{') # remove any vars present inside this one that were not able to have their values replaced
+        val = val.split('}}')[0].trim()
+        ret[key] = val if val
+        kkg = new RegExp('{{'+keyu+'.*?}}','gi')
+        content = content.replace(kkg,'')
+  content = content.replace(kg, '') if content.indexOf('{{') isnt -1 # remove any outstanding vars in content that could not be replaced by provided vars
+  ret.content = content
+  # TODO consider if worth putting markdown formatting back in here, and how big a markdown parser is
+  return ret # an obj of the content plus any vars found within the template
+
+P._templates = _index: true # an index to store templates in - although generally should be handled at the individual function/service level
+
 
 
 '''
@@ -100,10 +222,8 @@ P.retry = (fn, params=[], opts={}) ->
         opts.pause += opts.increment
     
   return undefined
-'''
 
 
-'''
 # see https://github.com/arlac77/fetch-rate-limit-util/blob/master/src/rate-limit-util.mjs
 MIN_WAIT_MSECS = 1000 # wait at least this long
 MAX_RETRIES = 5 # only retry max this many times
@@ -144,80 +264,3 @@ rateLimitHandler = (fetcher, waitDecide = defaultWaitDecide) ->
 '''
 
 
-
-'''
-P.decode = (content) ->
-  _decode = (content) ->
-    # https://stackoverflow.com/questions/44195322/a-plain-javascript-way-to-decode-html-entities-works-on-both-browsers-and-node
-    translator = /&(nbsp|amp|quot|lt|gt);/g
-    translate = {
-      "nbsp":" ",
-      "amp" : "&",
-      "quot": "\"",
-      "lt"  : "<",
-      "gt"  : ">"
-    }
-    return content.replace(translator, ((match, entity) ->
-      return translate[entity]
-    )).replace(/&#(\d+);/gi, ((match, numStr) ->
-      num = parseInt(numStr, 10)
-      return String.fromCharCode(num)
-    ))
-  return _decode(content).replace(/\n/g,'')
-
-P.str = (r) ->
-  str = ''
-  _str = (rp) ->
-    if typeof rp is 'string'
-      return rp
-    else if rp is true
-      return 'true'
-    else if rp is false
-      return 'false'
-    else if typeof rp is 'function'
-      return rp.toString()
-    else if Array.isArray rp
-      cr = []
-      cr.push(_str a) for a in rp
-      return JSON.stringify cr.sort()
-    else if typeof rp is 'object'
-      nob = ''
-      keys = []
-      keys.push(k) for k of rp
-      for k in keys.sort()
-        if nob.length is 0
-          nob = '{'
-        else
-          nob += ','
-        nob += '"' + o + '":"' + _str(rp[o]) + '"' for o of rp
-      return nob + '}'
-  str += _str r
-  return str
-
-P.flatten = (data) ->
-  res = {}
-  _flatten = (obj, key) ->
-    for k of obj
-      pk = if key then key + '.' + k else k
-      v = obj[k]
-      if typeof v is 'string'
-        res[pk] = v
-      else if Array.isArray v
-        if typeof v[0] is 'object'
-          for n of v
-            _flatten v[n], pk + '.' + n
-        else
-          res[pk] = v.join(', ')
-      else
-        _flatten v, pk
-  if Array.isArray data
-    results = []
-    for d in data
-      res = {}
-      results.push _flatten d
-    return results
-  else
-    _flatten data
-    return res
-
-'''

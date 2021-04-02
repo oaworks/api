@@ -8,10 +8,7 @@ P.svc.oaworks.scrape = (content, doi) ->
       mr = new RegExp /\/(10\.[^ &#]+\/[^ &#]+)$/
       ud = mr.exec decodeURIComponent content
       meta.doi = ud[1] if ud and ud.length > 1 and 9 < ud[1].length and ud[1].length < 45 and ud[1].indexOf('/') isnt -1 and ud[1].indexOf('10.') is 0
-    #if content.indexOf('.pdf') isnt -1
-    #  try content = await @convert.pdf2txt url
-    #try content ?= await @puppet url
-    content ?= await @fetch url
+    content = await @puppet content
 
   return {} if typeof content isnt 'string'
 
@@ -53,7 +50,7 @@ P.svc.oaworks.scrape = (content, doi) ->
       
   if not meta.doi
     try
-      d = @tdm.extract
+      d = await @tdm.extract
         content:content
         matchers:['/doi[^>;]*?(?:=|:)[^>;]*?(10[.].*?\/.*?)("|\')/gi','/doi[.]org/(10[.].*?/.*?)("| \')/gi']
       for n in d.matches
@@ -82,7 +79,7 @@ P.svc.oaworks.scrape = (content, doi) ->
 
   if not meta.year
     try
-      k = @tdm.extract({
+      k = await @tdm.extract({
         content:content,
         matchers:[
           '/meta[^>;"\']*?name[^>;"\']*?= *?(?:"|\')citation_date(?:"|\')[^>;"\']*?content[^>;"\']*?= *?(?:"|\')(.*?)(?:"|\')/gi',
@@ -103,7 +100,7 @@ P.svc.oaworks.scrape = (content, doi) ->
     
   if not meta.keywords
     try
-      k = @tdm.extract
+      k = await @tdm.extract
         content:content
         matchers:['/meta[^>;"\']*?name[^>;"\']*?= *?(?:"|\')keywords(?:"|\')[^>;"\']*?content[^>;"\']*?= *?(?:"|\')(.*?)(?:"|\')/gi']
         start:'<head'
@@ -119,7 +116,7 @@ P.svc.oaworks.scrape = (content, doi) ->
   if not meta.email
     mls = []
     try
-      m = @tdm.extract
+      m = await @tdm.extract
         content:content
         matchers:['/mailto:([^ \'">{}/]*?@[^ \'"{}<>]*?[.][a-z.]{2,}?)/gi','/(?: |>|"|\')([^ \'">{}/]*?@[^ \'"{}<>]*?[.][a-z.]{2,}?)(?: |<|"|\')/gi']
       for i in m.matches

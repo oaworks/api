@@ -36,3 +36,8 @@ P.example.deep.deeper.deepest = ->
   try res.caller = (new Error()).stack.split("\n")[3].split('FetchEvent.')[1].split(' ')[0] #.split(" ")[5].replace('FetchEvent.e','').replace(/\./,'')
   try res.fn = @fn
   return res
+
+P.example.inbetween = ->
+  # call a url like example/thing/inbetween and this should give you thing
+  console.log typeof @params.example
+  return @params
