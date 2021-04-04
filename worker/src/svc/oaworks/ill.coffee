@@ -12,9 +12,12 @@ P.svc.oaworks.ill = (opts) -> # only worked on POST with optional auth
   opts.pilot = Date.now() if opts.pilot is true
   opts.live = Date.now() if opts.live is true
   config = opts.config
+  try config = JSON.parse config
   if typeof config is 'string' or (not config and opts.from)
-    config = await @fetch 'https://' + (if @S.dev then 'dev.' else '') + 'api.cottagelabs.com/service/oab/ill/config?uid=' + (opts.from ? config)
-
+    config = await @fetch 'https://api.cottagelabs.com/service/oab/ill/config?uid=' + (opts.from ? config)
+    if not config? or JSON.stringify(config) is '{}'
+      config = await @fetch 'https://dev.api.cottagelabs.com/service/oab/ill/config?uid=' + (opts.from ? config)
+      
   vars = name: 'librarian', details: '' # anywhere to get the user name from config?
   ordered = ['title','author','volume','issue','date','pages']
   for o of opts
@@ -133,7 +136,9 @@ P.svc.oaworks.ill.openurl = (config, meta) ->
 P.svc.oaworks.ill.subscription = (config, meta) ->
   config ?= @params.config ? {}
   if typeof config is 'string'
-    config = await @fetch 'https://' + (if @S.dev then 'dev.' else '') + 'api.cottagelabs.com/service/oab/ill/config?uid=' + config
+    config = await @fetch 'https://api.cottagelabs.com/service/oab/ill/config?uid=' + config
+    if not config? or JSON.stringify(config) is '{}'
+      config = await @fetch 'https://dev.api.cottagelabs.com/service/oab/ill/config?uid=' + (opts.from ? config)
   
   meta ?= @params.meta
   res = {findings:{}, lookups:[], error:[], contents: []}

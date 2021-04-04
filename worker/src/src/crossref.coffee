@@ -17,7 +17,7 @@ P.src.crossref.journals = (issn) ->
   return if isq then res else if res?.ISSN? then res else undefined
 
 #P.src.crossref.journals._index = true
-P.src.crossref.journals._key = 'ISSN'
+#P.src.crossref.journals._key = 'ISSN'
 
 P.src.crossref.journals.doi = (issn) ->
   issn ?= @params.doi ? @params.issn

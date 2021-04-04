@@ -12,7 +12,9 @@
 # anything found by _schedule in kv that isn't set to _kv will get written to index once it becomes available
 
 S.index ?= {}
-S.index.name ?= S.name ? 'n2'
+S.index.name ?= S.name ? 'Paradigm'
+S.index.name = '' if typeof S.index.name isnt 'string'
+S.index.name = S.index.name.toLowerCase().replace / /g, ''
 S.index.url ?= S.bg + '/index' if typeof S.bg is 'string'
 
 P.index = (route, data, qopts) ->
@@ -120,17 +122,15 @@ P.index = (route, data, qopts) ->
 
 # calling this should be given a correct URL route for ES7.x, domain part of the URL is optional though.
 # call the above to have the route constructed. method is optional and will be inferred if possible (may be removed)
-# what about namespacing to env? do here or above, or neither?
 P.index._submit = (route, data, method, deletes=true) -> # deletes is true in dev, but remove or add auth control for live
   route = route.toLowerCase() # force lowercase on all IDs so that can deal with users giving incorrectly cased IDs for things like DOIs which are defined as case insensitive
   route = route.replace('/','') if route.indexOf('/') is 0 # gets added back in when combined with the url
   route = route.replace(/\/$/,'') if route.endsWith '/'
-  method ?= if route is '/_pit' or data is '' then 'DELETE' else if data? and (route.indexOf('/') is -1 or route.indexOf('/_create') isnt -1 or (route.indexOf('/_doc') isnt -1 and not route.endsWith('/_doc'))) then 'PUT' else if data? or route.split('/').pop().split('?')[0] in ['_refresh', '_pit', '_aliases'] then 'POST' else 'GET'
+  method ?= if route is '_pit' or data is '' then 'DELETE' else if data? and (route.indexOf('/') is -1 or route.indexOf('/_create') isnt -1 or (route.indexOf('/_doc') isnt -1 and not route.endsWith('/_doc'))) then 'PUT' else if data? or route.split('/').pop().split('?')[0] in ['_refresh', '_pit', '_aliases'] then 'POST' else 'GET'
   # TODO if data is a query that also has a _delete key in it, remove that key and do a delete by query? and should that be bulked? is dbq still allowed in ES7.x?
   return false if method is 'DELETE' and (deletes isnt true or route.indexOf('/_all') isnt -1) # nobody can delete all via the API
   if not route.startsWith 'http' # which it probably doesn't
-    #route = @S.name + '_' + route if @S.name and not route.startsWith @S.name # TODO enable this to namespace indexes
-    # TODO what about env namespacing? Do here or at obj level? How to track those that shouldn't be env namespaced? - use a "globalenv" name?
+    route = @S.index.name + '_' + route if @S.index.name and not route.startsWith(@S.index.name) and not route.startsWith('_')
     url = if this?.S?.index?.url then @S.index.url else S.index?.url
     url = url[Math.floor(Math.random()*url.length)] if Array.isArray url
     if typeof url isnt 'string'
@@ -149,7 +149,7 @@ P.index._submit = (route, data, method, deletes=true) -> # deletes is true in de
 
   if @S.dev
     console.log 'INDEX ' + route
-    console.log method + ' ' + if not data? then '' else JSON.stringify if Array.isArray(data) and data.length then data[0] else data
+    console.log method + ' ' + if not data? then '' else JSON.stringify(if Array.isArray(data) and data.length then data[0] else data).substr(0, 1000)
 
   #opts.retry = 3
   opts.method = method
@@ -379,11 +379,11 @@ P.index._each = (route, q, opts, fn) ->
 P.index._bulk = (route, data, action='index', bulk=50000) ->
   # https://www.elastic.co/guide/en/elasticsearch/reference/1.4/docs-bulk.html
   # https://www.elastic.co/guide/en/elasticsearch/reference/1.4/docs-update.html
-  #url = url[Math.floor(Math.random()*url.length)] if Array.isArray url
   #route += '_dev' if dev and route.indexOf('_dev') is -1
-  # TODO need a check somewhere that incoming bulk data is about the relevant index - not bulking data to a different index than the one authorised on the route
+  route = @S.index.name + '_' + route if typeof route is 'string' and route.indexOf(@S.index.name + '_') isnt 0
   cidx = if this?.index? then @index else P.index
   if typeof data is 'string' and data.indexOf('\n') isnt -1
+    # TODO should this check through the string and make sure it only indexes to the specified route?
     await cidx._submit '/_bulk', {body:data, headers: {'Content-Type': 'application/x-ndjson'}} # new ES 7.x requires this rather than text/plain
     return true
   else
@@ -403,9 +403,9 @@ P.index._bulk = (route, data, action='index', bulk=50000) ->
           delete row._id # newer ES 7.x won't accept the _id in the object itself
         else
           rid = if this?.uid? then @uid() else P.uid()
-      #row._index += '_dev' if typeof row isnt 'string' and row._index? and row._index.indexOf('_dev') is -1 and dev
+      row._index = route
       meta = {}
-      meta[action] = {"_index": (if typeof row isnt 'string' and row._index? then row._index else route) }
+      meta[action] = {"_index": route }
       meta[action]._id = if action is 'delete' and typeof row is 'string' then row else rid # what if action is delete but can't set an ID?
       pkg += JSON.stringify(meta) + '\n'
       if action is 'create' or action is 'index'
@@ -429,7 +429,7 @@ P.index._indices = (verbose=false) ->
     if i not in [] and not i.startsWith('.') and not i.startsWith 'security-'
       if verbose
         # is primaries or total better for numbers here?
-        res[i] = { docs: s.indices[i].primaries.docs.count, size: Math.ceil(s.indices[i].primaries.store.size_in_bytes / 1024 / 1024) } 
+        res[i] = { docs: s.indices[i].primaries.docs.count, size: Math.ceil(s.indices[i].primaries.store.size_in_bytes / 1024 / 1024) + 'mb' } 
         for sh in shards
           if sh.index is i and sh.prirep is 'p'
             res[i].shards ?= 0

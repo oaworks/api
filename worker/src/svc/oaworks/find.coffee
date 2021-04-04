@@ -100,6 +100,18 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
           await _metadata epmc
 
     if metadata.doi
+      _fatcat = () =>
+        fat = await @src.fatcat metadata.doi
+        if fat?.files?
+          for f in fat.files
+            # there are also hashes and revision IDs, but without knowing details about which is most recent just grab the first
+            # looks like the URLs are timestamped, and looks like first is most recent, so let's just assume that.
+            if f.mimetype.toLowerCase().indexOf('pdf') isnt -1 and f.state is 'active' # presumably worth knowing...
+              for fu in f.urls
+                if fu.url and fu.rel is 'webarchive' # would we want the web or the webarchive version?
+                  res.url = fu.url
+                  break
+        return true
       _oad = () =>
         oad = await @src.oadoi metadata.doi
         await _metadata(oad) if oad?.doi and oad?.doi.toLowerCase() is metadata.doi.toLowerCase()
@@ -113,7 +125,7 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
         else
           await _metadata cr
         return true
-      await Promise.all [_oad(), _crd()]
+      await Promise.all [_oad(), _crd()] # _fatcat(), 
 
     return true
 

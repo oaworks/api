@@ -79,7 +79,9 @@ P.fetch = (url, params) ->
         if response.status is 404
           return undefined
         else if response.status >= 400
-          console.log(JSON.stringify(r)) if S.dev
+          if S.dev
+            console.log JSON.stringify r
+            console.log 'ERROR ' + response.status
           return status: response.status
         else
           return r

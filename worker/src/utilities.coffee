@@ -2,7 +2,7 @@
 import { customAlphabet } from 'nanoid'
 
 P.uid = (r) ->
-  r ?= this?.params?.len ? this?.params?.length ? this?.params?.size ? this?.params?.uid ? 21
+  r ?= if @fn is 'uid' then (this?.params?.len ? this?.params?.length ? this?.params?.size ? this?.params?.uid ? 21) else 21
   if typeof r is 'string'
     rs = parseInt r
     r = if isNaN(rs) then undefined else rs

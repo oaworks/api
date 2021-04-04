@@ -1,6 +1,6 @@
 
 P.status = ->
-  res = name: S.name, version: S.version, env: S.env, built: S.built
+  res = name: S.name, version: S.version, built: S.built
   for k in ['uid', 'rid', 'params', 'base', 'parts', 'opts', 'routes']
     try res[k] ?= @[k]
   res.bg = true if @S.bg is true

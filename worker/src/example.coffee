@@ -4,7 +4,7 @@
 S.example ?= {}
 S.example.example = 3
 P.example = ->
-  res = name: S.name, version: S.version, env: S.env, built: S.built
+  res = name: S.name, version: S.version, built: S.built
   try res.caller = (new Error()).stack.split("\n")[3].split('FetchEvent.')[1].split(' ')[0] #.split(" ")[5].replace('FetchEvent.e','').replace(/\./,'')
   try res.fn = @fn
   if S.dev

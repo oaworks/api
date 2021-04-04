@@ -68,7 +68,6 @@ P.log = (msg) ->
       msg._createdAt ?= Date.now()
       msg.name ?= S.name
       msg.version ?= S.version
-      msg.env ?= S.env
       msg.base = @base
       msg.bg = true if @S.bg is true
       msg.system = true if @system is true

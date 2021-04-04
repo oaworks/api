@@ -5,10 +5,14 @@ catch
   S.svc.oaworks = {}
   
 P.svc.oaworks = () ->
-  return
-    name: 'OA.Works API'
-    version: @S.version
-    built: @S.built
+  if JSON.stringify(@params) isnt '{}'
+    return status: 404
+  else
+    return
+      name: 'OA.Works API'
+      version: @S.version
+      base: if @S.dev then @base else undefined
+      built: @S.built
 
 
 P.svc.oaworks.templates = _key: 'name', _sheet: '16Qm8n3Rmx3QyttFpSGj81_7T6ehfLAtYRSvmDf3pAzg/1'

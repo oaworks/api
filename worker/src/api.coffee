@@ -12,8 +12,7 @@ try
 S ?= {} # and just in case it wasn't found
 S.name ?= 'Paradigm' # this will also be used as the default name for the KV store
 S.version ?= '5.3.1' # the construct script will use this to overwrite any version in the worker and server package.json files
-S.env ?= 'dev'
-S.dev ?= S.env is 'dev'
+S.dev ?= true
 S.pass ?= true if typeof S.bg is 'string' # if there is a bg to pass through to on errors/timeouts, then go to it by default
 S.docs ?= 'https://leviathanindustries.com/paradigm'
 S.headers ?=
@@ -44,6 +43,7 @@ S.src ?= {}
 # _kv - if true store the result in CF workers KV, and check for it on new requests - like a cache, but global, with 1s eventual consistency whereas cache is regional
 # _index - if true send the result to an index. Or can be an object of index initialisation settings, mappings, aliases
 # _key - optional which key, if not default _id, to use from a result object to save it as - along with the function route which will be derived if not provided
+# _search = if false, the wrapper won't run a search on incoming potential queries before calling the function. If a string, will be used as the key to search within, unless the incoming content is obviously already a complex query
 # _sheet - if true get a sheet ID from settings for the given endpoint, if string then it is the sheet ID. If present it implies _index:true if _index is not set
 
 # _kv gets checked prior to _index UNLESS there are args that appear to be a query
@@ -103,7 +103,7 @@ P = (scheduled) ->
 
   # make @S settings object local to this fetch event
   # this header is defined later because the built date is added to the end of the file by the deploy script, so it's not known until now
-  try S.headers['X-' + S.name] ?= (if S.version then 'v' + S.version else '') + (if S.env then ' ' + S.env else '') + (if S.built then ' built ' + S.built  else '')
+  try S.headers['X-' + S.name] ?= (if S.version then 'v' + S.version else '') + (if S.built then ' built ' + S.built  else '')
   @S = JSON.parse JSON.stringify S
   
   # make @params @body, @headers, @cookie
@@ -138,8 +138,7 @@ P = (scheduled) ->
     @waitUntil = (fn) -> return true # just let it run
   else if not @S.kv # try setting a default key-value store reference on the worker
     # where will backend overwrite this to true? can this be set on the global S, and overwritten on backend?
-    @S.kv = @S.name
-    @S.kv += '_' + @S.env if not global[@S.kv]? and @S.env
+    @S.kv = @S.name.replace / /g, ''
     delete @S.kv if not global[@S.kv]
   try @cookie = @headers.cookie
   
@@ -174,11 +173,8 @@ P = (scheduled) ->
     if pf in @S.formats
       @format = pf
       @parts[@parts.length-1] = @parts[@parts.length-1].replace '.' + pf, ''
-  console.log @base
   for d of @S.domains ? {} # allows requests from specific domains to route directly to a subroute, or more usefully, a specific service
-    console.log d
     if @base.indexOf(d) isnt -1
-      console.log @S.domains[d]
       @parts = [...@S.domains[d], ...@parts]
 
   @route = @parts.join '/'
@@ -189,7 +185,7 @@ P = (scheduled) ->
   @_logs = [] # place for a running request to dump multiple logs, which will combine and save at the end of the overall request
 
   if @route is '' #don't bother doing anything, just serve a direct P._response with the API details
-    return P._response.call @, if @request.method in ['HEAD', 'OPTIONS'] then '' else name: @S.name, version: @S.version, env: @S.env, base: @base, built: (if @S.dev then @S.built else undefined)
+    return P._response.call @, if @request.method in ['HEAD', 'OPTIONS'] then '' else name: @S.name, version: @S.version, base: (if @S.dev then @base else undefined), built: (if @S.dev then @S.built else undefined)
 
   # a save method called by the following _return when necessary
   _save = (k, r, f) =>
@@ -215,7 +211,9 @@ P = (scheduled) ->
       f._sheet = P.dot @S, n # try to read the sheet ID from the settings
       delete f._sheet if typeof f._sheet isnt 'string'
     f._index ?= true if f._sheet
-    f._schedule ?= n if f._index
+    if f._index
+      f._search ?= true # if false, no pre-search gets done by the wrapper. If a string, searches will be done within the key provided
+      f._schedule ?= n
     f._schedule = n if f._schedule is true and typeof f isnt 'function'
     if typeof f is 'function' and (n.indexOf('.') is -1 or n.split('.').pop().indexOf('_') is 0)
       return f.bind @ # don't wrap top-level or underscored methods
@@ -285,7 +283,9 @@ P = (scheduled) ->
           if f._kv and lg.key.indexOf('/') isnt -1 and not lg.qry # check kv first if there is an ID present
             res = await @kv lg.key, rec
             lg.cached = 'kv' if res? and not rec?
-          if not res? and f._index # otherwise try the index
+          if not res? and f._index and (rec or f._search) # otherwise try the index
+            # TODO if lg.qry is a string like a title, with no other search qualifiers in it, and f._search is a string, treat f._search as the key name to search in
+            # BUT if there are no spaces in lg.qry, it's probably supposed to be part of the key - that should be handled above anyway
             res = await @index lg.key, rec ? (if lg.qry then await @index.translate(lg.qry) else undefined)
             if @fn isnt n and typeof lg.qry is 'string' and not rec and res?.hits?.total is 1
               try res = res.hits.hits[0]._source
@@ -381,7 +381,7 @@ P = (scheduled) ->
             pk = prs.shift()
             @fn += (if @fn is '' then '' else '.') + pk
             fn = a[k] if typeof a[k] is 'function' and n.indexOf('._') is -1 # URL routes can't call _abc functions or ones under them
-          if typeof a[k] is 'function' and not a[k]._hidden and n.indexOf('scripts.') isnt 0
+          if typeof a[k] is 'function' and not a[k]._hidden and n.indexOf('scripts.') is -1
             @routes[(n + (if n then '.' else '') + k).replace(/\./g, '/')] = true # TODO this should read from the auth method, and only show things the current user can access, and also search for description / comment?
         _lp(p[k], a[k], n + (if n then '.' else '') + k) if not Array.isArray(p[k]) and (not k.startsWith('_') or typeof a[k] is 'function')
   _lp P, @, ''

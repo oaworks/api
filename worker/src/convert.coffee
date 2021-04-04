@@ -120,26 +120,26 @@ P.convert.json2html = (recs) ->
       res += '<input type="hidden" id="options_flatten" value="true">'
     _draw = (rec) =>
       for k of rec
-        res += '<div style="clear:both;"><div style="float:left;width: 150px;"><p><b>' + k + '</b></p></div>'
-        res += '<div style="float:left;margin-left:10px;"><p>'
-        res += if @params.edit then '<textarea id="' + k + '" style="min-height:100px;width:100%;">' else '<p>'
         if rec[k]? and rec[k] isnt '' and (not Array.isArray(rec[k]) or rec[k].length)
+          res += '<div style="clear:both; border:1px solid #ccc; margin:-1px 0px;"><div style="float:left;width: 150px; overflow: scroll;"><b><p>' + k + '</p></b></div>'
+          res += '<div style="float:left;">'
+          res += if @params.edit then '<textarea id="' + k + '" style="min-height:100px;width:100%;">' else ''
           if Array.isArray rec[k]
             if typeof rec[k][0] is 'object'
               for ok in rec[k]
                 _draw ok
             else if typeof rec[k][0] is 'string'
-              res += rec[k].join(', ')
+              res += (if @params.edit then '' else '<p>') + rec[k].join(', ') + (if @params.edit then '' else '</p>')
             else
-              res += JSON.stringify rec[k]
+              res += (if @params.edit then '' else '<p>') + JSON.stringify(rec[k]) + (if @params.edit then '' else '</p>')
           else if typeof rec[k] is 'object'
             _draw rec[k]
           else if typeof rec[k] is 'string'
-            res += rec[k]
+            res += (if @params.edit then '' else '<p>') + rec[k] + (if @params.edit then '' else '</p>')
           else
-            res += JSON.stringify rec[k]
-        res += if @params.edit then '</textarea>' else '</p>'
-        res += '</div></div>'
+            res += (if @params.edit then '' else '<p>') + JSON.stringify(rec[k]) + (if @params.edit then '' else '</p>')
+          res += if @params.edit then '</textarea>' else ''
+          res += '</div></div>'
     _draw recs
     if @params.edit
       res += '' # TODO add a save button, or notify that login is required - and some js to POST the altered data

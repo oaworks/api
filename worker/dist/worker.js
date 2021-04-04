@@ -89,6 +89,7 @@ try {
   // _kv - if true store the result in CF workers KV, and check for it on new requests - like a cache, but global, with 1s eventual consistency whereas cache is regional
   // _index - if true send the result to an index. Or can be an object of index initialisation settings, mappings, aliases
   // _key - optional which key, if not default _id, to use from a result object to save it as - along with the function route which will be derived if not provided
+  // _search = if false, the wrapper won't run a search on incoming potential queries before calling the function. If a string, will be used as the key to search within, unless the incoming content is obviously already a complex query
   // _sheet - if true get a sheet ID from settings for the given endpoint, if string then it is the sheet ID. If present it implies _index:true if _index is not set
 
   // _kv gets checked prior to _index UNLESS there are args that appear to be a query
@@ -293,11 +294,8 @@ P = async function(scheduled) {
       this.parts[this.parts.length - 1] = this.parts[this.parts.length - 1].replace('.' + pf, '');
     }
   }
-  console.log(this.base);
   for (d in (ref6 = this.S.domains) != null ? ref6 : {}) {
-    console.log(d);
     if (this.base.indexOf(d) !== -1) {
-      console.log(this.S.domains[d]);
       this.parts = [...this.S.domains[d], ...this.parts];
     }
   }
@@ -313,8 +311,8 @@ P = async function(scheduled) {
     return P._response.call(this, (ref7 = this.request.method) === 'HEAD' || ref7 === 'OPTIONS' ? '' : {
       name: this.S.name,
       version: this.S.version,
-      env: this.S.env,
-      base: this.base,
+      env: (this.S.dev && this.S.env ? this.S.env : void 0),
+      base: (this.S.dev ? this.base : void 0),
       built: (this.S.dev ? this.S.built : void 0)
     });
   }
@@ -366,8 +364,15 @@ P = async function(scheduled) {
       }
     }
     if (f._index) {
+      if (f._search == null) {
+        f._search = true; // if false, no pre-search gets done by the wrapper. If a string, searches will be done within the key provided
+      }
       if (f._schedule == null) {
         f._schedule = n;
+      }
+      f._env = f._env === false ? '' : typeof f._env === 'string' ? f._env : this.S.env; // TODO could update this to allow lists of envs, to make indexes available via aliases to specific envs?
+      if (typeof f._env === 'string') {
+        f._env = f._env.toLowerCase();
       }
     }
     if (f._schedule === true && typeof f !== 'function') {
@@ -460,6 +465,10 @@ P = async function(scheduled) {
         if (lg.key) {
           lg.key = rt + '/' + lg.key.replace(/\//g, '_').replace(rt, '').replace(/^_/, '');
         }
+        if (f._env && rt.indexOf(f._env + '_') !== 0) {
+          rt = f._env + '_' + rt; // do this after lg.key is set so that the replace works correctly
+          lg.key = f._env + '_' + lg.key;
+        }
         if ((res == null) && (f._index || f._kv) && (!this.refresh || (f._sheet && this.fn !== n))) { // and not rec? and not fn.qry))
           if (f._kv && lg.key.indexOf('/') !== -1 && !lg.qry) { // check kv first if there is an ID present
             res = (await this.kv(lg.key, rec));
@@ -467,7 +476,9 @@ P = async function(scheduled) {
               lg.cached = 'kv';
             }
           }
-          if ((res == null) && f._index) { // otherwise try the index
+          if ((res == null) && f._index && (rec || f._search)) { // otherwise try the index
+            // TODO if lg.qry is a string like a title, with no other search qualifiers in it, and f._search is a string, treat f._search as the key name to search in
+            // BUT if there are no spaces in lg.qry, it's probably supposed to be part of the key - that should be handled above anyway
             res = (await this.index(lg.key, rec != null ? rec : (lg.qry ? (await this.index.translate(lg.qry)) : void 0)));
             if (this.fn !== n && typeof lg.qry === 'string' && !rec && (res != null ? (ref9 = res.hits) != null ? ref9.total : void 0 : void 0) === 1) {
               try {
@@ -617,7 +628,7 @@ P = async function(scheduled) {
               fn = a[k];
             }
           }
-          if (typeof a[k] === 'function' && !a[k]._hidden && n.indexOf('scripts.') !== 0) {
+          if (typeof a[k] === 'function' && !a[k]._hidden && n.indexOf('scripts.') === -1) {
             this.routes[(n + (n ? '.' : '') + k).replace(/\./g, '/')] = true; // TODO this should read from the auth method, and only show things the current user can access, and also search for description / comment?
           }
         }
@@ -1385,10 +1396,10 @@ P.convert.json2html = async function(recs) {
       var i, k, len, ok, ref1, results;
       results = [];
       for (k in rec) {
-        res += '<div style="clear:both;"><div style="float:left;width: 150px;"><p><b>' + k + '</b></p></div>';
-        res += '<div style="float:left;margin-left:10px;"><p>';
-        res += this.params.edit ? '<textarea id="' + k + '" style="min-height:100px;width:100%;">' : '<p>';
         if ((rec[k] != null) && rec[k] !== '' && (!Array.isArray(rec[k]) || rec[k].length)) {
+          res += '<div style="clear:both; border:1px solid #ccc; margin:-1px 0px;"><div style="float:left;width: 150px; overflow: scroll;"><b><p>' + k + '</p></b></div>';
+          res += '<div style="float:left;">';
+          res += this.params.edit ? '<textarea id="' + k + '" style="min-height:100px;width:100%;">' : '';
           if (Array.isArray(rec[k])) {
             if (typeof rec[k][0] === 'object') {
               ref1 = rec[k];
@@ -1397,20 +1408,22 @@ P.convert.json2html = async function(recs) {
                 _draw(ok);
               }
             } else if (typeof rec[k][0] === 'string') {
-              res += rec[k].join(', ');
+              res += (this.params.edit ? '' : '<p>') + rec[k].join(', ') + (this.params.edit ? '' : '</p>');
             } else {
-              res += JSON.stringify(rec[k]);
+              res += (this.params.edit ? '' : '<p>') + JSON.stringify(rec[k]) + (this.params.edit ? '' : '</p>');
             }
           } else if (typeof rec[k] === 'object') {
             _draw(rec[k]);
           } else if (typeof rec[k] === 'string') {
-            res += rec[k];
+            res += (this.params.edit ? '' : '<p>') + rec[k] + (this.params.edit ? '' : '</p>');
           } else {
-            res += JSON.stringify(rec[k]);
+            res += (this.params.edit ? '' : '<p>') + JSON.stringify(rec[k]) + (this.params.edit ? '' : '</p>');
           }
+          res += this.params.edit ? '</textarea>' : '';
+          results.push(res += '</div></div>');
+        } else {
+          results.push(void 0);
         }
-        res += this.params.edit ? '</textarea>' : '</p>';
-        results.push(res += '</div></div>');
       }
       return results;
     };
@@ -1870,6 +1883,7 @@ P.fetch = async function(url, params) {
         } else if (response.status >= 400) {
           if (S.dev) {
             console.log(JSON.stringify(r));
+            console.log('ERROR ' + response.status);
           }
           return {
             status: response.status
@@ -1904,7 +1918,7 @@ if (S.log == null) {
 // it would also be good to log every fetch, and what was sent with it too, although if it was a big file or something like that, then not that
 // what about a param to pass to avoid logging?
 P.log = async function(msg) {
-  var i, indexed, j, l, len, len1, mid, p, prev, ref, ref1, ref2, store;
+  var i, indexed, j, l, len, len1, ln, mid, p, prev, ref, ref1, ref2, store;
   if (this.S.log !== false) {
     store = msg == null; // an empty call to log stores everything in the _logs list
     if (typeof msg === 'string') {
@@ -2036,10 +2050,11 @@ P.log = async function(msg) {
         msg.started = this.started;
         msg.took = Date.now() - this.started;
       } catch (error) {}
-      mid = 'log/' + ((ref2 = this.rid) != null ? ref2 : (await this.uid()));
+      ln = (this.S.env ? this.S.env + '_' : '') + 'log';
+      mid = ln + '/' + ((ref2 = this.rid) != null ? ref2 : (await this.uid()));
       if (this.S.bg === true || this.S.kv === false) {
         if (!(indexed = (await this.index(mid, msg)))) {
-          await this.index('log', {});
+          await this.index(ln, {});
           return this.index(mid, msg);
         }
       } else {
@@ -2504,7 +2519,7 @@ import {
 P.uid = function(r) {
   var nanoid, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rs;
   if (r == null) {
-    r = (ref = (ref1 = (ref2 = (ref3 = this != null ? (ref4 = this.params) != null ? ref4.len : void 0 : void 0) != null ? ref3 : this != null ? (ref5 = this.params) != null ? ref5.length : void 0 : void 0) != null ? ref2 : this != null ? (ref6 = this.params) != null ? ref6.size : void 0 : void 0) != null ? ref1 : this != null ? (ref7 = this.params) != null ? ref7.uid : void 0 : void 0) != null ? ref : 21;
+    r = this.fn === 'uid' ? (ref = (ref1 = (ref2 = (ref3 = this != null ? (ref4 = this.params) != null ? ref4.len : void 0 : void 0) != null ? ref3 : this != null ? (ref5 = this.params) != null ? ref5.length : void 0 : void 0) != null ? ref2 : this != null ? (ref6 = this.params) != null ? ref6.size : void 0 : void 0) != null ? ref1 : this != null ? (ref7 = this.params) != null ? ref7.uid : void 0 : void 0) != null ? ref : 21 : 21;
   }
   if (typeof r === 'string') {
     rs = parseInt(r);
@@ -2914,8 +2929,14 @@ if (S.index == null) {
 }
 
 if ((base = S.index).name == null) {
-  base.name = (ref = S.name) != null ? ref : 'n2';
+  base.name = (ref = S.name) != null ? ref : 'Paradigm';
 }
+
+if (typeof S.index.name !== 'string') {
+  S.index.name = '';
+}
+
+S.index.name = S.index.name.toLowerCase();
 
 if (typeof S.bg === 'string') {
   if ((base1 = S.index).url == null) {
@@ -3070,15 +3091,16 @@ P.index._submit = async function(route, data, method, deletes = true) { // delet
     route = route.replace(/\/$/, '');
   }
   if (method == null) {
-    method = route === '/_pit' || data === '' ? 'DELETE' : (data != null) && (route.indexOf('/') === -1 || route.indexOf('/_create') !== -1 || (route.indexOf('/_doc') !== -1 && !route.endsWith('/_doc'))) ? 'PUT' : (data != null) || ((ref1 = route.split('/').pop().split('?')[0]) === '_refresh' || ref1 === '_pit' || ref1 === '_aliases') ? 'POST' : 'GET';
+    method = route === '_pit' || data === '' ? 'DELETE' : (data != null) && (route.indexOf('/') === -1 || route.indexOf('/_create') !== -1 || (route.indexOf('/_doc') !== -1 && !route.endsWith('/_doc'))) ? 'PUT' : (data != null) || ((ref1 = route.split('/').pop().split('?')[0]) === '_refresh' || ref1 === '_pit' || ref1 === '_aliases') ? 'POST' : 'GET';
   }
   if (method === 'DELETE' && (deletes !== true || route.indexOf('/_all') !== -1)) { // nobody can delete all via the API
     // TODO if data is a query that also has a _delete key in it, remove that key and do a delete by query? and should that be bulked? is dbq still allowed in ES7.x?
     return false;
   }
   if (!route.startsWith('http')) { // which it probably doesn't
-    //route = @S.name + '_' + route if @S.name and not route.startsWith @S.name # TODO enable this to namespace indexes
-    // TODO what about env namespacing? Do here or at obj level? How to track those that shouldn't be env namespaced? - use a "globalenv" name?
+    if (this.S.index.name && !route.startsWith(this.S.index.name) && !route.startsWith('_')) {
+      route = this.S.index.name + '_' + route;
+    }
     url = (this != null ? (ref2 = this.S) != null ? (ref3 = ref2.index) != null ? ref3.url : void 0 : void 0 : void 0) ? this.S.index.url : (ref4 = S.index) != null ? ref4.url : void 0;
     if (Array.isArray(url)) {
       url = url[Math.floor(Math.random() * url.length)];
@@ -3102,7 +3124,7 @@ P.index._submit = async function(route, data, method, deletes = true) { // delet
   }
   if (this.S.dev) {
     console.log('INDEX ' + route);
-    console.log(method + ' ' + (data == null ? '' : JSON.stringify(Array.isArray(data) && data.length ? data[0] : data)));
+    console.log(method + ' ' + (data == null ? '' : JSON.stringify(Array.isArray(data) && data.length ? data[0] : data).substr(0, 1000)));
   }
   //opts.retry = 3
   opts.method = method;
@@ -3595,11 +3617,12 @@ P.index._each = async function(route, q, opts, fn) {
 
 P.index._bulk = async function(route, data, action = 'index', bulk = 50000) {
   var cidx, counter, meta, pkg, r, ref1, ref2, rid, row, rows, rs;
-  // https://www.elastic.co/guide/en/elasticsearch/reference/1.4/docs-bulk.html
-  // https://www.elastic.co/guide/en/elasticsearch/reference/1.4/docs-update.html
-  //url = url[Math.floor(Math.random()*url.length)] if Array.isArray url
-  //route += '_dev' if dev and route.indexOf('_dev') is -1
-  // TODO need a check somewhere that incoming bulk data is about the relevant index - not bulking data to a different index than the one authorised on the route
+  if (typeof route === 'string' && route.indexOf(this.S.index.name + '_') !== 0) {
+    // https://www.elastic.co/guide/en/elasticsearch/reference/1.4/docs-bulk.html
+    // https://www.elastic.co/guide/en/elasticsearch/reference/1.4/docs-update.html
+    //route += '_dev' if dev and route.indexOf('_dev') is -1
+    route = this.S.index.name + '_' + route;
+  }
   cidx = (this != null ? this.index : void 0) != null ? this.index : P.index;
   if (typeof data === 'string' && data.indexOf('\n') !== -1) {
     await cidx._submit('/_bulk', {
@@ -3631,7 +3654,10 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000) {
           rid = (this != null ? this.uid : void 0) != null ? this.uid() : P.uid();
         }
       }
-      //row._index += '_dev' if typeof row isnt 'string' and row._index? and row._index.indexOf('_dev') is -1 and dev
+      if (typeof row !== 'string' && (row._index != null) && row._index.indexOf(this.S.index.name + '_') !== 0) {
+        // TODO should this enforce only writing to the route, rather than any named index, to stop writing into other indices via bulk?
+        row._index = this.S.index.name + '_' + row._index;
+      }
       meta = {};
       meta[action] = {
         "_index": (typeof row !== 'string' && (row._index != null) ? row._index : route)
@@ -3675,7 +3701,7 @@ P.index._indices = async function(verbose = false) {
         // is primaries or total better for numbers here?
         res[i] = {
           docs: s.indices[i].primaries.docs.count,
-          size: Math.ceil(s.indices[i].primaries.store.size_in_bytes / 1024 / 1024)
+          size: Math.ceil(s.indices[i].primaries.store.size_in_bytes / 1024 / 1024) + 'mb'
         };
         for (j = 0, len = shards.length; j < len; j++) {
           sh = shards[j];
@@ -4197,7 +4223,7 @@ P.index.translate = function(q, opts = {}) {
 // NOTE these need to be awaited when necessary, as the val will be a Promise
 
 // TODO test and enable these alternates for when kv is remotely accessed, or wrapped over the index
-'if typeof S.kv is \'string\' and S.kv.startsWith \'http\' and not global[S.kv]\n# kv is a URL back to the worker to access cloudflare kv\nglobal[S.kv] = {}\nglobal[S.kv].get = (key) ->\n  return await P.fetch S.kv + \'/\' + key\nglobal[S.kv].getWithMetadata = (key) ->\n  ret = await P.fetch S.kv + \'/\' + key\n  return value: ret, metadata: {} # can\'t get the metadata remotely\nglobal[S.kv].put = (key, data) ->\n  return await P.fetch S.kv + \'/\' + key, body: data\nglobal[S.kv].delete = (key) ->\n  return await P.fetch S.kv + \'/\' + key, body: \'\'\nglobal[S.kv].list = (prefix, cursor) ->\n  return await P.fetch S.kv + \'/list\' + (if prefix then \'/\' + prefix else \'\') + (if cursor then \'?cursor=\' + cursor else \'\')\n\nif typeof S.kv isnt \'string\' and S.kv isnt false\nglobal[S.kv] = {}\nglobal[S.kv].get = (key) ->\n  ret = await P.index \'kv/\' + key.replace /\//g, \'_\'\n  try ret.val = JSON.parse ret.val\n  return ret.val\nglobal[S.kv].getWithMetadata = (key) ->\n  ret = await P.index \'kv/\' + key.replace /\//g, \'_\'\n  try ret.val = JSON.parse ret.val\n  return value: ret.val, metadata: {} # can\'t get the metadata remotely\nglobal[S.kv].put = (key, data) ->\n  return await P.index \'kv/\' + key.replace(/\//g, \'_\'), key: key, val: JSON.stringify data\nglobal[S.kv].delete = (key) ->\n  return await P.index \'kv/\' + key.replace(/\//g, \'_\'), \'\'\nglobal[S.kv].list = (prefix, cursor) ->\n  # cursor on real kv isnt a from count, but use that for now\n  # need to change this to use each properly on index, as from will only go as far as 10k\n  ret = await P.index \'kv\', (if prefix then \'key:\' + prefix + \'*\' else \'*\'), {sort: {key: {order: \'asc\'}}, from: cursor}\n  res = keys: []\n  try\n    res.cursor: (cursor ? 0) + 1000\n    res.list_complete = true if res.cursor >= ret.hits.total\n    for k in ret.hits.hits\n      res.keys.push k._source.key\n  return res';
+'if typeof S.kv is \'string\' and S.kv.startsWith \'http\' and not global[S.kv]\n# kv is a URL back to the worker to access cloudflare kv\nglobal[S.kv] = {}\nglobal[S.kv].get = (key) ->\n  return await P.fetch S.kv + \'/\' + key\nglobal[S.kv].getWithMetadata = (key) ->\n  ret = await P.fetch S.kv + \'/\' + key\n  return value: ret, metadata: {} # can\'t get the metadata remotely\nglobal[S.kv].put = (key, data) ->\n  return await P.fetch S.kv + \'/\' + key, body: data\nglobal[S.kv].delete = (key) ->\n  return await P.fetch S.kv + \'/\' + key, body: \'\'\nglobal[S.kv].list = (prefix, cursor) ->\n  return await P.fetch S.kv + \'/list\' + (if prefix then \'/\' + prefix else \'\') + (if cursor then \'?cursor=\' + cursor else \'\')\n\nif typeof S.kv isnt \'string\' and S.kv isnt false\nglobal[S.kv] = {}\nik = (if S.env then S.env + \'_\' else \'\') + \'kv/\'\nglobal[S.kv].get = (key) ->\n  ret = await P.index ik + key.replace /\//g, \'_\'\n  try ret.val = JSON.parse ret.val\n  return ret.val\nglobal[S.kv].getWithMetadata = (key) ->\n  ret = await P.index ik + key.replace /\//g, \'_\'\n  try ret.val = JSON.parse ret.val\n  return value: ret.val, metadata: {} # can\'t get the metadata remotely\nglobal[S.kv].put = (key, data) ->\n  return await P.index ik + key.replace(/\//g, \'_\'), key: key, val: JSON.stringify data\nglobal[S.kv].delete = (key) ->\n  return await P.index ik + key.replace(/\//g, \'_\'), \'\'\nglobal[S.kv].list = (prefix, cursor) ->\n  # cursor on real kv isnt a from count, but use that for now\n  # need to change this to use each properly on index, as from will only go as far as 10k\n  ret = await P.index ik, (if prefix then \'key:\' + prefix + \'*\' else \'*\'), {sort: {key: {order: \'asc\'}}, from: cursor}\n  res = keys: []\n  try\n    res.cursor: (cursor ? 0) + 1000\n    res.list_complete = true if res.cursor >= ret.hits.total\n    for k in ret.hits.hits\n      res.keys.push k._source.key\n  return res';
 P.kv = async function(key, val, ttle, metadata, type) {
   var i, j, k, len, len1, m, ref, ref1, ref2, ref3, ref4, ref5, ref6, value;
   // val can be string, stream, buffer. The type gets inferred.
@@ -4418,8 +4444,8 @@ P.src.crossref.journals = async function(issn) {
 };
 
 //P.src.crossref.journals._index = true
-P.src.crossref.journals._key = 'ISSN';
-
+//P.src.crossref.journals._key = 'ISSN'
+//P.src.crossref.journals._env = false
 P.src.crossref.journals.doi = async function(issn) {
   var ref1, res;
   if (issn == null) {
@@ -4489,6 +4515,8 @@ P.src.crossref.works._index = {
 };
 
 P.src.crossref.works._key = 'DOI';
+
+P.src.crossref.works._env = false;
 
 // TODO this really should be handled by the main crossref.works function, then 
 // the wrapper should query in advance, like it does, but then be able to tell 
@@ -4768,6 +4796,29 @@ P.src.epmc.aam = async function(pmcid, rec, fulltext) {
   };
 };
 
+// https://search.fatcat.wiki/fatcat_release_v03b/_search?q=doi:%2210.1007/s00276-005-0333-8%22
+// that used to work, but they've moved the index now, and it doesn't seem to. Althought the main 
+// ES base is still there - just can't get it to respond without finding the index name. 
+// However, developments on querying the releases gives us a possible solution:
+P.src.fatcat = async function(doi) {
+  var ref, res;
+  if (doi == null) {
+    doi = (ref = this.params.fatcat) != null ? ref : this.params.doi;
+  }
+  try {
+    res = (await this.fetch('https://api.fatcat.wiki/v0/release/lookup?expand=files&hide=abstracts,refs&doi=' + doi));
+    return res;
+  } catch (error) {
+    return void 0;
+  }
+};
+
+// is there also a title search? Or only IDs? title= doesn't work. Can explore more later.
+
+// we could index this as we get them if that turns out to be useful
+// to begin with, normal caching should be sufficient.
+' for example:\n10.1088/0264-9381/19/7/380\nhas a files section, containing:\n[\n   {\n     "release_ids":["3j36alui7fcwncbc4xdaklywb4"],\n     "mimetype":"application/pdf",\n     "urls":[\n       {"url":"http://www.gravity.uwa.edu.au/amaldi/papers/Landry.pdf","rel":"web"},\n       {"url":"https://web.archive.org/web/20091024040004/http://www.gravity.uwa.edu.au/amaldi/papers/Landry.pdf","rel":"webarchive"},\n       {"url":"https://web.archive.org/web/20040827040202/http://www.gravity.uwa.edu.au:80/amaldi/papers/Landry.pdf","rel":"webarchive"},\n       {"url":"https://web.archive.org/web/20050624182645/http://www.gravity.uwa.edu.au/amaldi/papers/Landry.pdf","rel":"webarchive"},\n       {"url":"https://web.archive.org/web/20050601001748/http://www.gravity.uwa.edu.au:80/amaldi/papers/Landry.pdf","rel":"webarchive"}\n     ],\n     "state":"active"\n     ...\n   },\n   ...\n ]';
+
 // https://developers.google.com/custom-search/json-api/v1/overview#Pricing
 // note technically meant to be targeted to a site but can do full search on free tier
 // free tier only up to 100 queries a day. After that, $5 per 1000, up to 10k
@@ -5018,6 +5069,8 @@ P.src.oadoi = function(doi) {
 P.src.oadoi._index = true;
 
 P.src.oadoi._key = 'doi';
+
+P.src.oadoi._env = false;
 
 // TODO copy over from old system
 P.src.wikidata = function(q) {
@@ -5446,11 +5499,19 @@ try {
 }
 
 P.svc.oaworks = function() {
-  return {
-    name: 'OA.Works API',
-    version: this.S.version,
-    built: this.S.built
-  };
+  if (JSON.stringify(this.params) !== '{}') {
+    return {
+      status: 404
+    };
+  } else {
+    return {
+      name: 'OA.Works API',
+      version: this.S.version,
+      env: this.S.env ? this.S.env : void 0,
+      base: this.S.dev ? this.base : void 0,
+      built: this.S.built
+    };
+  }
 };
 
 P.svc.oaworks.templates = {
@@ -5874,7 +5935,7 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
     }
   }
   _searches = async() => {
-    var _crd, _oad, cr, epmc, mag, ref8, scraped;
+    var _crd, _fatcat, _oad, cr, epmc, mag, ref8, scraped;
     if (((content != null) || (options.url != null)) && !(metadata.doi || (metadata.pmid != null) || (metadata.pmcid != null) || (metadata.title != null))) {
       scraped = (await this.svc.oaworks.scrape(content != null ? content : options.url));
       await _metadata(scraped);
@@ -5903,6 +5964,29 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
       }
     }
     if (metadata.doi) {
+      _fatcat = async() => {
+        var f, fat, fu, i, j, len, len1, ref10, ref9;
+        fat = (await this.src.fatcat(metadata.doi));
+        if ((fat != null ? fat.files : void 0) != null) {
+          ref9 = fat.files;
+          for (i = 0, len = ref9.length; i < len; i++) {
+            f = ref9[i];
+            // there are also hashes and revision IDs, but without knowing details about which is most recent just grab the first
+            // looks like the URLs are timestamped, and looks like first is most recent, so let's just assume that.
+            if (f.mimetype.toLowerCase().indexOf('pdf') !== -1 && f.state === 'active') { // presumably worth knowing...
+              ref10 = f.urls;
+              for (j = 0, len1 = ref10.length; j < len1; j++) {
+                fu = ref10[j];
+                if (fu.url && fu.rel === 'webarchive') { // would we want the web or the webarchive version?
+                  res.url = fu.url;
+                  break;
+                }
+              }
+            }
+          }
+        }
+        return true;
+      };
       _oad = async() => {
         var oad;
         oad = (await this.src.oadoi(metadata.doi));
@@ -5924,7 +6008,10 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
         }
         return true;
       };
-      await Promise.all([_oad(), _crd()]);
+      await Promise.all([
+        _oad(),
+        _crd() // _fatcat(), 
+      ]);
     }
     return true;
   };
@@ -6694,7 +6781,7 @@ P.svc.oaworks.availability = async function(params, v2) {
 var indexOf = [].indexOf;
 
 P.svc.oaworks.ill = async function(opts) { // only worked on POST with optional auth
-  var a, atidy, ats, authors, config, first, i, j, len, len1, m, o, ordered, r, ref, ref1, ref2, ref3, su, tmpl, vars;
+  var a, atidy, ats, authors, config, first, i, j, len, len1, m, o, ordered, r, ref, ref1, ref2, ref3, ref4, su, tmpl, vars;
   if (opts == null) {
     opts = this.copy(this.params);
     if (opts.ill) {
@@ -6712,8 +6799,14 @@ P.svc.oaworks.ill = async function(opts) { // only worked on POST with optional 
     opts.live = Date.now();
   }
   config = opts.config;
+  try {
+    config = JSON.parse(config);
+  } catch (error1) {}
   if (typeof config === 'string' || (!config && opts.from)) {
-    config = (await this.fetch('https://' + (this.S.dev ? 'dev.' : '') + 'api.cottagelabs.com/service/oab/ill/config?uid=' + ((ref = opts.from) != null ? ref : config)));
+    config = (await this.fetch('https://api.cottagelabs.com/service/oab/ill/config?uid=' + ((ref = opts.from) != null ? ref : config)));
+    if ((config == null) || JSON.stringify(config) === '{}') {
+      config = (await this.fetch('https://dev.api.cottagelabs.com/service/oab/ill/config?uid=' + ((ref1 = opts.from) != null ? ref1 : config)));
+    }
   }
   vars = {
     name: 'librarian',
@@ -6745,9 +6838,9 @@ P.svc.oaworks.ill = async function(opts) { // only worked on POST with optional 
         authors = '<p>Authors:<br>';
         first = true;
         ats = [];
-        ref1 = opts[r];
-        for (j = 0, len1 = ref1.length; j < len1; j++) {
-          a = ref1[j];
+        ref2 = opts[r];
+        for (j = 0, len1 = ref2.length; j < len1; j++) {
+          a = ref2[j];
           if (a.family) {
             if (first) {
               first = false;
@@ -6774,7 +6867,7 @@ P.svc.oaworks.ill = async function(opts) { // only worked on POST with optional 
     if (config.search.indexOf('worldcat') !== -1) {
       su = config.search.split('?')[0] + '?ai0id=level3&ai0type=scope&offset=1&pageSize=10&si0in=';
       su += opts.issn != null ? 'in%3A' : 'ti%3A';
-      su += '&si0qs=' + ((ref2 = opts.issn) != null ? ref2 : opts.journal);
+      su += '&si0qs=' + ((ref3 = opts.issn) != null ? ref3 : opts.journal);
       su += '&sortDirection=descending&sortKey=librarycount&applicationId=nd&requestType=search&searchType=advancedsearch&eventSource=df-advancedsearch';
     } else {
       su = config.search;
@@ -6789,7 +6882,7 @@ P.svc.oaworks.ill = async function(opts) { // only worked on POST with optional 
       svc: 'oaworks',
       vars: vars,
       template: tmpl,
-      to: (ref3 = config.email) != null ? ref3 : opts.email,
+      to: (ref4 = config.email) != null ? ref4 : opts.email,
       from: "InstantILL <InstantILL@openaccessbutton.org>",
       subject: "ILL request " + opts._id
     });
@@ -6897,12 +6990,15 @@ P.svc.oaworks.ill.openurl = async function(config, meta) {
 };
 
 P.svc.oaworks.ill.subscription = async function(config, meta) {
-  var err, error, fnd, npg, openurl, pg, ref, ref1, res, s, spg, sub, subtype, surl, tid, url;
+  var err, error, fnd, npg, openurl, pg, ref, ref1, ref2, res, s, spg, sub, subtype, surl, tid, url;
   if (config == null) {
     config = (ref = this.params.config) != null ? ref : {};
   }
   if (typeof config === 'string') {
-    config = (await this.fetch('https://' + (this.S.dev ? 'dev.' : '') + 'api.cottagelabs.com/service/oab/ill/config?uid=' + config));
+    config = (await this.fetch('https://api.cottagelabs.com/service/oab/ill/config?uid=' + config));
+    if ((config == null) || JSON.stringify(config) === '{}') {
+      config = (await this.fetch('https://dev.api.cottagelabs.com/service/oab/ill/config?uid=' + ((ref1 = opts.from) != null ? ref1 : config)));
+    }
   }
   if (meta == null) {
     meta = this.params.meta;
@@ -6939,7 +7035,7 @@ P.svc.oaworks.ill.subscription = async function(config, meta) {
         subtype = sub.type;
         sub = sub.url;
       } else {
-        subtype = (ref1 = config.subscription_type[s]) != null ? ref1 : 'unknown';
+        subtype = (ref2 = config.subscription_type[s]) != null ? ref2 : 'unknown';
       }
       sub = sub.trim();
       if (sub) {
@@ -7362,7 +7458,6 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
     meta.published = meta.year + '-01-01';
   }
   haddoi = meta.doi != null;
-  af = false;
   if (meta.issn) {
     if (typeof meta.issn === 'string') {
       meta.issn = [meta.issn];
@@ -7485,12 +7580,13 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
     }
   }
   if (issns.length || meta.publisher) {
+    console.log(meta.publisher);
     qr = issns.length ? 'issuer.id.keyword:"' + issns.join('" OR issuer.id.keyword:"') + '"' : '';
     if (meta.publisher) {
       if (qr !== '') {
         qr += ' OR ';
       }
-      qr += 'issuer.id.keyword:"' + meta.publisher + '"'; // how exact/fuzzy can this be
+      qr += 'issuer.id:"' + meta.publisher + '"'; // how exact/fuzzy can this be
     }
     ps = (await this.svc.oaworks.permission(qr));
     if (((ps != null ? (ref11 = ps.hits) != null ? ref11.hits : void 0 : void 0) != null) && ps.hits.hits.length) {
@@ -7726,7 +7822,9 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
       status: 501
     };
   } else {
-    //perms.meta = meta if @S.dev
+    if (this.S.dev) {
+      perms.meta = meta;
+    }
     return perms;
   }
 };
@@ -8184,8 +8282,8 @@ P.svc.oaworks.scrape = async function(content, doi) {
 };
 
 
-S.built = "Fri Apr 02 2021 01:34:54 GMT+0100";
-S.system = "c2a4d15bb00f7d05752a3cbf60d690f6d2c7a7d4b069654ca61926f47a59f368";
+S.built = "Sun Apr 04 2021 04:35:42 GMT+0100";
+S.system = "b7118231f853479e290c6178985a346d99ffd4bad9157769d0aac5c2707a06f5";
 P.puppet = {_bg: true}// added by constructor
 
 P.scripts.testoab = {_bg: true}// added by constructor

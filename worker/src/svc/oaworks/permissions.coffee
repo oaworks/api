@@ -117,7 +117,6 @@ P.svc.oaworks.permissions = (meta, ror, getmeta) ->
   await _getmeta() if getmeta isnt false and meta.doi and (not meta.publisher or not meta.issn)
   meta.published = meta.year + '-01-01' if not meta.published and meta.year
   haddoi = meta.doi?
-  af = false
   if meta.issn
     meta.issn = [meta.issn] if typeof meta.issn is 'string'
     if not issns.length # they're already meta.issn in this case anyway
@@ -183,10 +182,11 @@ P.svc.oaworks.permissions = (meta, ror, getmeta) ->
       rors.push tr
 
   if issns.length or meta.publisher
+    console.log meta.publisher
     qr = if issns.length then 'issuer.id.keyword:"' + issns.join('" OR issuer.id.keyword:"') + '"' else ''
     if meta.publisher
       qr += ' OR ' if qr isnt ''
-      qr += 'issuer.id.keyword:"' + meta.publisher + '"' # how exact/fuzzy can this be
+      qr += 'issuer.id:"' + meta.publisher + '"' # how exact/fuzzy can this be
     ps = await @svc.oaworks.permission qr
     if ps?.hits?.hits? and ps.hits.hits.length
       for p in ps.hits.hits
@@ -332,7 +332,7 @@ P.svc.oaworks.permissions = (meta, ror, getmeta) ->
       body: if typeof overall_policy_restriction isnt 'string' then overall_policy_restriction else msgs[overall_policy_restriction.toLowerCase()] ? overall_policy_restriction
       status: 501
   else
-    #perms.meta = meta if @S.dev
+    perms.meta = meta if @S.dev
     return perms
 
 

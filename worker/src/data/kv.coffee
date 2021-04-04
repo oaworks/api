@@ -36,7 +36,7 @@ if typeof S.kv isnt 'string' and S.kv isnt false
   global[S.kv].list = (prefix, cursor) ->
     # cursor on real kv isnt a from count, but use that for now
     # need to change this to use each properly on index, as from will only go as far as 10k
-    ret = await P.index 'kv', (if prefix then 'key:' + prefix + '*' else '*'), {sort: {key: {order: 'asc'}}, from: cursor}
+    ret = await P.index 'kv/', (if prefix then 'key:' + prefix + '*' else '*'), {sort: {key: {order: 'asc'}}, from: cursor}
     res = keys: []
     try
       res.cursor: (cursor ? 0) + 1000
