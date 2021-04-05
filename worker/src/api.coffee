@@ -177,6 +177,7 @@ P = (scheduled) ->
   for d of @S.domains ? {} # allows requests from specific domains to route directly to a subroute, or more usefully, a specific service
     if @base.indexOf(d) isnt -1
       @parts = [...@S.domains[d], ...@parts]
+      break
 
   @route = @parts.join '/'
   @routes = {} # build an obj keyed by all the route strings (for the status page) maybe useful elsewhere. Each points to some useful info probably...
