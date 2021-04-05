@@ -4,7 +4,7 @@ P.status = ->
   for k in ['uid', 'rid', 'params', 'base', 'parts', 'opts', 'routes']
     try res[k] ?= @[k]
   res.bg = true if @S.bg is true
-  res.kv = true if typeof @S.kv is 'string' and global[@S.kv]
+  res.kv = if typeof @S.kv is 'string' and global[@S.kv] then @S.kv else if typeof @S.kv is 'string' then @S.kv else false
   res.index = true if await @index ''
   if S.dev
     if @S.bg isnt true
