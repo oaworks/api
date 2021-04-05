@@ -14,7 +14,7 @@
 S.index ?= {}
 S.index.name ?= S.name ? 'Paradigm'
 S.index.name = '' if typeof S.index.name isnt 'string'
-S.index.name = S.index.name.toLowerCase().replace / /g, ''
+S.index.name = S.index.name.toLowerCase().replace /\s/g, ''
 S.index.url ?= S.bg + '/index' if typeof S.bg is 'string'
 
 P.index = (route, data, qopts) ->
