@@ -10,4 +10,5 @@ P.src.oadoi = (doi) ->
 #P.src.oadoi._kv = false
 P.src.oadoi._index = true
 P.src.oadoi._key = 'doi'
+P.src.oadoi._prefix = false
 

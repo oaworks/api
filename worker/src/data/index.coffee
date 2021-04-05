@@ -130,7 +130,10 @@ P.index._submit = (route, data, method, deletes=true) -> # deletes is true in de
   # TODO if data is a query that also has a _delete key in it, remove that key and do a delete by query? and should that be bulked? is dbq still allowed in ES7.x?
   return false if method is 'DELETE' and (deletes isnt true or route.indexOf('/_all') isnt -1) # nobody can delete all via the API
   if not route.startsWith 'http' # which it probably doesn't
-    route = @S.index.name + '_' + route if @S.index.name and not route.startsWith(@S.index.name) and not route.startsWith('_')
+    if @S.index.name and not route.startsWith(@S.index.name) and not route.startsWith('_')
+      prefix = await @flatten P, (route.split('/')[0] + '/_prefix').replace(/_/g, '.')
+      # TODO could allow prefix to be a list of names, and if index name is in the list, alias the index into those namespaces, to share indexes between specific instances rather than just one or global
+      route = @S.index.name + '_' + route if prefix isnt false
     url = if this?.S?.index?.url then @S.index.url else S.index?.url
     url = url[Math.floor(Math.random()*url.length)] if Array.isArray url
     if typeof url isnt 'string'
@@ -379,8 +382,8 @@ P.index._each = (route, q, opts, fn) ->
 P.index._bulk = (route, data, action='index', bulk=50000) ->
   # https://www.elastic.co/guide/en/elasticsearch/reference/1.4/docs-bulk.html
   # https://www.elastic.co/guide/en/elasticsearch/reference/1.4/docs-update.html
-  #route += '_dev' if dev and route.indexOf('_dev') is -1
-  route = @S.index.name + '_' + route if typeof route is 'string' and route.indexOf(@S.index.name + '_') isnt 0
+  prefix = await @flatten P, (route.split('/')[0] + '/_prefix').replace(/_/g, '.')
+  route = @S.index.name + '_' + route if prefix isnt false # need to do this here as well as in _submit so it can be set below in each object of the bulk
   cidx = if this?.index? then @index else P.index
   if typeof data is 'string' and data.indexOf('\n') isnt -1
     # TODO should this check through the string and make sure it only indexes to the specified route?

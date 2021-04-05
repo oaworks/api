@@ -18,6 +18,7 @@ P.src.crossref.journals = (issn) ->
 
 #P.src.crossref.journals._index = true
 #P.src.crossref.journals._key = 'ISSN'
+#P.src.crossref.journals._prefix = false
 
 P.src.crossref.journals.doi = (issn) ->
   issn ?= @params.doi ? @params.issn
@@ -59,6 +60,7 @@ P.src.crossref.works = (doi) ->
 #P.src.crossref.works._kv = false
 P.src.crossref.works._index = settings: number_of_shards: 9
 P.src.crossref.works._key = 'DOI'
+P.src.crossref.works._prefix = false
 
 # TODO this really should be handled by the main crossref.works function, then 
 # the wrapper should query in advance, like it does, but then be able to tell 

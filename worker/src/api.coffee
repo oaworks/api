@@ -43,7 +43,8 @@ S.src ?= {}
 # _kv - if true store the result in CF workers KV, and check for it on new requests - like a cache, but global, with 1s eventual consistency whereas cache is regional
 # _index - if true send the result to an index. Or can be an object of index initialisation settings, mappings, aliases
 # _key - optional which key, if not default _id, to use from a result object to save it as - along with the function route which will be derived if not provided
-# _search = if false, the wrapper won't run a search on incoming potential queries before calling the function. If a string, will be used as the key to search within, unless the incoming content is obviously already a complex query
+# _search - if false, the wrapper won't run a search on incoming potential queries before calling the function. If a string, will be used as the key to search within, unless the incoming content is obviously already a complex query
+# _prefix - if false, the index is not prefixed with the app/index name, so can be accessed by any running version. Otherwise, an index is only accessible to the app version with the matching prefix. TODO this may be updated with abilityt o list prefix names to match multiple app versions but not all
 # _sheet - if true get a sheet ID from settings for the given endpoint, if string then it is the sheet ID. If present it implies _index:true if _index is not set
 
 # _kv gets checked prior to _index UNLESS there are args that appear to be a query
@@ -138,7 +139,7 @@ P = (scheduled) ->
     @waitUntil = (fn) -> return true # just let it run
   else if not @S.kv # try setting a default key-value store reference on the worker
     # where will backend overwrite this to true? can this be set on the global S, and overwritten on backend?
-    @S.kv = @S.name.replace / /g, ''
+    @S.kv = @S.name.replace /\s/g, ''
     delete @S.kv if not global[@S.kv]
   try @cookie = @headers.cookie
   

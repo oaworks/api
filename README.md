@@ -17,10 +17,11 @@ see the puppet file for info on installing chrome
 
 # install pm2, start the server, add to startup script, and save
 # start with watch to restart on changes, and -i with a number to set how many instances to start (should be less than number of CPU available)
+# and --name to name them, so can have easy names for dev and live for example
 # https://pm2.keymetrics.io/docs/usage/cluster-mode/
 npm i -g pm2
 pm2 install pm2-logrotate
-pm2 start <in your project directory> i- 3 --watch
+pm2 start server/dist/server.min.js -i 3 --name paradigm --watch
 pm2 startup
 pm2 save
 pm2 logs # will show log output and console.log
