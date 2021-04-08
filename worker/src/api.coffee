@@ -179,6 +179,8 @@ P = (scheduled) ->
       @domain = d
       @parts = [...@S.domains[d], ...@parts]
       break
+      
+  console.log(@base, @domain) if @S.dev and @S.bg is true
 
   @route = @parts.join '/'
   @routes = []

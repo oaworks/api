@@ -295,6 +295,9 @@ P = async function(scheduled) {
       break;
     }
   }
+  if (this.S.dev && this.S.bg === true) {
+    console.log(this.base, this.domain);
+  }
   this.route = this.parts.join('/');
   this.routes = [];
   this.fn = ''; // the function name that was mapped to by the URL routes in the request will be stored here
@@ -1755,7 +1758,7 @@ P.example.inbetween = function() {
 
 // NOTE TODO for getting certain file content, adding encoding: null to headers (or correct encoding required) is helpful
 P.fetch = async function(url, params) {
-  var _f, base, ct, i, len, name, pt, ref, ref1, res;
+  var _f, base, ct, i, j, k, len, len1, name, nu, pt, qp, ref, ref1, ref2, res, v;
   // TODO if asked to fetch a URL that is the same as the @url this worker served on, then needs to switch to a bg call if bg URL available
   if ((url == null) && (params == null)) {
     try {
@@ -1836,6 +1839,21 @@ P.fetch = async function(url, params) {
   if (typeof url !== 'string') {
     return false;
   } else {
+    try {
+      if (url.indexOf('?') !== -1) {
+        nu = url.split('?')[0] + '?';
+        ref2 = url.split('?')[1].split('&');
+        for (j = 0, len1 = ref2.length; j < len1; j++) {
+          qp = ref2[j];
+          [k, v] = qp.split('=');
+          if (v == null) {
+            v = '';
+          }
+          nu += k + '=' + encodeURIComponent(v);
+        }
+        url = nu;
+      }
+    } catch (error) {}
     if (S.system && ((typeof S.bg === 'string' && url.startsWith(S.bg)) || (typeof S.kv === 'string' && S.kv.startsWith('http') && url.startsWith(S.kv)))) {
       if (params.headers == null) {
         params.headers = {};
@@ -2034,8 +2052,8 @@ P.log = async function(msg) {
           msg.logs.push(l);
         }
       }
-      if (msg._createdAt == null) {
-        msg._createdAt = Date.now();
+      if (msg.createdAt == null) {
+        msg.createdAt = Date.now();
       }
       if (msg.name == null) {
         msg.name = S.name;
@@ -8117,6 +8135,9 @@ P.svc.oaworks.deposit = async function(params, files, dev) {
     dep.confirmed = decodeURIComponent(params.confirmed);
   }
   uc = params.config; // should exist but may not
+  if (typeof params.config === 'string') {
+    uc = JSON.parse(params.config);
+  }
   if (!params.config && params.from) {
     uc = (await this.fetch('https://' + (this.S.dev || dev ? 'dev.' : '') + 'api.cottagelabs.com/service/oab/deposit/config?uid=' + params.from));
   }
@@ -11081,8 +11102,8 @@ P.svc.oaworks.scrape = async function(content, doi) {
 };
 
 
-S.built = "Thu Apr 08 2021 12:11:17 GMT+0100";
-S.system = "318a0066c7ddfefb303282ea8b24a6287e50a8a26e678fa79760d8803ca821ff";
+S.built = "Fri Apr 09 2021 00:36:28 GMT+0100";
+S.system = "f0017e512a27e0a89847408506dd91de56ccbda6cf2a56d073ca753445e19e4d";
 P.puppet = {_bg: true}// added by constructor
 
 P.scripts.testoab = {_bg: true}// added by constructor

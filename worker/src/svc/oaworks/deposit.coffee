@@ -23,6 +23,7 @@ P.svc.oaworks.deposit = (params, files, dev) ->
   dep.confirmed = decodeURIComponent(params.confirmed) if params.confirmed # if confirmed is true the submitter has confirmed this is the right file. If confirmed is the checksum this is a resubmit by an admin
 
   uc = params.config # should exist but may not
+  uc = JSON.parse(params.config) if typeof params.config is 'string'
   if not params.config and params.from
     uc = await @fetch 'https://' + (if @S.dev or dev then 'dev.' else '') + 'api.cottagelabs.com/service/oab/deposit/config?uid=' + params.from
 

@@ -65,7 +65,7 @@ P.log = (msg) ->
           msg.alert ?= l.alert
           msg.notify ?= l.notify
           msg.logs.push l
-      msg._createdAt ?= Date.now()
+      msg.createdAt ?= Date.now()
       msg.name ?= S.name
       msg.version ?= S.version
       msg.base = @base
