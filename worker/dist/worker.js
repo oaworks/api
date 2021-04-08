@@ -147,8 +147,8 @@ P = async function(scheduled) {
   var _lp, _return, _save, authd, base, base1, base2, d, fn, fs, hd, i, j, kp, kpn, l, len, len1, len2, name, pf, pk, prs, qp, recs, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, resp, schedule;
   // the context here is the fetch event
   this.started = Date.now(); // not strictly accurate in a workers environment, but handy nevertheless, used for comparison when logs are finally written
-  console.log(this.started);
   try {
+    
     // make @S settings object local to this fetch event
     // this header is defined later because the built date is added to the end of the file by the deploy script, so it's not known until now
     if ((base = S.headers)[name = 'X-' + S.name] == null) {
@@ -11078,8 +11078,8 @@ P.svc.oaworks.scrape = async function(content, doi) {
 };
 
 
-S.built = "Thu Apr 08 2021 08:52:41 GMT+0100";
-S.system = "7bb864539504861e18bd9494c37538168ce409633be425c38aaf858f7b43aba8";
+S.built = "Thu Apr 08 2021 08:59:14 GMT+0100";
+S.system = "7408d4930058165dfddc48c82835cee22677b745e6bbe8a93c6d7153f0c947f7";
 P.puppet = {_bg: true}// added by constructor
 
 P.scripts.testoab = {_bg: true}// added by constructor

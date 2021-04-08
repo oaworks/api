@@ -392,7 +392,6 @@ P = (scheduled) ->
     @params[pk] = if @params[pk] then @params[pk] + '/' + prs.join('/') else prs.join('/')
   # TODO should url params get some auto-processing like query params do above? Could be numbers, lists, bools...
 
-  console.log @fn
   if @scheduled
     res = [] # no auth for scheduled events, just run any that were found
     for fs in schedule
