@@ -456,7 +456,7 @@ P = (scheduled) ->
       await @sleep 200 * (1 + Math.random())
       res = status: 401 # not authorised
 
-  res ?= '' if @url.replace('.ico','').replace('.gif','').replace('.png','').endsWith 'favicon'
+  res = '' if (not res? or (typeof res is 'object' and res.status is 404)) and @url.replace('.ico','').replace('.gif','').replace('.png','').endsWith 'favicon'
   resp = if typeof res is 'object' and not Array.isArray(res) and typeof res.headers?.append is 'function' then res else await @_response res
   if @scheduled or (@parts.length and @parts[0] not in ['log','status'] and @request.method not in ['HEAD', 'OPTIONS'] and res? and res isnt '')
     if @completed and fn._cache isnt false and resp.status is 200 and (typeof res isnt 'object' or Array.isArray(res) or res.hits?.total isnt 0) and (not fn._sheet or typeof res isnt 'number' or not @refresh)

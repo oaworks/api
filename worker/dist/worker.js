@@ -633,7 +633,6 @@ P = async function(scheduled) {
     this.params[pk] = this.params[pk] ? this.params[pk] + '/' + prs.join('/') : prs.join('/');
   }
   // TODO should url params get some auto-processing like query params do above? Could be numbers, lists, bools...
-  console.log(this.fn);
   if (this.scheduled) {
     res = []; // no auth for scheduled events, just run any that were found
     for (l = 0, len2 = schedule.length; l < len2; l++) {
@@ -11078,8 +11077,8 @@ P.svc.oaworks.scrape = async function(content, doi) {
 };
 
 
-S.built = "Thu Apr 08 2021 08:59:14 GMT+0100";
-S.system = "7408d4930058165dfddc48c82835cee22677b745e6bbe8a93c6d7153f0c947f7";
+S.built = "Thu Apr 08 2021 09:06:34 GMT+0100";
+S.system = "244d57b7e91f881ec128635cf1e426b7dc8f2add7129d0066f2e73f92f33abfc";
 P.puppet = {_bg: true}// added by constructor
 
 P.scripts.testoab = {_bg: true}// added by constructor
