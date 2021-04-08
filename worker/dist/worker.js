@@ -8499,7 +8499,7 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
         epmc = (await this.src.epmc[metadata.pmcid ? 'pmc' : 'pmid']((ref8 = metadata.pmcid) != null ? ref8 : metadata.pmid));
         await _metadata(epmc);
       }
-      if (metadata.title && !metadata.doi) {
+      if (!metadata.doi && metadata.title && metadata.title.length > 8 && metadata.title.split(' ').length > 2) {
         metadata.title = metadata.title.replace(/\+/g, ' '); // some+titles+come+in+like+this
         cr = (await this.src.crossref.works.title(metadata.title));
         if ((cr != null ? cr.type : void 0) && (cr != null ? cr.DOI : void 0)) {
@@ -8572,7 +8572,7 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
   await _searches();
   // if nothing useful can be found and still only have title try using bing - or drop this ability?
   // TODO what to do if this finds anything? re-call the whole find?
-  if (metadata.title && !metadata.doi && !content && !options.url && (typeof epmc === "undefined" || epmc === null)) {
+  if (!metadata.doi && !content && !options.url && (typeof epmc === "undefined" || epmc === null) && metadata.title && metadata.title.length > 8 && metadata.title.split(' ').length > 2) {
     try {
       mct = unidecode(metadata.title.toLowerCase()).replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' ');
       bong = (await this.src.microsoft.bing.search(mct));
@@ -8598,7 +8598,7 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
   }
   _ill = async() => {
     var ref8;
-    if ((metadata.doi || metadata.title) && (options.from || (options.config != null)) && (options.plugin === 'instantill' || options.ill === true)) {
+    if ((metadata.doi || (metadata.title && metadata.title.length > 8 && metadata.title.split(' ').length > 2)) && (options.from || (options.config != null)) && (options.plugin === 'instantill' || options.ill === true)) {
       try {
         if (res.ill == null) {
           res.ill = {
@@ -11075,8 +11075,8 @@ P.svc.oaworks.scrape = async function(content, doi) {
 };
 
 
-S.built = "Thu Apr 08 2021 09:29:48 GMT+0100";
-S.system = "54a205fcdb4a0fe6e6d116ec068e2e73c52070b116fb5b4a3ccb31291a7e659a";
+S.built = "Thu Apr 08 2021 09:43:04 GMT+0100";
+S.system = "8c8920a8626a16f663be5057fa94c60fda7efefc3743029339699f1cbb432148";
 P.puppet = {_bg: true}// added by constructor
 
 P.scripts.testoab = {_bg: true}// added by constructor

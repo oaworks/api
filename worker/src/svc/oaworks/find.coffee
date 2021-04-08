@@ -198,6 +198,7 @@ P.svc.oaworks.citation = (citation) ->
     try res.shortname = citation.journalInfo.journal.isoabbreviation ? citation.journalInfo.journal.medlineAbbreviation
     res.journal ?= citation.journal_name ? citation.journalInfo?.journal?.title ? citation.journal?.title
     res.journal = citation.journal.split('(')[0].trim() if citation.journal
+    try res[key] = res[key].charAt(0).toUpperCase() + res[key].slice 1 for key in ['title','journal']
     res.publisher ?= citation.publisher
     res.publisher = res.publisher.trim() if res.publisher
     try res.issue ?= citation.issue if citation.issue?
@@ -206,9 +207,6 @@ P.svc.oaworks.citation = (citation) ->
     try res.volume ?= citation.journalInfo.volume if citation.journalInfo?.volume
     try res.page ?= citation.page.toString() if citation.page?
     res.page = citation.pageInfo.toString() if citation.pageInfo
-    for key in ['title','journal']
-      if not res[key] and typeof citation[key] is 'string' and (citation[key].charAt(0).toUpperCase() isnt citation[key].charAt(0) or citation[key].toUpperCase() is citation.key or citation[key].toLowerCase() is citation.key)
-        res[key] = citation[key].charAt(0).toUpperCase() + citation[key].slice 1
     res.abstract = citation.abstract ? citation.abstractText if citation.abstract or citation.abstractText
     try res.abstract = @convert.html2txt(res.abstract).replace(/\n/g,' ').replace('Abstract ','') if res.abstract
 
