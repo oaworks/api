@@ -8715,6 +8715,13 @@ P.svc.oaworks.citation = function(citation) {
     if (citation.journal) {
       res.journal = citation.journal.split('(')[0].trim();
     }
+    try {
+      ref20 = ['title', 'journal'];
+      for (i = 0, len = ref20.length; i < len; i++) {
+        key = ref20[i];
+        res[key] = res[key].charAt(0).toUpperCase() + res[key].slice(1);
+      }
+    } catch (error) {}
     if (res.publisher == null) {
       res.publisher = citation.publisher;
     }
@@ -8729,7 +8736,7 @@ P.svc.oaworks.citation = function(citation) {
       }
     } catch (error) {}
     try {
-      if ((ref20 = citation.journalInfo) != null ? ref20.issue : void 0) {
+      if ((ref21 = citation.journalInfo) != null ? ref21.issue : void 0) {
         if (res.issue == null) {
           res.issue = citation.journalInfo.issue;
         }
@@ -8743,7 +8750,7 @@ P.svc.oaworks.citation = function(citation) {
       }
     } catch (error) {}
     try {
-      if ((ref21 = citation.journalInfo) != null ? ref21.volume : void 0) {
+      if ((ref22 = citation.journalInfo) != null ? ref22.volume : void 0) {
         if (res.volume == null) {
           res.volume = citation.journalInfo.volume;
         }
@@ -8758,13 +8765,6 @@ P.svc.oaworks.citation = function(citation) {
     } catch (error) {}
     if (citation.pageInfo) {
       res.page = citation.pageInfo.toString();
-    }
-    ref22 = ['title', 'journal'];
-    for (i = 0, len = ref22.length; i < len; i++) {
-      key = ref22[i];
-      if (!res[key] && typeof citation[key] === 'string' && (citation[key].charAt(0).toUpperCase() !== citation[key].charAt(0) || citation[key].toUpperCase() === citation.key || citation[key].toLowerCase() === citation.key)) {
-        res[key] = citation[key].charAt(0).toUpperCase() + citation[key].slice(1);
-      }
     }
     if (citation.abstract || citation.abstractText) {
       res.abstract = (ref23 = citation.abstract) != null ? ref23 : citation.abstractText;
@@ -11075,8 +11075,8 @@ P.svc.oaworks.scrape = async function(content, doi) {
 };
 
 
-S.built = "Thu Apr 08 2021 09:43:04 GMT+0100";
-S.system = "8c8920a8626a16f663be5057fa94c60fda7efefc3743029339699f1cbb432148";
+S.built = "Thu Apr 08 2021 09:58:27 GMT+0100";
+S.system = "a586e228bd3698daf57b59c86895dc8e419378fcf7e5d828053d0748341cb5d5";
 P.puppet = {_bg: true}// added by constructor
 
 P.scripts.testoab = {_bg: true}// added by constructor
