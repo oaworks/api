@@ -63,6 +63,7 @@ P.form = (params) ->
   return po
 
 P.decode = (content) ->
+  content ?= @params.decode ? @params.content ? @params.text ? @body
   _decode = (content) ->
     # https://stackoverflow.com/questions/44195322/a-plain-javascript-way-to-decode-html-entities-works-on-both-browsers-and-node
     translator = /&(nbsp|amp|quot|lt|gt);/g

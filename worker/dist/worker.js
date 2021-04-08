@@ -2727,7 +2727,10 @@ P.form = function(params) {
 };
 
 P.decode = async function(content) {
-  var _decode, c, i, len, re, ref, text;
+  var _decode, c, i, len, re, ref, ref1, ref2, ref3, text;
+  if (content == null) {
+    content = (ref = (ref1 = (ref2 = this.params.decode) != null ? ref2 : this.params.content) != null ? ref1 : this.params.text) != null ? ref : this.body;
+  }
   _decode = function(content) {
     var translate, translator;
     // https://stackoverflow.com/questions/44195322/a-plain-javascript-way-to-decode-html-entities-works-on-both-browsers-and-node
@@ -2748,7 +2751,7 @@ P.decode = async function(content) {
     }));
   };
   text = (await _decode(content).replace(/\n/g, ''));
-  ref = [
+  ref3 = [
     {
       bad: '‘',
       good: "'"
@@ -2778,8 +2781,8 @@ P.decode = async function(content) {
       good: '-'
     }
   ];
-  for (i = 0, len = ref.length; i < len; i++) {
-    c = ref[i];
+  for (i = 0, len = ref3.length; i < len; i++) {
+    c = ref3[i];
     re = new RegExp(c.bad, 'g');
     text = text.replace(re, c.good);
   }
@@ -11078,8 +11081,8 @@ P.svc.oaworks.scrape = async function(content, doi) {
 };
 
 
-S.built = "Thu Apr 08 2021 12:00:44 GMT+0100";
-S.system = "42c4dbaa28e1313fee08a2c190e8d3991c29cdb7c6a802c1084150a72940d810";
+S.built = "Thu Apr 08 2021 12:11:17 GMT+0100";
+S.system = "318a0066c7ddfefb303282ea8b24a6287e50a8a26e678fa79760d8803ca821ff";
 P.puppet = {_bg: true}// added by constructor
 
 P.scripts.testoab = {_bg: true}// added by constructor
