@@ -86,7 +86,7 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
       if metadata.pmid or metadata.pmcid
         epmc = await @src.epmc[if metadata.pmcid then 'pmc' else 'pmid'] (metadata.pmcid ? metadata.pmid)
         await _metadata epmc
-      if not metadata.doi and metadata.title and metadata.title.length > 8 and metadata.title.split(' ').length > 2
+      if not metadata.doi and metadata.title and metadata.title.length > 8 and metadata.title.split(' ').length > 1
         metadata.title = metadata.title.replace /\+/g, ' ' # some+titles+come+in+like+this
         cr = await @src.crossref.works.title metadata.title
         if cr?.type and cr?.DOI
@@ -133,7 +133,7 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
 
   # if nothing useful can be found and still only have title try using bing - or drop this ability?
   # TODO what to do if this finds anything? re-call the whole find?
-  if not metadata.doi and not content and not options.url and not epmc? and metadata.title and metadata.title.length > 8 and metadata.title.split(' ').length > 2
+  if not metadata.doi and not content and not options.url and not epmc? and metadata.title and metadata.title.length > 8 and metadata.title.split(' ').length > 1
     try
       mct = unidecode(metadata.title.toLowerCase()).replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' ')
       bong = await @src.microsoft.bing.search mct
@@ -148,7 +148,7 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
         await _searches() # run again if anything more useful found
 
   _ill = () =>
-    if (metadata.doi or (metadata.title and metadata.title.length > 8 and metadata.title.split(' ').length > 2)) and (options.from or options.config?) and (options.plugin is 'instantill' or options.ill is true)
+    if (metadata.doi or (metadata.title and metadata.title.length > 8 and metadata.title.split(' ').length > 1)) and (options.from or options.config?) and (options.plugin is 'instantill' or options.ill is true)
       try res.ill ?= subscription: await @svc.oaworks.ill.subscription (options.config ? options.from), metadata
     return true
   _permissions = () =>
