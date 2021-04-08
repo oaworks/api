@@ -8947,7 +8947,7 @@ P.svc.oaworks.citation = function(citation) {
       for (u = 0, len8 = ref56.length; u < len8; u++) {
         cf = ref56[u];
         if (((ref57 = cf.availabilityCode.toLowerCase()) === 'oa' || ref57 === 'f') && (!res.url || (cf.documentStyle === 'pdf' && res.url.indexOf('pdf') === -1))) {
-          res.url = cf.url.split('?')[0];
+          res.url = cf.url;
         }
       }
     }
@@ -11075,8 +11075,8 @@ P.svc.oaworks.scrape = async function(content, doi) {
 };
 
 
-S.built = "Thu Apr 08 2021 09:21:39 GMT+0100";
-S.system = "716497b30f35b5c99d3fabbaf423e337b597cb42443d05aac82aa180e2e7cc56";
+S.built = "Thu Apr 08 2021 09:29:48 GMT+0100";
+S.system = "54a205fcdb4a0fe6e6d116ec068e2e73c52070b116fb5b4a3ccb31291a7e659a";
 P.puppet = {_bg: true}// added by constructor
 
 P.scripts.testoab = {_bg: true}// added by constructor
