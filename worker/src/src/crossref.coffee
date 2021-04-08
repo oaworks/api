@@ -74,7 +74,7 @@ P.src.crossref.works.title = (title) ->
       qr += ' AND ' if not qr.endsWith '('
       qr += '(title:"' + t + '" OR subtitle:"' + t + '")'
     qr += ')'
-  rem = await @fetch 'https://dev.api.cottagelabs.com/use/crossref/works?q=' + qr
+  rem = await @fetch 'https://dev.api.cottagelabs.com/use/crossref/works?q=' + encodeURIComponent qr
   #rem = @src.crossref.works qr
   ltitle = title.toLowerCase().replace(/['".,\/\^&\*;:!\?#\$%{}=\-\+_`~()]/g,' ').replace(/\s{2,}/g,' ').trim()
   for r in rem?.hits?.hits ? []

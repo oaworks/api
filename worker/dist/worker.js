@@ -8499,7 +8499,7 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
         epmc = (await this.src.epmc[metadata.pmcid ? 'pmc' : 'pmid']((ref8 = metadata.pmcid) != null ? ref8 : metadata.pmid));
         await _metadata(epmc);
       }
-      if (!metadata.doi && metadata.title && metadata.title.length > 8 && metadata.title.split(' ').length > 2) {
+      if (!metadata.doi && metadata.title && metadata.title.length > 8 && metadata.title.split(' ').length > 1) {
         metadata.title = metadata.title.replace(/\+/g, ' '); // some+titles+come+in+like+this
         cr = (await this.src.crossref.works.title(metadata.title));
         if ((cr != null ? cr.type : void 0) && (cr != null ? cr.DOI : void 0)) {
@@ -8572,7 +8572,7 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
   await _searches();
   // if nothing useful can be found and still only have title try using bing - or drop this ability?
   // TODO what to do if this finds anything? re-call the whole find?
-  if (!metadata.doi && !content && !options.url && (typeof epmc === "undefined" || epmc === null) && metadata.title && metadata.title.length > 8 && metadata.title.split(' ').length > 2) {
+  if (!metadata.doi && !content && !options.url && (typeof epmc === "undefined" || epmc === null) && metadata.title && metadata.title.length > 8 && metadata.title.split(' ').length > 1) {
     try {
       mct = unidecode(metadata.title.toLowerCase()).replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' ');
       bong = (await this.src.microsoft.bing.search(mct));
@@ -8598,7 +8598,7 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
   }
   _ill = async() => {
     var ref8;
-    if ((metadata.doi || (metadata.title && metadata.title.length > 8 && metadata.title.split(' ').length > 2)) && (options.from || (options.config != null)) && (options.plugin === 'instantill' || options.ill === true)) {
+    if ((metadata.doi || (metadata.title && metadata.title.length > 8 && metadata.title.split(' ').length > 1)) && (options.from || (options.config != null)) && (options.plugin === 'instantill' || options.ill === true)) {
       try {
         if (res.ill == null) {
           res.ill = {
@@ -11075,8 +11075,8 @@ P.svc.oaworks.scrape = async function(content, doi) {
 };
 
 
-S.built = "Thu Apr 08 2021 10:35:26 GMT+0100";
-S.system = "c49db8642ac5746cade94457ff4f551717f9f71b15ac1c73d69b1768b1e47233";
+S.built = "Thu Apr 08 2021 11:35:57 GMT+0100";
+S.system = "0dc31895485488246f74b1799589b6f0575965928e0acd7edaad101329ff2dc6";
 P.puppet = {_bg: true}// added by constructor
 
 P.scripts.testoab = {_bg: true}// added by constructor
