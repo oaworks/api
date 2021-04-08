@@ -101,7 +101,7 @@ try
 P = (scheduled) ->
   # the context here is the fetch event
   @started = Date.now() # not strictly accurate in a workers environment, but handy nevertheless, used for comparison when logs are finally written
-
+  console.log @started
   # make @S settings object local to this fetch event
   # this header is defined later because the built date is added to the end of the file by the deploy script, so it's not known until now
   try S.headers['X-' + S.name] ?= (if S.version then 'v' + S.version else '') + (if S.built then ' built ' + S.built  else '')
@@ -176,6 +176,7 @@ P = (scheduled) ->
       @parts[@parts.length-1] = @parts[@parts.length-1].replace '.' + pf, ''
   for d of @S.domains ? {} # allows requests from specific domains to route directly to a subroute, or more usefully, a specific service
     if @base.indexOf(d) isnt -1
+      @domain = d
       @parts = [...@S.domains[d], ...@parts]
       break
 
@@ -391,6 +392,7 @@ P = (scheduled) ->
     @params[pk] = if @params[pk] then @params[pk] + '/' + prs.join('/') else prs.join('/')
   # TODO should url params get some auto-processing like query params do above? Could be numbers, lists, bools...
 
+  console.log @fn
   if @scheduled
     res = [] # no auth for scheduled events, just run any that were found
     for fs in schedule
@@ -461,7 +463,7 @@ P = (scheduled) ->
     if @completed and fn._cache isnt false and resp.status is 200 and (typeof res isnt 'object' or Array.isArray(res) or res.hits?.total isnt 0) and (not fn._sheet or typeof res isnt 'number' or not @refresh)
       @_cache undefined, resp, fn._cache # fn._cache can be a number of seconds for cache to live, so pass it to cache to use if suitable
     @log()
-  if not @completed and not @cached and not @unauthorised and not @scheduled and @S.pass and typeof @S.bg is 'string'
+  if not @completed and not @cached and not @unauthorised and not @scheduled and @S.pass and typeof @S.bg is 'string' and @request.method not in ['HEAD', 'OPTIONS']
     # TODO add a regular schedule to check logs for things that didn't complete, and set them to _bg by default so they don't keep timing out
     throw new Error()
   else

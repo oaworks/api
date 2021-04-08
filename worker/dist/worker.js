@@ -144,11 +144,11 @@ try {
 } catch (error) {}
 
 P = async function(scheduled) {
-  var _lp, _return, _save, authd, base, base1, base2, d, fn, fs, hd, i, j, kp, kpn, l, len, len1, len2, name, pf, pk, prs, qp, recs, ref, ref1, ref10, ref11, ref12, ref13, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, resp, schedule;
+  var _lp, _return, _save, authd, base, base1, base2, d, fn, fs, hd, i, j, kp, kpn, l, len, len1, len2, name, pf, pk, prs, qp, recs, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, resp, schedule;
   // the context here is the fetch event
   this.started = Date.now(); // not strictly accurate in a workers environment, but handy nevertheless, used for comparison when logs are finally written
+  console.log(this.started);
   try {
-    
     // make @S settings object local to this fetch event
     // this header is defined later because the built date is added to the end of the file by the deploy script, so it's not known until now
     if ((base = S.headers)[name = 'X-' + S.name] == null) {
@@ -290,6 +290,7 @@ P = async function(scheduled) {
   }
   for (d in (ref6 = this.S.domains) != null ? ref6 : {}) {
     if (this.base.indexOf(d) !== -1) {
+      this.domain = d;
       this.parts = [...this.S.domains[d], ...this.parts];
       break;
     }
@@ -632,6 +633,7 @@ P = async function(scheduled) {
     this.params[pk] = this.params[pk] ? this.params[pk] + '/' + prs.join('/') : prs.join('/');
   }
   // TODO should url params get some auto-processing like query params do above? Could be numbers, lists, bools...
+  console.log(this.fn);
   if (this.scheduled) {
     res = []; // no auth for scheduled events, just run any that were found
     for (l = 0, len2 = schedule.length; l < len2; l++) {
@@ -647,18 +649,20 @@ P = async function(scheduled) {
           if (typeof fs === 'function') {
             recs = (await fs(res));
           }
-        } else {
-          await this.kv._each(fs._schedule, async function(kn) {
-            var rec;
-            if (kn.indexOf('/') !== -1 && kn !== fs._schedule) {
-              rec = (await this.kv(kn, (fs._kv ? void 0 : ''))); // if kv not explicitly set, delete when moving to index
-              if (rec._id == null) {
-                rec._id = kn.split('/').pop();
-              }
-              return recs.push(rec);
-            }
-          });
         }
+        await this.kv._each(fs._schedule, async function(kn) {
+          var rec;
+          if (kn.indexOf('/') !== -1 && kn !== fs._schedule) {
+            // if kv not explicitly set, delete when moving to index
+            // this could also be used as a way to replicate changes back into a sheet after reload
+            // but would need at least a way to properly uniquely identify records between sheet and index
+            rec = (await this.kv(kn, fs._kv ? void 0 : ''));
+            if (rec._id == null) {
+              rec._id = kn.split('/').pop();
+            }
+            return recs.push(rec);
+          }
+        });
         if (recs.length) {
           this.waitUntil(this.index(fs._schedule, recs));
         }
@@ -729,7 +733,7 @@ P = async function(scheduled) {
     }
     this.log();
   }
-  if (!this.completed && !this.cached && !this.unauthorised && !this.scheduled && this.S.pass && typeof this.S.bg === 'string') {
+  if (!this.completed && !this.cached && !this.unauthorised && !this.scheduled && this.S.pass && typeof this.S.bg === 'string' && ((ref14 = this.request.method) !== 'HEAD' && ref14 !== 'OPTIONS')) {
     // TODO add a regular schedule to check logs for things that didn't complete, and set them to _bg by default so they don't keep timing out
     throw new Error();
   } else {
@@ -2043,6 +2047,9 @@ P.log = async function(msg) {
         msg.version = S.version;
       }
       msg.base = this.base;
+      if (this.domain) {
+        msg.domain = this.domain;
+      }
       if (this.S.bg === true) {
         msg.bg = true;
       }
@@ -11071,8 +11078,8 @@ P.svc.oaworks.scrape = async function(content, doi) {
 };
 
 
-S.built = "Wed Apr 07 2021 12:49:51 GMT+0100";
-S.system = "ec76246a7f8da9e3a3d5c79a5b8654de86298d41f57965103d5b1d92f2b45c0e";
+S.built = "Thu Apr 08 2021 08:52:41 GMT+0100";
+S.system = "7bb864539504861e18bd9494c37538168ce409633be425c38aaf858f7b43aba8";
 P.puppet = {_bg: true}// added by constructor
 
 P.scripts.testoab = {_bg: true}// added by constructor

@@ -69,6 +69,7 @@ P.log = (msg) ->
       msg.name ?= S.name
       msg.version ?= S.version
       msg.base = @base
+      msg.domain = @domain if @domain
       msg.bg = true if @S.bg is true
       msg.system = true if @system is true
       msg.scheduled = true if @scheduled is true
