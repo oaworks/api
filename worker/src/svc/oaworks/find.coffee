@@ -283,7 +283,7 @@ P.svc.oaworks.citation = (citation) ->
     if not res.url and citation.fullTextUrlList?.fullTextUrl? # epmc fulltexts
       for cf in citation.fullTextUrlList.fullTextUrl
         if cf.availabilityCode.toLowerCase() in ['oa','f'] and (not res.url or (cf.documentStyle is 'pdf' and res.url.indexOf('pdf') is -1))
-          res.url = cf.url.split('?')[0]
+          res.url = cf.url
 
   else if typeof citation is 'string'
     try

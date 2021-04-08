@@ -720,10 +720,8 @@ P = async function(scheduled) {
       };
     }
   }
-  if (this.url.replace('.ico', '').replace('.gif', '').replace('.png', '').endsWith('favicon')) {
-    if (res == null) {
-      res = '';
-    }
+  if (((res == null) || (typeof res === 'object' && res.status === 404)) && this.url.replace('.ico', '').replace('.gif', '').replace('.png', '').endsWith('favicon')) {
+    res = '';
   }
   resp = typeof res === 'object' && !Array.isArray(res) && typeof ((ref10 = res.headers) != null ? ref10.append : void 0) === 'function' ? res : (await this._response(res));
   if (this.scheduled || (this.parts.length && ((ref11 = this.parts[0]) !== 'log' && ref11 !== 'status') && ((ref12 = this.request.method) !== 'HEAD' && ref12 !== 'OPTIONS') && (res != null) && res !== '')) {
@@ -11077,8 +11075,8 @@ P.svc.oaworks.scrape = async function(content, doi) {
 };
 
 
-S.built = "Thu Apr 08 2021 09:06:34 GMT+0100";
-S.system = "244d57b7e91f881ec128635cf1e426b7dc8f2add7129d0066f2e73f92f33abfc";
+S.built = "Thu Apr 08 2021 09:21:39 GMT+0100";
+S.system = "716497b30f35b5c99d3fabbaf423e337b597cb42443d05aac82aa180e2e7cc56";
 P.puppet = {_bg: true}// added by constructor
 
 P.scripts.testoab = {_bg: true}// added by constructor
