@@ -152,7 +152,7 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
       try res.ill ?= subscription: await @svc.oaworks.ill.subscription (options.config ? options.from), metadata
     return true
   _permissions = () =>
-    if not res.url and metadata.doi and (options.permissions or options.plugin is 'shareyourpaper')
+    if metadata.doi and (options.permissions or options.plugin is 'shareyourpaper')
       res.permissions ?= await @svc.oaworks.permissions metadata, options.config?.ror, false
     return true
   await Promise.all [_ill(), _permissions()]
@@ -418,49 +418,6 @@ P.svc.oaworks.citation = (citation) ->
   return res
 
 
-'''
-there would be an index called svc_oaworks_find (possibly namespaced to service name and env, or global)
-may also want to allow explicit naming of the index, not the same as the route
-so the usual index operations have to be available under P.svc.oaworks.find
-at /find we should serve the index of find results
-
-when .find is called, we need to know whether it is:
-  an attempt to get back one specific find (e.g. it was already previously run so the result exists)
-    so url params could do this - e.g. pass /find/10.1234/567890 or /find/id/1234 or /find/title/blah blah
-    and may want to check kv as well if set for this endpoint
-    check kv would entail:
-      look up the full url (with params?)
-      or look up a provided ID
-      
-  an attempt to run find
-    which could run if the above lookup returns nothing (or more than one?)
-    or if refresh is true, always run
-    so find needs a .run to fall back to (and if doesn't have one, nothing populates the index on a fail to find)
-    after .run:
-      save to index 
-      index should also save a history if configured to do so
-      and save to kv if set to do so
-        would it be possible to also set multiple routes to point to one kv result?
-        like if a find on /find/10.1234/567890 should also be findable by /find/pmid/12345678
-      
-  an attempt to search finds
-    when there is no provided url params, and no query params that could be used to get back one specific one
-    or when there is a definitive search param provided, such as q or query or source?
-    
-{
-  env: may want to specify the env we are in (defaults to infer from Settings). Or false to be global to any env
-  index: false 'optional_index_name' # optional, otherwise inferred from the url route - or could be false while kv is true
-  history: false # if true, on every edit, save a copy of the previous state of the record (requires index)
-  kv: false # whether or not to also store in the kv layer (default false). prob not worth using kv AND cache
-  cache: false # cache the results of the fetch requests to the index. could be true or false or a number for how long to cache
-  # also need a way to record the user ID of whoever caused a historic change, if available
-}
-
-what goes into the log as the recorded response for this sort of route?
-'''
-
-
-
 # temporary legacy wrapper for old site front page availability check
 # that page should be moved to use the new embed, like shareyourpaper
 P.svc.oaworks.availability = (params, v2) ->
@@ -512,3 +469,5 @@ P.svc.oaworks.availability = (params, v2) ->
               afnd.data.requests.push rq
     afnd.data.accepts.push({type:'article'}) if afnd.data.availability.length is 0 and afnd.data.requests.length is 0
     return afnd
+
+P.svc.oaworks.availability._hidden = true

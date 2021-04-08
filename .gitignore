@@ -3,6 +3,8 @@
 *secrets*
 worker/src/svc/*
 !worker/src/svc/oaworks
+server/src/svc/*
+!server/src/svc/oaworks
 server/dist/
 *.tmp
 *.swp

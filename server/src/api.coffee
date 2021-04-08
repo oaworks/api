@@ -4,6 +4,9 @@ import crypto from 'crypto' # used in utilities for hash generation
 import http from 'http'
 import https from 'https' # allows fetch to control https security for local connections
 import Busboy from 'busboy'
+import fs from 'fs'
+import tar from 'tar' # for DOAJ data dumps, possibly others
+
 
 server = http.createServer (req, res) ->
   try

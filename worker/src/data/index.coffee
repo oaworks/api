@@ -131,7 +131,7 @@ P.index._submit = (route, data, method, deletes=true) -> # deletes is true in de
   return false if method is 'DELETE' and (deletes isnt true or route.indexOf('/_all') isnt -1) # nobody can delete all via the API
   if not route.startsWith 'http' # which it probably doesn't
     if @S.index.name and not route.startsWith(@S.index.name) and not route.startsWith('_')
-      prefix = await @flatten P, (route.split('/')[0] + '/_prefix').replace(/_/g, '.')
+      prefix = await @dot P, (route.split('/')[0]).replace(/_/g, '.') + '._prefix'
       # TODO could allow prefix to be a list of names, and if index name is in the list, alias the index into those namespaces, to share indexes between specific instances rather than just one or global
       route = @S.index.name + '_' + route if prefix isnt false
     url = if this?.S?.index?.url then @S.index.url else S.index?.url
@@ -382,7 +382,7 @@ P.index._each = (route, q, opts, fn) ->
 P.index._bulk = (route, data, action='index', bulk=50000) ->
   # https://www.elastic.co/guide/en/elasticsearch/reference/1.4/docs-bulk.html
   # https://www.elastic.co/guide/en/elasticsearch/reference/1.4/docs-update.html
-  prefix = await @flatten P, (route.split('/')[0] + '/_prefix').replace(/_/g, '.')
+  prefix = await @dot P, (route.split('/')[0]).replace(/_/g, '.') + '._prefix'
   route = @S.index.name + '_' + route if prefix isnt false # need to do this here as well as in _submit so it can be set below in each object of the bulk
   cidx = if this?.index? then @index else P.index
   if typeof data is 'string' and data.indexOf('\n') isnt -1
@@ -406,7 +406,6 @@ P.index._bulk = (route, data, action='index', bulk=50000) ->
           delete row._id # newer ES 7.x won't accept the _id in the object itself
         else
           rid = if this?.uid? then @uid() else P.uid()
-      row._index = route
       meta = {}
       meta[action] = {"_index": route }
       meta[action]._id = if action is 'delete' and typeof row is 'string' then row else rid # what if action is delete but can't set an ID?
@@ -534,7 +533,7 @@ P.index.translate = (q, opts={}) ->
           for k of m
             if typeof m[k] is 'string'
               tobj = term:{}
-              tobj.term[k] #TODO check how a term query on a text string works on newer ES. Does it require the term query to be in .keyword?
+              tobj.term[k] = m[k] #TODO check how a term query on a text string works on newer ES. Does it require the term query to be in .keyword?
               qry.query.bool.should.push tobj
             else if typeof m[k] in ['number','boolean']
               qry.query.bool.should.push {query_string:{query:k + ':' + m[k]}}

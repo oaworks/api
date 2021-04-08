@@ -28,12 +28,8 @@ if (S.version == null) {
   S.version = '5.3.1'; // the construct script will use this to overwrite any version in the worker and server package.json files
 }
 
-if (S.env == null) {
-  S.env = 'dev';
-}
-
 if (S.dev == null) {
-  S.dev = S.env === 'dev';
+  S.dev = true;
 }
 
 if (typeof S.bg === 'string') { // if there is a bg to pass through to on errors/timeouts, then go to it by default
@@ -89,7 +85,8 @@ try {
   // _kv - if true store the result in CF workers KV, and check for it on new requests - like a cache, but global, with 1s eventual consistency whereas cache is regional
   // _index - if true send the result to an index. Or can be an object of index initialisation settings, mappings, aliases
   // _key - optional which key, if not default _id, to use from a result object to save it as - along with the function route which will be derived if not provided
-  // _search = if false, the wrapper won't run a search on incoming potential queries before calling the function. If a string, will be used as the key to search within, unless the incoming content is obviously already a complex query
+  // _search - if false, the wrapper won't run a search on incoming potential queries before calling the function. If a string, will be used as the key to search within, unless the incoming content is obviously already a complex query
+  // _prefix - if false, the index is not prefixed with the app/index name, so can be accessed by any running version. Otherwise, an index is only accessible to the app version with the matching prefix. TODO this may be updated with abilityt o list prefix names to match multiple app versions but not all
   // _sheet - if true get a sheet ID from settings for the given endpoint, if string then it is the sheet ID. If present it implies _index:true if _index is not set
 
   // _kv gets checked prior to _index UNLESS there are args that appear to be a query
@@ -155,7 +152,7 @@ P = async function(scheduled) {
     // make @S settings object local to this fetch event
     // this header is defined later because the built date is added to the end of the file by the deploy script, so it's not known until now
     if ((base = S.headers)[name = 'X-' + S.name] == null) {
-      base[name] = (S.version ? 'v' + S.version : '') + (S.env ? ' ' + S.env : '') + (S.built ? ' built ' + S.built : '');
+      base[name] = (S.version ? 'v' + S.version : '') + (S.built ? ' built ' + S.built : '');
     }
   } catch (error) {}
   this.S = JSON.parse(JSON.stringify(S));
@@ -228,10 +225,7 @@ P = async function(scheduled) {
     };
   } else if (!this.S.kv) { // try setting a default key-value store reference on the worker
     // where will backend overwrite this to true? can this be set on the global S, and overwritten on backend?
-    this.S.kv = this.S.name;
-    if ((global[this.S.kv] == null) && this.S.env) {
-      this.S.kv += '_' + this.S.env;
-    }
+    this.S.kv = this.S.name.replace(/\s/g, '');
     if (!global[this.S.kv]) {
       delete this.S.kv;
     }
@@ -297,10 +291,11 @@ P = async function(scheduled) {
   for (d in (ref6 = this.S.domains) != null ? ref6 : {}) {
     if (this.base.indexOf(d) !== -1) {
       this.parts = [...this.S.domains[d], ...this.parts];
+      break;
     }
   }
   this.route = this.parts.join('/');
-  this.routes = {}; // build an obj keyed by all the route strings (for the status page) maybe useful elsewhere. Each points to some useful info probably...
+  this.routes = [];
   this.fn = ''; // the function name that was mapped to by the URL routes in the request will be stored here
   if (scheduled || this.route === 'log/_schedule') { // and restrict this to root, or disable URL route to it
     this.scheduled = true;
@@ -311,7 +306,6 @@ P = async function(scheduled) {
     return P._response.call(this, (ref7 = this.request.method) === 'HEAD' || ref7 === 'OPTIONS' ? '' : {
       name: this.S.name,
       version: this.S.version,
-      env: (this.S.dev && this.S.env ? this.S.env : void 0),
       base: (this.S.dev ? this.base : void 0),
       built: (this.S.dev ? this.S.built : void 0)
     });
@@ -370,10 +364,6 @@ P = async function(scheduled) {
       if (f._schedule == null) {
         f._schedule = n;
       }
-      f._env = f._env === false ? '' : typeof f._env === 'string' ? f._env : this.S.env; // TODO could update this to allow lists of envs, to make indexes available via aliases to specific envs?
-      if (typeof f._env === 'string') {
-        f._env = f._env.toLowerCase();
-      }
     }
     if (f._schedule === true && typeof f !== 'function') {
       f._schedule = n;
@@ -384,7 +374,7 @@ P = async function(scheduled) {
       return JSON.parse(JSON.stringify(f));
     } else {
       _wrapped = async function() {
-        var _async, adone, bup, c, di, dr, isq, l, len2, len3, len4, lg, m, o, qopts, rec, ref10, ref11, ref12, ref13, ref8, ref9, res, rt, st;
+        var _async, adone, bup, c, di, dr, exists, isq, l, len2, len3, len4, lg, m, o, qopts, rec, ref10, ref11, ref12, ref13, ref8, ref9, res, rt, st;
         st = Date.now(); // again, not necessarily going to be accurate in a workers environment
         rt = n.replace(/\./g, '_');
         lg = {
@@ -465,10 +455,6 @@ P = async function(scheduled) {
         if (lg.key) {
           lg.key = rt + '/' + lg.key.replace(/\//g, '_').replace(rt, '').replace(/^_/, '');
         }
-        if (f._env && rt.indexOf(f._env + '_') !== 0) {
-          rt = f._env + '_' + rt; // do this after lg.key is set so that the replace works correctly
-          lg.key = f._env + '_' + lg.key;
-        }
         if ((res == null) && (f._index || f._kv) && (!this.refresh || (f._sheet && this.fn !== n))) { // and not rec? and not fn.qry))
           if (f._kv && lg.key.indexOf('/') !== -1 && !lg.qry) { // check kv first if there is an ID present
             res = (await this.kv(lg.key, rec));
@@ -480,7 +466,7 @@ P = async function(scheduled) {
             // TODO if lg.qry is a string like a title, with no other search qualifiers in it, and f._search is a string, treat f._search as the key name to search in
             // BUT if there are no spaces in lg.qry, it's probably supposed to be part of the key - that should be handled above anyway
             res = (await this.index(lg.key, rec != null ? rec : (lg.qry ? (await this.index.translate(lg.qry)) : void 0)));
-            if (this.fn !== n && typeof lg.qry === 'string' && !rec && (res != null ? (ref9 = res.hits) != null ? ref9.total : void 0 : void 0) === 1) {
+            if (this.fn !== n && typeof lg.qry === 'string' && lg.qry.indexOf(' ') === -1 && !rec && (res != null ? (ref9 = res.hits) != null ? ref9.total : void 0 : void 0) === 1 && lg.qry.indexOf(res.hits.hits[0]._id !== -1)) {
               try {
                 res = res.hits.hits[0]._source;
               } catch (error) {}
@@ -504,12 +490,12 @@ P = async function(scheduled) {
           try {
             // TODO could @_timeout this and if it runs out, throw new Error() to go to bg machine
             // TODO this replace of _ with / affects function names with underscores in them - if there are any, need a neater way to handle switching back to url form
-            res = (await this.fetch(this.S.bg + '/' + lg.key.replace(/_/g, '/'), bup)); // if this takes too long the whole route function will timeout and cascade to bg
+            res = (await this.fetch(this.S.bg + '/' + lg.key.replace(/_/g, '/') + (this.refresh ? '?refresh=true' : ''), bup)); // if this takes too long the whole route function will timeout and cascade to bg
             lg.bg = true;
           } catch (error) {}
         }
         // if it's an index function with a sheet setting, or a sheet param has been provided, what to do by default?
-        if ((res == null) && f._sheet) { // this will happen on background where possible, because above will have routed to bg if it was available
+        if ((res == null) && f._sheet && (this.refresh || !(exists = this.index(rt)))) { // this will happen on background where possible, because above will have routed to bg if it was available
           res = (await this.src.google.sheets(f._sheet));
           if (typeof f === 'function') { // process the sheet with the parent if it is a function
             res = (await f(res));
@@ -629,7 +615,7 @@ P = async function(scheduled) {
             }
           }
           if (typeof a[k] === 'function' && !a[k]._hidden && n.indexOf('scripts.') === -1) {
-            this.routes[(n + (n ? '.' : '') + k).replace(/\./g, '/')] = true; // TODO this should read from the auth method, and only show things the current user can access, and also search for description / comment?
+            this.routes.push((n + (n ? '.' : '') + k).replace(/\./g, '/')); // TODO this could check the auth method, and only show things the current user can access, and also search for description / comment?
           }
         }
         if (!Array.isArray(p[k]) && (!k.startsWith('_') || typeof a[k] === 'function')) {
@@ -1187,7 +1173,7 @@ P.auth._update = async function(r, user) {
     if (user.profile == null) {
       user.profile = {};
     }
-    // normal user can update profile values
+// normal user can update profile values
     for (p in r.params) {
       user.profile[p] = pr[p];
     }
@@ -1294,8 +1280,8 @@ P.convert.csv2json = async function(csv) {
     lines = csv.split(newline);
     if (lines.length) {
       headers = lines.shift().split(quote + separator);
-      // TODO add handling for flattened object headers eg metadata.author.0.name
-      // should do this by making an unflatten utility that goes through the object and rebuilds
+// TODO add handling for flattened object headers eg metadata.author.0.name
+// should do this by making an unflatten utility that goes through the object and rebuilds
       for (i = 0, len = headers.length; i < len; i++) {
         header = headers[i];
         if (header.indexOf(quote) === 0) {
@@ -1467,7 +1453,22 @@ P.convert.json2txt = async function(content) {
   return strings.join(' ');
 };
 
-'P.convert.table2csv = (content) ->\n  d = P.convert.table2json content, opts\n  return P.convert.json2csv d\n\nP.convert.table2json = () ->\n  return @convert.json2csv await @convert.table2csv\n\nP.convert.html2txt = (content) -> # or xml2txt\n  text = html2txt.fromString(content, {wordwrap: 130})\n  return text\nP.convert.xml2txt = (content) ->\n  return @convert.html2txt content\n\nP.convert.xml2json = (content) ->\n  # TODO needs to handle attributes etc\n  return \'\'';
+`P.convert.table2csv = (content) ->
+  d = P.convert.table2json content, opts
+  return P.convert.json2csv d
+
+P.convert.table2json = () ->
+  return @convert.json2csv await @convert.table2csv
+
+P.convert.html2txt = (content) -> # or xml2txt
+  text = html2txt.fromString(content, {wordwrap: 130})
+  return text
+P.convert.xml2txt = (content) ->
+  return @convert.html2txt content
+
+P.convert.xml2json = (content) ->
+  # TODO needs to handle attributes etc
+  return ''`;
 
 P.convert._hexMatch = {
   '0': '0000',
@@ -1656,7 +1657,6 @@ P.example = function() {
   res = {
     name: S.name,
     version: S.version,
-    env: S.env,
     built: S.built
   };
   try {
@@ -1893,7 +1893,16 @@ P.fetch = async function(url, params) {
         }
       }
     };
-    'if params.retry\n  params.retry = 3 if params.retry is true\n  opts = retry: params.retry\n  delete params.retry\n  for rk in [\'pause\', \'increment\', \'check\', \'timeout\']\n    if params[rk]?\n      opts[rk] = params[rk]\n      delete params[rk]\n  res = @retry.call this, _f, [url, params], opts\nelse';
+    `if params.retry
+  params.retry = 3 if params.retry is true
+  opts = retry: params.retry
+  delete params.retry
+  for rk in ['pause', 'increment', 'check', 'timeout']
+    if params[rk]?
+      opts[rk] = params[rk]
+      delete params[rk]
+  res = @retry.call this, _f, [url, params], opts
+else`;
     if (params.timeout) {
       pt = params.timeout === true ? 30000 : params.timeout;
       delete params.timeout;
@@ -1918,7 +1927,7 @@ if (S.log == null) {
 // it would also be good to log every fetch, and what was sent with it too, although if it was a big file or something like that, then not that
 // what about a param to pass to avoid logging?
 P.log = async function(msg) {
-  var i, indexed, j, l, len, len1, ln, mid, p, prev, ref, ref1, ref2, store;
+  var i, indexed, j, l, len, len1, mid, p, prev, ref, ref1, ref2, store;
   if (this.S.log !== false) {
     store = msg == null; // an empty call to log stores everything in the _logs list
     if (typeof msg === 'string') {
@@ -2033,9 +2042,6 @@ P.log = async function(msg) {
       if (msg.version == null) {
         msg.version = S.version;
       }
-      if (msg.env == null) {
-        msg.env = S.env;
-      }
       msg.base = this.base;
       if (this.S.bg === true) {
         msg.bg = true;
@@ -2050,11 +2056,10 @@ P.log = async function(msg) {
         msg.started = this.started;
         msg.took = Date.now() - this.started;
       } catch (error) {}
-      ln = (this.S.env ? this.S.env + '_' : '') + 'log';
-      mid = ln + '/' + ((ref2 = this.rid) != null ? ref2 : (await this.uid()));
+      mid = 'log/' + ((ref2 = this.rid) != null ? ref2 : (await this.uid()));
       if (this.S.bg === true || this.S.kv === false) {
         if (!(indexed = (await this.index(mid, msg)))) {
-          await this.index(ln, {});
+          await this.index('log', {});
           return this.index(mid, msg);
         }
       } else {
@@ -2078,7 +2083,147 @@ P.log.schedule = function() {
   return this.kv._each('log', '');
 };
 
-'P.add \'mail/feedback/:token\',\n  get: () ->\n    try\n      from = this.queryParams.from ? P.settings.mail?.feedback?[this.urlParams.token]?.from ? "sysadmin@cottagelabs.com"\n      to = P.settings.mail?.feedback?[this.urlParams.token]?.to\n      service = P.settings.mail?.feedback?[this.urlParams.token]?.service\n      subject = P.settings.mail?.feedback?[this.urlParams.token]?.subject ? "Feedback"\n    if to?\n      P.mail.send\n        service: service\n        from: from\n        to: to\n        subject: subject\n        text: this.queryParams.content\n    return {}\n\n\nlevel/loglevel\ngroup (default to whatever is after svc or src, or just part 0)\nnotify/alert\n\nP.log = (opts, fn, lvl=\'debug\') ->\n\n    loglevels = [\'all\', \'trace\', \'debug\', \'info\', \'warn\', \'error\', \'fatal\', \'off\']\n    loglevel = P.settings.log?.level ? \'all\'\n    if loglevels.indexOf(loglevel) <= loglevels.indexOf opts.level\n      if opts.notify and P.settings.log?.notify\n        try\n          os = @copy opts\n        catch\n          os = opts\n        Meteor.setTimeout (() -> P.notify os), 100\n\n      for o of opts\n        if not opts[o]?\n          delete opts[o]\n        else if typeof opts[o] isnt \'string\' and not _.isArray opts[o]\n          try\n            opts[o] = JSON.stringify opts[o]\n          catch\n            try\n              opts[o] = opts[o].toString()\n            catch\n              delete opts[o]\n\n      if loglevels.indexOf(loglevel) <= loglevels.indexOf \'debug\'\n        console.log opts.msg if opts.msg\n\n  if typeof notify is \'string\'\n    if note.indexOf \'@\' isnt -1\n      note = to: note\n\n  if typeof note is \'object\'\n    note.text ?= note.msg ? opts.msg\n    note.subject ?= P.settings.name ? \'API log message\'\n    note.from ?= P.settings.log?.from ? \'alert@cottagelabs.com\'\n    note.to ?= P.settings.log?.to ? \'mark@cottagelabs.com\'\n    P.mail.send note\n\n\n\n\nP.ping = (url,shortid) ->\n  return false if not url?\n  url = \'http://\' + url if url.indexOf(\'http\') isnt 0\n  if (not shortid? or shortid is \'random\') and spre = pings.find {url:url,redirect:true}\n    return spre._id\n  else\n    obj = {url:url,redirect:true}\n    if shortid? and shortid isnt \'random\'\n      while already = pings.get shortid\n        shortid += Random.hexString(2)\n      obj._id = shortid\n    return pings.insert obj\n\n# craft an img link and put it in an email, if the email is viewed as html it will load the URL of the img,\n# which actually hits this route, and allows us to record stuff about the event\n\n# so for example for oabutton where this was first created for, an image url like this could be created,\n# with whatever params are required to be saved, in addition to the nonce.\n# On receipt the pinger will grab IP and try to retrieve location data from that too:\n# <img src="https://api.cottagelabs.com/ping/p.png?n=<CURRENTNONCE>service=oabutton&id=<USERID>">\n\nP.ping.png = () ->\n  if not P.settings.ping?.nonce? or this.queryParams.n is P.settings.ping.nonce\n    data = this.queryParams\n    delete data.n\n    data.ip = this.request.headers[\'x-forwarded-for\'] ? this.request.headers[\'cf-connecting-ip\'] ? this.request.headers[\'x-real-ip\']\n    data.forwarded = this.request.headers[\'x-forwarded-for\']\n    try\n      res = HTTP.call \'GET\', \'http://ipinfo.io/\' + data.ip + (if P.settings?.use?.ipinfo?.token? then \'?token=\' + P.settings.use.ipinfo.token else \'\')\n      info = JSON.parse res.content\n      data[k] = info[k] for k of info\n      if data.loc\n        try\n          latlon = data.loc.split(\',\')\n          data.lat = latlon[0]\n          data.lon = latlon[1]\n    pings.insert data\n  img = new Buffer(\'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP4z8BQDwAEgAF/posBPQAAAABJRU5ErkJggg==\', \'base64\');\n  if this.queryParams.red\n    img = new Buffer(\'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=\', \'base64\')\n  this.response.writeHead 200,\n    \'Content-disposition\': "inline; filename=ping.png"\n    \'Content-type\': \'image/png\'\n    \'Content-length\': img.length\n    \'Access-Control-Allow-Origin\': \'*\'\n\n    this.response.end img\n\nP.add \'ping/:shortid\',\n  get: () ->\n    if this.urlParams.shortid is \'random\' and this.queryParams.url\n      # may want to disbale this eventually as it makes it easy to flood the server, if auth is added on other routes\n      return P.ping this.queryParams.url, this.urlParams.shortid\n    else if exists = pings.get(this.urlParams.shortid) and exists.url?\n        count = exists.count ? 0\n        count += 1\n        pings.update exists._id, {count:count}\n        return\n          statusCode: 302\n          headers:\n            \'Content-Type\': \'text/plain\'\n            \'Location\': exists.url\n          body: \'Location: \' + exists.url\n    else return 404\n  put:\n    authRequired: true\n    action: () ->\n      # certain user groups can overwrite a shortlink\n      # TODO: overwrite a short link ID that already exists, or error out\n  post: () ->\n    return P.ping (this.request.body.url ? this.queryParams.url), this.urlParams.shortid\n  delete:\n    #authRequired: true\n    action: () ->\n      if exists = pings.get this.urlParams.shortid\n        pings.remove exists._id\n        return true\n      else\n        return 404';
+`P.add 'mail/feedback/:token',
+  get: () ->
+    try
+      from = this.queryParams.from ? P.settings.mail?.feedback?[this.urlParams.token]?.from ? "sysadmin@cottagelabs.com"
+      to = P.settings.mail?.feedback?[this.urlParams.token]?.to
+      service = P.settings.mail?.feedback?[this.urlParams.token]?.service
+      subject = P.settings.mail?.feedback?[this.urlParams.token]?.subject ? "Feedback"
+    if to?
+      P.mail.send
+        service: service
+        from: from
+        to: to
+        subject: subject
+        text: this.queryParams.content
+    return {}
+
+
+level/loglevel
+group (default to whatever is after svc or src, or just part 0)
+notify/alert
+
+P.log = (opts, fn, lvl='debug') ->
+
+    loglevels = ['all', 'trace', 'debug', 'info', 'warn', 'error', 'fatal', 'off']
+    loglevel = P.settings.log?.level ? 'all'
+    if loglevels.indexOf(loglevel) <= loglevels.indexOf opts.level
+      if opts.notify and P.settings.log?.notify
+        try
+          os = @copy opts
+        catch
+          os = opts
+        Meteor.setTimeout (() -> P.notify os), 100
+
+      for o of opts
+        if not opts[o]?
+          delete opts[o]
+        else if typeof opts[o] isnt 'string' and not _.isArray opts[o]
+          try
+            opts[o] = JSON.stringify opts[o]
+          catch
+            try
+              opts[o] = opts[o].toString()
+            catch
+              delete opts[o]
+
+      if loglevels.indexOf(loglevel) <= loglevels.indexOf 'debug'
+        console.log opts.msg if opts.msg
+
+  if typeof notify is 'string'
+    if note.indexOf '@' isnt -1
+      note = to: note
+
+  if typeof note is 'object'
+    note.text ?= note.msg ? opts.msg
+    note.subject ?= P.settings.name ? 'API log message'
+    note.from ?= P.settings.log?.from ? 'alert@cottagelabs.com'
+    note.to ?= P.settings.log?.to ? 'mark@cottagelabs.com'
+    P.mail.send note
+
+
+
+
+P.ping = (url,shortid) ->
+  return false if not url?
+  url = 'http://' + url if url.indexOf('http') isnt 0
+  if (not shortid? or shortid is 'random') and spre = pings.find {url:url,redirect:true}
+    return spre._id
+  else
+    obj = {url:url,redirect:true}
+    if shortid? and shortid isnt 'random'
+      while already = pings.get shortid
+        shortid += Random.hexString(2)
+      obj._id = shortid
+    return pings.insert obj
+
+# craft an img link and put it in an email, if the email is viewed as html it will load the URL of the img,
+# which actually hits this route, and allows us to record stuff about the event
+
+# so for example for oabutton where this was first created for, an image url like this could be created,
+# with whatever params are required to be saved, in addition to the nonce.
+# On receipt the pinger will grab IP and try to retrieve location data from that too:
+# <img src="https://api.cottagelabs.com/ping/p.png?n=<CURRENTNONCE>service=oabutton&id=<USERID>">
+
+P.ping.png = () ->
+  if not P.settings.ping?.nonce? or this.queryParams.n is P.settings.ping.nonce
+    data = this.queryParams
+    delete data.n
+    data.ip = this.request.headers['x-forwarded-for'] ? this.request.headers['cf-connecting-ip'] ? this.request.headers['x-real-ip']
+    data.forwarded = this.request.headers['x-forwarded-for']
+    try
+      res = HTTP.call 'GET', 'http://ipinfo.io/' + data.ip + (if P.settings?.use?.ipinfo?.token? then '?token=' + P.settings.use.ipinfo.token else '')
+      info = JSON.parse res.content
+      data[k] = info[k] for k of info
+      if data.loc
+        try
+          latlon = data.loc.split(',')
+          data.lat = latlon[0]
+          data.lon = latlon[1]
+    pings.insert data
+  img = new Buffer('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP4z8BQDwAEgAF/posBPQAAAABJRU5ErkJggg==', 'base64');
+  if this.queryParams.red
+    img = new Buffer('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=', 'base64')
+  this.response.writeHead 200,
+    'Content-disposition': "inline; filename=ping.png"
+    'Content-type': 'image/png'
+    'Content-length': img.length
+    'Access-Control-Allow-Origin': '*'
+
+    this.response.end img
+
+P.add 'ping/:shortid',
+  get: () ->
+    if this.urlParams.shortid is 'random' and this.queryParams.url
+      # may want to disbale this eventually as it makes it easy to flood the server, if auth is added on other routes
+      return P.ping this.queryParams.url, this.urlParams.shortid
+    else if exists = pings.get(this.urlParams.shortid) and exists.url?
+        count = exists.count ? 0
+        count += 1
+        pings.update exists._id, {count:count}
+        return
+          statusCode: 302
+          headers:
+            'Content-Type': 'text/plain'
+            'Location': exists.url
+          body: 'Location: ' + exists.url
+    else return 404
+  put:
+    authRequired: true
+    action: () ->
+      # certain user groups can overwrite a shortlink
+      # TODO: overwrite a short link ID that already exists, or error out
+  post: () ->
+    return P.ping (this.request.body.url ? this.queryParams.url), this.urlParams.shortid
+  delete:
+    #authRequired: true
+    action: () ->
+      if exists = pings.get this.urlParams.shortid
+        pings.remove exists._id
+        return true
+      else
+        return 404`;
 
 try {
   S.mail = JSON.parse(SECRETS_MAIL);
@@ -2189,49 +2334,6 @@ try {
 var indexOf = [].indexOf;
 
 P.tdm = {};
-
-P.tdm.clean = function(text) {
-  var _bad_chars, c, l, len, re, ref, ref1, ref2, ref3, ref4;
-  if (text == null) {
-    text = (ref = (ref1 = this != null ? (ref2 = this.params) != null ? ref2.clean : void 0 : void 0) != null ? ref1 : this != null ? (ref3 = this.params) != null ? ref3.text : void 0 : void 0) != null ? ref : this != null ? (ref4 = this.params) != null ? ref4.q : void 0 : void 0;
-  }
-  _bad_chars = [
-    {
-      bad: '‘',
-      good: "'"
-    },
-    {
-      bad: '’',
-      good: "'"
-    },
-    {
-      bad: '´',
-      good: "'"
-    },
-    {
-      bad: '“',
-      good: '"'
-    },
-    {
-      bad: '”',
-      good: '"'
-    },
-    {
-      bad: '–',
-      good: '-'
-    },
-    {
-      bad: '-',
-      good: '-'
-    }
-  ];
-  for (l = 0, len = _bad_chars.length; l < len; l++) {
-    c = _bad_chars[l];
-    re = new RegExp(c.bad, 'g');
-    text = text.replace(re, c.good);
-  }
-  return text;
-};
 
 P.tdm.occurrence = function(content, sub, overlap) {
   var n, pos, ref, ref1, ref2, ref3, ref4, ref5, ref6, step;
@@ -2567,31 +2669,6 @@ P.hash = async function(content) {
   }
 };
 
-P.copy = function(obj) {
-  try {
-    if (obj == null) {
-      obj = this.params;
-    }
-  } catch (error) {}
-  return JSON.parse(JSON.stringify(obj));
-};
-
-P.keys = function(obj) {
-  var k, keys;
-  try {
-    if (obj == null) {
-      obj = this.params;
-    }
-  } catch (error) {}
-  keys = [];
-  for (k in obj != null ? obj : {}) {
-    if ((obj[k] != null) && indexOf.call(keys, k) < 0) {
-      keys.push(k);
-    }
-  }
-  return keys;
-};
-
 P.sleep = function(ms) { // await this when calling it to actually wait
   try {
     if (ms == null) {
@@ -2645,38 +2722,8 @@ P.form = function(params) {
   return po;
 };
 
-P.dot = function(obj, key) {
-  var i, k, len, ref, st;
-  try {
-    // TODO can add back in a way to pass in values or deletions if necessary, and traversing lists too
-    if (typeof obj === 'string' && typeof key === 'object') {
-      st = obj;
-      obj = key;
-      key = st;
-    }
-    if (obj != null) {
-      obj = this.copy(obj);
-    }
-    if ((obj == null) && ((this != null ? (ref = this.params) != null ? ref.key : void 0 : void 0) != null)) {
-      obj = this.copy(this.params);
-      key = obj.key;
-      delete obj.key;
-    }
-    if (typeof key === 'string') {
-      key = key.split('.');
-    }
-    for (i = 0, len = key.length; i < len; i++) {
-      k = key[i];
-      obj = obj[k];
-    }
-    return obj;
-  } catch (error) {
-    return void 0;
-  }
-};
-
-P.decode = function(content) {
-  var _decode;
+P.decode = async function(content) {
+  var _decode, c, i, len, re, ref, text;
   _decode = function(content) {
     var translate, translator;
     // https://stackoverflow.com/questions/44195322/a-plain-javascript-way-to-decode-html-entities-works-on-both-browsers-and-node
@@ -2696,7 +2743,95 @@ P.decode = function(content) {
       return String.fromCharCode(num);
     }));
   };
-  return _decode(content).replace(/\n/g, '');
+  text = (await _decode(content).replace(/\n/g, ''));
+  ref = [
+    {
+      bad: '‘',
+      good: "'"
+    },
+    {
+      bad: '’',
+      good: "'"
+    },
+    {
+      bad: '´',
+      good: "'"
+    },
+    {
+      bad: '“',
+      good: '"'
+    },
+    {
+      bad: '”',
+      good: '"'
+    },
+    {
+      bad: '–',
+      good: '-'
+    },
+    {
+      bad: '-',
+      good: '-'
+    }
+  ];
+  for (i = 0, len = ref.length; i < len; i++) {
+    c = ref[i];
+    re = new RegExp(c.bad, 'g');
+    text = text.replace(re, c.good);
+  }
+  return text;
+};
+
+P.copy = function(obj) {
+  try {
+    if (obj == null) {
+      obj = this.params;
+    }
+  } catch (error) {}
+  return JSON.parse(JSON.stringify(obj));
+};
+
+P.keys = function(obj) {
+  var k, keys;
+  try {
+    if (obj == null) {
+      obj = this.params;
+    }
+  } catch (error) {}
+  keys = [];
+  for (k in obj != null ? obj : {}) {
+    if ((obj[k] != null) && indexOf.call(keys, k) < 0) {
+      keys.push(k);
+    }
+  }
+  return keys;
+};
+
+P.dot = function(obj, key) {
+  var i, k, len, ref, res, st;
+  // TODO can add back in a way to pass in values or deletions if necessary, and traversing lists too
+  if (typeof obj === 'string' && typeof key === 'object') {
+    st = obj;
+    obj = key;
+    key = st;
+  }
+  if ((obj == null) && ((this != null ? (ref = this.params) != null ? ref.key : void 0 : void 0) != null)) {
+    obj = this.copy(this.params);
+    key = obj.key;
+  }
+  if (typeof key === 'string') {
+    key = key.split('.');
+  }
+  try {
+    res = obj;
+    for (i = 0, len = key.length; i < len; i++) {
+      k = key[i];
+      res = res[k];
+    }
+    return res;
+  } catch (error) {
+    return void 0;
+  }
 };
 
 P.flatten = async function(obj) {
@@ -2824,7 +2959,83 @@ P._templates = {
   _index: true // an index to store templates in - although generally should be handled at the individual function/service level
 };
 
-'P.retry = (fn, params=[], opts={}) ->\n  # params should be a list of params for the fn\n  params = [params] if not Array.isArray params\n  opts.retry ?= 3\n  opts.pause ?= 500\n  opts.increment ?= true\n  # can provide a function in opts.check to check the result each time, and an opts.timeout to timeout each loop\n\n  while opts.retry > 0\n    res = undefined\n    _wrap = () ->\n      try\n        res = await fn.apply this, params\n    if typeof opts.timeout is \'number\'\n      await Promise.race [_wrap.call(this), P.sleep(opts.timeout)]\n    else\n      _wrap.call this\n    if typeof opts.check is \'function\'\n      retry = await opts.check res, retry\n      if retry is true\n        return res\n      else if retry is false\n        retry -= 1\n      else if typeof retry isnt \'number\'\n        retry = 0\n    else if res? and res isnt false\n      return res\n    else\n      retry -= 1\n\n    if typeof opts.pause is \'number\' and opts.pause isnt 0\n      await P.sleep opts.pause\n      if opts.increment is true\n        opts.pause = opts.pause * 2\n      else if typeof opts.increment is \'number\'\n        opts.pause += opts.increment\n    \n  return undefined\n\n\n# see https://github.com/arlac77/fetch-rate-limit-util/blob/master/src/rate-limit-util.mjs\nMIN_WAIT_MSECS = 1000 # wait at least this long\nMAX_RETRIES = 5 # only retry max this many times\n\n/**\n * @param {Integer} millisecondsToWait\n * @param {Integer} rateLimitRemaining parsed from "x-ratelimit-remaining" header\n * @param {Integer} nthTry how often have we retried the request already\n * @param {Object} response as returned from fetch\n * @return {Integer} milliseconds to wait for next try or < 0 to deliver current response\n */\ndefaultWaitDecide = (millisecondsToWait, rateLimitRemaining, nthTry, response) ->\n  return if nthTry > MAX_RETRIES then -1 else millisecondsToWait + MIN_WAIT_MSECS\n\nrateLimitHandler = (fetcher, waitDecide = defaultWaitDecide) ->\n  i = 0\n  while true\n    response = await fetcher()\n\n    switch (response.status) ->\n      default:\n        return response\n\n      case 403:\n      case 429:\n        # this differs by API we\'re hitting, example was for github. \n        # It\'s the timestamp of when the rate limit window would reset, generalise this\n        rateLimitReset = parseInt response.headers.get "x-ratelimit-reset"\n\n        millisecondsToWait = if isNaN(rateLimitReset) then 0 else new Date(rateLimitReset * 1000).getTime() - Date.now()\n\n        millisecondsToWait = waitDecide(millisecondsToWait, parseInt(response.headers.get("x-ratelimit-remaining")), i, response)\n        if millisecondsToWait <= 0\n          return response\n        else\n          await new Promise resolve => setTimeout resolve, millisecondsToWait\n    i++';
+`P.retry = (fn, params=[], opts={}) ->
+  # params should be a list of params for the fn
+  params = [params] if not Array.isArray params
+  opts.retry ?= 3
+  opts.pause ?= 500
+  opts.increment ?= true
+  # can provide a function in opts.check to check the result each time, and an opts.timeout to timeout each loop
+
+  while opts.retry > 0
+    res = undefined
+    _wrap = () ->
+      try
+        res = await fn.apply this, params
+    if typeof opts.timeout is 'number'
+      await Promise.race [_wrap.call(this), P.sleep(opts.timeout)]
+    else
+      _wrap.call this
+    if typeof opts.check is 'function'
+      retry = await opts.check res, retry
+      if retry is true
+        return res
+      else if retry is false
+        retry -= 1
+      else if typeof retry isnt 'number'
+        retry = 0
+    else if res? and res isnt false
+      return res
+    else
+      retry -= 1
+
+    if typeof opts.pause is 'number' and opts.pause isnt 0
+      await P.sleep opts.pause
+      if opts.increment is true
+        opts.pause = opts.pause * 2
+      else if typeof opts.increment is 'number'
+        opts.pause += opts.increment
+    
+  return undefined
+
+
+# see https://github.com/arlac77/fetch-rate-limit-util/blob/master/src/rate-limit-util.mjs
+MIN_WAIT_MSECS = 1000 # wait at least this long
+MAX_RETRIES = 5 # only retry max this many times
+
+/**
+ * @param {Integer} millisecondsToWait
+ * @param {Integer} rateLimitRemaining parsed from "x-ratelimit-remaining" header
+ * @param {Integer} nthTry how often have we retried the request already
+ * @param {Object} response as returned from fetch
+ * @return {Integer} milliseconds to wait for next try or < 0 to deliver current response
+ */
+defaultWaitDecide = (millisecondsToWait, rateLimitRemaining, nthTry, response) ->
+  return if nthTry > MAX_RETRIES then -1 else millisecondsToWait + MIN_WAIT_MSECS
+
+rateLimitHandler = (fetcher, waitDecide = defaultWaitDecide) ->
+  i = 0
+  while true
+    response = await fetcher()
+
+    switch (response.status) ->
+      default:
+        return response
+
+      case 403:
+      case 429:
+        # this differs by API we're hitting, example was for github. 
+        # It's the timestamp of when the rate limit window would reset, generalise this
+        rateLimitReset = parseInt response.headers.get "x-ratelimit-reset"
+
+        millisecondsToWait = if isNaN(rateLimitReset) then 0 else new Date(rateLimitReset * 1000).getTime() - Date.now()
+
+        millisecondsToWait = waitDecide(millisecondsToWait, parseInt(response.headers.get("x-ratelimit-remaining")), i, response)
+        if millisecondsToWait <= 0
+          return response
+        else
+          await new Promise resolve => setTimeout resolve, millisecondsToWait
+    i++`;
 
 // https://developers.cloudflare.com/workers/runtime-apis/cache
 
@@ -2913,13 +3124,13 @@ P._cache = async function(request, response, age) {
   // TODO be able to receive bulk json lists or formatted bulk strings. Need to stick the useful default values into each
   // those would be createdAt, created_date (in default templates format for ES 7.1) and user ID of the action?
 
-  // TODO add alias handling, particularly so that complete new imports can be built in a separate index then just repoint the alias
+// TODO add alias handling, particularly so that complete new imports can be built in a separate index then just repoint the alias
   // alias can be set on create, and may be best just to use an alias every time
   // https://www.elastic.co/guide/en/elasticsearch/reference/current/indices-aliases.html
   // can also use aliases and alternate routes to handle auth to certain subsets of date
   // aliased mappings can also have a filter applied, so only the filter results get returned
 
-  // TODO if index SHOULD be available but fails, write to kv if that's available? But don't end up in a loop...
+// TODO if index SHOULD be available but fails, write to kv if that's available? But don't end up in a loop...
   // anything found by _schedule in kv that isn't set to _kv will get written to index once it becomes available
 var base, base1, ref,
   indexOf = [].indexOf;
@@ -2936,7 +3147,7 @@ if (typeof S.index.name !== 'string') {
   S.index.name = '';
 }
 
-S.index.name = S.index.name.toLowerCase();
+S.index.name = S.index.name.toLowerCase().replace(/\s/g, '');
 
 if (typeof S.bg === 'string') {
   if ((base1 = S.index).url == null) {
@@ -2989,7 +3200,11 @@ P.index = async function(route, data, qopts) {
       } else if (this.parts.length === 2) { // called direct on an index
         route = this.parts[1];
       } else if (this.parts.length > 2) { // called on index/key route
-        'lp = @parts[@parts.length-1]\nlpp = @parts[@parts.length-2]\nif (typeof P.index[lp] is \'function\' and not lp.startsWith \'_\') or lpp is \'suggest\'\n  return @index[if lpp is \'suggest\' then \'suggest\' else lp] @route\nelse';
+        `lp = @parts[@parts.length-1]
+lpp = @parts[@parts.length-2]
+if (typeof P.index[lp] is 'function' and not lp.startsWith '_') or lpp is 'suggest'
+  return @index[if lpp is 'suggest' then 'suggest' else lp] @route
+else`;
         // most IDs will only be at position 3 but for example using a DOI as an ID would spread it across 3 and 4
         route = this.parts[1] + '/' + this.parts.slice(2).join('_'); // so combine them with an underscore - IDs can't have a slash in them
       }
@@ -3080,9 +3295,8 @@ P.index = async function(route, data, qopts) {
 
 // calling this should be given a correct URL route for ES7.x, domain part of the URL is optional though.
 // call the above to have the route constructed. method is optional and will be inferred if possible (may be removed)
-// what about namespacing to env? do here or above, or neither?
 P.index._submit = async function(route, data, method, deletes = true) { // deletes is true in dev, but remove or add auth control for live
-  var opts, ref1, ref2, ref3, ref4, res, url;
+  var opts, prefix, ref1, ref2, ref3, ref4, res, url;
   route = route.toLowerCase(); // force lowercase on all IDs so that can deal with users giving incorrectly cased IDs for things like DOIs which are defined as case insensitive
   if (route.indexOf('/') === 0) { // gets added back in when combined with the url
     route = route.replace('/', '');
@@ -3099,7 +3313,11 @@ P.index._submit = async function(route, data, method, deletes = true) { // delet
   }
   if (!route.startsWith('http')) { // which it probably doesn't
     if (this.S.index.name && !route.startsWith(this.S.index.name) && !route.startsWith('_')) {
-      route = this.S.index.name + '_' + route;
+      prefix = (await this.dot(P, (route.split('/')[0]).replace(/_/g, '.') + '._prefix'));
+      if (prefix !== false) {
+        // TODO could allow prefix to be a list of names, and if index name is in the list, alias the index into those namespaces, to share indexes between specific instances rather than just one or global
+        route = this.S.index.name + '_' + route;
+      }
     }
     url = (this != null ? (ref2 = this.S) != null ? (ref3 = ref2.index) != null ? ref3.url : void 0 : void 0 : void 0) ? this.S.index.url : (ref4 = S.index) != null ? ref4.url : void 0;
     if (Array.isArray(url)) {
@@ -3616,15 +3834,16 @@ P.index._each = async function(route, q, opts, fn) {
 };
 
 P.index._bulk = async function(route, data, action = 'index', bulk = 50000) {
-  var cidx, counter, meta, pkg, r, ref1, ref2, rid, row, rows, rs;
-  if (typeof route === 'string' && route.indexOf(this.S.index.name + '_') !== 0) {
-    // https://www.elastic.co/guide/en/elasticsearch/reference/1.4/docs-bulk.html
-    // https://www.elastic.co/guide/en/elasticsearch/reference/1.4/docs-update.html
-    //route += '_dev' if dev and route.indexOf('_dev') is -1
+  var cidx, counter, meta, pkg, prefix, r, ref1, ref2, rid, row, rows, rs;
+  // https://www.elastic.co/guide/en/elasticsearch/reference/1.4/docs-bulk.html
+  // https://www.elastic.co/guide/en/elasticsearch/reference/1.4/docs-update.html
+  prefix = (await this.dot(P, (route.split('/')[0]).replace(/_/g, '.') + '._prefix'));
+  if (prefix !== false) { // need to do this here as well as in _submit so it can be set below in each object of the bulk
     route = this.S.index.name + '_' + route;
   }
   cidx = (this != null ? this.index : void 0) != null ? this.index : P.index;
   if (typeof data === 'string' && data.indexOf('\n') !== -1) {
+    // TODO should this check through the string and make sure it only indexes to the specified route?
     await cidx._submit('/_bulk', {
       body: data,
       headers: {
@@ -3654,13 +3873,9 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000) {
           rid = (this != null ? this.uid : void 0) != null ? this.uid() : P.uid();
         }
       }
-      if (typeof row !== 'string' && (row._index != null) && row._index.indexOf(this.S.index.name + '_') !== 0) {
-        // TODO should this enforce only writing to the route, rather than any named index, to stop writing into other indices via bulk?
-        row._index = this.S.index.name + '_' + row._index;
-      }
       meta = {};
       meta[action] = {
-        "_index": (typeof row !== 'string' && (row._index != null) ? row._index : route)
+        "_index": route
       };
       meta[action]._id = action === 'delete' && typeof row === 'string' ? row : rid; // what if action is delete but can't set an ID?
       pkg += JSON.stringify(meta) + '\n';
@@ -3777,33 +3992,33 @@ P.index._q = function(q, rt) { // could this be a query as opposed to an _id or 
 };
 
 /* query formats that can be accepted:
-  'A simple string to match on'
-  'statement:"A more complex" AND difficult string' - which will be used as is to ES as a query string
-  '?q=query params directly as string'
-  {"q":"object of query params"} - must contain at least q or source as keys to be identified as such
-  {"must": []} - a list of must queries, in full ES syntax, which will be dropped into the query filter (works for "should" as well)
-  {"object":"of key/value pairs, all of which must match"} - so this is an AND terms match/ If keys do not point to strings, they will be assumed to be named ES queries that can drop into the bool
-  ["list","of strings to OR match on"] - this is an OR query strings match UNLESS strings contain : then mapped to terms matches
-  [{"list":"of objects to OR match"}] - so a set of OR terms matches. If objects are not key: string they are assumed to be full ES queries that can drop into the bool
+    'A simple string to match on'
+    'statement:"A more complex" AND difficult string' - which will be used as is to ES as a query string
+    '?q=query params directly as string'
+    {"q":"object of query params"} - must contain at least q or source as keys to be identified as such
+    {"must": []} - a list of must queries, in full ES syntax, which will be dropped into the query filter (works for "should" as well)
+    {"object":"of key/value pairs, all of which must match"} - so this is an AND terms match/ If keys do not point to strings, they will be assumed to be named ES queries that can drop into the bool
+    ["list","of strings to OR match on"] - this is an OR query strings match UNLESS strings contain : then mapped to terms matches
+    [{"list":"of objects to OR match"}] - so a set of OR terms matches. If objects are not key: string they are assumed to be full ES queries that can drop into the bool
 
-  Keys can use dot notation
+    Keys can use dot notation
 
-  Options that can be included:
-  If options is true, the query will be adjusted to sort by createdAt descending, so returning the newest first (it sets newest:true, see below)
-  If options is string 'random' it will convert the query to be a random order
-  If options is a number it will be assumed to be the size parameter
-  Otherwise options should be an object (and the above can be provided as keys, "newest", "random")
-  If newest is true the query will have a sort desc on createdAt. If false, sort will be asc
-  If "random" key is provided, "seed" can be provided too if desired, for seeded random queries
-  If "restrict" is provided, should point to list of ES queries to add to the and part of the query filter
-  Any other keys in the options object should be directly attributable to an ES query object
+    Options that can be included:
+    If options is true, the query will be adjusted to sort by createdAt descending, so returning the newest first (it sets newest:true, see below)
+    If options is string 'random' it will convert the query to be a random order
+    If options is a number it will be assumed to be the size parameter
+    Otherwise options should be an object (and the above can be provided as keys, "newest", "random")
+    If newest is true the query will have a sort desc on createdAt. If false, sort will be asc
+    If "random" key is provided, "seed" can be provided too if desired, for seeded random queries
+    If "restrict" is provided, should point to list of ES queries to add to the and part of the query filter
+    Any other keys in the options object should be directly attributable to an ES query object
 
-  For ES 7.x there is no filtered query any more, filter is a value of bool.must
-  Filter essentially acts like a must but without scoring. Whereas normal must does score.
-  must_not also does not affect score. Not sure about should
+    For ES 7.x there is no filtered query any more, filter is a value of bool.must
+    Filter essentially acts like a must but without scoring. Whereas normal must does score.
+    must_not also does not affect score. Not sure about should
 
-  Default empty query looks like:
-  {query: {bool: {must: [], filter: []}}, size: 10}
+    Default empty query looks like:
+    {query: {bool: {must: [], filter: []}}, size: 10}
 */
 P.index.translate = function(q, opts = {}) {
   var _structure, a, af, b, base2, base3, base4, bm, bt, dk, exc, excludes, f, fq, i, i1, inc, includes, j, j1, k, k1, l, l1, len, len1, len10, len11, len2, len3, len4, len5, len6, len7, len8, len9, m, n, nos, nr, o, ok, os, pfx, ps, qobj, qpts, qry, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rs, sr, t, tgt, tm, tobj, u, v, w, x, y, z;
@@ -3902,7 +4117,7 @@ P.index.translate = function(q, opts = {}) {
               tobj = {
                 term: {}
               };
-              tobj.term[k];
+              tobj.term[k] = m[k];
               qry.query.bool.should.push(tobj);
             } else if ((ref4 = typeof m[k]) === 'number' || ref4 === 'boolean') {
               qry.query.bool.should.push({
@@ -3975,7 +4190,7 @@ P.index.translate = function(q, opts = {}) {
           qry.query.bool[bt] = q[bt];
         }
       }
-      // an object where every key is assumed to be an AND term search if string, or a named search object to go in to ES
+// an object where every key is assumed to be an AND term search if string, or a named search object to go in to ES
       for (y in q) {
         if ((y === 'fields') || (y === 'sort' && typeof q[y] === 'string' && q[y].indexOf(':') !== -1) || ((y === 'from' || y === 'size') && (typeof q[y] === 'number' || !isNaN(parseInt(q[y]))))) {
           if (opts == null) {
@@ -4218,12 +4433,51 @@ P.index.translate = function(q, opts = {}) {
   return qry;
 };
 
-// https://developers.cloudflare.com/workers/runtime-apis/kv
-// Keys are always returned in lexicographically sorted order according to their UTF-8 bytes.
-// NOTE these need to be awaited when necessary, as the val will be a Promise
+  // https://developers.cloudflare.com/workers/runtime-apis/kv
+  // Keys are always returned in lexicographically sorted order according to their UTF-8 bytes.
+  // NOTE these need to be awaited when necessary, as the val will be a Promise
 
 // TODO test and enable these alternates for when kv is remotely accessed, or wrapped over the index
-'if typeof S.kv is \'string\' and S.kv.startsWith \'http\' and not global[S.kv]\n# kv is a URL back to the worker to access cloudflare kv\nglobal[S.kv] = {}\nglobal[S.kv].get = (key) ->\n  return await P.fetch S.kv + \'/\' + key\nglobal[S.kv].getWithMetadata = (key) ->\n  ret = await P.fetch S.kv + \'/\' + key\n  return value: ret, metadata: {} # can\'t get the metadata remotely\nglobal[S.kv].put = (key, data) ->\n  return await P.fetch S.kv + \'/\' + key, body: data\nglobal[S.kv].delete = (key) ->\n  return await P.fetch S.kv + \'/\' + key, body: \'\'\nglobal[S.kv].list = (prefix, cursor) ->\n  return await P.fetch S.kv + \'/list\' + (if prefix then \'/\' + prefix else \'\') + (if cursor then \'?cursor=\' + cursor else \'\')\n\nif typeof S.kv isnt \'string\' and S.kv isnt false\nglobal[S.kv] = {}\nik = (if S.env then S.env + \'_\' else \'\') + \'kv/\'\nglobal[S.kv].get = (key) ->\n  ret = await P.index ik + key.replace /\//g, \'_\'\n  try ret.val = JSON.parse ret.val\n  return ret.val\nglobal[S.kv].getWithMetadata = (key) ->\n  ret = await P.index ik + key.replace /\//g, \'_\'\n  try ret.val = JSON.parse ret.val\n  return value: ret.val, metadata: {} # can\'t get the metadata remotely\nglobal[S.kv].put = (key, data) ->\n  return await P.index ik + key.replace(/\//g, \'_\'), key: key, val: JSON.stringify data\nglobal[S.kv].delete = (key) ->\n  return await P.index ik + key.replace(/\//g, \'_\'), \'\'\nglobal[S.kv].list = (prefix, cursor) ->\n  # cursor on real kv isnt a from count, but use that for now\n  # need to change this to use each properly on index, as from will only go as far as 10k\n  ret = await P.index ik, (if prefix then \'key:\' + prefix + \'*\' else \'*\'), {sort: {key: {order: \'asc\'}}, from: cursor}\n  res = keys: []\n  try\n    res.cursor: (cursor ? 0) + 1000\n    res.list_complete = true if res.cursor >= ret.hits.total\n    for k in ret.hits.hits\n      res.keys.push k._source.key\n  return res';
+`if typeof S.kv is 'string' and S.kv.startsWith 'http' and not global[S.kv]
+# kv is a URL back to the worker to access cloudflare kv
+global[S.kv] = {}
+global[S.kv].get = (key) ->
+  return await P.fetch S.kv + '/' + key
+global[S.kv].getWithMetadata = (key) ->
+  ret = await P.fetch S.kv + '/' + key
+  return value: ret, metadata: {} # can't get the metadata remotely
+global[S.kv].put = (key, data) ->
+  return await P.fetch S.kv + '/' + key, body: data
+global[S.kv].delete = (key) ->
+  return await P.fetch S.kv + '/' + key, body: ''
+global[S.kv].list = (prefix, cursor) ->
+  return await P.fetch S.kv + '/list' + (if prefix then '/' + prefix else '') + (if cursor then '?cursor=' + cursor else '')
+
+if typeof S.kv isnt 'string' and S.kv isnt false
+global[S.kv] = {}
+global[S.kv].get = (key) ->
+  ret = await P.index 'kv/' + key.replace /\//g, '_'
+  try ret.val = JSON.parse ret.val
+  return ret.val
+global[S.kv].getWithMetadata = (key) ->
+  ret = await P.index 'kv/' + key.replace /\//g, '_'
+  try ret.val = JSON.parse ret.val
+  return value: ret.val, metadata: {} # can't get the metadata remotely
+global[S.kv].put = (key, data) ->
+  return await P.index 'kv/' + key.replace(/\//g, '_'), key: key, val: JSON.stringify data
+global[S.kv].delete = (key) ->
+  return await P.index 'kv/' + key.replace(/\//g, '_'), ''
+global[S.kv].list = (prefix, cursor) ->
+  # cursor on real kv isnt a from count, but use that for now
+  # need to change this to use each properly on index, as from will only go as far as 10k
+  ret = await P.index 'kv/', (if prefix then 'key:' + prefix + '*' else '*'), {sort: {key: {order: 'asc'}}, from: cursor}
+  res = keys: []
+  try
+    res.cursor: (cursor ? 0) + 1000
+    res.list_complete = true if res.cursor >= ret.hits.total
+    for k in ret.hits.hits
+      res.keys.push k._source.key
+  return res`;
 P.kv = async function(key, val, ttle, metadata, type) {
   var i, j, k, len, len1, m, ref, ref1, ref2, ref3, ref4, ref5, ref6, value;
   // val can be string, stream, buffer. The type gets inferred.
@@ -4287,7 +4541,7 @@ P.kv = async function(key, val, ttle, metadata, type) {
           ttle = (await this.kv(key)); // get the current state of the record
         }
         if (typeof ttle === 'object') { // this is an update to be merged in
-          // handle dot notations?
+// handle dot notations?
           for (k in ttle) {
             if (val[k] == null) {
               val[k] = ttle[k];
@@ -4412,6 +4666,400 @@ P.kv._each = async function(prefix, fn, size) {
   return res;
 };
 
+// BASE provide a search endpoint, but must register our IP to use it first
+// limited to non-commercial and 1 query per second, contact them for more options
+// register here: https://www.base-search.net/about/en/contact.php (registered)
+// docs here:
+// http://www.base-search.net/about/download/base_interface.pdf
+P.src.base = {};
+
+P.src.base.doi = async function(doi, format) {
+  var res;
+  res = (await this.src.base.get(doi));
+  if (format) {
+    return this.src.base.format(res);
+  } else {
+    return res;
+  }
+};
+
+P.src.base.title = async function(title) {
+  var ct, ret, simplify;
+  simplify = /[\u0300-\u036F]/g;
+  title = title.toLowerCase().normalize('NFKD').replace(simplify, '').replace(/ß/g, 'ss');
+  ret = (await this.src.base.get('dctitle:"' + title + '"'));
+  if (((ret != null ? ret.dctitle : void 0) != null) || (ret.title != null)) {
+    if (ret.title == null) {
+      ret.title = ret.dctitle;
+    }
+    if (ret.title) {
+      ct = ret.title.toLowerCase().normalize('NFKD').replace(simplify, '').replace(/ß/g, 'ss');
+      if (ct && ct.length <= title.length * 1.2 && ct.length >= title.length * .8 && title.replace(/ /g, '').indexOf(ct.replace(' ', '').replace(' ', '').replace(' ', '').split(' ')[0]) !== -1) {
+        return ret;
+      }
+    }
+  }
+  return void 0;
+};
+
+P.src.base.get = async function(qry) {
+  var ref, res;
+  res = (await this.src.base.search(qry));
+  res = (res != null ? (ref = res.docs) != null ? ref.length : void 0 : void 0) ? res.docs[0] : void 0;
+  if (res != null) {
+    res.url = (await this.resolve(res.dclink));
+  }
+  return res;
+};
+
+P.src.base.search = async function(qry = '*', from, size, format) {
+  var d, proxy, res, url;
+  // it uses offset and hits (default 10) for from and size, and accepts solr query syntax
+  // string terms, "" to be next to each other, otherwise ANDed, can accept OR, and * or ? wildcards, brackets to group, - to negate
+  proxy = this.S.proxy; // need to route through the proxy so requests come from registered IP
+  if (!proxy) {
+    return void 0;
+  }
+  if (qry.indexOf('"') === -1 && qry.indexOf(' ') !== -1) {
+    qry = qry.replace(/ /g, '+');
+  }
+  url = 'https://api.base-search.net/cgi-bin/BaseHttpSearchInterface.fcgi?func=PerformSearch&format=json&query=' + qry;
+  if (from) { // max 1000
+    url += '&offset=' + from;
+  }
+  if (size) { // max 125
+    url += '&hits=' + size;
+  }
+  url += '&sortBy=dcdate+desc';
+  try {
+    res = (await this.fetch(url)); //, {timeout:timeout,npmRequestOptions:{proxy:proxy}}
+    res = JSON.parse(res.content).response;
+    if (format) {
+      for (d in res.docs) {
+        res.docs[d] = (await this.src.base.format(res.docs[d]));
+      }
+    }
+    res.data = res.docs;
+    delete res.docs;
+    res.total = res.numFound;
+    return res;
+  } catch (error) {}
+};
+
+P.src.base.format = function(rec, metadata = {}) {
+  var a, ar, as, i, id, j, len, len1, ref, ref1;
+  try {
+    if (metadata.title == null) {
+      metadata.title = rec.dctitle;
+    }
+  } catch (error) {}
+  try {
+    if (metadata.doi == null) {
+      metadata.doi = rec.dcdoi[0];
+    }
+  } catch (error) {}
+  try {
+    if (metadata.author == null) {
+      metadata.author = [];
+    }
+    ref = rec[rec.dcperson != null ? 'dcperson' : 'dccreator'];
+    for (i = 0, len = ref.length; i < len; i++) {
+      a = ref[i];
+      as = a.split(' ');
+      ar = {
+        name: a,
+        given: as[as.length - 1]
+      };
+      try {
+        ar.family = as[0];
+      } catch (error) {}
+      metadata.author.push(ar);
+    }
+  } catch (error) {}
+  try {
+    if (metadata.journal == null) {
+      metadata.journal = rec.dcsource.split(',')[0];
+    }
+  } catch (error) {}
+  try {
+    if (metadata.volume == null) {
+      metadata.volume = rec.dcsource.toLowerCase().split('vol')[1].split(',')[0].trim();
+    }
+  } catch (error) {}
+  try {
+    if (metadata.issue == null) {
+      metadata.issue = rec.dcsource.toLowerCase().split('iss')[1].split(',')[0].trim();
+    }
+  } catch (error) {}
+  try {
+    if (metadata.page == null) {
+      metadata.page = rec.dcsource.toLowerCase().split('iss')[1].split('p')[1].split('(')[0].trim();
+    }
+  } catch (error) {}
+  try {
+    if (metadata.year == null) {
+      metadata.year = rec.dcyear;
+    }
+  } catch (error) {}
+  try {
+    if (metadata.published == null) {
+      metadata.published = rec.dcdate.split('T')[0];
+    }
+  } catch (error) {}
+  try {
+    if (metadata.year && !metadata.published) {
+      metadata.published = metadata.year + '-01-01';
+    }
+  } catch (error) {}
+  try {
+    if (metadata.publisher == null) {
+      metadata.publisher = rec.dcpublisher[0];
+    }
+  } catch (error) {}
+  try {
+    ref1 = rec.dcrelation;
+    for (j = 0, len1 = ref1.length; j < len1; j++) {
+      id = ref1[j];
+      if (id.length === 9 && id.indexOf('-') === 4) {
+        if (meta.issn == null) {
+          meta.issn = id;
+        }
+        break;
+      }
+    }
+  } catch (error) {}
+  try {
+    if (metadata.keyword == null) {
+      metadata.keyword = rec.dcsubject;
+    }
+  } catch (error) {}
+  try {
+    if (metadata.abstract == null) {
+      metadata.abstract = rec.dcdescription.replace('Abstract ', '');
+    }
+  } catch (error) {}
+  try {
+    if (metadata.url == null) {
+      metadata.url = rec.dclink;
+    }
+  } catch (error) {}
+  try {
+    if (metadata.pdf == null) {
+      metadata.pdf = rec.pdf;
+    }
+  } catch (error) {}
+  try {
+    if (metadata.url == null) {
+      metadata.url = rec.url;
+    }
+  } catch (error) {}
+  try {
+    if (metadata.redirect == null) {
+      metadata.redirect = rec.redirect;
+    }
+  } catch (error) {}
+  return metadata;
+};
+
+// core docs:
+// http://core.ac.uk/docs/
+// http://core.ac.uk/docs/#!/articles/searchArticles
+// http://core.ac.uk:80/api-v2/articles/search/doi:"10.1186/1471-2458-6-309"
+var ref, ref1, ref2, ref3, ref4;
+
+P.src.core = {};
+
+P.src.core.doi = function(doi) {
+  return this.src.core.get('doi:"' + doi + '"');
+};
+
+P.src.core.title = function(title) {
+  try {
+    title = title.toLowerCase().replace(/(<([^>]+)>)/g, '').replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' ');
+  } catch (error) {}
+  return this.src.core.get('title:"' + title + '"');
+};
+
+P.src.core.get = async function(qrystr) {
+  var i, j, len, op, ref, res, ret;
+  ret = (await this.src.core.search(qrystr));
+  if (ret.total) {
+    res = ret.data[0];
+    ref = ret.data;
+    for (j = 0, len = ref.length; j < len; j++) {
+      i = ref[j];
+      if (i.hasFullText === "true") {
+        res = i;
+        break;
+      }
+    }
+  }
+  if (res != null) {
+    op = (await this.src.core.redirect(res));
+    res.url = op.url;
+    res.redirect = op.redirect;
+  }
+  return res;
+};
+
+P.src.core.search = async function(qrystr, from, size = 10, format, timeout = (ref = (ref1 = (ref2 = API.settings.use) != null ? (ref3 = ref2.core) != null ? ref3.timeout : void 0 : void 0) != null ? ref1 : (ref4 = API.settings.use) != null ? ref4._timeout : void 0) != null ? ref : 10000) {
+  var apikey, r, rd, ref5, res, url;
+  // assume incoming query string is of ES query string format
+  // assume from and size are ES typical
+  // but core only accepts certain field searches:
+  // title, description, fullText, authorsString, publisher, repositoryIds, doi, identifiers, language.name and year
+  // for paging core uses "page" from 1 (but can only go up to 100?) and "pageSize" defaulting to 10 but can go up to 100
+  apikey = (ref5 = this.S.src.core) != null ? ref5.apikey : void 0;
+  if (!apikey) {
+    return void 0;
+  }
+  //var qry = '"' + qrystr.replace(/\w+?\:/g,'') + '"'; # TODO have this accept the above list
+  url = 'http://core.ac.uk/api-v2/articles/search/' + qrystr + '?urls=true&apiKey=' + apikey;
+  if (size !== 10) {
+    url += '&pageSize=' + size;
+  }
+  if (from) {
+    url += '&page=' + (Math.floor(from / size) + 1);
+  }
+  try {
+    res = (await this.fetch(url)); //, {timeout:timeout}
+    rd = res.data.data;
+    if (format) {
+      for (r in rd) {
+        rd[r] = (await this.src.core.format(rd[r]));
+      }
+    }
+    return {
+      total: res.data.totalHits,
+      data: rd
+    };
+  } catch (error) {}
+};
+
+P.src.core.redirect = async function(record) {
+  var j, len, ref5, res, resolved, u;
+  res = {};
+  if (record.fulltextIdentifier) {
+    res.url = record.fulltextIdentifier;
+  } else {
+    ref5 = record.fulltextUrls;
+    for (j = 0, len = ref5.length; j < len; j++) {
+      u = ref5[j];
+      if (u.indexOf('core.ac.uk') !== -1) {
+        res.url = u;
+        break;
+      } else {
+        resolved = (await this.resolve(u));
+        if (resolved && resolved.indexOf('.pdf') !== -1) {
+          res.url = resolved;
+        }
+      }
+    }
+  }
+  return res;
+};
+
+P.src.core.format = function(rec, metadata = {}) {
+  var a, ar, as, j, len, parts, ref5;
+  try {
+    if (metadata.title == null) {
+      metadata.title = rec.title;
+    }
+  } catch (error) {}
+  try {
+    if (metadata.doi == null) {
+      metadata.doi = rec.doi;
+    }
+  } catch (error) {}
+  try {
+    if (metadata.author == null) {
+      metadata.author = [];
+    }
+    ref5 = rec.authors;
+    for (j = 0, len = ref5.length; j < len; j++) {
+      ar = ref5[j];
+      as = ar.split(' ');
+      a = {
+        name: ar,
+        given: as[0]
+      };
+      try {
+        a.family = as[as.length - 1];
+      } catch (error) {}
+      metadata.author.push(a);
+    }
+  } catch (error) {}
+  try {
+    if (metadata.publisher == null) {
+      metadata.publisher = rec.publisher;
+    }
+  } catch (error) {}
+  try {
+    if (metadata.published == null) {
+      metadata.published = rec.datePublished;
+    }
+    if (metadata.published.indexOf('-') === -1) {
+      if (metadata.published.toString().length === 4) {
+        metadata.year = metadata.published;
+        metadata.published += '-01-01';
+      } else {
+        delete metadata.published;
+      }
+    } else {
+      parts = metadata.published.split('-');
+      if (parts[0].length === 4) {
+        if (parts.length === 2) {
+          parts.push('01');
+        }
+        if (parts.length === 1) {
+          parts.push('01');
+          parts.push('01');
+        }
+        metadata.published = parts.join('-');
+      } else {
+        delete metadata.published;
+      }
+    }
+  } catch (error) {}
+  try {
+    if (metadata.year == null) {
+      metadata.year = rec.year;
+    }
+    if (typeof metadata.year === 'number') {
+      metadata.year = metadata.year.toString();
+    }
+    if (typeof metadata.year !== 'string' || metadata.year.length !== 4) {
+      delete metadata.year;
+    }
+    try {
+      if ((metadata.published == null) && (metadata.year != null)) {
+        metadata.published = metadata.year + '-01-01';
+      }
+    } catch (error) {}
+  } catch (error) {}
+  try {
+    if (metadata.pdf == null) {
+      metadata.pdf = rec.pdf;
+    }
+  } catch (error) {}
+  try {
+    if (metadata.url == null) {
+      metadata.url = rec.url;
+    }
+  } catch (error) {}
+  try {
+    if (metadata.open == null) {
+      metadata.open = rec.open;
+    }
+  } catch (error) {}
+  try {
+    if (metadata.redirect == null) {
+      metadata.redirect = rec.redirect;
+    }
+  } catch (error) {}
+  return metadata;
+};
+
   // https://github.com/CrossRef/rest-api-doc/blob/master/rest_api.md
   // http://api.crossref.org/works/10.1016/j.paid.2009.02.013
 var _xref_hdr, ref,
@@ -4445,7 +5093,7 @@ P.src.crossref.journals = async function(issn) {
 
 //P.src.crossref.journals._index = true
 //P.src.crossref.journals._key = 'ISSN'
-//P.src.crossref.journals._env = false
+//P.src.crossref.journals._prefix = false
 P.src.crossref.journals.doi = async function(issn) {
   var ref1, res;
   if (issn == null) {
@@ -4516,7 +5164,7 @@ P.src.crossref.works._index = {
 
 P.src.crossref.works._key = 'DOI';
 
-P.src.crossref.works._env = false;
+P.src.crossref.works._prefix = false;
 
 // TODO this really should be handled by the main crossref.works function, then 
 // the wrapper should query in advance, like it does, but then be able to tell 
@@ -4571,8 +5219,41 @@ P.src.crossref.works.title = async function(title) {
 // probably requires a cron schedule to read some kind of setting or KV of last-updated indexes, and their update schedule
 // doing the regular index update will probably be a long-running job, so needs to be triggered but run on the backend machine
 
-'P.src.doaj = {}\n\nP.src.doaj.journals = (issn) ->\n  if issn\n    issn = issn.split(\',\') if typeof issn is \'string\'\n    r = await @fetch \'issn.exact:"\' + issn.join(\' OR issn.exact:"\') + \'"\'\n    return if r.hits?.total then r.hits.hits[0]._source else undefined\n  else\n    # doaj only updates their journal dump once a week so calling journal import\n    # won\'t actually do anything if the dump file name has not changed since last run \n    # or if a refresh is called\n    fldr = \'/tmp/doaj/\'\n    fs.mkdirSync(fldr) if not fs.existsSync fldr\n    try\n      prev = false\n      current = false\n      fs.writeFileSync fldr + \'doaj.tar\', await @fetch \'https://doaj.org/public-data-dump/journal\'\n      tar.extract file: fldr + \'doaj.tar\', cwd: fldr, sync: true # extracted doaj dump folders end 2020-10-01\n      for f in fs.readdirSync fldr # readdir alphasorts, so if more than one in tmp then last one will be newest\n        if f.indexOf(\'doaj_journal_data\') isnt -1\n          if prev\n            try fs.unlinkSync fldr + prev + \'/journal_batch_1.json\'\n            try fs.rmdirSync fldr + prev\n          prev = current\n          current = f\n      if current and (prev or refresh)\n        return JSON.parse fs.readFileSync fldr + current + \'/journal_batch_1.json\'\n    return []\n\nP.src.doaj.journals._bg = true\n#P.src.doaj.journals._index = true\n\n\nP.src.doaj.articles = (qry) ->\n  url = \'https://doaj.org/api/v1/search/articles\'\n  if typeof qry is \'string\'\n    qry += \'doi:\' if qry.startsWith \'10.\'\n    url += \'/\' + qry\n  else\n    url += \'?\'\n    url += op + \'=\' + params[op] + \'&\' for op of params\n  try\n    res = await @fetch url # note for DOAJ this needs a 300ms limiter\n    return res.results # is this the right location for doaj articles results?\n\nP.src.doaj.articles.title = (title) ->\n  try title = title.toLowerCase().replace(/(<([^>]+)>)/g,\'\').replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, \' \')\n  return @src.doaj.articles \'title:"\' + title + \'"\'';
+P.src.doaj = {};
 
+P.src.doaj.journals = async function(issn) {
+  var ref, res;
+  if (issn == null) {
+    issn = (ref = this.params.journals) != null ? ref : this.params.issn;
+  }
+  if (issn) {
+    try {
+      res = (await this.fetch('https://doaj.org/api/v2/search/journals/' + issn));
+      return res.results[0];
+    } catch (error) {}
+  }
+};
+
+P.src.doaj.articles = async function(qry) {
+  var op, ref, res, title, url;
+  url = 'https://doaj.org/api/v1/search/articles';
+  try {
+    title = this.params.title.toLowerCase().replace(/(<([^>]+)>)/g, '').replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' ');
+  } catch (error) {}
+  if (title || typeof qry === 'string') {
+    if (qry.startsWith('10.')) {
+      qry += 'doi:';
+    }
+    url += (ref = '/' + title) != null ? ref : qry;
+  } else {
+    url += '?';
+    for (op in params) {
+      url += op + '=' + params[op] + '&';
+    }
+  }
+  res = (await this.fetch(url)); // note for DOAJ this needs a 300ms limiter
+  return res.results;
+};
 
 // Europe PMC client
 // https://europepmc.org/RestfulWebService
@@ -4817,7 +5498,25 @@ P.src.fatcat = async function(doi) {
 
 // we could index this as we get them if that turns out to be useful
 // to begin with, normal caching should be sufficient.
-' for example:\n10.1088/0264-9381/19/7/380\nhas a files section, containing:\n[\n   {\n     "release_ids":["3j36alui7fcwncbc4xdaklywb4"],\n     "mimetype":"application/pdf",\n     "urls":[\n       {"url":"http://www.gravity.uwa.edu.au/amaldi/papers/Landry.pdf","rel":"web"},\n       {"url":"https://web.archive.org/web/20091024040004/http://www.gravity.uwa.edu.au/amaldi/papers/Landry.pdf","rel":"webarchive"},\n       {"url":"https://web.archive.org/web/20040827040202/http://www.gravity.uwa.edu.au:80/amaldi/papers/Landry.pdf","rel":"webarchive"},\n       {"url":"https://web.archive.org/web/20050624182645/http://www.gravity.uwa.edu.au/amaldi/papers/Landry.pdf","rel":"webarchive"},\n       {"url":"https://web.archive.org/web/20050601001748/http://www.gravity.uwa.edu.au:80/amaldi/papers/Landry.pdf","rel":"webarchive"}\n     ],\n     "state":"active"\n     ...\n   },\n   ...\n ]';
+` for example:
+10.1088/0264-9381/19/7/380
+has a files section, containing:
+[
+   {
+     "release_ids":["3j36alui7fcwncbc4xdaklywb4"],
+     "mimetype":"application/pdf",
+     "urls":[
+       {"url":"http://www.gravity.uwa.edu.au/amaldi/papers/Landry.pdf","rel":"web"},
+       {"url":"https://web.archive.org/web/20091024040004/http://www.gravity.uwa.edu.au/amaldi/papers/Landry.pdf","rel":"webarchive"},
+       {"url":"https://web.archive.org/web/20040827040202/http://www.gravity.uwa.edu.au:80/amaldi/papers/Landry.pdf","rel":"webarchive"},
+       {"url":"https://web.archive.org/web/20050624182645/http://www.gravity.uwa.edu.au/amaldi/papers/Landry.pdf","rel":"webarchive"},
+       {"url":"https://web.archive.org/web/20050601001748/http://www.gravity.uwa.edu.au:80/amaldi/papers/Landry.pdf","rel":"webarchive"}
+     ],
+     "state":"active"
+     ...
+   },
+   ...
+ ]`;
 
 // https://developers.google.com/custom-search/json-api/v1/overview#Pricing
 // note technically meant to be targeted to a site but can do full search on free tier
@@ -4924,7 +5623,213 @@ P.src.google.chat = function(params, url) {
   }
 };
 
-'# docs:\n# https://developers.google.com/places/web-service/autocomplete\n# example:\n# https://maps.googleapis.com/maps/api/place/autocomplete/json?input=Aberdeen%20Asset%20Management%20PLC&key=<OURKEY>\n\n\n# https://developers.google.com/knowledge-graph/\n# https://developers.google.com/knowledge-graph/reference/rest/v1/\nAPI.use.google.knowledge.retrieve = (mid,types) ->\n  exists = API.http.cache {mid:mid,types:types}, \'google_knowledge_retrieve\'\n  return exists if exists\n  u = \'https://kgsearch.googleapis.com/v1/entities:search?key=\' + API.settings.use.google.serverkey + \'&limit=1&ids=\' + mid\n  if types\n    types = types.join(\'&types=\') if typeof types isnt \'string\' # are multiple types done by comma separation or key repetition?\n    u += \'&types=\' + types\n  ret = {}\n  try\n    res = API.http.proxy \'GET\', u, true\n    ret = res.data.itemListElement[0].result\n    ret.score = res.data.itemListElement[0].resultScore\n  if not _.isEmpty ret\n    API.http.cache {mid:mid,types:types}, \'google_knowledge_retrieve\', ret\n  return ret\n\nAPI.use.google.knowledge.search = (qry,limit=10,refresh=604800000) -> # default 7 day cache\n  u = \'https://kgsearch.googleapis.com/v1/entities:search?key=\' + API.settings.use.google.serverkey + \'&limit=\' + limit + \'&query=\' + encodeURIComponent qry\n  API.log \'Searching google knowledge for \' + qry\n\n  checksum = API.job.sign qry\n  exists = API.http.cache checksum, \'google_knowledge_search\', undefined, refresh\n  return exists if exists\n\n  res = API.http.proxy(\'GET\',u,true).data\n  try API.http.cache checksum, \'google_knowledge_search\', res\n  return res\n\nAPI.use.google.knowledge.find = (qry) ->\n  res = API.use.google.knowledge.search qry\n  try\n    return res.itemListElement[0].result #could add an if resultScore > ???\n  catch\n    return undefined\n\n# https://cloud.google.com/natural-language/docs/getting-started\n# https://cloud.google.com/natural-language/docs/basics\nAPI.use.google.cloud.language = (content, actions=[\'entities\',\'sentiment\'], auth) ->\n  actions = actions.split(\',\') if typeof actions is \'string\'\n  return {} if not content?\n  checksum = API.job.sign content, actions\n  exists = API.http.cache checksum, \'google_language\'\n  return exists if exists\n\n  lurl = \'https://language.googleapis.com/v1/documents:analyzeEntities?key=\' + API.settings.use.google.serverkey\n  document = {document: {type: "PLAIN_TEXT",content:content},encodingType:"UTF8"}\n  result = {}\n  if \'entities\' in actions\n    try result.entities = API.http.proxy(\'POST\',lurl,{data:document,headers:{\'Content-Type\':\'application/json\'}},true).data.entities\n  if \'sentiment\' in actions\n    try result.sentiment = API.http.proxy(\'POST\',lurl.replace(\'analyzeEntities\',\'analyzeSentiment\'),{data:document,headers:{\'Content-Type\':\'application/json\'}},true).data\n  API.http.cache(checksum, \'google_language\', result) if not _.isEmpty result\n  return result\n\n# https://cloud.google.com/translate/docs/quickstart\nAPI.use.google.cloud.translate = (q, source, target=\'en\', format=\'text\') ->\n  # ISO source and target language codes\n  # https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes\n  return {} if not q?\n  checksum = API.job.sign q, {source: source, target: target, format: format}\n  exists = API.http.cache checksum, \'google_translate\'\n  return exists if exists\n  lurl = \'https://translation.googleapis.com/language/translate/v2?key=\' + API.settings.use.google.serverkey\n  result = API.http.proxy(\'POST\', lurl, {data:{q:q, source:source, target:target, format:format}, headers:{\'Content-Type\':\'application/json\'}},true)\n  if result?.data?.data?.translations\n    res = result.data.data.translations[0].translatedText\n    API.http.cache(checksum, \'google_language\', res) if res.length\n    return res\n    #return result.data.data\n  else\n    return {}\n\nAPI.use.google.places.autocomplete = (qry,location,radius) ->\n  url = \'https://maps.googleapis.com/maps/api/place/autocomplete/json?input=\' + qry + \'&key=\' + API.settings.use.google.serverkey\n  url += \'&location=\' + location + \'&radius=\' + (radius ? \'10000\') if location?\n  try\n    return API.http.proxy(\'GET\',url,true).data\n  catch err\n  return {status:\'error\', error: err}\n\nAPI.use.google.places.place = (id,qry,location,radius) ->\n  if not id?\n    try\n      results = API.use.google.places.autocomplete qry,location,radius\n      id = results.predictions[0].place_id\n    catch err\n      return {status:\'error\', error: err}\n  url = \'https://maps.googleapis.com/maps/api/place/details/json?placeid=\' + id + \'&key=\' + API.settings.use.google.serverkey\n  try\n    return API.http.proxy(\'GET\',url,true).data\n  catch err\n    return {status:\'error\', error: err}\n\nAPI.use.google.places.url = (qry) ->\n  try\n    results = API.use.google.places.place undefined,qry\n    return {data: {url:results.result.website.replace(\'://\',\'______\').split(\'/\')[0].replace(\'______\',\'://\')}}\n  catch err\n    return {status:\'error\', error: err}\n\nAPI.use.google.places.nearby = (params={}) ->\n  url = \'https://maps.googleapis.com/maps/api/place/nearbysearch/json?\'\n  params.key ?= API.settings.use.google.serverkey\n  url += (if p is \'q\' then \'input\' else p) + \'=\' + params[p] + \'&\' for p of params\n  try\n    return API.http.proxy(\'GET\',url,true).data\n  catch err\n    return {status:\'error\', error: err}\n\nAPI.use.google.places.search = (params) ->\n  url = \'https://maps.googleapis.com/maps/api/place/textsearch/json?\'\n  params.key ?= API.settings.use.google.serverkey\n  url += (if p is \'q\' then \'input\' else p) + \'=\' + params[p] + \'&\' for p of params\n  try\n    return API.http.proxy(\'GET\',url,true).data\n  catch err\n    return {status:\'error\', error: err}\n\nAPI.use.google.sheets.api = {}\n# https://developers.google.com/sheets/api/reference/rest\nAPI.use.google.sheets.api.get = (sheetid, opts={}) ->\n  opts = {stale:opts} if typeof opts is \'number\'\n  opts.stale ?= 3600000\n  opts.key ?= API.settings.use.google.serverkey\n  try\n    sheetid = sheetid.split(\'/spreadsheets/d/\')[1].split(\'/\')[0] if sheetid.indexOf(\'/spreadsheets/d/\') isnt -1\n    url = \'https://sheets.googleapis.com/v4/spreadsheets/\' + sheetid\n    url += \'/values/\' + opts.start + \':\' + opts.end if opts.start and opts.end\n    url += \'?key=\' + opts.key\n    API.log \'Getting google sheet via API \' + url\n    g = HTTP.call \'GET\', url\n    return g.data ? g\n  catch err\n    return err\n\n# auth for sheets interactions that makes changes is complex, requiring oauth and an email account to be registered to the sheet, it seems\n# https://developers.google.com/sheets/api/guides/authorizing\n# https://developers.google.com/sheets/api/reference/rest/v4/spreadsheets.values/append\n# https://developers.google.com/identity/protocols/oauth2\n# https://developers.google.com/sheets/api/quickstart/nodejs#step_3_set_up_the_sample\n# https://cloud.google.com/apigee/docs/api-platform/security/oauth/access-tokens\n# https://docs.wso2.com/display/IntegrationCloud/Get+Credentials+for+Google+Spreadsheet\n# https://help.gooddata.com/doc/en/building-on-gooddata-platform/data-preparation-and-distribution/additional-data-load-reference/data-load-tutorials/load-data-from-google-spreadsheets-via-google-api\n# https://isd-soft.com/tech_blog/accessing-google-apis-using-service-account-node-js/\nAPI.use.google.sheets.api.values = (sheetid, opts={}) ->\n  opts.start ?= \'A1\'\n  if not opts.end?\n    sheet = if typeof sheetid is \'object\' then sheetid else API.use.google.sheets.api.get sheetid, opts\n    opts.sheet ?= 0 # could also be the ID or title of a sheet in the sheet... if so iterate them to find the matching one\n    rows = sheet.sheets[opts.sheet].properties.gridProperties.rowCount\n    cols = sheet.sheets[opts.sheet].properties.gridProperties.columnCount\n    opts.end = \'\'\n    ls = Math.floor cols/26\n    opts.end += (ls + 9).toString(36).toUpperCase() if ls isnt 0\n    opts.end += (cols + 9-ls).toString(36).toUpperCase()\n    opts.end += rows\n  values = []\n  try\n    keys = false\n    res = API.use.google.sheets.api.get sheetid, opts\n    opts.keys ?= 0 # always assume keys? where to tell which row to get them from? 0-indexed or 1-indexed or named?\n    keys = opts.keys if Array.isArray opts.keys\n    for s in res.values\n      if opts.keys? and keys is false\n        keys = s\n      else\n        obj = {}\n        for k of keys\n          try\n            obj[keys[k]] = s[k] if s[k] isnt \'\'\n        values.push(obj) if not _.isEmpty obj\n    return values\n	';
+`# docs:
+# https://developers.google.com/places/web-service/autocomplete
+# example:
+# https://maps.googleapis.com/maps/api/place/autocomplete/json?input=Aberdeen%20Asset%20Management%20PLC&key=<OURKEY>
+
+
+# https://developers.google.com/knowledge-graph/
+# https://developers.google.com/knowledge-graph/reference/rest/v1/
+API.use.google.knowledge.retrieve = (mid,types) ->
+  exists = API.http.cache {mid:mid,types:types}, 'google_knowledge_retrieve'
+  return exists if exists
+  u = 'https://kgsearch.googleapis.com/v1/entities:search?key=' + API.settings.use.google.serverkey + '&limit=1&ids=' + mid
+  if types
+    types = types.join('&types=') if typeof types isnt 'string' # are multiple types done by comma separation or key repetition?
+    u += '&types=' + types
+  ret = {}
+  try
+    res = API.http.proxy 'GET', u, true
+    ret = res.data.itemListElement[0].result
+    ret.score = res.data.itemListElement[0].resultScore
+  if not _.isEmpty ret
+    API.http.cache {mid:mid,types:types}, 'google_knowledge_retrieve', ret
+  return ret
+
+API.use.google.knowledge.search = (qry,limit=10,refresh=604800000) -> # default 7 day cache
+  u = 'https://kgsearch.googleapis.com/v1/entities:search?key=' + API.settings.use.google.serverkey + '&limit=' + limit + '&query=' + encodeURIComponent qry
+  API.log 'Searching google knowledge for ' + qry
+
+  checksum = API.job.sign qry
+  exists = API.http.cache checksum, 'google_knowledge_search', undefined, refresh
+  return exists if exists
+
+  res = API.http.proxy('GET',u,true).data
+  try API.http.cache checksum, 'google_knowledge_search', res
+  return res
+
+API.use.google.knowledge.find = (qry) ->
+  res = API.use.google.knowledge.search qry
+  try
+    return res.itemListElement[0].result #could add an if resultScore > ???
+  catch
+    return undefined
+
+# https://cloud.google.com/natural-language/docs/getting-started
+# https://cloud.google.com/natural-language/docs/basics
+API.use.google.cloud.language = (content, actions=['entities','sentiment'], auth) ->
+  actions = actions.split(',') if typeof actions is 'string'
+  return {} if not content?
+  checksum = API.job.sign content, actions
+  exists = API.http.cache checksum, 'google_language'
+  return exists if exists
+
+  lurl = 'https://language.googleapis.com/v1/documents:analyzeEntities?key=' + API.settings.use.google.serverkey
+  document = {document: {type: "PLAIN_TEXT",content:content},encodingType:"UTF8"}
+  result = {}
+  if 'entities' in actions
+    try result.entities = API.http.proxy('POST',lurl,{data:document,headers:{'Content-Type':'application/json'}},true).data.entities
+  if 'sentiment' in actions
+    try result.sentiment = API.http.proxy('POST',lurl.replace('analyzeEntities','analyzeSentiment'),{data:document,headers:{'Content-Type':'application/json'}},true).data
+  API.http.cache(checksum, 'google_language', result) if not _.isEmpty result
+  return result
+
+# https://cloud.google.com/translate/docs/quickstart
+API.use.google.cloud.translate = (q, source, target='en', format='text') ->
+  # ISO source and target language codes
+  # https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes
+  return {} if not q?
+  checksum = API.job.sign q, {source: source, target: target, format: format}
+  exists = API.http.cache checksum, 'google_translate'
+  return exists if exists
+  lurl = 'https://translation.googleapis.com/language/translate/v2?key=' + API.settings.use.google.serverkey
+  result = API.http.proxy('POST', lurl, {data:{q:q, source:source, target:target, format:format}, headers:{'Content-Type':'application/json'}},true)
+  if result?.data?.data?.translations
+    res = result.data.data.translations[0].translatedText
+    API.http.cache(checksum, 'google_language', res) if res.length
+    return res
+    #return result.data.data
+  else
+    return {}
+
+API.use.google.places.autocomplete = (qry,location,radius) ->
+  url = 'https://maps.googleapis.com/maps/api/place/autocomplete/json?input=' + qry + '&key=' + API.settings.use.google.serverkey
+  url += '&location=' + location + '&radius=' + (radius ? '10000') if location?
+  try
+    return API.http.proxy('GET',url,true).data
+  catch err
+  return {status:'error', error: err}
+
+API.use.google.places.place = (id,qry,location,radius) ->
+  if not id?
+    try
+      results = API.use.google.places.autocomplete qry,location,radius
+      id = results.predictions[0].place_id
+    catch err
+      return {status:'error', error: err}
+  url = 'https://maps.googleapis.com/maps/api/place/details/json?placeid=' + id + '&key=' + API.settings.use.google.serverkey
+  try
+    return API.http.proxy('GET',url,true).data
+  catch err
+    return {status:'error', error: err}
+
+API.use.google.places.url = (qry) ->
+  try
+    results = API.use.google.places.place undefined,qry
+    return {data: {url:results.result.website.replace('://','______').split('/')[0].replace('______','://')}}
+  catch err
+    return {status:'error', error: err}
+
+API.use.google.places.nearby = (params={}) ->
+  url = 'https://maps.googleapis.com/maps/api/place/nearbysearch/json?'
+  params.key ?= API.settings.use.google.serverkey
+  url += (if p is 'q' then 'input' else p) + '=' + params[p] + '&' for p of params
+  try
+    return API.http.proxy('GET',url,true).data
+  catch err
+    return {status:'error', error: err}
+
+API.use.google.places.search = (params) ->
+  url = 'https://maps.googleapis.com/maps/api/place/textsearch/json?'
+  params.key ?= API.settings.use.google.serverkey
+  url += (if p is 'q' then 'input' else p) + '=' + params[p] + '&' for p of params
+  try
+    return API.http.proxy('GET',url,true).data
+  catch err
+    return {status:'error', error: err}
+
+API.use.google.sheets.api = {}
+# https://developers.google.com/sheets/api/reference/rest
+API.use.google.sheets.api.get = (sheetid, opts={}) ->
+  opts = {stale:opts} if typeof opts is 'number'
+  opts.stale ?= 3600000
+  opts.key ?= API.settings.use.google.serverkey
+  try
+    sheetid = sheetid.split('/spreadsheets/d/')[1].split('/')[0] if sheetid.indexOf('/spreadsheets/d/') isnt -1
+    url = 'https://sheets.googleapis.com/v4/spreadsheets/' + sheetid
+    url += '/values/' + opts.start + ':' + opts.end if opts.start and opts.end
+    url += '?key=' + opts.key
+    API.log 'Getting google sheet via API ' + url
+    g = HTTP.call 'GET', url
+    return g.data ? g
+  catch err
+    return err
+
+# auth for sheets interactions that makes changes is complex, requiring oauth and an email account to be registered to the sheet, it seems
+# https://developers.google.com/sheets/api/guides/authorizing
+# https://developers.google.com/sheets/api/reference/rest/v4/spreadsheets.values/append
+# https://developers.google.com/identity/protocols/oauth2
+# https://developers.google.com/sheets/api/quickstart/nodejs#step_3_set_up_the_sample
+# https://cloud.google.com/apigee/docs/api-platform/security/oauth/access-tokens
+# https://docs.wso2.com/display/IntegrationCloud/Get+Credentials+for+Google+Spreadsheet
+# https://help.gooddata.com/doc/en/building-on-gooddata-platform/data-preparation-and-distribution/additional-data-load-reference/data-load-tutorials/load-data-from-google-spreadsheets-via-google-api
+# https://isd-soft.com/tech_blog/accessing-google-apis-using-service-account-node-js/
+API.use.google.sheets.api.values = (sheetid, opts={}) ->
+  opts.start ?= 'A1'
+  if not opts.end?
+    sheet = if typeof sheetid is 'object' then sheetid else API.use.google.sheets.api.get sheetid, opts
+    opts.sheet ?= 0 # could also be the ID or title of a sheet in the sheet... if so iterate them to find the matching one
+    rows = sheet.sheets[opts.sheet].properties.gridProperties.rowCount
+    cols = sheet.sheets[opts.sheet].properties.gridProperties.columnCount
+    opts.end = ''
+    ls = Math.floor cols/26
+    opts.end += (ls + 9).toString(36).toUpperCase() if ls isnt 0
+    opts.end += (cols + 9-ls).toString(36).toUpperCase()
+    opts.end += rows
+  values = []
+  try
+    keys = false
+    res = API.use.google.sheets.api.get sheetid, opts
+    opts.keys ?= 0 # always assume keys? where to tell which row to get them from? 0-indexed or 1-indexed or named?
+    keys = opts.keys if Array.isArray opts.keys
+    for s in res.values
+      if opts.keys? and keys is false
+        keys = s
+      else
+        obj = {}
+        for k of keys
+          try
+            obj[keys[k]] = s[k] if s[k] isnt ''
+        values.push(obj) if not _.isEmpty obj
+    return values
+	`;
+
+// Docs: https://europepmc.org/GristAPI
+// Fields you can search by: https://europepmc.org/GristAPI#API
+
+// Example, get info by grant ID: http://www.ebi.ac.uk/europepmc/GristAPI/rest/get/query=gid:088130&resultType=core&format=json
+// Use case: To get the name of a Principal Investigator, call @src.grist(the_grant_id).data.Person
+// Will return {FamilyName: "Friston", GivenName: "Karl", Initials: "KJ", Title: "Prof"}
+P.src.grist = async function(qrystr, from) {
+  var GRIST_API_PAGE_SIZE, ref, ref1, res, url;
+  GRIST_API_PAGE_SIZE = 25;
+  if (qrystr == null) {
+    qrystr = this.params.grist;
+  }
+  if (qrystr.indexOf('gid:') !== 0 && qrystr.indexOf(' ') === -1 && parseInt(qrystr)) {
+    qrystr = 'gid:' + qrystr; // check the qrystr to decide if this should be added or not
+  }
+  url = 'https://www.ebi.ac.uk/europepmc/GristAPI/rest/get/query=' + qrystr + '&resultType=core&format=json';
+  if (from != null) {
+    url += '&page=' + (Math.floor(from / GRIST_API_PAGE_SIZE) + 1);
+  }
+  res = (await this.fetch(url));
+  return {
+    total: res.data.HitCount,
+    data: (ref = (ref1 = res.data.RecordList) != null ? ref1.Record : void 0) != null ? ref : {}
+  };
+};
 
 var base;
 
@@ -5047,9 +5952,45 @@ P.src.microsoft.graph.journal = async function(q) {
   return res;
 };
 
-'P.src.microsoft.graph.paper = _index: true # TODO check how API init will pick up an index that has no main function\nP.src.microsoft.graph.journal = _index: true\nP.src.microsoft.graph.author = _index: true\nP.src.microsoft.graph.affiliation = _index: true\nP.src.microsoft.graph.abstract = _index: true\nP.src.microsoft.graph.relation = _index: true';
+`P.src.microsoft.graph.paper = _index: true # TODO check how API init will pick up an index that has no main function
+P.src.microsoft.graph.journal = _index: true
+P.src.microsoft.graph.author = _index: true
+P.src.microsoft.graph.affiliation = _index: true
+P.src.microsoft.graph.abstract = _index: true
+P.src.microsoft.graph.relation = _index: true`;
 
-'P.src.microsoft.graph._relations = (q, papers=true, authors=true, affiliations=true) ->\n # [\'PaperId\', \'AuthorId\', \'AffiliationId\', \'AuthorSequenceNumber\', \'OriginalAuthor\', \'OriginalAffiliation\']\n # context could be paper, author, affiliation\n  results = []\n  _append = (recs) ->\n    res = []\n    recs = [recs] if not Array.isArray recs\n    for rec in recs\n      rec.paper = await @src.microsoft.graph.paper(rec.PaperId) if rec.PaperId and papers\n      rec.author = await @src.microsoft.graph.author(rec.AuthorId) if rec.AuthorId and authors\n      rec.affiliation = await @src.microsoft.graph.affiliation(rec.AffiliationId ? rec.LastKnownAffiliationId) if (rec.AffiliationId or rec.LastKnownAffiliationId) and affiliations\n      if rec.GridId or rec.affiliation?.GridId\n        try rec.ror = await @src.wikidata.grid2ror rec.GridId ? rec.affiliation?.GridId\n      res.push rec\n      results.push rec\n    return res\n\n  if typeof q is \'string\' and rel = await @src.microsoft.graph.relation q\n    return _append rel\n  \n  count = 0\n  if typeof q is \'string\' and cn = @src.microsoft.graph.relation.count \'PaperId.exact:"\' + q + \'"\'\n    count += cn\n    _append(@src.microsoft.graph.relation.fetch(\'PaperId.exact:"\' + q + \'"\')) if cn < 10\n  else if typeof q is \'string\' and cn = @src.microsoft.graph.relation.count \'AuthorId.exact:"\' + q + \'"\'\n    count += cn\n    _append(@src.microsoft.graph.relation.fetch(\'AuthorId.exact:"\' + q + \'"\')) if cn < 10\n  else if typeof q is \'string\' and cn = @src.microsoft.graph.relation.count \'AffiliationId.exact:"\' + q + \'"\'\n    count += cn\n    _append(@src.microsoft.graph.relation.fetch(\'AffiliationId.exact:"\' + q + \'"\')) if cn < 10\n\n  return results';
+`P.src.microsoft.graph._relations = (q, papers=true, authors=true, affiliations=true) ->
+ # ['PaperId', 'AuthorId', 'AffiliationId', 'AuthorSequenceNumber', 'OriginalAuthor', 'OriginalAffiliation']
+ # context could be paper, author, affiliation
+  results = []
+  _append = (recs) ->
+    res = []
+    recs = [recs] if not Array.isArray recs
+    for rec in recs
+      rec.paper = await @src.microsoft.graph.paper(rec.PaperId) if rec.PaperId and papers
+      rec.author = await @src.microsoft.graph.author(rec.AuthorId) if rec.AuthorId and authors
+      rec.affiliation = await @src.microsoft.graph.affiliation(rec.AffiliationId ? rec.LastKnownAffiliationId) if (rec.AffiliationId or rec.LastKnownAffiliationId) and affiliations
+      if rec.GridId or rec.affiliation?.GridId
+        try rec.ror = await @src.wikidata.grid2ror rec.GridId ? rec.affiliation?.GridId
+      res.push rec
+      results.push rec
+    return res
+
+  if typeof q is 'string' and rel = await @src.microsoft.graph.relation q
+    return _append rel
+  
+  count = 0
+  if typeof q is 'string' and cn = @src.microsoft.graph.relation.count 'PaperId.exact:"' + q + '"'
+    count += cn
+    _append(@src.microsoft.graph.relation.fetch('PaperId.exact:"' + q + '"')) if cn < 10
+  else if typeof q is 'string' and cn = @src.microsoft.graph.relation.count 'AuthorId.exact:"' + q + '"'
+    count += cn
+    _append(@src.microsoft.graph.relation.fetch('AuthorId.exact:"' + q + '"')) if cn < 10
+  else if typeof q is 'string' and cn = @src.microsoft.graph.relation.count 'AffiliationId.exact:"' + q + '"'
+    count += cn
+    _append(@src.microsoft.graph.relation.fetch('AffiliationId.exact:"' + q + '"')) if cn < 10
+
+  return results`;
 
 P.src.oadoi = function(doi) {
   var ref, ref1, ref2, url;
@@ -5070,7 +6011,606 @@ P.src.oadoi._index = true;
 
 P.src.oadoi._key = 'doi';
 
-P.src.oadoi._env = false;
+P.src.oadoi._prefix = false;
+
+// docs:
+// http://opendoar.org/tools/api.html
+// http://opendoar.org/tools/api13manual.html
+// example:
+// http://opendoar.org/api13.php?fields=rname&kwd=Aberdeen%20University%20Research%20Archive
+P.src.opendoar = {
+  _index: true
+};
+
+P.src.opendoar.parse = function(rec) {
+  var c, cl, cn, co, cont, i, j, k, l, len, len1, len2, len3, len4, ll, m, n, p, po, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref45, ref46, ref47, ref48, ref49, ref5, ref50, ref51, ref52, ref53, ref6, ref7, ref8, ref9, ret, st, std, t;
+  ret = {
+    _id: rec.$.rID
+  };
+  ret.name = (ref = rec.rName) != null ? ref[0] : void 0;
+  ret.acronym = (ref1 = rec.rAcronym) != null ? ref1[0] : void 0;
+  ret.url = (ref2 = rec.rUrl) != null ? ref2[0] : void 0;
+  ret.oai = (ref3 = rec.rOaiBaseUrl) != null ? ref3[0] : void 0;
+  ret.uname = (ref4 = rec.uName) != null ? ref4[0] : void 0;
+  ret.uacronym = (ref5 = rec.uAcronym) != null ? ref5[0] : void 0;
+  ret.uurl = (ref6 = rec.uUrl) != null ? ref6[0] : void 0;
+  ret.oname = (ref7 = rec.oName) != null ? ref7[0] : void 0;
+  ret.oacronym = (ref8 = rec.oAcronym) != null ? ref8[0] : void 0;
+  ret.ourl = (ref9 = rec.oUrl) != null ? ref9[0] : void 0;
+  ret.address = (ref10 = rec.rPostalAddress) != null ? ref10[0] : void 0;
+  ret.phone = (ref11 = rec.paPhone) != null ? ref11[0] : void 0;
+  ret.fax = (ref12 = rec.paFax) != null ? ref12[0] : void 0;
+  ret.description = (ref13 = rec.rDescription) != null ? ref13[0] : void 0;
+  ret.remarks = (ref14 = rec.rRemarks) != null ? ref14[0] : void 0;
+  if (((ref15 = rec.rYearEstablished) != null ? (ref16 = ref15[0]) != null ? ref16.length : void 0 : void 0) > 0 && parseInt(rec.rYearEstablished[0])) {
+    ret.established = rec.rYearEstablished[0];
+  }
+  ret.type = (ref17 = rec.repositoryType) != null ? ref17[0] : void 0;
+  ret.operational = (ref18 = rec.operationalStatus) != null ? ref18[0] : void 0;
+  ret.software = (ref19 = rec.rSoftWareName) != null ? ref19[0] : void 0;
+  ret.version = (ref20 = rec.rSoftWareVersion) != null ? ref20[0] : void 0;
+  if (rec.paLatitude && rec.paLongitude) {
+    ret.location = {
+      geo: {
+        lat: rec.paLatitude[0],
+        lon: rec.paLongitude[0]
+      }
+    };
+  }
+  if (((ref21 = rec.country) != null ? (ref22 = ref21[0]) != null ? ref22.cCountry : void 0 : void 0) != null) {
+    ret.country = rec.country[0].cCountry[0];
+    if (ret.countryIso == null) {
+      ret.countryIso = (ref23 = rec.country[0].cIsoCode) != null ? ref23[0] : void 0;
+    }
+  }
+  if (((ref24 = rec.classes) != null ? (ref25 = ref24[0]) != null ? ref25.class : void 0 : void 0) != null) {
+    ret.classes = [];
+    ref26 = rec.classes[0].class;
+    for (i = 0, len = ref26.length; i < len; i++) {
+      c = ref26[i];
+      cl = {};
+      cl.code = (ref27 = c.clCode) != null ? ref27[0] : void 0;
+      cl.title = (ref28 = c.clTitle) != null ? ref28[0] : void 0;
+      ret.classes.push(cl);
+    }
+  }
+  if (((ref29 = rec.languages) != null ? (ref30 = ref29[0]) != null ? ref30.language : void 0 : void 0) != null) {
+    ret.languages = [];
+    ref31 = rec.languages[0].language;
+    for (j = 0, len1 = ref31.length; j < len1; j++) {
+      l = ref31[j];
+      ll = {};
+      ll.iso = (ref32 = l.lIsoCode) != null ? ref32[0] : void 0;
+      ll.name = (ref33 = l.lName) != null ? ref33[0] : void 0;
+      ret.languages.push(ll);
+    }
+  }
+  if (((ref34 = rec.contentTypes) != null ? (ref35 = ref34[0]) != null ? ref35.contentType : void 0 : void 0) != null) {
+    ret.contents = [];
+    ref36 = rec.contentTypes[0].contentType;
+    for (k = 0, len2 = ref36.length; k < len2; k++) {
+      t = ref36[k];
+      co = {};
+      co.type = t._;
+      co.id = (ref37 = t.$) != null ? ref37.ctID : void 0;
+      ret.contents.push(co);
+    }
+  }
+  if ((ref38 = rec.policies) != null ? (ref39 = ref38[0]) != null ? ref39.policy : void 0 : void 0) {
+    ret.policies = [];
+    ref40 = rec.policies[0].policy;
+    for (m = 0, len3 = ref40.length; m < len3; m++) {
+      p = ref40[m];
+      po = {};
+      po.type = (ref41 = p.policyType) != null ? (ref42 = ref41[0]) != null ? ref42._ : void 0 : void 0;
+      po.grade = (ref43 = p.policyGrade) != null ? (ref44 = ref43[0]) != null ? ref44._ : void 0 : void 0;
+      if (((ref45 = p.poStandard) != null ? (ref46 = ref45[0]) != null ? ref46.item : void 0 : void 0) != null) {
+        std = [];
+        if ((function() {
+          var len4, n, ref47, results;
+          ref47 = p.poStandard[0].item;
+          results = [];
+          for (n = 0, len4 = ref47.length; n < len4; n++) {
+            st = ref47[n];
+            results.push(typeof st === "string");
+          }
+          return results;
+        })()) {
+          std.push(st);
+        }
+        po.standard = std;
+      }
+      ret.policies.push(po);
+    }
+  }
+  if (((ref47 = rec.contacts) != null ? (ref48 = ref47[0]) != null ? ref48.person : void 0 : void 0) != null) {
+    ret.contacts = [];
+    ref49 = rec.contacts[0].person;
+    for (n = 0, len4 = ref49.length; n < len4; n++) {
+      cn = ref49[n];
+      cont = {};
+      cont.name = (ref50 = cn.pName) != null ? ref50[0] : void 0;
+      cont.title = (ref51 = cn.pJobTitle) != null ? ref51[0] : void 0;
+      cont.email = (ref52 = cn.pEmail) != null ? ref52[0] : void 0;
+      cont.phone = (ref53 = cn.pPhone) != null ? ref53[0] : void 0;
+      ret.contacts.push(cont);
+    }
+  }
+  return ret;
+};
+
+P.src.opendoar.search = async function(qrystr, show = 'basic', raw) {
+  var data, i, js, len, r, ref, res, url;
+  try {
+    url = 'http://opendoar.org/api13.php?show=' + show + '&kwd=' + qrystr;
+    res = (await this.fetch(url));
+    js = (await this.convert.xml2json(res.content));
+    data = [];
+    ref = js.OpenDOAR.repositories[0].repository;
+    for (i = 0, len = ref.length; i < len; i++) {
+      r = ref[i];
+      data.push((await this.src.opendoar.parse(r)));
+    }
+    return {
+      total: js.OpenDOAR.repositories[0].repository.length,
+      data: data
+    };
+  } catch (error) {}
+};
+
+P.src.opendoar.index = async function() {
+  var data, i, js, len, r, ref, res, url;
+  try {
+    url = 'http://opendoar.org/api13.php?all=y&show=max';
+    res = (await this.fetch(url));
+    js = (await this.convert.xml2json(res.content));
+    data = [];
+    ref = js.OpenDOAR.repositories[0].repository;
+    for (i = 0, len = ref.length; i < len; i++) {
+      r = ref[i];
+      data.push((await this.src.opendoar.parse(r)));
+    }
+    this.src.opendoar('');
+    this.src.opendoar(data);
+  } catch (error) {}
+  return true;
+};
+
+// pubmed API http://www.ncbi.nlm.nih.gov/books/NBK25497/
+// examples http://www.ncbi.nlm.nih.gov/books/NBK25498/#chapter3.ESearch__ESummaryEFetch
+// get a pmid - need first to issue a query to get some IDs...
+// http://eutils.ncbi.nlm.nih.gov/entrez/eutils/epost.fcgi?id=21999661&db=pubmed
+// then scrape the QueryKey and WebEnv values from it and use like so:
+// http://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&query_key=1&WebEnv=NCID_1_54953983_165.112.9.28_9001_1461227951_1012752855_0MetA0_S_MegaStore_F_1
+P.src.pubmed = {};
+
+P.src.pubmed.entrez = {};
+
+P.src.pubmed.entrez.summary = async function(qk, webenv, id) {
+  var frec, i, ii, j, k, len, len1, len2, md, rec, recs, ref1, ref2, ref3, res, si, sio, url;
+  url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed';
+  if (id != null) {
+    if (_.isArray(id)) {
+      id = id.join(',');
+    }
+    url += '&id=' + id; // can be a comma separated list as well
+  } else {
+    url += '&query_key=' + qk + '&WebEnv=' + webenv;
+  }
+  try {
+    res = (await this.fetch(url));
+    md = this.convert.xml2json(res.content);
+    recs = [];
+    ref1 = md.eSummaryResult.DocSum;
+    for (i = 0, len = ref1.length; i < len; i++) {
+      rec = ref1[i];
+      frec = {
+        id: rec.Id[0]
+      };
+      ref2 = rec.Item;
+      for (j = 0, len1 = ref2.length; j < len1; j++) {
+        ii = ref2[j];
+        if (ii.$.Type === 'List') {
+          frec[ii.$.Name] = [];
+          if (ii.Item != null) {
+            ref3 = ii.Item;
+            for (k = 0, len2 = ref3.length; k < len2; k++) {
+              si = ref3[k];
+              sio = {};
+              sio[si.$.Name] = si._;
+              frec[ii.$.Name].push(sio);
+            }
+          }
+        } else {
+          frec[ii.$.Name] = ii._;
+        }
+      }
+      recs.push(frec);
+      if ((id == null) || id.indexOf(',') === -1) {
+        return recs[0];
+        break;
+      }
+    }
+    return recs;
+  } catch (error) {
+    return void 0;
+  }
+};
+
+P.src.pubmed.entrez.pmid = async function(pmid) {
+  var res, result, url;
+  url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/epost.fcgi?db=pubmed&id=' + pmid;
+  try {
+    res = (await this.fetch(url));
+    result = this.convert.xml2json(res.content);
+    return this.src.pubmed.entrez.summary(result.ePostResult.QueryKey[0], result.ePostResult.WebEnv[0]);
+  } catch (error) {
+    return void 0;
+  }
+};
+
+P.src.pubmed.search = async function(str, full, size = 10, ids = false) {
+  var i, id, j, k, l, len, len1, len2, len3, pg, rec, ref1, ref2, res, result, uid, url, urlids;
+  url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=' + size + '&sort=pub date&term=' + str;
+  try {
+    if (typeof ids === 'string') {
+      ids = ids.split(',');
+    }
+    if (Array.isArray(ids)) {
+      res = {
+        total: ids.length,
+        data: []
+      };
+    } else {
+      res = (await this.fetch(url));
+      result = this.convert.xml2json(res.content);
+      res = {
+        total: result.eSearchResult.Count[0],
+        data: []
+      };
+      if (ids === true) {
+        res.data = result.eSearchResult.IdList[0].Id;
+        return res;
+      } else {
+        ids = result.eSearchResult.IdList[0].Id;
+      }
+    }
+    if (full) { // may need a rate limiter on this
+      for (i = 0, len = ids.length; i < len; i++) {
+        uid = ids[i];
+        pg = (await this.src.pubmed.pmid(uid)); // should rate limit this to 300ms
+        res.data.push(pg);
+        if (res.data.length === size) {
+          break;
+        }
+      }
+    } else {
+      urlids = [];
+      for (j = 0, len1 = ids.length; j < len1; j++) {
+        id = ids[j];
+        if (res.data.length === size) {
+          break;
+        }
+        urlids.push(id);
+        if (urlids.length === 40) {
+          ref1 = (await this.src.pubmed.entrez.summary(void 0, void 0, urlids));
+          for (k = 0, len2 = ref1.length; k < len2; k++) {
+            rec = ref1[k];
+            res.data.push((await this.src.pubmed.format(rec)));
+            if (res.data.length === size) {
+              break;
+            }
+          }
+          urlids = [];
+        }
+      }
+      if (urlids.length) {
+        ref2 = this.src.pubmed.entrez.summary(void 0, void 0, urlids);
+        for (l = 0, len3 = ref2.length; l < len3; l++) {
+          rec = ref2[l];
+          res.data.push(this.src.pubmed.format(rec));
+          if (res.data.length === size) {
+            break;
+          }
+        }
+      }
+    }
+    return res;
+  } catch (error) {
+    return void 0;
+  }
+};
+
+P.src.pubmed.pmid = async function(pmid) {
+  var res, url;
+  try {
+    url = 'https://www.ncbi.nlm.nih.gov/pubmed/' + pmid + '?report=xml';
+    res = (await this.fetch(url));
+    if (res.indexOf('<') === 0) {
+      return this.src.pubmed.format((await this.decode(res.content.split('<pre>')[1].split('</pre>')[0].replace('\n', ''))));
+    }
+  } catch (error) {}
+  try {
+    return this.src.pubmed.format((await this.src.pubmed.entrez.pmid(pmid)));
+  } catch (error) {}
+  return void 0;
+};
+
+P.src.pubmed.aheadofprint = async function(pmid) {
+  var res;
+  try {
+    res = (await this.fetch('https://www.ncbi.nlm.nih.gov/pubmed/' + pmid + '?report=xml'));
+    return res.indexOf('PublicationStatus&gt;aheadofprint&lt;/PublicationStatus') !== -1;
+  } catch (error) {
+    return false;
+  }
+};
+
+P.src.pubmed.format = function(rec, metadata = {}) {
+  var a, ai, an, ar, frec, i, ii, j, k, l, len, len1, len2, len3, len4, len5, len6, len7, m, mc, n, o, p, pd, pid, q, rc, ref, ref1, ref10, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rf, si, sio;
+  if (typeof rec === 'string' && rec.indexOf('<') === 0) {
+    rec = this.convert.xml2json(rec);
+  }
+  if ((((ref1 = rec.eSummaryResult) != null ? ref1.DocSum : void 0) != null) || rec.ArticleIds) {
+    frec = {};
+    if (((ref2 = rec.eSummaryResult) != null ? ref2.DocSum : void 0) != null) {
+      rec = md.eSummaryResult.DocSum[0];
+      ref3 = rec.Item;
+      for (i = 0, len = ref3.length; i < len; i++) {
+        ii = ref3[i];
+        if (ii.$.Type === 'List') {
+          frec[ii.$.Name] = [];
+          if (ii.Item != null) {
+            ref4 = ii.Item;
+            for (j = 0, len1 = ref4.length; j < len1; j++) {
+              si = ref4[j];
+              sio = {};
+              sio[si.$.Name] = si._;
+              frec[ii.$.Name].push(sio);
+            }
+          }
+        } else {
+          frec[ii.$.Name] = ii._;
+        }
+      }
+    } else {
+      frec = rec;
+    }
+    try {
+      if (metadata.pmid == null) {
+        metadata.pmid = rec.Id[0];
+      }
+    } catch (error) {}
+    try {
+      if (metadata.pmid == null) {
+        metadata.pmid = rec.id;
+      }
+    } catch (error) {}
+    try {
+      if (metadata.title == null) {
+        metadata.title = frec.Title;
+      }
+    } catch (error) {}
+    try {
+      if (metadata.issn == null) {
+        metadata.issn = frec.ISSN;
+      }
+    } catch (error) {}
+    try {
+      if (metadata.essn == null) {
+        metadata.essn = frec.ESSN;
+      }
+    } catch (error) {}
+    try {
+      if (metadata.doi == null) {
+        metadata.doi = frec.DOI;
+      }
+    } catch (error) {}
+    try {
+      if (metadata.journal == null) {
+        metadata.journal = frec.FullJournalName;
+      }
+    } catch (error) {}
+    try {
+      if (metadata.journal_short == null) {
+        metadata.journal_short = frec.Source;
+      }
+    } catch (error) {}
+    try {
+      if (metadata.volume == null) {
+        metadata.volume = frec.Volume;
+      }
+    } catch (error) {}
+    try {
+      if (metadata.issue == null) {
+        metadata.issue = frec.Issue;
+      }
+    } catch (error) {}
+    try {
+      if (metadata.page == null) {
+        metadata.page = frec.Pages; //like 13-29 how to handle this
+      }
+    } catch (error) {}
+    try {
+      if (metadata.year == null) {
+        metadata.year = frec[frec.PubDate ? 'PubDate' : 'EPubDate'].split(' ')[0];
+      }
+    } catch (error) {}
+    try {
+      p = frec[frec.PubDate ? 'PubDate' : 'EPubDate'].split(' ');
+      if (metadata.published == null) {
+        metadata.published = p[0] + '-' + (['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'].indexOf(p[1].toLowerCase()) + 1) + '-' + (p.length === 3 ? p[2] : '01');
+      }
+    } catch (error) {}
+    if (frec.AuthorList != null) {
+      if (metadata.author == null) {
+        metadata.author = [];
+      }
+      ref5 = frec.AuthorList;
+      for (k = 0, len2 = ref5.length; k < len2; k++) {
+        a = ref5[k];
+        try {
+          a.family = a.Author.split(' ')[0];
+          a.given = a.Author.replace(a.family + ' ', '');
+          a.name = a.given + ' ' + a.family;
+          metadata.author.push(a);
+        } catch (error) {}
+      }
+    }
+    if ((frec.ArticleIds != null) && (metadata.pmcid == null)) {
+      ref6 = frec.ArticleIds;
+      for (l = 0, len3 = ref6.length; l < len3; l++) {
+        ai = ref6[l];
+        if (ai.pmc) { // pmcid or pmc? replace PMC in the value? it will be present
+          if (metadata.pmcid == null) {
+            metadata.pmcid = ai.pmc;
+          }
+          break;
+        }
+      }
+    }
+  } else if (rec.PubmedArticle != null) {
+    rec = rec.PubmedArticle;
+    mc = rec.MedlineCitation[0];
+    try {
+      if (metadata.pmid == null) {
+        metadata.pmid = mc.PMID[0]._;
+      }
+    } catch (error) {}
+    try {
+      if (metadata.title == null) {
+        metadata.title = mc.Article[0].ArticleTitle[0];
+      }
+    } catch (error) {}
+    try {
+      if (metadata.issn == null) {
+        metadata.issn = mc.Article[0].Journal[0].ISSN[0]._;
+      }
+    } catch (error) {}
+    try {
+      if (metadata.journal == null) {
+        metadata.journal = mc.Article[0].Journal[0].Title[0];
+      }
+    } catch (error) {}
+    try {
+      if (metadata.journal_short == null) {
+        metadata.journal_short = mc.Article[0].Journal[0].ISOAbbreviation[0];
+      }
+    } catch (error) {}
+    try {
+      pd = mc.Article[0].Journal[0].JournalIssue[0].PubDate[0];
+      try {
+        if (metadata.year == null) {
+          metadata.year = pd.Year[0];
+        }
+      } catch (error) {}
+      try {
+        if (metadata.published == null) {
+          metadata.published = pd.Year[0] + '-' + (pd.Month ? ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'].indexOf(pd.Month[0].toLowerCase()) + 1 : '01') + '-' + (pd.Day ? pd.Day[0] : '01');
+        }
+      } catch (error) {}
+    } catch (error) {}
+    try {
+      if (metadata.author == null) {
+        metadata.author = [];
+      }
+      ref7 = mc.Article[0].AuthorList[0].Author;
+      for (m = 0, len4 = ref7.length; m < len4; m++) {
+        ar = ref7[m];
+        a = {};
+        a.family = ar.LastName[0];
+        a.given = ar.ForeName[0];
+        a.name = a.Author ? a.Author : a.given + ' ' + a.family;
+        try {
+          a.affiliation = ar.AffiliationInfo[0].Affiliation[0];
+        } catch (error) {}
+        if (a.affiliation != null) {
+          if (_.isArray(a.affiliation)) {
+            a.affiliation = a.affiliation[0];
+          }
+          if (typeof a.affiliation === 'string') {
+            a.affiliation = {
+              name: a.affiliation
+            };
+          }
+        }
+        metadata.author.push(a);
+      }
+    } catch (error) {}
+    try {
+      ref8 = rec.PubmedData[0].ArticleIdList[0].ArticleId;
+      for (n = 0, len5 = ref8.length; n < len5; n++) {
+        pid = ref8[n];
+        if (pid.$.IdType === 'doi') {
+          if (metadata.doi == null) {
+            metadata.doi = pid._;
+          }
+          break;
+        }
+      }
+    } catch (error) {}
+    try {
+      if (metadata.reference == null) {
+        metadata.reference = [];
+      }
+      ref9 = rec.PubmedData[0].ReferenceList[0].Reference;
+      for (o = 0, len6 = ref9.length; o < len6; o++) {
+        ref = ref9[o];
+        rc = ref.Citation[0];
+        rf = {};
+        if (rc.indexOf('doi.org/') !== -1) {
+          rf.doi = rc.split('doi.org/')[1].trim();
+        }
+        try {
+          rf.author = [];
+          ref10 = rc.split('. ')[0].split(', ');
+          for (q = 0, len7 = ref10.length; q < len7; q++) {
+            an = ref10[q];
+            rf.author.push({
+              name: an
+            });
+          }
+        } catch (error) {}
+        try {
+          rf.title = rc.split('. ')[1].split('?')[0].trim();
+        } catch (error) {}
+        try {
+          rf.journal = rc.replace(/\?/g, '.').split('. ')[2].trim();
+        } catch (error) {}
+        try {
+          rf.url = 'http' + rc.split('http')[1].split(' ')[0];
+          if (rf.url.indexOf('doi.org') !== -1) {
+            delete rf.url;
+          }
+        } catch (error) {}
+        if (!_.isEmpty(rf)) {
+          metadata.reference.push(rf);
+        }
+      }
+    } catch (error) {}
+  }
+  try {
+    if (metadata.pdf == null) {
+      metadata.pdf = rec.pdf;
+    }
+  } catch (error) {}
+  try {
+    if (metadata.url == null) {
+      metadata.url = rec.url;
+    }
+  } catch (error) {}
+  try {
+    if (metadata.open == null) {
+      metadata.open = rec.open;
+    }
+  } catch (error) {}
+  try {
+    if (metadata.redirect == null) {
+      metadata.redirect = rec.redirect;
+    }
+  } catch (error) {}
+  return metadata;
+};
 
 // TODO copy over from old system
 P.src.wikidata = function(q) {
@@ -5445,7 +6985,6 @@ P.status = async function() {
   res = {
     name: S.name,
     version: S.version,
-    env: S.env,
     built: S.built
   };
   ref = ['uid', 'rid', 'params', 'base', 'parts', 'opts', 'routes'];
@@ -5460,9 +6999,7 @@ P.status = async function() {
   if (this.S.bg === true) {
     res.bg = true;
   }
-  if (typeof this.S.kv === 'string' && global[this.S.kv]) {
-    res.kv = true;
-  }
+  res.kv = typeof this.S.kv === 'string' && global[this.S.kv] ? this.S.kv : typeof this.S.kv === 'string' ? this.S.kv : false;
   if ((await this.index(''))) {
     res.index = true;
   }
@@ -5489,8 +7026,912 @@ P.status = async function() {
   return res;
 };
 
-'P.svc.lantern = {}\n\nP.svc.lantern = (jid) ->\n  jid ?= @params.lantern ? @params.job\n  if jid?\n    job = @svc.lantern._job jid\n    p = @job.progress job\n    job.progress = p ? 0\n    return job\n  else\n    if @params.doi or @params.pmid or @params.pmc or @params.pmcid\n      j = new:true, service:\'lantern\'\n      j.email ?= @params.email\n      j.wellcome = this.queryParams.wellcome?\n      try j.refresh = @params.refresh\n      j._id = job_job.insert j\n      if @body\n        processes = \n        if typeof @body is \'object\' and not Array.isArray(@body) and @body.list\n          processes = @body.list\n          j.name ?= @body.name\n        else\n          processes = @body\n      else\n        j.processes = []\n        j.processes.push({doi:this.queryParams.doi}) if @params.doi\n        j.processes.push({pmid:this.queryParams.pmid}) if @params.pmid\n        j.processes.push({pmcid: @params.pmcid ? @params.pmc}) if @params.pmcid or @params.pmc\n        j.name ?= @params.name\n      @svc.lantern.job j\n      return j\n    else\n      return name: \'Lantern for Wellcome\'\n\nP.svc.lantern._job = _index: true\n\nP.svc.lantern.progress = (jid) ->\n  jid ?= @params.lantern ? @params.job\n  job = @svc.lantern jid\n  pr = @job.progress job\n  pr.report = job.report\n  return pr\n\nP.svc.lantern.process = () ->\n  return @svc.lantern.process doi: @params.doi, pmid: @params.pmid, pmcid: @params.pmcid\nP.svc.lantern.process._auth = \'lantern.admin\'\n\nP.svc.lantern.results = (jid) ->\n  jid ?= @params.lantern ? @params.job\n  job = @svc.lantern jid\n  return {status: 404} if not job\n  if @format is \'csv\'\n    #ignorefields = []\n    #if this.user?.service?.lantern?.profile?.fields\n    #  for f of acc.service.lantern.profile.fields\n    #    ignorefields.push(f) if acc.service.lantern.profile.fields[f] is false and ( not this.queryParams[f]? or this.queryParams[f] is false)\n    return P.svc.lantern.csv job, ignorefields\n  else\n    return @job.results job\n\n\n\nP.svc.lantern.licence = (url, content, start, end) ->\n  url = url.replace(/(^\s*)|(\s*$)/g,\'\') if url?\n  content ?= @puppet url\n  content = undefined if typeof content is \'number\'\n\n  lic = {}\n  lic.url = url if url?\n  lic.resolved = resolved if resolve and resolved?\n  if typeof content is \'string\'\n    licences = @svc.lantern.licences()\n    content = content.split(start)[1] if start? and content.indexOf(start) isnt -1\n    content = content.split(end)[0] if end?\n    if content.length > 1000000\n      lic.large = true\n      content = content.substring(0,500000) + content.substring(content.length-500000,content.length)\n\n    for l in licences\n      if l.domain is \'*\' or not l.domain or not url? or l.domain.toLowerCase().indexOf(url.toLowerCase().replace(\'http://\',\'\').replace(\'https://\',\'\').replace(\'www.\',\'\').split(\'/\')[0]) isnt -1\n        match = l.match.toLowerCase().replace(/[^a-z0-9]/g, \'\')\n        urlmatcher = if l.match.indexOf(\'://\') isnt -1 then l.match.toLowerCase().split(\'://\')[1].split(\'"\')[0].split(\' \')[0] else false\n        urlmatch = if urlmatcher then content.toLowerCase().indexOf(urlmatcher) isnt -1 else false\n        if urlmatch or content.toLowerCase().replace(/[^a-z0-9]/g,\'\').indexOf(match) isnt -1\n          lic.licence = l.licence\n          lic.match = l.match\n          lic.matched = if urlmatch then urlmatcher else match\n          break\n  return lic\n\nP.svc.lantern.licences = _sheet: true # @S.svc.lantern.licence.remote\n\n\n\nP.svc.lantern.job = (job) ->\n  for i of job.processes\n    j = job.processes[i]\n    j.doi ?= j.DOI\n    j.pmid ?= j.PMID\n    j.pmcid ?= j.PMCID\n    j.title ?= j.TITLE\n    j.title ?= j[\'article title\']\n    j.title ?= j[\'Article title\']\n    j.title ?= j[\'Article Title\']\n    j.title = j.title.replace(/\s\s+/g,\' \').trim() if j.title\n    j.pmcid = j.pmcid.replace(/[^0-9]/g,\'\') if j.pmcid\n    j.pmid = j.pmid.replace(/[^0-9]/g,\'\') if j.pmid\n    j.doi = decodeURIComponent(j.doi.replace(/ /g,\'\')) if j.doi\n    job.processes[i] = {doi:j.doi,pmcid:j.pmcid,pmid:j.pmid,title:j.title,refresh:job.refresh,wellcome:job.wellcome}\n  job.function = \'API.service.lantern.process\'\n  job.complete = \'API.service.lantern.complete\'\n  job.service = \'lantern\'\n  job = API.job.create job\n\n  if job.email\n    text = \'Dear \' + job.email + \'\n\nWe\'ve just started processing a batch of identifiers for you, \'\n    text += \'and you can see the progress of the job here:\n\n\'\n    # TODO this bit should depend on user group permissions somehow - for now we assume if a signed in user then lantern, else wellcome\n    if job.wellcome\n      text += if API.settings.dev then \'http://wellcome.test.cottagelabs.com#\' else \'https://compliance.cottagelabs.com#\'\n    else if API.settings.dev\n      text += \'https://lantern.test.cottagelabs.com#\'\n    else\n      text += \'https://lantern.cottagelabs.com#\'\n    text += job._id\n    text += \'\n\nIf you didn\'t submit this request yourself, it probably means that another service is running \'\n    text += \'it on your behalf, so this is just to keep you informed about what\'s happening with your account; \'\n    text += \'you don\'t need to do anything else.\n\n\'\n    text += \'You\'ll get another email when your job has completed.\n\n\'\n    text += \'The Lantern \' + (if job.wellcome then \'(Wellcome Compliance) \' else \'\') + \'Team\n\nP.S This is an automated email, please do not reply to it.\'\n    API.mail.send\n      from: \'Lantern <lantern@cottagelabs.com>\'\n      to:job.email\n      subject: (if job.wellcome then \'Wellcome Compliance:\' else \'Lantern:\') + \' job \' + (job.name ? job._id) + \' submitted successfully\'\n      text:text\n  return job\n\nP.svc.lantern.complete = (job) ->\n  if job.email\n    text = \'Dear \' + job.email + \'\n\nWe\'ve just finished processing a batch \'\n    text += \'of identifiers for you, and you can download the final results here:\n\n\'\n    # TODO this bit should depend on user group permissions - for now we assume if a signed in user then lantern, else wellcome\n    if job.wellcome\n      text += if API.settings.dev then \'http://wellcome.test.cottagelabs.com#\' else \'https://compliance.cottagelabs.com#\'\n    else if API.settings.dev\n      text += \'https://lantern.test.cottagelabs.com#\'\n    else\n      text += \'https://lantern.cottagelabs.com#\'\n    text += job._id\n    text += \'\n\nIf you didn\'t submit the original request yourself, it probably means \'\n    text += \'that another service was running it on your behalf, so this is just to keep you \'\n    text += \'informed about what\'s happening with your account; you don\'t need to do anything else.\'\n    text += \'\n\nThe Lantern \' + (if job.wellcome then \'(Wellcome Compliance) \' else \'\') + \'Team\n\nP.S This is an automated email, please do not reply to it.\'\n    API.mail.send\n      from: \'Lantern <lantern@cottagelabs.com>\'\n      to:job.email\n      subject: (if job.wellcome then \'Wellcome Compliance:\' else \'Lantern:\') + \' job \' + (job.name ? job._id) + \' completed successfully\'\n      text:text\n\nP.svc.lantern.csv = (jobid, ignorefields=[]) ->\n  fieldnames = {}\n  # TODO this config will only read lantern fields configs, but if this is a wellcome job, it should perhaps still be reading the old wellcome fields configs.\n  try fieldnames = if typeof @S.svc.lantern.fieldnames is \'object\' then @S.svc.lantern.fieldnames else JSON.parse(HTTP.call(\'GET\',API.settings.service.lantern.fieldnames).content)\n  fields = @S.svc.lantern?.fields\n  grantcount = 0\n  fieldconfig = []\n  results = []\n  for res in (if typeof jobid is \'string\' then API.job.results(jobid) else jobid) # can pass in an object list for simple tests\n    result = {}\n    if ignorefields.indexOf(\'originals\') is -1\n      for lf of res\n        if lf not in ignorefields and lf not in [\'grants\',\'provenance\',\'process\',\'createdAt\',\'_id\'] and lf not in fields\n          result[lf] = res[lf]\n          fieldconfig.push(lf) if lf not in fieldconfig\n    for fname in fields\n      if fname not in ignorefields\n        printname = fieldnames[fname]?.short_name ? fname\n        fieldconfig.push(printname) if printname not in fieldconfig\n        if fname is \'authors\'\n          result[printname] = \'\'\n          for r of res.authors\n            result[printname] += if r is \'0\' then \'\' else \'\r\n\'\n            result[printname] += res.authors[r].fullName if res.authors[r].fullName\n        else if fname in [\'repositories\',\'repository_urls\',\'repository_fulltext_urls\',\'repository_oai_ids\']\n          result[printname] = \'\'\n          if res.repositories?\n            for rr in res.repositories\n              if rr.name\n                result[printname] += \'\r\n\' if result[printname]\n                if fname is \'repositories\'\n                  result[printname] += rr.name ? \'\'\n                else if fname is \'repository_urls\'\n                  result[printname] += rr.url ? \'\'\n                else if fname is \'repository_fulltext_urls\'\n                  result[printname] += if rr.fulltexts? then rr.fulltexts.join() else \'\'\n                else if fname is \'repository_oai_ids\'\n                  result[printname] += rr.oai ? \'\'\n        else if fname is \'pmcid\' and res.pmcid\n          res.pmcid = \'PMC\' + res.pmcid if res.pmcid.toLowerCase().indexOf(\'pmc\') isnt 0\n          result[printname] = res.pmcid\n        else if res[fname] is true\n          result[printname] = \'TRUE\'\n        else if res[fname] is false\n          result[printname] = \'FALSE\'\n        else if not res[fname]? or res[fname] is \'unknown\'\n          result[printname] = \'Unknown\'\n        else\n          result[printname] = res[fname]\n    if \'grant\' not in ignorefields or \'agency\' not in ignorefields or \'pi\' not in ignorefields\n      if res.grants?\n        rgc = 0\n        for grnt in res.grants\n          rgc += 1\n          if \'grant\' not in ignorefields\n            result[(fieldnames.grant?.short_name ? \'grant\').split(\' \')[0] + \' \' + rgc] = grnt.grantId ? \'\'\n          if \'agency\' not in ignorefields\n            result[(fieldnames.agency?.short_name ? \'agency\').split(\' \')[0] + \' \' + rgc] = grnt.agency ? \'\'\n          if \'pi\' not in ignorefields\n            result[(fieldnames.pi?.short_name ? \'pi\').split(\' \')[0] + \' \' + rgc] = grnt.PI ? (if grnt.grantId or grnt.agency then \'Unknown\' else \'\')\n        grantcount = rgc if rgc > grantcount\n    if \'provenance\' not in ignorefields\n      tpn = fieldnames[\'provenance\']?.short_name ? \'provenance\'\n      result[tpn] = \'\'\n      if res.provenance?\n        for pr of res.provenance\n          result[tpn] += if pr is \'0\' then \'\' else \'\r\n\'\n          result[tpn] += res.provenance[pr]\n    results.push result\n  gc = 1\n  while gc < grantcount+1\n    if \'grant\' not in ignorefields\n      fieldconfig.push (fieldnames.grant?.short_name ? \'grant\').split(\' \')[0] + \' \' + gc\n    if \'agency\' not in ignorefields\n      fieldconfig.push (fieldnames.agency?.short_name ? \'agency\').split(\' \')[0] + \' \' + gc\n    if \'pi\' not in ignorefields\n      fieldconfig.push (fieldnames.pi?.short_name ? \'pi\').split(\' \')[0] + \' \' + gc\n    gc++\n  fieldconfig.push(fieldnames.provenance?.short_name ? \'provenance\') if \'provenance\' not in ignorefields\n  return @convert.json2csv results #, {fields:fieldconfig, defaultValue:\'\'}\n\n\n\n\n\n\n\n\n_formatepmcdate = (date) ->\n  try\n    date = date.replace(/\//g,\'-\')\n    if date.indexOf(\'-\') isnt -1\n      if date.length < 11\n        dp = date.split \'-\'\n        if dp.length is 3\n          if date.indexOf(\'-\') < 4\n            return dp[2] + \'-\' + dp[1] + \'-\' + dp[0] + \'T00:00:00Z\'\n          else\n            return date + \'T00:00:00Z\'\n        else if dp.length is 2\n          if date.indexOf(\'-\') < 4\n            return dp[1] + dp[0] + date + \'-01T00:00:00Z\'\n          else\n            return date + \'-01T00:00:00Z\'\n      return date\n    else\n      dateparts = date.replace(/  /g,\' \').split(\' \')\n      yr = dateparts[0].toString()\n      mth = if dateparts.length > 1 then dateparts[1] else 1\n      if isNaN(parseInt(mth))\n        mths = [\'jan\',\'feb\',\'mar\',\'apr\',\'may\',\'jun\',\'jul\',\'aug\',\'sep\',\'oct\',\'nov\',\'dec\']\n        tmth = mth.toLowerCase().substring(0,3)\n        mth = if mths.indexOf(tmth) isnt -1 then mths.indexOf(tmth) + 1 else "01"\n      else\n        mth = parseInt mth\n      mth = mth.toString()\n      mth = "0" + mth if mth.length is 1\n      dy = if dateparts.length > 2 then dateparts[2].toString() else "01"\n      dy = "0" + dy if dy.length is 1\n      return yr + \'-\' + mth + \'-\' + dy + \'T00:00:00Z\'\n  catch\n    return undefined\n\n\nP.svc.lantern.process = (proc) ->\n  result =\n    _id: proc._id\n    pmcid: proc.pmcid\n    pmid: proc.pmid\n    doi: proc.doi\n    title: proc.title\n    journal_title: undefined\n    pure_oa: false # set to true if found in doaj\n    issn: undefined\n    eissn: undefined\n    publication_date: undefined\n    electronic_publication_date: undefined\n    publisher: undefined\n    publisher_licence: undefined\n    licence: \'unknown\' # what sort of licence this has - should be a string like "cc-by"\n    epmc_licence: \'unknown\' # the licence in EPMC, should be a string like "cc-by"\n    licence_source: \'unknown\' # where the licence info came from\n    epmc_licence_source: \'unknown\' # where the EPMC licence info came from (fulltext xml, EPMC splash page, etc.)\n    in_epmc: false # set to true if found\n    epmc_xml: false # set to true if oa and in epmc and can retrieve fulltext xml from eupmc rest API url\n    aam: false # set to true if is an eupmc author manuscript\n    open_access: false # set to true if eupmc or other source says is oa\n    ahead_of_print: undefined # if pubmed returns a date for this, it will be a date\n    romeo_colour: \'unknown\' # the sherpa romeo colour\n    preprint_embargo: \'unknown\'\n    preprint_self_archiving: \'unknown\'\n    postprint_embargo: \'unknown\'\n    postprint_self_archiving: \'unknown\'\n    publisher_copy_embargo: \'unknown\'\n    publisher_copy_self_archiving: \'unknown\'\n    authors: [] # eupmc author list if available (could look on other sources too?)\n    in_core: \'unknown\'\n    in_base: \'unknown\'\n    repositories: [] # where CORE or BASE says it is. Should be list of objects\n    grants:[] # a list of grants, probably from eupmc for now\n    confidence: 0 # 1 if matched on ID, 0.9 if title to 1 result, 0.7 if title to multiple results, 0 if unknown article\n    #score: 0\n    provenance: []\n\n  # search eupmc by (in order) pmcid, pmid, doi, title\n  identtypes = [\'pmcid\',\'pmid\',\'doi\',\'title\']\n  eupmc\n  for st in identtypes\n    if not eupmc?\n      if proc[st]\n        stt = st;\n        prst = proc[st]\n        if stt is \'title\'\n          stt = \'search\'\n          prst = \'TITLE:"\' + prst.replace(\'"\',\'\') + \'"\'\n        stt = \'pmc\' if stt is \'pmcid\'\n        res = API.use.europepmc[stt](prst)\n        if res?.id and stt isnt \'search\'\n          eupmc = res\n          result.confidence = 1\n        else if stt is \'search\'\n          if res.total is 1\n            eupmc = res.data[0]\n            result.confidence = 0.9\n          else\n            prst = prst.replace(\'"\',\'\')\n            res2 = API.use.europepmc[stt](prst)\n            if res2.total is 1\n              eupmc = res2.data[0]\n              result.confidence = 0.7\n\n  if eupmc?\n    if eupmc.pmcid and result.pmcid isnt eupmc.pmcid\n      result.pmcid = eupmc.pmcid\n      result.provenance.push \'Added PMCID from EUPMC\'\n    if eupmc.pmid and result.pmid isnt eupmc.pmid\n      result.pmid = eupmc.pmid\n      result.provenance.push \'Added PMID from EUPMC\'\n    if eupmc.doi and result.doi isnt eupmc.doi\n      result.doi = eupmc.doi\n      result.provenance.push \'Added DOI from EUPMC\'\n    if eupmc.title and not result.title\n      result.title = eupmc.title\n      result.provenance.push \'Added article title from EUPMC\'\n    if eupmc.inEPMC is \'Y\'\n      result.in_epmc = true\n      result.provenance.push \'Confirmed fulltext is in EUPMC\'\n    if eupmc.isOpenAccess is \'Y\'\n      result.open_access = true\n      result.provenance.push \'Confirmed is open access from EUPMC\'\n    else\n      result.provenance.push \'This article is not open access according to EUPMC, but since 6th March 2020 we take this to mean only that the publisher did not indicate to EUPMC that it can be included in their Open Access subset - it may well still be an OA article.\'\n    if eupmc.journalInfo?.journal\n      if eupmc.journalInfo.journal.title\n        result.journal_title = eupmc.journalInfo.journal.title\n        result.provenance.push \'Added journal title from EUPMC\'\n      if eupmc.journalInfo.journal.issn\n        result.issn = eupmc.journalInfo.journal.issn\n        result.provenance.push \'Added issn from EUPMC\'\n      if eupmc.journalInfo.journal.essn\n        result.eissn = eupmc.journalInfo.journal.essn\n        if result.eissn and ( not result.issn or result.issn.indexOf(result.eissn) is -1 )\n          result.issn = (if result.issn then result.issn + \', \' else \'\') + result.eissn\n        result.provenance.push \'Added eissn from EUPMC\'\n    if eupmc.grantsList?.grant\n      result.grants = eupmc.grantsList.grant\n      result.provenance.push \'Added grants data from EUPMC\'\n    if eupmc.journalInfo?.dateOfPublication\n      fd = _formatepmcdate eupmc.journalInfo.dateOfPublication\n      if fd?\n        result.publication_date = fd\n        result.provenance.push \'Added date of publication from EUPMC\'\n      else\n        result._invalid_date_of_publication = eupmc.journalInfo.dateOfPublication\n        result.provenance.push \'Could not add invalid date of publication from EUPMC (\' + result._invalid_date_of_publication + \')\'\n    if eupmc.electronicPublicationDate\n      efd = _formatepmcdate eupmc.electronicPublicationDate\n      if efd\n        result.electronic_publication_date = efd\n        result.provenance.push \'Added electronic publication date from EUPMC\'\n      else\n        result_invalid_date_of_electronic_publication = eupmc.electronicPublicationDate\n        result.provenance.push \'Could not add invalid electronic publication date from EUPMC (\' + result_invalid_date_of_electronic_publication + \')\'\n\n    if result.pmcid # removed need for being open_access or in_epmc (as according to epmc)\n      result.provenance.push \'Checking if XML is available from EUPMC (since 6th March 2020 this is always done for any article we have a PMCID for, regardless of other EUPMC API values).\'\n      xml = API.use.europepmc.xml result.pmcid\n      if xml is 404\n        fofxml = \'Not found in EUPMC when trying to fetch full text XML.\'\n        fofxml += \' (We do this for any item we have a PMCID for since 6th March 2020, even if EUPMC indicates not in their open access category and/or fulltext not in EUPMC.\'\n        result.provenance.push fofxml\n      else if typeof xml is \'string\' and xml.indexOf(\'<\') is 0\n        result.epmc_xml = true\n        result.provenance.push \'Confirmed fulltext XML is available from EUPMC\'\n      else if xml?\n        result.provenance.push \'Encountered an error while retrieving the EUPMC full text XML. One possible reason is EUPMC being temporarily unavailable.\'\n\n    lic = API.use.europepmc.licence result.pmcid, eupmc, xml, (not proc.wellcome and API.settings.service.lantern.epmc_ui_only_wellcome)\n    if lic isnt false\n      result.licence = lic.licence\n      result.epmc_licence = lic.licence\n      result.licence_source = lic.source\n      result.epmc_licence_source = lic.source\n      extrainfo = \'\'\n      if lic.match\n        extrainfo += \' If licence statements contain URLs we will try to find those in addition to \'\n        extrainfo += \'searching for the statement\'s text. The match in this case was: \'\' + lic.match.replace(/<.*?>/gi,\'\') + \'\' .\'\n      result.provenance.push \'Added EPMC licence (\' + result.epmc_licence + \') from \' + lic.source + \'.\' + extrainfo\n    else\n      result.provenance.push \'Could not find licence via EUPMC\'\n\n    if eupmc.authorList?.author\n      result.authors = eupmc.authorList.author\n      result.provenance.push \'Added author list from EUPMC\'\n    if result.in_epmc\n      aam = API.use.europepmc.authorManuscript result.pmcid, eupmc, undefined, (not proc.wellcome and API.settings.service.lantern.epmc_ui_only_wellcome)\n      if aam.aam is false\n        result.aam = false\n        result.provenance.push \'Checked author manuscript status in EUPMC, found no evidence of being one\'\n      else if aam.aam is true\n        result.aam = true\n        result.provenance.push \'Checked author manuscript status in EUPMC, found in \' + aam.info\n      else if aam.info.indexOf(\'404\') isnt -1\n        result.aam = false\n        result.provenance.push \'Unable to locate Author Manuscript information in EUPMC - could not find the article in EUPMC.\'\n      else if aam.info.indexOf(\'error\') isnt -1\n        result.aam = \'unknown\'\n        result.provenance.push \'Error accessing EUPMC while trying to locate Author Manuscript information. EUPMC could be temporarily unavailable.\'\n      else if aam.info.indexOf(\'blocking\') isnt -1\n        result.aam = \'unknown\'\n        result.provenance.push \'Error accessing EUPMC while trying to locate Author Manuscript information - EUPMC is blocking access.\'\n      else\n        result.aam = \'unknown\'\n  else\n    result.provenance.push \'Unable to locate article in EPMC.\'\n\n  if not result.doi and not result.pmid and not result.pmcid\n    result.provenance.push \'Unable to obtain DOI, PMID or PMCID for this article. Compliance information may be severely limited.\'\n\n  if result.doi\n    crossref = API.use.crossref.works.doi result.doi\n    if crossref?\n      result.confidence = 1 if not result.confidence\n      result.publisher = crossref.publisher\n      result.provenance.push \'Added publisher name from Crossref\'\n      if not result.issn and (crossref.issn or (crossref.ISSN? and crossref.ISSN.length > 0))\n        result.issn = crossref.issn ? crossref.ISSN[0]\n        result.provenance.push \'Added ISSN from Crossref\'\n      if not result.journal_title and (crossref.journal or (crossref[\'container-title\']? and crossref[\'container-title\'].length > 0))\n        result.journal_title = crossref.journal ? crossref[\'container-title\'][0]\n        result.provenance.push \'Added journal title from Crossref\'\n      if not result.authors and crossref.author\n        result.authors = crossref.author\n        result.provenance.push \'Added author list from Crossref\'\n      if not result.title and crossref.title? and crossref.title.length > 0\n        result.title = if _.isArray(crossref.title) then crossref.title[0] else crossref.title\n        result.provenance.push \'Added article title from Crossref\'\n    else\n      result.provenance.push \'Unable to obtain information about this article from Crossref.\'\n\n    core = API.use.core.doi result.doi\n    if core?.id\n      result.in_core = true\n      result.provenance.push \'Found DOI in CORE\'\n      if not result.authors and core.authors\n        result.authors = core.author\n        result.provenance.push \'Added authors from CORE\'\n      if core.repositories? and core.repositories.length > 0\n        for rep in core.repositories\n          rc = {name:rep.name}\n          rc.oai = rep.oai if rep.oai?\n          if rep.uri\n            rc.url = rep.uri\n          else\n            try\n              repo = API.use.opendoar.search rep.name\n              if repo.total is 1 and repo.data[0].url\n                rc.url = repo.data[0].url\n                result.provenance.push \'Added repo base URL from OpenDOAR\'\n              else\n                result.provenance.push \'Searched OpenDOAR but could not find repo and/or URL\'\n            catch\n              result.provenance.push \'Tried but failed to search OpenDOAR for repo base URL\'\n          rc.fulltexts = []\n          lastresort = undefined\n          if core.fulltextUrls\n            for fu in core.fulltextUrls\n              if fu.indexOf(\'core.ac.uk\') is -1\n                resolved = API.http.resolve fu\n                if resolved and rc.fulltexts.indexOf(resolved) is -1\n                  if rc.url and resolved.indexOf(rc.url.replace(\'http://\',\'\').replace(\'https://\',\'\').split(\'/\')[0]) isnt -1\n                    rc.fulltexts.unshift resolved\n                  else\n                    rc.fulltexts.push resolved\n              else if not lastresort?\n                lastresort = fu\n          rc.fulltexts.push(lastresort) if rc.fulltexts.length is 0 and lastresort?\n          result.repositories.push rc\n        result.provenance.push \'Added repositories that CORE claims article is available from\'\n      if not result.title and core.title\n        result.title = core.title\n        result.provenance.push \'Added title from CORE\'\n    else\n      result.in_core = false\n      result.provenance.push \'Could not find DOI in CORE\'\n\n    base = API.use.base.doi result.doi\n    if base?.dclink?\n      result.in_base = true\n      result.provenance.push \'Found DOI in BASE\'\n      try\n        domain = base.dclink.split(\'://\')[1].split(\'/\')[0]\n        repo = API.use.opendoar.search domain\n        if repo.total is 1 and repo.data[0].url? and typeof repo.data[0].url is \'string\' and repo.data[0].url.indexOf(domain) isnt -1\n          result.repositories.push({\n            fulltexts:[base.dclink],\n            url: repo.data[0].url,\n            name: repo.data[0].name,\n            oai: repo.data[0].oai\n          })\n          result.provenance.push \'Added repo base URL from OpenDOAR\'\n        else\n          result.provenance.push \'Searched OpenDOAR but could not find repo and/or URL\'\n      catch\n        result.provenance.push \'Tried but failed to search OpenDOAR for repo base URL\'\n      if not result.title and base.dctitle\n        result.title = base.dctitle\n        result.provenance.push \'Added title from BASE\'\n    else\n      result.in_base = false\n      result.provenance.push \'Could not find DOI in BASE\'\n\n  else\n    result.provenance.push \'Not attempting Crossref / CORE / BASE lookups - do not have DOI for article.\'\n\n  if result.grants? and result.grants.length > 0\n    grants = []\n    for gr in result.grants\n      if gr.grantId\n        grid = gr.grantId\n        grid = grid.split(\'/\')[0] if gr.agency and gr.agency.toLowerCase().indexOf(\'wellcome\') isnt -1\n        gres = API.use.grist.grant_id grid\n        if gres.total and gres.total > 0 and gres.data.Person\n          ps = gres.data.Person\n          pid = \'\'\n          pid += ps.Title + \' \' if ps.Title\n          pid += ps.GivenName + \' \' if ps.GivenName\n          pid += ps.Initials + \' \' if not ps.GivenName and ps.Initials\n          pid += ps.FamilyName if ps.FamilyName\n          gr.PI = pid\n          result.provenance.push \'Found Grant PI for \' + grid + \' via Grist API\'\n        else\n          result.provenance.push \'Tried but failed to find Grant PI via Grist API\'\n      else\n        gr.grantId = \'unknown\'\n      if gr.agency and gr.agency.toLowerCase().indexOf(\'wellcome\') isnt -1 then grants.unshift(gr) else grants.push(gr)\n    result.grants = grants\n  else\n    result.provenance.push \'Not attempting Grist API grant lookups since no grants data was obtained from EUPMC.\'\n\n  if result.pmid and not result.in_epmc\n    result.ahead_of_print = API.use.pubmed.aheadofprint result.pmid\n    if result.ahead_of_print isnt false\n      result.provenance.push \'Checked ahead of print status on pubmed, date found \' + result.ahead_of_print\n    else\n      result.provenance.push \'Checked ahead of print status on pubmed, no date found\'\n  else\n    msg = \'Not checking ahead of print status on pubmed.\'\n    msg += \' We don\'t have the article\'s PMID.\' if not result.pmid\n    msg += \' The article is already in EUPMC.\' if result.in_epmc\n    result.provenance.push msg\n\n  if result.issn\n    for diss in result.issn.split \',\'\n      doaj = API.use.doaj.journals.issn diss\n      if doaj?\n        result.pure_oa = true\n        result.provenance.push \'Confirmed journal is listed in DOAJ\'\n        result.publisher ?= doaj.bibjson?.publisher\n        result.journal_title ?= doaj.bibjson?.title\n        break\n    if result.pure_oa isnt true\n      result.provenance.push \'Could not find journal in DOAJ\'\n\n    romeo = API.use.sherpa.romeo.search {issn:result.issn}\n    if not romeo.status?\n      if not result.journal_title\n        if romeo.journal?.jtitle?\n          result.journal_title = romeo.journal.jtitle\n          result.provenance.push \'Added journal title from Sherpa Romeo\'\n        else\n          result.provenance.push \'Tried, but could not add journal title from Sherpa Romeo.\'\n      if not result.publisher\n        if romeo.publisher?.name?\n          result.publisher = romeo.publisher.name\n          result.provenance.push \'Added publisher from Sherpa Romeo\'\n        else\n          result.provenance.push \'Tried, but could not add publisher from Sherpa Romeo.\'\n      result.romeo_colour = romeo.colour\n      try\n        for k in [\'preprint\',\'postprint\',\'publisher_copy\']\n          main = if k is \'publisher_copy\' then \'pdfversion\' else k + \'s\'\n          stub = k.replace(\'print\',\'\').replace(\'publisher_copy\',\'pdf\')\n          if romeo.publisher?[main]? and typeof romeo.publisher[main] is \'object\'\n            if romeo.publisher[main][stub+\'restrictions\']? and romeo.publisher[main][stub+\'restrictions\'].length\n              if result[k+\'_embargo\'] is \'unknown\' then result[k+\'_embargo\'] = \'\' else result[k+\'_embargo\'] += \',\'\n              result[k+\'_embargo\'] += p for p in romeo.publisher[main][stub+\'restrictions\']\n            result[k+\'_self_archiving\'] = romeo.publisher[main][stub+\'archiving\'] if romeo.publisher[main][stub+\'archiving\']\n        result.provenance.push \'Added embargo and archiving data from Sherpa Romeo\'\n      catch err\n        result.provenance.push \'Could not process embargo and archiving data from Sherpa Romeo\'\n    else\n      result.provenance.push \'Unable to add any data from Sherpa Romeo.\'\n  else\n    result.provenance.push \'Not attempting to add any data from Sherpa Romeo - don\'t have a journal ISSN to use for lookup.\'\n\n  publisher_licence_check_ran = false\n  if not result.licence or result.licence not in [\'cc-by\',\'cc-zero\']\n    publisher_licence_check_ran = true\n    url = API.http.resolve(\'https://doi.org/\'+result.doi) if result.doi\n    if url? and typeof url is \'string\' and url.indexOf(\'europepmc\') is -1 # if it resolves to eupmc then it would already have been checked above\n      lic = API.service.lantern.licence url\n      if lic.licence and lic.licence isnt \'unknown\'\n        result.licence = lic.licence\n        result.licence_source = \'publisher_splash_page\'\n        result.publisher_licence = lic.licence\n        extrainfo = \'\'\n        if lic.match\n          extrainfo += \' If licence statements contain URLs we will try to find those in addition to \' +\n          \'searching for the statement\'s text. The match in this case was: \'\' + lic.match.replace(/<.*?>/gi,\'\') + \'\' .\'\n        result.provenance.push \'Added licence (\' + result.publisher_licence + \') via article publisher splash page lookup to \' + url + \'.\' + extrainfo\n      else\n        result.publisher_licence = \'unknown\'\n        result.provenance.push \'Unable to retrieve licence data via article publisher splash page lookup to \' + url + \'.\'\n        result.provenance.push \'Retrieved content was very long, so was contracted to 500,000 chars from start and end to process\' if lic.large\n    else\n      result.provenance.push \'Unable to retrieve licence data via article publisher splash page - cannot obtain a suitable URL to run the licence detection on.\'\n  else\n    result.provenance.push \'Not attempting to retrieve licence data via article publisher splash page lookup.\'\n    publisher_licence_check_ran = false\n\n  result.publisher_licence = "not applicable" if not publisher_licence_check_ran and result.publisher_licence isnt \'unknown\'\n  result.publisher_licence = \'unknown\' if not result.publisher_licence?\n  if result.epmc_licence? and result.epmc_licence isnt \'unknown\' and not result.epmc_licence.startsWith(\'cc-\')\n    result.epmc_licence = \'non-standard-licence\'\n  if result.publisher_licence? and result.publisher_licence isnt \'unknown\' and result.publisher_licence isnt "not applicable" and not result.publisher_licence.startsWith(\'cc-\')\n    result.publisher_licence = \'non-standard-licence\'\n\n  result.compliance_wellcome_standard = false\n  result.compliance_wellcome_deluxe = false\n  epmc_compliance_lic = if result.epmc_licence then result.epmc_licence.toLowerCase().replace(/ /g,\'\').replace(/-/g,\'\') else \'\'\n  epmc_lics = epmc_compliance_lic in [\'ccby\',\'cc0\',\'cczero\']\n  result.compliance_wellcome_standard = true if result.in_epmc and (result.aam or epmc_lics)\n  result.compliance_wellcome_deluxe = true if result.in_epmc and result.aam\n  result.compliance_wellcome_deluxe = true if result.in_epmc and epmc_lics and result.open_access\n\n  return result\n';
+var _formatepmcdate,
+  indexOf = [].indexOf;
 
+P.svc.lantern = {};
+
+P.svc.lantern = async function(jid) {
+  var j, job, p, processes, ref, ref1;
+  if (jid == null) {
+    jid = (ref = this.params.lantern) != null ? ref : this.params.job;
+  }
+  if (jid != null) {
+    job = (await this.svc.lantern._job(jid));
+    p = (await this.job.progress(job));
+    job.progress = p != null ? p : 0;
+    return job;
+  } else {
+    if (this.params.doi || this.params.pmid || this.params.pmc || this.params.pmcid) {
+      j = {
+        new: true,
+        service: 'lantern'
+      };
+      if (j.email == null) {
+        j.email = this.params.email;
+      }
+      j.wellcome = this.queryParams.wellcome != null;
+      try {
+        j.refresh = this.params.refresh;
+      } catch (error) {}
+      j._id = job_job.insert(j);
+      if (this.body) {
+        processes = typeof this.body === 'object' && !Array.isArray(this.body) && this.body.list ? (processes = this.body.list, j.name != null ? j.name : j.name = this.body.name) : processes = this.body;
+      } else {
+        j.processes = [];
+        if (this.params.doi) {
+          j.processes.push({
+            doi: this.queryParams.doi
+          });
+        }
+        if (this.params.pmid) {
+          j.processes.push({
+            pmid: this.queryParams.pmid
+          });
+        }
+        if (this.params.pmcid || this.params.pmc) {
+          j.processes.push({
+            pmcid: (ref1 = this.params.pmcid) != null ? ref1 : this.params.pmc
+          });
+        }
+        if (j.name == null) {
+          j.name = this.params.name;
+        }
+      }
+      this.svc.lantern.job(j);
+      return j;
+    } else {
+      return {
+        name: 'Lantern for Wellcome'
+      };
+    }
+  }
+};
+
+P.svc.lantern._job = {
+  _index: true
+};
+
+P.svc.lantern.progress = async function(jid) {
+  var job, ref;
+  if (jid == null) {
+    jid = (ref = this.params.lantern) != null ? ref : this.params.job;
+  }
+  job = (await this.svc.lantern(jid));
+  return job.progress;
+};
+
+P.svc.lantern.results = async function(jid) {
+  var fieldconfig, fieldnames, fields, fname, gc, grantcount, grnt, job, jr, len, len1, len2, len3, m, n, o, pr, printname, q, r, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, result, results, rgc, rr, tpn;
+  if (jid == null) {
+    jid = (ref = this.params.lantern) != null ? ref : this.params.job;
+  }
+  job = (await this.svc.lantern(jid));
+  jr = (await this.job.results(job));
+  if (this.format !== 'csv') {
+    return jr;
+  } else {
+    fieldnames = {};
+    try {
+      // TODO this config will only read lantern fields configs, but if this is a wellcome job, it should perhaps still be reading the old wellcome fields configs.
+      fieldnames = typeof this.S.svc.lantern.fieldnames === 'object' ? this.S.svc.lantern.fieldnames : JSON.parse((await this.fetch(this.S.svc.lantern.fieldnames)));
+    } catch (error) {}
+    fields = (ref1 = this.S.svc.lantern) != null ? ref1.fields : void 0;
+    grantcount = 0;
+    fieldconfig = [];
+    results = [];
+    for (m = 0, len = job.length; m < len; m++) {
+      res = job[m];
+      result = {};
+      for (n = 0, len1 = fields.length; n < len1; n++) {
+        fname = fields[n];
+        printname = (ref2 = (ref3 = fieldnames[fname]) != null ? ref3.short_name : void 0) != null ? ref2 : fname;
+        if (indexOf.call(fieldconfig, printname) < 0) {
+          fieldconfig.push(printname);
+        }
+        if (fname === 'authors') {
+          result[printname] = '';
+          for (r in res.authors) {
+            result[printname] += r === '0' ? '' : '\r\n';
+            if (res.authors[r].fullName) {
+              result[printname] += res.authors[r].fullName;
+            }
+          }
+        } else if (fname === 'repositories' || fname === 'repository_urls' || fname === 'repository_fulltext_urls' || fname === 'repository_oai_ids') {
+          result[printname] = '';
+          if (res.repositories != null) {
+            ref4 = res.repositories;
+            for (o = 0, len2 = ref4.length; o < len2; o++) {
+              rr = ref4[o];
+              if (rr.name) {
+                if (result[printname]) {
+                  result[printname] += '\r\n';
+                }
+                if (fname === 'repositories') {
+                  result[printname] += (ref5 = rr.name) != null ? ref5 : '';
+                } else if (fname === 'repository_urls') {
+                  result[printname] += (ref6 = rr.url) != null ? ref6 : '';
+                } else if (fname === 'repository_fulltext_urls') {
+                  result[printname] += rr.fulltexts != null ? rr.fulltexts.join() : '';
+                } else if (fname === 'repository_oai_ids') {
+                  result[printname] += (ref7 = rr.oai) != null ? ref7 : '';
+                }
+              }
+            }
+          }
+        } else if (fname === 'pmcid' && res.pmcid) {
+          if (res.pmcid.toLowerCase().indexOf('pmc') !== 0) {
+            res.pmcid = 'PMC' + res.pmcid;
+          }
+          result[printname] = res.pmcid;
+        } else if (res[fname] === true) {
+          result[printname] = 'TRUE';
+        } else if (res[fname] === false) {
+          result[printname] = 'FALSE';
+        } else if ((res[fname] == null) || res[fname] === 'unknown') {
+          result[printname] = 'Unknown';
+        } else {
+          result[printname] = res[fname];
+        }
+      }
+      if (res.grants != null) {
+        rgc = 0;
+        ref8 = res.grants;
+        for (q = 0, len3 = ref8.length; q < len3; q++) {
+          grnt = ref8[q];
+          rgc += 1;
+          result[((ref10 = (ref11 = fieldnames.grant) != null ? ref11.short_name : void 0) != null ? ref10 : 'grant').split(' ')[0] + ' ' + rgc] = (ref9 = grnt.grantId) != null ? ref9 : '';
+          result[((ref13 = (ref14 = fieldnames.agency) != null ? ref14.short_name : void 0) != null ? ref13 : 'agency').split(' ')[0] + ' ' + rgc] = (ref12 = grnt.agency) != null ? ref12 : '';
+          result[((ref16 = (ref17 = fieldnames.pi) != null ? ref17.short_name : void 0) != null ? ref16 : 'pi').split(' ')[0] + ' ' + rgc] = (ref15 = grnt.PI) != null ? ref15 : (grnt.grantId || grnt.agency ? 'Unknown' : '');
+        }
+        if (rgc > grantcount) {
+          grantcount = rgc;
+        }
+      }
+      tpn = (ref18 = (ref19 = fieldnames['provenance']) != null ? ref19.short_name : void 0) != null ? ref18 : 'provenance';
+      result[tpn] = '';
+      if (res.provenance != null) {
+        for (pr in res.provenance) {
+          result[tpn] += pr === '0' ? '' : '\r\n';
+          result[tpn] += res.provenance[pr];
+        }
+      }
+      results.push(result);
+    }
+    gc = 1;
+    while (gc < grantcount + 1) {
+      fieldconfig.push(((ref20 = (ref21 = fieldnames.grant) != null ? ref21.short_name : void 0) != null ? ref20 : 'grant').split(' ')[0] + ' ' + gc);
+      fieldconfig.push(((ref22 = (ref23 = fieldnames.agency) != null ? ref23.short_name : void 0) != null ? ref22 : 'agency').split(' ')[0] + ' ' + gc);
+      fieldconfig.push(((ref24 = (ref25 = fieldnames.pi) != null ? ref25.short_name : void 0) != null ? ref24 : 'pi').split(' ')[0] + ' ' + gc);
+      gc++;
+    }
+    if (indexOf.call(ignorefields, 'provenance') < 0) {
+      fieldconfig.push((ref26 = (ref27 = fieldnames.provenance) != null ? ref27.short_name : void 0) != null ? ref26 : 'provenance');
+    }
+    return this.convert.json2csv(results);
+  }
+};
+
+P.svc.lantern.licence = function(url, content, start, end) {
+  var l, len, lic, licences, m, match, urlmatch, urlmatcher;
+  if (url != null) {
+    url = url.replace(/(^\s*)|(\s*$)/g, '');
+  }
+  if (content == null) {
+    content = this.puppet(url);
+  }
+  if (typeof content === 'number') {
+    content = void 0;
+  }
+  lic = {};
+  if (url != null) {
+    lic.url = url;
+  }
+  if (resolve && (typeof resolved !== "undefined" && resolved !== null)) {
+    lic.resolved = resolved;
+  }
+  if (typeof content === 'string') {
+    licences = this.svc.lantern.licences();
+    if ((start != null) && content.indexOf(start) !== -1) {
+      content = content.split(start)[1];
+    }
+    if (end != null) {
+      content = content.split(end)[0];
+    }
+    if (content.length > 1000000) {
+      lic.large = true;
+      content = content.substring(0, 500000) + content.substring(content.length - 500000, content.length);
+    }
+    for (m = 0, len = licences.length; m < len; m++) {
+      l = licences[m];
+      if (l.domain === '*' || !l.domain || (url == null) || l.domain.toLowerCase().indexOf(url.toLowerCase().replace('http://', '').replace('https://', '').replace('www.', '').split('/')[0]) !== -1) {
+        match = l.match.toLowerCase().replace(/[^a-z0-9]/g, '');
+        urlmatcher = l.match.indexOf('://') !== -1 ? l.match.toLowerCase().split('://')[1].split('"')[0].split(' ')[0] : false;
+        urlmatch = urlmatcher ? content.toLowerCase().indexOf(urlmatcher) !== -1 : false;
+        if (urlmatch || content.toLowerCase().replace(/[^a-z0-9]/g, '').indexOf(match) !== -1) {
+          lic.licence = l.licence;
+          lic.match = l.match;
+          lic.matched = urlmatch ? urlmatcher : match;
+          break;
+        }
+      }
+    }
+  }
+  return lic;
+};
+
+P.svc.lantern.licences = {
+  _sheet: true // @S.svc.lantern.licence.remote
+};
+
+P.svc.lantern.job = function(job) {
+  var i, j, ref, text;
+  for (i in job.processes) {
+    j = job.processes[i];
+    if (j.doi == null) {
+      j.doi = j.DOI;
+    }
+    if (j.pmid == null) {
+      j.pmid = j.PMID;
+    }
+    if (j.pmcid == null) {
+      j.pmcid = j.PMCID;
+    }
+    if (j.title == null) {
+      j.title = j.TITLE;
+    }
+    if (j.title == null) {
+      j.title = j['article title'];
+    }
+    if (j.title == null) {
+      j.title = j['Article title'];
+    }
+    if (j.title == null) {
+      j.title = j['Article Title'];
+    }
+    if (j.title) {
+      j.title = j.title.replace(/\s\s+/g, ' ').trim();
+    }
+    if (j.pmcid) {
+      j.pmcid = j.pmcid.replace(/[^0-9]/g, '');
+    }
+    if (j.pmid) {
+      j.pmid = j.pmid.replace(/[^0-9]/g, '');
+    }
+    if (j.doi) {
+      j.doi = decodeURIComponent(j.doi.replace(/ /g, ''));
+    }
+    job.processes[i] = {
+      doi: j.doi,
+      pmcid: j.pmcid,
+      pmid: j.pmid,
+      title: j.title,
+      refresh: job.refresh,
+      wellcome: job.wellcome
+    };
+  }
+  if (job.email) {
+    text = 'Dear ' + job.email + '\n\nWe\'ve just started processing a batch of identifiers for you, ';
+    text += 'and you can see the progress of the job here:\n\n';
+    text += 'https://compliance.cottagelabs.com#';
+    text += job._id;
+    text += '\n\nIf you didn\'t submit this request yourself, it probably means that another service is running ';
+    text += 'it on your behalf, so this is just to keep you informed about what\'s happening with your account; ';
+    text += 'you don\'t need to do anything else.\n\n';
+    text += 'You\'ll get another email when your job has completed.\n\n';
+    text += 'The Lantern ' + (job.wellcome ? '(Wellcome Compliance) ' : '') + 'Team\n\nP.S This is an automated email, please do not reply to it.';
+    this.mail({
+      from: 'Lantern <lantern@cottagelabs.com>',
+      to: job.email,
+      subject: (job.wellcome ? 'Wellcome Compliance:' : 'Lantern:') + ' job ' + ((ref = job.name) != null ? ref : job._id) + ' submitted successfully',
+      text: text
+    });
+  }
+  return job;
+};
+
+P.svc.lantern.complete = function(job) {
+  var ref, text;
+  if (job.email) {
+    text = 'Dear ' + job.email + '\n\nWe\'ve just finished processing a batch ';
+    text += 'of identifiers for you, and you can download the final results here:\n\n';
+    text += 'https://compliance.cottagelabs.com#';
+    text += job._id;
+    text += '\n\nIf you didn\'t submit the original request yourself, it probably means ';
+    text += 'that another service was running it on your behalf, so this is just to keep you ';
+    text += 'informed about what\'s happening with your account; you don\'t need to do anything else.';
+    text += '\n\nThe Lantern ' + (job.wellcome ? '(Wellcome Compliance) ' : '') + 'Team\n\nP.S This is an automated email, please do not reply to it.';
+    return this.mail({
+      from: 'Lantern <lantern@cottagelabs.com>',
+      to: job.email,
+      subject: (job.wellcome ? 'Wellcome Compliance:' : 'Lantern:') + ' job ' + ((ref = job.name) != null ? ref : job._id) + ' completed successfully',
+      text: text
+    });
+  }
+};
+
+_formatepmcdate = function(date) {
+  var dateparts, dp, dy, mth, mths, tmth, yr;
+  try {
+    date = date.replace(/\//g, '-');
+    if (date.indexOf('-') !== -1) {
+      if (date.length < 11) {
+        dp = date.split('-');
+        if (dp.length === 3) {
+          if (date.indexOf('-') < 4) {
+            return dp[2] + '-' + dp[1] + '-' + dp[0] + 'T00:00:00Z';
+          } else {
+            return date + 'T00:00:00Z';
+          }
+        } else if (dp.length === 2) {
+          if (date.indexOf('-') < 4) {
+            return dp[1] + dp[0] + date + '-01T00:00:00Z';
+          } else {
+            return date + '-01T00:00:00Z';
+          }
+        }
+      }
+      return date;
+    } else {
+      dateparts = date.replace(/  /g, ' ').split(' ');
+      yr = dateparts[0].toString();
+      mth = dateparts.length > 1 ? dateparts[1] : 1;
+      if (isNaN(parseInt(mth))) {
+        mths = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+        tmth = mth.toLowerCase().substring(0, 3);
+        mth = mths.indexOf(tmth) !== -1 ? mths.indexOf(tmth) + 1 : "01";
+      } else {
+        mth = parseInt(mth);
+      }
+      mth = mth.toString();
+      if (mth.length === 1) {
+        mth = "0" + mth;
+      }
+      dy = dateparts.length > 2 ? dateparts[2].toString() : "01";
+      if (dy.length === 1) {
+        dy = "0" + dy;
+      }
+      return yr + '-' + mth + '-' + dy + 'T00:00:00Z';
+    }
+  } catch (error) {
+    return void 0;
+  }
+};
+
+P.svc.lantern.process = async function(proc) {
+  var aam, base, core, crossref, diss, doaj, domain, efd, epmc_compliance_lic, epmc_lics, err, eupmc, extrainfo, fd, fofxml, fu, gr, grants, gres, grid, identtypes, k, lastresort, len, len1, len2, len3, len4, len5, len6, lic, m, main, msg, n, o, p, pid, prst, ps, publisher_licence_check_ran, q, rc, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rep, repo, res, res2, resolved, result, result_invalid_date_of_electronic_publication, romeo, s, st, stt, stub, t, u, url, xml;
+  if (proc == null) {
+    proc = {
+      doi: this.params.doi,
+      pmid: this.params.pmid,
+      pmcid: this.params.pmcid
+    };
+  }
+  result = {
+    _id: proc._id,
+    pmcid: proc.pmcid,
+    pmid: proc.pmid,
+    doi: proc.doi,
+    title: proc.title,
+    journal_title: void 0,
+    pure_oa: false, // set to true if found in doaj
+    issn: void 0,
+    eissn: void 0,
+    publication_date: void 0,
+    electronic_publication_date: void 0,
+    publisher: void 0,
+    publisher_licence: void 0,
+    licence: 'unknown', // what sort of licence this has - should be a string like "cc-by"
+    epmc_licence: 'unknown', // the licence in EPMC, should be a string like "cc-by"
+    licence_source: 'unknown', // where the licence info came from
+    epmc_licence_source: 'unknown', // where the EPMC licence info came from (fulltext xml, EPMC splash page, etc.)
+    in_epmc: false, // set to true if found
+    epmc_xml: false, // set to true if oa and in epmc and can retrieve fulltext xml from eupmc rest API url
+    aam: false, // set to true if is an eupmc author manuscript
+    open_access: false, // set to true if eupmc or other source says is oa
+    ahead_of_print: void 0, // if pubmed returns a date for this, it will be a date
+    romeo_colour: 'unknown', // the sherpa romeo colour
+    preprint_embargo: 'unknown',
+    preprint_self_archiving: 'unknown',
+    postprint_embargo: 'unknown',
+    postprint_self_archiving: 'unknown',
+    publisher_copy_embargo: 'unknown',
+    publisher_copy_self_archiving: 'unknown',
+    authors: [], // eupmc author list if available (could look on other sources too?)
+    in_core: 'unknown',
+    in_base: 'unknown',
+    repositories: [], // where CORE or BASE says it is. Should be list of objects
+    grants: [], // a list of grants, probably from eupmc for now
+    confidence: 0, // 1 if matched on ID, 0.9 if title to 1 result, 0.7 if title to multiple results, 0 if unknown article
+    //score: 0
+    provenance: []
+  };
+  // search eupmc by (in order) pmcid, pmid, doi, title
+  identtypes = ['pmcid', 'pmid', 'doi', 'title'];
+  eupmc;
+  for (m = 0, len = identtypes.length; m < len; m++) {
+    st = identtypes[m];
+    if (typeof eupmc === "undefined" || eupmc === null) {
+      if (proc[st]) {
+        stt = st;
+        prst = proc[st];
+        if (stt === 'title') {
+          stt = 'search';
+          prst = 'TITLE:"' + prst.replace('"', '') + '"';
+        }
+        if (stt === 'pmcid') {
+          stt = 'pmc';
+        }
+        res = this.src.epmc[stt](prst);
+        if ((res != null ? res.id : void 0) && stt !== 'search') {
+          eupmc = res;
+          result.confidence = 1;
+        } else if (stt === 'search') {
+          if (res.total === 1) {
+            eupmc = res.data[0];
+            result.confidence = 0.9;
+          } else {
+            prst = prst.replace('"', '');
+            res2 = this.src.epmc[stt](prst);
+            if (res2.total === 1) {
+              eupmc = res2.data[0];
+              result.confidence = 0.7;
+            }
+          }
+        }
+      }
+    }
+  }
+  if (eupmc != null) {
+    if (eupmc.pmcid && result.pmcid !== eupmc.pmcid) {
+      result.pmcid = eupmc.pmcid;
+      result.provenance.push('Added PMCID from EUPMC');
+    }
+    if (eupmc.pmid && result.pmid !== eupmc.pmid) {
+      result.pmid = eupmc.pmid;
+      result.provenance.push('Added PMID from EUPMC');
+    }
+    if (eupmc.doi && result.doi !== eupmc.doi) {
+      result.doi = eupmc.doi;
+      result.provenance.push('Added DOI from EUPMC');
+    }
+    if (eupmc.title && !result.title) {
+      result.title = eupmc.title;
+      result.provenance.push('Added article title from EUPMC');
+    }
+    if (eupmc.inEPMC === 'Y') {
+      result.in_epmc = true;
+      result.provenance.push('Confirmed fulltext is in EUPMC');
+    }
+    if (eupmc.isOpenAccess === 'Y') {
+      result.open_access = true;
+      result.provenance.push('Confirmed is open access from EUPMC');
+    } else {
+      result.provenance.push('This article is not open access according to EUPMC, but since 6th March 2020 we take this to mean only that the publisher did not indicate to EUPMC that it can be included in their Open Access subset - it may well still be an OA article.');
+    }
+    if ((ref = eupmc.journalInfo) != null ? ref.journal : void 0) {
+      if (eupmc.journalInfo.journal.title) {
+        result.journal_title = eupmc.journalInfo.journal.title;
+        result.provenance.push('Added journal title from EUPMC');
+      }
+      if (eupmc.journalInfo.journal.issn) {
+        result.issn = eupmc.journalInfo.journal.issn;
+        result.provenance.push('Added issn from EUPMC');
+      }
+      if (eupmc.journalInfo.journal.essn) {
+        result.eissn = eupmc.journalInfo.journal.essn;
+        if (result.eissn && (!result.issn || result.issn.indexOf(result.eissn) === -1)) {
+          result.issn = (result.issn ? result.issn + ', ' : '') + result.eissn;
+        }
+        result.provenance.push('Added eissn from EUPMC');
+      }
+    }
+    if ((ref1 = eupmc.grantsList) != null ? ref1.grant : void 0) {
+      result.grants = eupmc.grantsList.grant;
+      result.provenance.push('Added grants data from EUPMC');
+    }
+    if ((ref2 = eupmc.journalInfo) != null ? ref2.dateOfPublication : void 0) {
+      fd = (await _formatepmcdate(eupmc.journalInfo.dateOfPublication));
+      if (fd != null) {
+        result.publication_date = fd;
+        result.provenance.push('Added date of publication from EUPMC');
+      } else {
+        result._invalid_date_of_publication = eupmc.journalInfo.dateOfPublication;
+        result.provenance.push('Could not add invalid date of publication from EUPMC (' + result._invalid_date_of_publication + ')');
+      }
+    }
+    if (eupmc.electronicPublicationDate) {
+      efd = (await _formatepmcdate(eupmc.electronicPublicationDate));
+      if (efd) {
+        result.electronic_publication_date = efd;
+        result.provenance.push('Added electronic publication date from EUPMC');
+      } else {
+        result_invalid_date_of_electronic_publication = eupmc.electronicPublicationDate;
+        result.provenance.push('Could not add invalid electronic publication date from EUPMC (' + result_invalid_date_of_electronic_publication + ')');
+      }
+    }
+    if (result.pmcid) { // removed need for being open_access or in_epmc (as according to epmc)
+      result.provenance.push('Checking if XML is available from EUPMC (since 6th March 2020 this is always done for any article we have a PMCID for, regardless of other EUPMC API values).');
+      xml = (await this.src.epmc.xml(result.pmcid));
+      if (xml === 404) {
+        fofxml = 'Not found in EUPMC when trying to fetch full text XML.';
+        fofxml += ' (We do this for any item we have a PMCID for since 6th March 2020, even if EUPMC indicates not in their open access category and/or fulltext not in EUPMC.';
+        result.provenance.push(fofxml);
+      } else if (typeof xml === 'string' && xml.indexOf('<') === 0) {
+        result.epmc_xml = true;
+        result.provenance.push('Confirmed fulltext XML is available from EUPMC');
+      } else if (xml != null) {
+        result.provenance.push('Encountered an error while retrieving the EUPMC full text XML. One possible reason is EUPMC being temporarily unavailable.');
+      }
+    }
+    lic = (await this.src.epmc.licence(result.pmcid, eupmc, xml));
+    if (lic !== false) {
+      result.licence = lic.licence;
+      result.epmc_licence = lic.licence;
+      result.licence_source = lic.source;
+      result.epmc_licence_source = lic.source;
+      extrainfo = '';
+      if (lic.match) {
+        extrainfo += ' If licence statements contain URLs we will try to find those in addition to ';
+        extrainfo += 'searching for the statement\'s text. The match in this case was: \'' + lic.match.replace(/<.*?>/gi, '') + '\' .';
+      }
+      result.provenance.push('Added EPMC licence (' + result.epmc_licence + ') from ' + lic.source + '.' + extrainfo);
+    } else {
+      result.provenance.push('Could not find licence via EUPMC');
+    }
+    if ((ref3 = eupmc.authorList) != null ? ref3.author : void 0) {
+      result.authors = eupmc.authorList.author;
+      result.provenance.push('Added author list from EUPMC');
+    }
+    if (result.in_epmc) {
+      aam = (await this.src.epmc.aam(result.pmcid, eupmc));
+      if (aam.aam === false) {
+        result.aam = false;
+        result.provenance.push('Checked author manuscript status in EUPMC, found no evidence of being one');
+      } else if (aam.aam === true) {
+        result.aam = true;
+        result.provenance.push('Checked author manuscript status in EUPMC, found in ' + aam.info);
+      } else if (aam.info.indexOf('404') !== -1) {
+        result.aam = false;
+        result.provenance.push('Unable to locate Author Manuscript information in EUPMC - could not find the article in EUPMC.');
+      } else if (aam.info.indexOf('error') !== -1) {
+        result.aam = 'unknown';
+        result.provenance.push('Error accessing EUPMC while trying to locate Author Manuscript information. EUPMC could be temporarily unavailable.');
+      } else if (aam.info.indexOf('blocking') !== -1) {
+        result.aam = 'unknown';
+        result.provenance.push('Error accessing EUPMC while trying to locate Author Manuscript information - EUPMC is blocking access.');
+      } else {
+        result.aam = 'unknown';
+      }
+    }
+  } else {
+    result.provenance.push('Unable to locate article in EPMC.');
+  }
+  if (!result.doi && !result.pmid && !result.pmcid) {
+    result.provenance.push('Unable to obtain DOI, PMID or PMCID for this article. Compliance information may be severely limited.');
+  }
+  if (result.doi) {
+    crossref = (await this.src.crossref.works(result.doi));
+    if (crossref != null) {
+      if (!result.confidence) {
+        result.confidence = 1;
+      }
+      result.publisher = crossref.publisher;
+      result.provenance.push('Added publisher name from Crossref');
+      if (!result.issn && (crossref.issn || ((crossref.ISSN != null) && crossref.ISSN.length > 0))) {
+        result.issn = (ref4 = crossref.issn) != null ? ref4 : crossref.ISSN[0];
+        result.provenance.push('Added ISSN from Crossref');
+      }
+      if (!result.journal_title && (crossref.journal || ((crossref['container-title'] != null) && crossref['container-title'].length > 0))) {
+        result.journal_title = (ref5 = crossref.journal) != null ? ref5 : crossref['container-title'][0];
+        result.provenance.push('Added journal title from Crossref');
+      }
+      if (!result.authors && crossref.author) {
+        result.authors = crossref.author;
+        result.provenance.push('Added author list from Crossref');
+      }
+      if (!result.title && (crossref.title != null) && crossref.title.length > 0) {
+        result.title = _.isArray(crossref.title) ? crossref.title[0] : crossref.title;
+        result.provenance.push('Added article title from Crossref');
+      }
+    } else {
+      result.provenance.push('Unable to obtain information about this article from Crossref.');
+    }
+    core = (await this.src.core(result.doi));
+    if (core != null ? core.id : void 0) {
+      result.in_core = true;
+      result.provenance.push('Found DOI in CORE');
+      if (!result.authors && core.authors) {
+        result.authors = core.author;
+        result.provenance.push('Added authors from CORE');
+      }
+      if ((core.repositories != null) && core.repositories.length > 0) {
+        ref6 = core.repositories;
+        for (n = 0, len1 = ref6.length; n < len1; n++) {
+          rep = ref6[n];
+          rc = {
+            name: rep.name
+          };
+          if (rep.oai != null) {
+            rc.oai = rep.oai;
+          }
+          if (rep.uri) {
+            rc.url = rep.uri;
+          } else {
+            try {
+              repo = (await this.src.opendoar.search(rep.name));
+              if (repo.total === 1 && repo.data[0].url) {
+                rc.url = repo.data[0].url;
+                result.provenance.push('Added repo base URL from OpenDOAR');
+              } else {
+                result.provenance.push('Searched OpenDOAR but could not find repo and/or URL');
+              }
+            } catch (error) {
+              result.provenance.push('Tried but failed to search OpenDOAR for repo base URL');
+            }
+          }
+          rc.fulltexts = [];
+          lastresort = void 0;
+          if (core.fulltextUrls) {
+            ref7 = core.fulltextUrls;
+            for (o = 0, len2 = ref7.length; o < len2; o++) {
+              fu = ref7[o];
+              if (fu.indexOf('core.ac.uk') === -1) {
+                resolved = (await this.resolve(fu));
+                if (resolved && rc.fulltexts.indexOf(resolved) === -1) {
+                  if (rc.url && resolved.indexOf(rc.url.replace('http://', '').replace('https://', '').split('/')[0]) !== -1) {
+                    rc.fulltexts.unshift(resolved);
+                  } else {
+                    rc.fulltexts.push(resolved);
+                  }
+                }
+              } else if (lastresort == null) {
+                lastresort = fu;
+              }
+            }
+          }
+          if (rc.fulltexts.length === 0 && (lastresort != null)) {
+            rc.fulltexts.push(lastresort);
+          }
+          result.repositories.push(rc);
+        }
+        result.provenance.push('Added repositories that CORE claims article is available from');
+      }
+      if (!result.title && core.title) {
+        result.title = core.title;
+        result.provenance.push('Added title from CORE');
+      }
+    } else {
+      result.in_core = false;
+      result.provenance.push('Could not find DOI in CORE');
+    }
+    base = (await this.src.base.doi(result.doi));
+    if ((base != null ? base.dclink : void 0) != null) {
+      result.in_base = true;
+      result.provenance.push('Found DOI in BASE');
+      try {
+        domain = base.dclink.split('://')[1].split('/')[0];
+        repo = (await this.src.opendoar.search(domain));
+        if (repo.total === 1 && (repo.data[0].url != null) && typeof repo.data[0].url === 'string' && repo.data[0].url.indexOf(domain) !== -1) {
+          result.repositories.push({
+            fulltexts: [base.dclink],
+            url: repo.data[0].url,
+            name: repo.data[0].name,
+            oai: repo.data[0].oai
+          });
+          result.provenance.push('Added repo base URL from OpenDOAR');
+        } else {
+          result.provenance.push('Searched OpenDOAR but could not find repo and/or URL');
+        }
+      } catch (error) {
+        result.provenance.push('Tried but failed to search OpenDOAR for repo base URL');
+      }
+      if (!result.title && base.dctitle) {
+        result.title = base.dctitle;
+        result.provenance.push('Added title from BASE');
+      }
+    } else {
+      result.in_base = false;
+      result.provenance.push('Could not find DOI in BASE');
+    }
+  } else {
+    result.provenance.push('Not attempting Crossref / CORE / BASE lookups - do not have DOI for article.');
+  }
+  if ((result.grants != null) && result.grants.length > 0) {
+    grants = [];
+    ref8 = result.grants;
+    for (q = 0, len3 = ref8.length; q < len3; q++) {
+      gr = ref8[q];
+      if (gr.grantId) {
+        grid = gr.grantId;
+        if (gr.agency && gr.agency.toLowerCase().indexOf('wellcome') !== -1) {
+          grid = grid.split('/')[0];
+        }
+        gres = (await this.src.grist(grid));
+        if (gres.total && gres.total > 0 && gres.data.Person) {
+          ps = gres.data.Person;
+          pid = '';
+          if (ps.Title) {
+            pid += ps.Title + ' ';
+          }
+          if (ps.GivenName) {
+            pid += ps.GivenName + ' ';
+          }
+          if (!ps.GivenName && ps.Initials) {
+            pid += ps.Initials + ' ';
+          }
+          if (ps.FamilyName) {
+            pid += ps.FamilyName;
+          }
+          gr.PI = pid;
+          result.provenance.push('Found Grant PI for ' + grid + ' via Grist API');
+        } else {
+          result.provenance.push('Tried but failed to find Grant PI via Grist API');
+        }
+      } else {
+        gr.grantId = 'unknown';
+      }
+      if (gr.agency && gr.agency.toLowerCase().indexOf('wellcome') !== -1) {
+        grants.unshift(gr);
+      } else {
+        grants.push(gr);
+      }
+    }
+    result.grants = grants;
+  } else {
+    result.provenance.push('Not attempting Grist API grant lookups since no grants data was obtained from EUPMC.');
+  }
+  if (result.pmid && !result.in_epmc) {
+    result.ahead_of_print = this.src.pubmed.aheadofprint(result.pmid);
+    if (result.ahead_of_print !== false) {
+      result.provenance.push('Checked ahead of print status on pubmed, date found ' + result.ahead_of_print);
+    } else {
+      result.provenance.push('Checked ahead of print status on pubmed, no date found');
+    }
+  } else {
+    msg = 'Not checking ahead of print status on pubmed.';
+    if (!result.pmid) {
+      msg += ' We don\'t have the article\'s PMID.';
+    }
+    if (result.in_epmc) {
+      msg += ' The article is already in EUPMC.';
+    }
+    result.provenance.push(msg);
+  }
+  if (result.issn) {
+    ref9 = result.issn.split(',');
+    for (s = 0, len4 = ref9.length; s < len4; s++) {
+      diss = ref9[s];
+      doaj = this.src.doaj.journals.issn(diss);
+      if (doaj != null) {
+        result.pure_oa = true;
+        result.provenance.push('Confirmed journal is listed in DOAJ');
+        if (result.publisher == null) {
+          result.publisher = (ref10 = doaj.bibjson) != null ? ref10.publisher : void 0;
+        }
+        if (result.journal_title == null) {
+          result.journal_title = (ref11 = doaj.bibjson) != null ? ref11.title : void 0;
+        }
+        break;
+      }
+    }
+    if (result.pure_oa !== true) {
+      result.provenance.push('Could not find journal in DOAJ');
+    }
+    romeo = this.src.sherpa.romeo.search({
+      issn: result.issn
+    });
+    if (romeo.status == null) {
+      if (!result.journal_title) {
+        if (((ref12 = romeo.journal) != null ? ref12.jtitle : void 0) != null) {
+          result.journal_title = romeo.journal.jtitle;
+          result.provenance.push('Added journal title from Sherpa Romeo');
+        } else {
+          result.provenance.push('Tried, but could not add journal title from Sherpa Romeo.');
+        }
+      }
+      if (!result.publisher) {
+        if (((ref13 = romeo.publisher) != null ? ref13.name : void 0) != null) {
+          result.publisher = romeo.publisher.name;
+          result.provenance.push('Added publisher from Sherpa Romeo');
+        } else {
+          result.provenance.push('Tried, but could not add publisher from Sherpa Romeo.');
+        }
+      }
+      result.romeo_colour = romeo.colour;
+      try {
+        ref14 = ['preprint', 'postprint', 'publisher_copy'];
+        for (t = 0, len5 = ref14.length; t < len5; t++) {
+          k = ref14[t];
+          main = k === 'publisher_copy' ? 'pdfversion' : k + 's';
+          stub = k.replace('print', '').replace('publisher_copy', 'pdf');
+          if ((((ref15 = romeo.publisher) != null ? ref15[main] : void 0) != null) && typeof romeo.publisher[main] === 'object') {
+            if ((romeo.publisher[main][stub + 'restrictions'] != null) && romeo.publisher[main][stub + 'restrictions'].length) {
+              if (result[k + '_embargo'] === 'unknown') {
+                result[k + '_embargo'] = '';
+              } else {
+                result[k + '_embargo'] += ',';
+              }
+              ref16 = romeo.publisher[main][stub + 'restrictions'];
+              for (u = 0, len6 = ref16.length; u < len6; u++) {
+                p = ref16[u];
+                result[k + '_embargo'] += p;
+              }
+            }
+            if (romeo.publisher[main][stub + 'archiving']) {
+              result[k + '_self_archiving'] = romeo.publisher[main][stub + 'archiving'];
+            }
+          }
+        }
+        result.provenance.push('Added embargo and archiving data from Sherpa Romeo');
+      } catch (error) {
+        err = error;
+        result.provenance.push('Could not process embargo and archiving data from Sherpa Romeo');
+      }
+    } else {
+      result.provenance.push('Unable to add any data from Sherpa Romeo.');
+    }
+  } else {
+    result.provenance.push('Not attempting to add any data from Sherpa Romeo - don\'t have a journal ISSN to use for lookup.');
+  }
+  publisher_licence_check_ran = false;
+  if (!result.licence || ((ref17 = result.licence) !== 'cc-by' && ref17 !== 'cc-zero')) {
+    publisher_licence_check_ran = true;
+    if (result.doi) {
+      url = (await this.resolve('https://doi.org/' + result.doi));
+    }
+    if ((url != null) && typeof url === 'string' && url.indexOf('europepmc') === -1) { // if it resolves to eupmc then it would already have been checked above
+      lic = (await this.svc.lantern.licence(url));
+      if (lic.licence && lic.licence !== 'unknown') {
+        result.licence = lic.licence;
+        result.licence_source = 'publisher_splash_page';
+        result.publisher_licence = lic.licence;
+        extrainfo = '';
+        if (lic.match) {
+          extrainfo += ' If licence statements contain URLs we will try to find those in addition to ' + 'searching for the statement\'s text. The match in this case was: \'' + lic.match.replace(/<.*?>/gi, '') + '\' .';
+        }
+        result.provenance.push('Added licence (' + result.publisher_licence + ') via article publisher splash page lookup to ' + url + '.' + extrainfo);
+      } else {
+        result.publisher_licence = 'unknown';
+        result.provenance.push('Unable to retrieve licence data via article publisher splash page lookup to ' + url + '.');
+        if (lic.large) {
+          result.provenance.push('Retrieved content was very long, so was contracted to 500,000 chars from start and end to process');
+        }
+      }
+    } else {
+      result.provenance.push('Unable to retrieve licence data via article publisher splash page - cannot obtain a suitable URL to run the licence detection on.');
+    }
+  } else {
+    result.provenance.push('Not attempting to retrieve licence data via article publisher splash page lookup.');
+    publisher_licence_check_ran = false;
+  }
+  if (!publisher_licence_check_ran && result.publisher_licence !== 'unknown') {
+    result.publisher_licence = "not applicable";
+  }
+  if (result.publisher_licence == null) {
+    result.publisher_licence = 'unknown';
+  }
+  if ((result.epmc_licence != null) && result.epmc_licence !== 'unknown' && !result.epmc_licence.startsWith('cc-')) {
+    result.epmc_licence = 'non-standard-licence';
+  }
+  if ((result.publisher_licence != null) && result.publisher_licence !== 'unknown' && result.publisher_licence !== "not applicable" && !result.publisher_licence.startsWith('cc-')) {
+    result.publisher_licence = 'non-standard-licence';
+  }
+  result.compliance_wellcome_standard = false;
+  result.compliance_wellcome_deluxe = false;
+  epmc_compliance_lic = result.epmc_licence ? result.epmc_licence.toLowerCase().replace(/ /g, '').replace(/-/g, '') : '';
+  epmc_lics = epmc_compliance_lic === 'ccby' || epmc_compliance_lic === 'cc0' || epmc_compliance_lic === 'cczero';
+  if (result.in_epmc && (result.aam || epmc_lics)) {
+    result.compliance_wellcome_standard = true;
+  }
+  if (result.in_epmc && result.aam) {
+    result.compliance_wellcome_deluxe = true;
+  }
+  if (result.in_epmc && epmc_lics && result.open_access) {
+    result.compliance_wellcome_deluxe = true;
+  }
+  return result;
+};
 
 try {
   S.svc.oaworks = JSON.parse(SECRETS_OAWORKS);
@@ -5507,7 +7948,6 @@ P.svc.oaworks = function() {
     return {
       name: 'OA.Works API',
       version: this.S.version,
-      env: this.S.env ? this.S.env : void 0,
       base: this.S.dev ? this.base : void 0,
       built: this.S.built
     };
@@ -5521,7 +7961,117 @@ P.svc.oaworks.templates = {
 
 // oab status and stats
 // make all request admin via sheet somehow
-'P.svc.oaworks.bug = () ->\n  if (@body?.contact? and @body.contact.length) or (@body?.email? and @svc.oaworks.validate(@body.email) isnt true)\n    return \'\'\n  else\n    whoto = [\'help@openaccessbutton.org\']\n    text = \'\'\n    for k of @body\n      text += k + \': \' + JSON.stringify(@body[k],undefined,2) + \'\n\n\'\n    text = @tdm.clean text\n    subject = \'[OAB forms]\'\n    if @body?.form is \'uninstall\' # wrong bug general other\n      subject += \' Uninstall notice\'\n    else if @body?.form is \'wrong\'\n      subject += \' Wrong article\'\n    else if @body?.form is \'bug\'\n      subject += \' Bug\'\n    else if @body?.form is \'general\'\n      subject += \' General\'\n    else\n      subject += \' Other\'\n    subject += \' \' + Date.now()\n    if @body?.form in [\'wrong\',\'uninstall\']\n      whoto.push \'natalia.norori@openaccessbutton.org\'\n    @waitUntil @mail\n      service: \'openaccessbutton\'\n      from: \'natalia.norori@openaccessbutton.org\'\n      to: whoto\n      subject: subject\n      text: text\n    return\n      status: 302\n      headers:\n        \'Content-Type\': \'text/plain\'\n        \'Location\': (if @S.dev then \'https://dev.openaccessbutton.org\' else \'https://openaccessbutton.org\') + \'/feedback#defaultthanks\'\n      body: \'Location: \' + (if @S.dev then \'https://dev.openaccessbutton.org\' else \'https://openaccessbutton.org\') + \'/feedback#defaultthanks\'\n\n\nP.svc.oaworks.blacklist = (url) ->\n  url ?= @params.url\n  url = url.toString() if typeof url is \'number\'\n  return false if url? and (url.length < 4 or url.indexOf(\'.\') is -1)\n  bl = await @src.google.sheets @S.svc.oaworks?.google?.sheets?.blacklist\n  blacklist = []\n  blacklist.push(i.url) for i in bl\n  if url\n    if url.indexOf(\'http\') isnt 0 and url.indexOf(\' \') isnt -1\n      return false # sometimes article titles get sent here, no point checking them on the blacklist\n    else\n      for b in blacklist\n        return true if url.indexOf(b) isnt -1\n      return false\n  else\n    return blacklist\n\n\nP.svc.oaworks.validate = (email, domain, verify=true) ->\n  email ?= @params.email\n  bad = [\'eric@talkwithcustomer.com\']\n  if typeof email isnt \'string\' or email.indexOf(\',\') isnt -1 or email in bad\n    return false\n  else if email.indexOf(\'@openaccessbutton.org\') isnt -1 or email.indexOf(\'@email.ghostinspector.com\') isnt -1 #or email in []\n    return true\n  else\n    v = await @mail.validate email, @S.svc.oaworks.mail.pubkey\n    if v.is_valid and (not verify or v.mailbox_verification in [true,\'true\'])\n      return true\n    else if v.did_you_mean\n      return v.did_you_mean\n    else\n      return false\n\n\n# LIVE: https://docs.google.com/spreadsheets/d/1Te9zcQtBLq2Vx81JUE9R42fjptFGXY6jybXBCt85dcs/edit#gid=0\n# Develop: https://docs.google.com/spreadsheets/d/1AaY7hS0D9jtLgVsGO4cJuLn_-CzNQg0yCreC3PP3UU0/edit#gid=0\nP.svc.oaworks.redirect = (url) ->\n  return false if await @svc.oaworks.blacklist(url) is true # ignore anything on the usual URL blacklist\n  list = await @src.google.sheets @S.svc.oaworks?.google?.sheets?.redirect, 360000\n  for listing in list\n    if listing.redirect and url.replace(\'http://\',\'\').replace(\'https://\',\'\').split(\'#\')[0] is listing.redirect.replace(\'http://\',\'\').replace(\'https://\',\'\').split(\'#\')[0]\n      # we have an exact alternative for this url\n      return listing.redirect\n    else if typeof url is \'string\' and url.indexOf(listing.domain.replace(\'http://\',\'\').replace(\'https://\',\'\').split(\'/\')[0]) isnt -1\n      url = url.replace(\'http://\',\'https://\') if listing.domain.indexOf(\'https://\') is 0\n      listing.domain = listing.domain.replace(\'http://\',\'https://\') if url.indexOf(\'https://\') is 0\n      if (listing.fulltext and listing.splash and listing.identifier) or listing.element\n        source = url\n        if listing.fulltext\n          # switch the url by comparing the fulltext and splash examples, and converting the url in the same way\n          parts = listing.splash.split listing.identifier\n          if url.indexOf(parts[0]) is 0 # can only successfully replace if the incoming url starts with the same as the start of the splash url\n            diff = url.replace parts[0], \'\'\n            diff = diff.replace(parts[1],\'\') if parts.length > 1\n            url = listing.fulltext.replace listing.identifier, diff\n        else if listing.element and url.indexOf(\'.pdf\') is -1\n          try\n            content = await @fetch url # should really be a puppeteer render\n            url = content.toLowerCase().split(listing.element.toLowerCase())[1].split(\'"\')[0].split("\'")[0].split(\'>\')[0]\n        return false if (not url? or url.length < 6 or url is source) and listing.blacklist is "yes"\n      else if listing.loginwall and url.indexOf(listing.loginwall.replace(\'http://\',\'\').replace(\'https://\',\'\')) isnt -1\n        # this url is on the login wall of the repo in question, so it is no use\n        return false\n      else if listing.blacklist is "yes"\n        return false\n  if typeof url is \'string\'\n    # some URLs can be confirmed as resolvable but we also hit a captcha response and end up serving that to the user\n    # we introduced this because of issue https://github.com/OAButton/discussion/issues/1257\n    # and for example https://www.tandfonline.com/doi/pdf/10.1080/17521740701702115?needAccess=true\n    # ends up as https://www.tandfonline.com/action/captchaChallenge?redirectUri=%2Fdoi%2Fpdf%2F10.1080%2F17521740701702115%3FneedAccess%3Dtrue\n    for avoid in [\'captcha\',\'challenge\']\n      return undefined if url.toLowerCase().indexOf(avoid) isnt -1\n  return url';
+`P.svc.oaworks.bug = () ->
+  if (@body?.contact? and @body.contact.length) or (@body?.email? and @svc.oaworks.validate(@body.email) isnt true)
+    return ''
+  else
+    whoto = ['help@openaccessbutton.org']
+    text = ''
+    for k of @body
+      text += k + ': ' + JSON.stringify(@body[k],undefined,2) + '\n\n'
+    text = @tdm.clean text
+    subject = '[OAB forms]'
+    if @body?.form is 'uninstall' # wrong bug general other
+      subject += ' Uninstall notice'
+    else if @body?.form is 'wrong'
+      subject += ' Wrong article'
+    else if @body?.form is 'bug'
+      subject += ' Bug'
+    else if @body?.form is 'general'
+      subject += ' General'
+    else
+      subject += ' Other'
+    subject += ' ' + Date.now()
+    if @body?.form in ['wrong','uninstall']
+      whoto.push 'natalia.norori@openaccessbutton.org'
+    @waitUntil @mail
+      service: 'openaccessbutton'
+      from: 'natalia.norori@openaccessbutton.org'
+      to: whoto
+      subject: subject
+      text: text
+    return
+      status: 302
+      headers:
+        'Content-Type': 'text/plain'
+        'Location': (if @S.dev then 'https://dev.openaccessbutton.org' else 'https://openaccessbutton.org') + '/feedback#defaultthanks'
+      body: 'Location: ' + (if @S.dev then 'https://dev.openaccessbutton.org' else 'https://openaccessbutton.org') + '/feedback#defaultthanks'
+
+
+P.svc.oaworks.blacklist = (url) ->
+  url ?= @params.url
+  url = url.toString() if typeof url is 'number'
+  return false if url? and (url.length < 4 or url.indexOf('.') is -1)
+  bl = await @src.google.sheets @S.svc.oaworks?.google?.sheets?.blacklist
+  blacklist = []
+  blacklist.push(i.url) for i in bl
+  if url
+    if url.indexOf('http') isnt 0 and url.indexOf(' ') isnt -1
+      return false # sometimes article titles get sent here, no point checking them on the blacklist
+    else
+      for b in blacklist
+        return true if url.indexOf(b) isnt -1
+      return false
+  else
+    return blacklist
+
+
+P.svc.oaworks.validate = (email, domain, verify=true) ->
+  email ?= @params.email
+  bad = ['eric@talkwithcustomer.com']
+  if typeof email isnt 'string' or email.indexOf(',') isnt -1 or email in bad
+    return false
+  else if email.indexOf('@openaccessbutton.org') isnt -1 or email.indexOf('@email.ghostinspector.com') isnt -1 #or email in []
+    return true
+  else
+    v = await @mail.validate email, @S.svc.oaworks.mail.pubkey
+    if v.is_valid and (not verify or v.mailbox_verification in [true,'true'])
+      return true
+    else if v.did_you_mean
+      return v.did_you_mean
+    else
+      return false
+
+
+# LIVE: https://docs.google.com/spreadsheets/d/1Te9zcQtBLq2Vx81JUE9R42fjptFGXY6jybXBCt85dcs/edit#gid=0
+# Develop: https://docs.google.com/spreadsheets/d/1AaY7hS0D9jtLgVsGO4cJuLn_-CzNQg0yCreC3PP3UU0/edit#gid=0
+P.svc.oaworks.redirect = (url) ->
+  return false if await @svc.oaworks.blacklist(url) is true # ignore anything on the usual URL blacklist
+  list = await @src.google.sheets @S.svc.oaworks?.google?.sheets?.redirect, 360000
+  for listing in list
+    if listing.redirect and url.replace('http://','').replace('https://','').split('#')[0] is listing.redirect.replace('http://','').replace('https://','').split('#')[0]
+      # we have an exact alternative for this url
+      return listing.redirect
+    else if typeof url is 'string' and url.indexOf(listing.domain.replace('http://','').replace('https://','').split('/')[0]) isnt -1
+      url = url.replace('http://','https://') if listing.domain.indexOf('https://') is 0
+      listing.domain = listing.domain.replace('http://','https://') if url.indexOf('https://') is 0
+      if (listing.fulltext and listing.splash and listing.identifier) or listing.element
+        source = url
+        if listing.fulltext
+          # switch the url by comparing the fulltext and splash examples, and converting the url in the same way
+          parts = listing.splash.split listing.identifier
+          if url.indexOf(parts[0]) is 0 # can only successfully replace if the incoming url starts with the same as the start of the splash url
+            diff = url.replace parts[0], ''
+            diff = diff.replace(parts[1],'') if parts.length > 1
+            url = listing.fulltext.replace listing.identifier, diff
+        else if listing.element and url.indexOf('.pdf') is -1
+          try
+            content = await @fetch url # should really be a puppeteer render
+            url = content.toLowerCase().split(listing.element.toLowerCase())[1].split('"')[0].split("'")[0].split('>')[0]
+        return false if (not url? or url.length < 6 or url is source) and listing.blacklist is "yes"
+      else if listing.loginwall and url.indexOf(listing.loginwall.replace('http://','').replace('https://','')) isnt -1
+        # this url is on the login wall of the repo in question, so it is no use
+        return false
+      else if listing.blacklist is "yes"
+        return false
+  if typeof url is 'string'
+    # some URLs can be confirmed as resolvable but we also hit a captcha response and end up serving that to the user
+    # we introduced this because of issue https://github.com/OAButton/discussion/issues/1257
+    # and for example https://www.tandfonline.com/doi/pdf/10.1080/17521740701702115?needAccess=true
+    # ends up as https://www.tandfonline.com/action/captchaChallenge?redirectUri=%2Fdoi%2Fpdf%2F10.1080%2F17521740701702115%3FneedAccess%3Dtrue
+    for avoid in ['captcha','challenge']
+      return undefined if url.toLowerCase().indexOf(avoid) isnt -1
+  return url`;
 
 // need listing of deposits and deposited for each user ID
 // and/or given a uid, find the most recent URL that this users uid submitted a deposit for
@@ -6057,7 +8607,7 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
   };
   _permissions = async() => {
     var ref8;
-    if (!res.url && metadata.doi && (options.permissions || options.plugin === 'shareyourpaper')) {
+    if (metadata.doi && (options.permissions || options.plugin === 'shareyourpaper')) {
       if (res.permissions == null) {
         res.permissions = (await this.svc.oaworks.permissions(metadata, (ref8 = options.config) != null ? ref8.ror : void 0, false));
       }
@@ -6667,8 +9217,6 @@ P.svc.oaworks.citation = function(citation) {
   return res;
 };
 
-'there would be an index called svc_oaworks_find (possibly namespaced to service name and env, or global)\nmay also want to allow explicit naming of the index, not the same as the route\nso the usual index operations have to be available under P.svc.oaworks.find\nat /find we should serve the index of find results\n\nwhen .find is called, we need to know whether it is:\n  an attempt to get back one specific find (e.g. it was already previously run so the result exists)\n    so url params could do this - e.g. pass /find/10.1234/567890 or /find/id/1234 or /find/title/blah blah\n    and may want to check kv as well if set for this endpoint\n    check kv would entail:\n      look up the full url (with params?)\n      or look up a provided ID\n      \n  an attempt to run find\n    which could run if the above lookup returns nothing (or more than one?)\n    or if refresh is true, always run\n    so find needs a .run to fall back to (and if doesn\'t have one, nothing populates the index on a fail to find)\n    after .run:\n      save to index \n      index should also save a history if configured to do so\n      and save to kv if set to do so\n        would it be possible to also set multiple routes to point to one kv result?\n        like if a find on /find/10.1234/567890 should also be findable by /find/pmid/12345678\n      \n  an attempt to search finds\n    when there is no provided url params, and no query params that could be used to get back one specific one\n    or when there is a definitive search param provided, such as q or query or source?\n    \n{\n  env: may want to specify the env we are in (defaults to infer from Settings). Or false to be global to any env\n  index: false \'optional_index_name\' # optional, otherwise inferred from the url route - or could be false while kv is true\n  history: false # if true, on every edit, save a copy of the previous state of the record (requires index)\n  kv: false # whether or not to also store in the kv layer (default false). prob not worth using kv AND cache\n  cache: false # cache the results of the fetch requests to the index. could be true or false or a number for how long to cache\n  # also need a way to record the user ID of whoever caused a historic change, if available\n}\n\nwhat goes into the log as the recorded response for this sort of route?';
-
 // temporary legacy wrapper for old site front page availability check
 // that page should be moved to use the new embed, like shareyourpaper
 P.svc.oaworks.availability = async function(params, v2) {
@@ -6775,6 +9323,8 @@ P.svc.oaworks.availability = async function(params, v2) {
     return afnd;
   }
 };
+
+P.svc.oaworks.availability._hidden = true;
 
 // this should default to a search of ILLs as well... with a restrict
 // restrict = @auth.role('openaccessbutton.admin', @user) and this.queryParams.all then [] else [{term:{from:@user?._id}}]
@@ -7265,7 +9815,7 @@ P.svc.oaworks.oapublisher = async function(publisher) {
 var indexOf = [].indexOf;
 
 P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
-  var _getmeta, _prep, _score, af, altoa, an, cr, cwd, doa, fz, haddoi, i, inisn, issns, j, key, l, len, len1, len10, len2, len3, len4, len5, len6, len7, len8, len9, longest, lvs, m, msgs, n, o, oadoi, overall_policy_restriction, p, pb, perms, pisoa, ps, q, qr, r, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref3, ref4, ref5, ref6, ref7, ref8, ref9, ro, rors, rp, rr, rs, rwd, sn, snak, snkd, t, tr, u, v, vl, w, wp;
+  var _getmeta, _prep, _score, af, altoa, an, cr, cwd, doa, fz, haddoi, i, inisn, issns, j, key, l, len, len1, len10, len11, len2, len3, len4, len5, len6, len7, len8, len9, longest, lvs, m, msgs, n, o, oadoi, overall_policy_restriction, p, pb, perms, pisoa, ps, q, qr, r, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref3, ref4, ref5, ref6, ref7, ref8, ref9, ro, rors, rp, rr, rs, rw, rwd, sn, snak, snkd, t, tr, u, v, vl, w, wp, x;
   overall_policy_restriction = false;
   cr = false;
   haddoi = false;
@@ -7548,18 +10098,25 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
     if (!(rs != null ? (ref5 = rs.hits) != null ? ref5.total : void 0 : void 0)) {
       // look up the ROR in wikidata - if found, get the qid from the P17 country snak, look up that country qid
       // get the P297 ISO 3166-1 alpha-2 code, search affiliations for that
-      if (rwd = (await this.src.wikidata('snaks.property.exact:"P6782" AND snaks.property.exact:"P17" AND (snaks.value.exact:"' + meta.ror.join(" OR snaks.value.exact:") + '")'))) {
+      if (rw = (await this.src.wikidata('snaks.property.exact:"P6782" AND snaks.property.exact:"P17" AND (snaks.value.exact:"' + meta.ror.join(" OR snaks.value.exact:") + '")'))) {
         snkd = false;
-        ref6 = rwd.snaks;
-        for (m = 0, len2 = ref6.length; m < len2; m++) {
-          snak = ref6[m];
+        ref8 = (ref6 = (ref7 = rw.hits) != null ? ref7.hits : void 0) != null ? ref6 : [];
+        for (m = 0, len2 = ref8.length; m < len2; m++) {
+          ro = ref8[m];
           if (snkd) {
             break;
-          } else if (snak.property === 'P17') {
-            if (cwd = (await this.src.wikidata(snak.qid))) {
-              ref7 = cwd.snaks;
-              for (n = 0, len3 = ref7.length; n < len3; n++) {
-                sn = ref7[n];
+          }
+          rwd = ro._source;
+          ref9 = rwd.snaks;
+          for (n = 0, len3 = ref9.length; n < len3; n++) {
+            snak = ref9[n];
+            if (snkd) {
+              break;
+            }
+            if (snak.property === 'P17' && (cwd = (await this.src.wikidata(snak.qid)))) {
+              ref10 = cwd.snaks;
+              for (o = 0, len4 = ref10.length; o < len4; o++) {
+                sn = ref10[o];
                 if (sn.property === 'P297') {
                   snkd = true;
                   rs = (await this.svc.oaworks.permission('issuer.id:"' + sn.value + '"'));
@@ -7571,17 +10128,16 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
         }
       }
     }
-    ref10 = (ref8 = rs != null ? (ref9 = rs.hits) != null ? ref9.hits : void 0 : void 0) != null ? ref8 : [];
-    for (o = 0, len4 = ref10.length; o < len4; o++) {
-      rr = ref10[o];
+    ref13 = (ref11 = rs != null ? (ref12 = rs.hits) != null ? ref12.hits : void 0 : void 0) != null ? ref11 : [];
+    for (q = 0, len5 = ref13.length; q < len5; q++) {
+      rr = ref13[q];
       tr = (await _prep(rr._source));
       tr.score = (await _score(tr));
       rors.push(tr);
     }
   }
   if (issns.length || meta.publisher) {
-    console.log(meta.publisher);
-    qr = issns.length ? 'issuer.id.keyword:"' + issns.join('" OR issuer.id.keyword:"') + '"' : '';
+    qr = issns.length ? 'issuer.id:"' + issns.join('" OR issuer.id:"') + '"' : '';
     if (meta.publisher) {
       if (qr !== '') {
         qr += ' OR ';
@@ -7589,10 +10145,10 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
       qr += 'issuer.id:"' + meta.publisher + '"'; // how exact/fuzzy can this be
     }
     ps = (await this.svc.oaworks.permission(qr));
-    if (((ps != null ? (ref11 = ps.hits) != null ? ref11.hits : void 0 : void 0) != null) && ps.hits.hits.length) {
-      ref12 = ps.hits.hits;
-      for (q = 0, len5 = ref12.length; q < len5; q++) {
-        p = ref12[q];
+    if (((ps != null ? (ref14 = ps.hits) != null ? ref14.hits : void 0 : void 0) != null) && ps.hits.hits.length) {
+      ref15 = ps.hits.hits;
+      for (r = 0, len6 = ref15.length; r < len6; r++) {
+        p = ref15[r];
         rp = (await _prep(p._source));
         rp.score = (await _score(rp));
         perms.all_permissions.push(rp);
@@ -7640,7 +10196,7 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
       }
     };
     try {
-      altoa.licence = (ref13 = af.doaj.bibjson.license[0].type) != null ? ref13 : af.license[0].type; // could have doaj licence info
+      altoa.licence = (ref16 = af.doaj.bibjson.license[0].type) != null ? ref16 : af.license[0].type; // could have doaj licence info
     } catch (error) {}
     if (af.indoaj) {
       altoa.embargo_months = 0;
@@ -7678,7 +10234,7 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
     perms.all_permissions.push(altoa);
   }
   if (haddoi && meta.doi && (oadoi = (await this.src.oadoi(meta.doi)))) {
-    if ((oadoi != null ? (ref14 = oadoi.best_oa_location) != null ? ref14.license : void 0 : void 0) && oadoi.best_oa_location.license.indexOf('cc') !== -1) {
+    if ((oadoi != null ? (ref17 = oadoi.best_oa_location) != null ? ref17.license : void 0 : void 0) && oadoi.best_oa_location.license.indexOf('cc') !== -1) {
       doa = {
         can_archive: true,
         version: oadoi.best_oa_location.version,
@@ -7711,7 +10267,7 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
         ];
       }
       if (doa.version) {
-        doa.versions = (ref15 = doa.version) === 'submittedVersion' || ref15 === 'preprint' ? ['submittedVersion'] : (ref16 = doa.version) === 'acceptedVersion' || ref16 === 'postprint' ? ['submittedVersion', 'acceptedVersion'] : ['submittedVersion', 'acceptedVersion', 'publishedVersion'];
+        doa.versions = (ref18 = doa.version) === 'submittedVersion' || ref18 === 'preprint' ? ['submittedVersion'] : (ref19 = doa.version) === 'acceptedVersion' || ref19 === 'postprint' ? ['submittedVersion', 'acceptedVersion'] : ['submittedVersion', 'acceptedVersion', 'publishedVersion'];
       }
       doa.score = (await _score(doa));
       perms.all_permissions.push(doa);
@@ -7726,11 +10282,11 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
         return -1;
       }
     });
-    ref17 = perms.all_permissions;
+    ref20 = perms.all_permissions;
     // note if enforcement_from is after published date, don't apply the permission. If no date, the permission applies to everything
-    for (r = 0, len6 = ref17.length; r < len6; r++) {
-      wp = ref17[r];
-      if (!((ref18 = wp.provenance) != null ? ref18.enforcement_from : void 0)) {
+    for (t = 0, len7 = ref20.length; t < len7; t++) {
+      wp = ref20[t];
+      if (!((ref21 = wp.provenance) != null ? ref21.enforcement_from : void 0)) {
         perms.best_permission = this.copy(wp);
         break;
       } else if (!meta.published || Date.parse(meta.published) > Date.parse(wp.provenance.enforcement_from.split('/').reverse().join('-'))) {
@@ -7748,20 +10304,20 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
           return -1;
         }
       });
-      // check this gives the order in the direction we want, else reverse it
-      for (t = 0, len7 = rors.length; t < len7; t++) {
-        ro = rors[t];
+// check this gives the order in the direction we want, else reverse it
+      for (u = 0, len8 = rors.length; u < len8; u++) {
+        ro = rors[u];
         perms.all_permissions.push(ro);
-        if (((ref19 = perms.best_permission) != null ? ref19.author_affiliation_requirement : void 0) == null) {
+        if (((ref22 = perms.best_permission) != null ? ref22.author_affiliation_requirement : void 0) == null) {
           if (perms.best_permission != null) {
-            if (!((ref20 = ro.provenance) != null ? ref20.enforcement_from : void 0) || !meta.published || Date.parse(meta.published) > Date.parse(ro.provenance.enforcement_from.split('/').reverse().join('-'))) {
+            if (!((ref23 = ro.provenance) != null ? ref23.enforcement_from : void 0) || !meta.published || Date.parse(meta.published) > Date.parse(ro.provenance.enforcement_from.split('/').reverse().join('-'))) {
               pb = this.copy(perms.best_permission);
-              ref21 = ['licences', 'versions', 'locations'];
-              for (u = 0, len8 = ref21.length; u < len8; u++) {
-                key = ref21[u];
-                ref22 = ro[key];
-                for (v = 0, len9 = ref22.length; v < len9; v++) {
-                  vl = ref22[v];
+              ref24 = ['licences', 'versions', 'locations'];
+              for (v = 0, len9 = ref24.length; v < len9; v++) {
+                key = ref24[v];
+                ref25 = ro[key];
+                for (w = 0, len10 = ref25.length; w < len10; w++) {
+                  vl = ref25[w];
                   if (pb[key] == null) {
                     pb[key] = [];
                   }
@@ -7770,9 +10326,9 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
                   }
                 }
               }
-              ref24 = (ref23 = pb.licences) != null ? ref23 : [];
-              for (w = 0, len10 = ref24.length; w < len10; w++) {
-                l = ref24[w];
+              ref27 = (ref26 = pb.licences) != null ? ref26 : [];
+              for (x = 0, len11 = ref27.length; x < len11; x++) {
+                l = ref27[x];
                 if ((pb.licence == null) || l.type.length < pb.licence.length) {
                   pb.licence = l.type;
                 }
@@ -7818,7 +10374,7 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
       'not publisher': 'Please find another DOI for this article as this is provided as this doesn’t allow us to find required information like who published it'
     };
     return {
-      body: typeof overall_policy_restriction !== 'string' ? overall_policy_restriction : (ref25 = msgs[overall_policy_restriction.toLowerCase()]) != null ? ref25 : overall_policy_restriction,
+      body: typeof overall_policy_restriction !== 'string' ? overall_policy_restriction : (ref28 = msgs[overall_policy_restriction.toLowerCase()]) != null ? ref28 : overall_policy_restriction,
       status: 501
     };
   } else {
@@ -7942,6 +10498,9 @@ P.svc.oaworks.permission = async function(recs = []) {
         }
       }
       nr.issuer.id = cids;
+    } else if (nr.issuer.id.startsWith('10.') && nr.issuer.id.indexOf('/') !== -1 && nr.issuer.id.indexOf(' ') === -1) {
+      console.log(nr.issuer.id);
+      nr.DOI = nr.issuer.id;
     }
     nr.permission_required = (rec.has_policy != null) && rec.has_policy.toLowerCase().indexOf('permission required') !== -1;
     for (k in rec) {
@@ -8056,9 +10615,98 @@ P.svc.oaworks.permission = async function(recs = []) {
 
 P.svc.oaworks.permission._sheet = '1qBb0RV1XgO3xOQMdHJBAf3HCJlUgsXqDVauWAtxde4A';
 
+P.svc.oaworks.permission._prefix = false;
+
 //P.svc.oaworks.permission._bg = true
 
-'API.add \'service/oab/request/:rid\',\n  post:\n    roleRequired:\'openaccessbutton.user\',\n    action: () ->\n      if r = oab_request.get this.urlParams.rid\n        n = {}\n        if not r.user? and not r.story? and this.request.body.story\n          n.story = this.request.body.story\n          n.user = id: this.user._id, email: this.user.emails[0].address, username: (this.user.profile?.firstname ? this.user.username ? this.user.emails[0].address)\n          n.user.firstname = this.user.profile?.firstname\n          n.user.lastname = this.user.profile?.lastname\n          n.user.affiliation = this.user.service?.openaccessbutton?.profile?.affiliation\n          n.user.profession = this.user.service?.openaccessbutton?.profile?.profession\n          n.count = 1 if not r.count? or r.count is 0\n        if API.accounts.auth \'openaccessbutton.admin\', this.user\n          n.test ?= this.request.body.test if this.request.body.test? and this.request.body.test isnt r.test\n          n.status ?= this.request.body.status if this.request.body.status? and this.request.body.status isnt r.status\n          n.rating ?= this.request.body.rating if this.request.body.rating? and this.request.body.rating isnt r.rating\n          n.name ?= this.request.body.name if this.request.body.name? and this.request.body.name isnt r.name\n          n.email ?= this.request.body.email if this.request.body.email? and this.request.body.email isnt r.email\n          n.author_affiliation ?= this.request.body.author_affiliation if this.request.body.author_affiliation? and this.request.body.author_affiliation isnt r.author_affiliation\n          n.story ?= this.request.body.story if this.request.body.story? and this.request.body.story isnt r.story\n          n.journal ?= this.request.body.journal if this.request.body.journal? and this.request.body.journal isnt r.journal\n          n.notes = this.request.body.notes if this.request.body.notes? and this.request.body.notes isnt r.notes\n          n.access_right = this.request.body.access_right if this.request.body.access_right? and this.request.body.access_right isnt r.access_right\n          n.embargo_date = this.request.body.embargo_date if this.request.body.embargo_date? and this.request.body.embargo_date isnt r.embargo_date\n          n.access_conditions = this.request.body.access_conditions if this.request.body.access_conditions? and this.request.body.access_conditions isnt r.access_conditions\n          n.license = this.request.body.license if this.request.body.license? and this.request.body.license isnt r.license\n          if this.request.body.received?.description? and (not r.received? or this.request.body.received.description isnt r.received.description)\n            n.received = if r.received? then r.received else {}\n            n.received.description = this.request.body.received.description\n        n.email = this.request.body.email if this.request.body.email? and ( API.accounts.auth(\'openaccessbutton.admin\',this.user) || not r.status? || r.status is \'help\' || r.status is \'moderate\' || r.status is \'refused\' )\n        n.story = this.request.body.story if r.user? and this.userId is r.user.id and this.request.body.story? and this.request.body.story isnt r.story\n        n.url ?= this.request.body.url if this.request.body.url? and this.request.body.url isnt r.url\n        n.title ?= this.request.body.title if this.request.body.title? and this.request.body.title isnt r.title\n        n.doi ?= this.request.body.doi if this.request.body.doi? and this.request.body.doi isnt r.doi\n        if n.story\n          res = oab_request.search \'rating:1 AND story.exact:"\' + n.story + \'"\'\n          if res.hits.total\n            nres = oab_request.search \'rating:0 AND story.exact:"\' + n.story + \'"\'\n            n.rating = 1 if nres.hits.total is 0\n        if not n.status?\n          if (not r.title and not n.title) || (not r.email and not n.email) || (not r.story and not n.story)\n            n.status = \'help\' if r.status isnt \'help\'\n          else if r.status is \'help\' and ( (r.title or n.title) and (r.email or n.email) and (r.story or n.story) )\n            n.status = \'moderate\'\n        if n.title? and typeof n.title is \'string\'\n          try n.title = n.title.charAt(0).toUpperCase() + n.title.slice(1)\n        if n.journal? and typeof n.journal is \'string\'\n          try n.journal = n.journal.charAt(0).toUpperCase() + n.journal.slice(1)\n        if not n.doi? and not r.doi? and r.url? and r.url.indexOf(\'10.\') isnt -1 and r.url.split(\'10.\')[1].indexOf(\'/\') isnt -1\n          n.doi = \'10.\' + r.url.split(\'10.\')[1]\n          r.doi = n.doi\n        if (r.doi or r.url) and not r.title and not n.title\n          try\n            cr = if r.doi then API.service.oab.metadata(undefined, {doi: r.doi}) else API.service.oab.metadata {url: r.url}\n            for c of cr\n              n[c] ?= cr[c] if not r[c]?\n        r.author_affiliation = n.author_affiliation if n.author_affiliation?\n        if n.crossref_type? and n.crossref_type isnt \'journal-article\'\n          n.status = \'closed\'\n          n.closed_on_update = true\n          n.closed_on_update_reason = \'notarticle\'\n        if (not r.email and not n.email) and r.author and r.author.length and (r.author[0].affiliation? or r.author_affiliation)\n          try\n            email = API.use.hunter.email {company: (r.author_affiliation ? r.author[0].affiliation[0].name), first_name: r.author[0].family, last_name: r.author[0].given}, API.settings.service.openaccessbutton.hunter.api_key\n            if email?.email?\n              n.email = email.email\n        oab_request.update(r._id,n) if JSON.stringify(n) isnt \'{}\'\n        if (r.user?.email? or n.user?.email?) and (not r.user or (not r.story? and n.story))\n          try\n            tmpl = API.mail.template \'initiator_confirmation.html\'\n            sub = API.service.oab.substitute tmpl.content, {_id: r._id, url: (r.url ? n.url), title:(r.title ? n.title ? r.url) }\n            API.mail.send\n              service: \'openaccessbutton\',\n              from: sub.from ? API.settings.service.openaccessbutton.mail.from\n              to: n.user?.email ? r.user.email\n              subject: sub.subject ? \'New request created \' + r._id\n              html: sub.content\n        return oab_request.get r._id\n      else\n        return undefined\n  delete:\n    roleRequired:\'openaccessbutton.user\'\n    action: () ->\n      r = oab_request.get this.urlParams.rid\n      oab_request.remove(this.urlParams.rid) if API.accounts.auth(\'openaccessbutton.admin\',this.user) or this.userId is r.user.id\n      return {}';
+`API.add 'service/oab/request/:rid',
+  post:
+    roleRequired:'openaccessbutton.user',
+    action: () ->
+      if r = oab_request.get this.urlParams.rid
+        n = {}
+        if not r.user? and not r.story? and this.request.body.story
+          n.story = this.request.body.story
+          n.user = id: this.user._id, email: this.user.emails[0].address, username: (this.user.profile?.firstname ? this.user.username ? this.user.emails[0].address)
+          n.user.firstname = this.user.profile?.firstname
+          n.user.lastname = this.user.profile?.lastname
+          n.user.affiliation = this.user.service?.openaccessbutton?.profile?.affiliation
+          n.user.profession = this.user.service?.openaccessbutton?.profile?.profession
+          n.count = 1 if not r.count? or r.count is 0
+        if API.accounts.auth 'openaccessbutton.admin', this.user
+          n.test ?= this.request.body.test if this.request.body.test? and this.request.body.test isnt r.test
+          n.status ?= this.request.body.status if this.request.body.status? and this.request.body.status isnt r.status
+          n.rating ?= this.request.body.rating if this.request.body.rating? and this.request.body.rating isnt r.rating
+          n.name ?= this.request.body.name if this.request.body.name? and this.request.body.name isnt r.name
+          n.email ?= this.request.body.email if this.request.body.email? and this.request.body.email isnt r.email
+          n.author_affiliation ?= this.request.body.author_affiliation if this.request.body.author_affiliation? and this.request.body.author_affiliation isnt r.author_affiliation
+          n.story ?= this.request.body.story if this.request.body.story? and this.request.body.story isnt r.story
+          n.journal ?= this.request.body.journal if this.request.body.journal? and this.request.body.journal isnt r.journal
+          n.notes = this.request.body.notes if this.request.body.notes? and this.request.body.notes isnt r.notes
+          n.access_right = this.request.body.access_right if this.request.body.access_right? and this.request.body.access_right isnt r.access_right
+          n.embargo_date = this.request.body.embargo_date if this.request.body.embargo_date? and this.request.body.embargo_date isnt r.embargo_date
+          n.access_conditions = this.request.body.access_conditions if this.request.body.access_conditions? and this.request.body.access_conditions isnt r.access_conditions
+          n.license = this.request.body.license if this.request.body.license? and this.request.body.license isnt r.license
+          if this.request.body.received?.description? and (not r.received? or this.request.body.received.description isnt r.received.description)
+            n.received = if r.received? then r.received else {}
+            n.received.description = this.request.body.received.description
+        n.email = this.request.body.email if this.request.body.email? and ( API.accounts.auth('openaccessbutton.admin',this.user) || not r.status? || r.status is 'help' || r.status is 'moderate' || r.status is 'refused' )
+        n.story = this.request.body.story if r.user? and this.userId is r.user.id and this.request.body.story? and this.request.body.story isnt r.story
+        n.url ?= this.request.body.url if this.request.body.url? and this.request.body.url isnt r.url
+        n.title ?= this.request.body.title if this.request.body.title? and this.request.body.title isnt r.title
+        n.doi ?= this.request.body.doi if this.request.body.doi? and this.request.body.doi isnt r.doi
+        if n.story
+          res = oab_request.search 'rating:1 AND story.exact:"' + n.story + '"'
+          if res.hits.total
+            nres = oab_request.search 'rating:0 AND story.exact:"' + n.story + '"'
+            n.rating = 1 if nres.hits.total is 0
+        if not n.status?
+          if (not r.title and not n.title) || (not r.email and not n.email) || (not r.story and not n.story)
+            n.status = 'help' if r.status isnt 'help'
+          else if r.status is 'help' and ( (r.title or n.title) and (r.email or n.email) and (r.story or n.story) )
+            n.status = 'moderate'
+        if n.title? and typeof n.title is 'string'
+          try n.title = n.title.charAt(0).toUpperCase() + n.title.slice(1)
+        if n.journal? and typeof n.journal is 'string'
+          try n.journal = n.journal.charAt(0).toUpperCase() + n.journal.slice(1)
+        if not n.doi? and not r.doi? and r.url? and r.url.indexOf('10.') isnt -1 and r.url.split('10.')[1].indexOf('/') isnt -1
+          n.doi = '10.' + r.url.split('10.')[1]
+          r.doi = n.doi
+        if (r.doi or r.url) and not r.title and not n.title
+          try
+            cr = if r.doi then API.service.oab.metadata(undefined, {doi: r.doi}) else API.service.oab.metadata {url: r.url}
+            for c of cr
+              n[c] ?= cr[c] if not r[c]?
+        r.author_affiliation = n.author_affiliation if n.author_affiliation?
+        if n.crossref_type? and n.crossref_type isnt 'journal-article'
+          n.status = 'closed'
+          n.closed_on_update = true
+          n.closed_on_update_reason = 'notarticle'
+        if (not r.email and not n.email) and r.author and r.author.length and (r.author[0].affiliation? or r.author_affiliation)
+          try
+            email = API.use.hunter.email {company: (r.author_affiliation ? r.author[0].affiliation[0].name), first_name: r.author[0].family, last_name: r.author[0].given}, API.settings.service.openaccessbutton.hunter.api_key
+            if email?.email?
+              n.email = email.email
+        oab_request.update(r._id,n) if JSON.stringify(n) isnt '{}'
+        if (r.user?.email? or n.user?.email?) and (not r.user or (not r.story? and n.story))
+          try
+            tmpl = API.mail.template 'initiator_confirmation.html'
+            sub = API.service.oab.substitute tmpl.content, {_id: r._id, url: (r.url ? n.url), title:(r.title ? n.title ? r.url) }
+            API.mail.send
+              service: 'openaccessbutton',
+              from: sub.from ? API.settings.service.openaccessbutton.mail.from
+              to: n.user?.email ? r.user.email
+              subject: sub.subject ? 'New request created ' + r._id
+              html: sub.content
+        return oab_request.get r._id
+      else
+        return undefined
+  delete:
+    roleRequired:'openaccessbutton.user'
+    action: () ->
+      r = oab_request.get this.urlParams.rid
+      oab_request.remove(this.urlParams.rid) if API.accounts.auth('openaccessbutton.admin',this.user) or this.userId is r.user.id
+      return {}`;
 /*
 to create a request the url and type are required, What about story?
 {
@@ -8078,7 +10726,148 @@ to create a request the url and type are required, What about story?
   }
 }
 */
-'P.svc.oaworks.request = (req, uacc, fast, notify=true) ->\n  dom\n  if req.dom\n    dom = req.dom\n    delete req.dom\n  return false if JSON.stringify(req).indexOf(\'<script\') isnt -1\n  req = @tdm.clean req\n  req.type ?= \'article\'\n  req.url = req.url[0] if _.isArray req.url\n  req.doi = req.url if not req.doi? and req.url? and req.url.indexOf(\'10.\') isnt -1 and req.url.split(\'10.\')[1].indexOf(\'/\') isnt -1\n  req.doi = \'10.\' + req.doi.split(\'10.\')[1].split(\'?\')[0].split(\'#\')[0] if req.doi? and req.doi.indexOf(\'10.\') isnt 0\n  req.doi = decodeURIComponent(req.doi) if req.doi\n  if req.url? and req.url.indexOf(\'eu.alma.exlibrisgroup.com\') isnt -1\n    req.url += (if req.url.indexOf(\'?\') is -1 then \'?\' else \'&\') + \'oabLibris=\' + Random.id()\n    if req.title? and typeof req.title is \'string\' and req.title.length > 0 and texist = oab_request.find {title:req.title,type:req.type}\n      texist.cache = true\n      return texist\n  else if req.doi or req.title or req.url\n    eq = {type: req.type}\n    if req.doi\n      eq.doi = req.doi\n    else if req.title\n      eq.title = req.title\n    else\n      eq.url = req.url\n    if exists = oab_request.find eq\n      exists.cache = true\n      return exists\n  return false if not req.test and @svc.oaworks.blacklist req.url\n\n  rid = if req._id and oab_request.get(req._id) then req._id else oab_request.insert {url:req.url,type:req.type,_id:req._id}\n  user = if uacc then (if typeof uacc is \'string\' then API.accounts.retrieve(uacc) else uacc) else undefined\n  send_confirmation = false\n  if not req.user? and user and req.story\n    send_confirmation = true\n    un = user.profile?.firstname ? user.username ? user.emails[0].address\n    req.user =\n      id: user._id\n      username: un\n      email: user.emails[0].address\n      firstname: user.profile?.firstname\n      lastname: user.profile?.lastname\n      affiliation: user.service?.openaccessbutton?.profile?.affiliation\n      profession: user.service?.openaccessbutton?.profile?.profession\n  req.count ?= if req.story then 1 else 0\n\n  if not req.doi or not req.title or not req.email\n    try\n      cr = @svc.oaworks.metadata {url: req.url}, {doi: req.doi}\n      for c of cr\n        if c is \'email\'\n          for e in cr.email\n            isauthor = false\n            if cr?.author?\n              for a in cr.author\n                isauthor = a.family and e.toLowerCase().indexOf(a.family.toLowerCase()) isnt -1\n            if isauthor and @mail.validate(e, @S.svc.oaworks.mail?.pubkey).is_valid\n              req.email = e\n              break\n        else\n          req[c] ?= cr[c]\n  if _.isArray(req.author) and not req.author_affiliation\n    for author in req.author\n      try\n        if req.email.toLowerCase().indexOf(author.family) isnt -1\n          req.author_affiliation = author.affiliation[0].name\n          break\n  req.keywords ?= []\n  req.title ?= \'\'\n  req.doi ?= \'\'\n  req.author = []\n  req.journal = \'\'\n  req.issn = \'\'\n  req.publisher = \'\'\n  if not req.email and req.author_affiliation\n    try\n      for author in req.author\n        if author.affiliation[0].name is req.author_affiliation\n          # it would be possible to lookup ORCID here if the author has one in the crossref data, but that would only get us an email for people who make it public\n          # previous analysis showed that this is rare. So not doing it yet\n          email = @src.hunter.email {company: req.author_affiliation, first_name: author.family, last_name: author.given}, @S.svc.oaworks.hunter.api_key\n          if email?.email?\n            req.email = email.email\n            break\n\n  if req.story\n    res = oab_request.search \'rating:1 AND story.exact:"\' + req.story + \'"\'\n    if res.hits.total\n      nres = oab_request.search \'rating:0 AND story.exact:"\' + req.story + \'"\'\n      req.rating = 1 if nres.hits.total is 0\n\n  req.status ?= if not req.story or not req.title or not req.email or not req.user? then "help" else "moderate"\n  if req.year\n    try\n      req.year = parseInt(req.year) if typeof req.year is \'string\'\n      if req.year < 2000\n        req.status = \'closed\'\n        req.closed_on_create = true\n        req.closed_on_create_reason = \'pre2000\'\n    try\n      if fast and (new Date()).getFullYear() - req.year > 5 # only doing these on fast means only doing them via UI for now\n        req.status = \'closed\'\n        req.closed_on_create = true\n        req.closed_on_create_reason = \'gt5\'\n  if fast and not req.doi? and req.status isnt \'closed\'\n    req.status = \'closed\'\n    req.closed_on_create = true\n    req.closed_on_create_reason = \'nodoi\'\n  if fast and req.crossref_type? and req.crossref_type isnt \'journal-article\' and req.status isnt \'closed\'\n    req.status = \'closed\'\n    req.closed_on_create = true\n    req.closed_on_create_reason = \'notarticle\'\n\n  req.receiver = @uid()\n  req._id = rid\n  if req.title? and typeof req.title is \'string\'\n    try req.title = req.title.charAt(0).toUpperCase() + req.title.slice(1)\n  if req.journal? and typeof req.journal is \'string\'\n    try req.journal = req.journal.charAt(0).toUpperCase() + req.journal.slice(1)\n  oab_request.update rid, req\n  if (fast and req.user?.email?) or send_confirmation\n    try\n      tmpl = API.mail.template \'initiator_confirmation.html\'\n      sub = API.service.oab.substitute tmpl.content, {_id: req._id, url: req.url, title:(req.title ? req.url) }\n      @mail\n        service: \'openaccessbutton\',\n        from: sub.from ? @S.svc.oaworks.mail.from\n        to: req.user.email\n        subject: sub.subject ? \'New request created \' + req._id\n        html: sub.content\n  if req.story # and notify\n    # for now still send if not notify, but remove Natalia (Joe requested it this way, so he still gets them on bulk creates, but Natalia does not)\n    addrs = @S.svc.oaworks.notify.request\n    if not notify and typeof addrs isnt \'string\' and \'natalia.norori@openaccessbutton.org\' in addrs\n      addrs.splice(addrs.indexOf(\'natalia.norori@openaccessbutton.org\'),1)\n    @mail\n      service: \'openaccessbutton\'\n      from: \'natalia.norori@openaccessbutton.org\'\n      to: addrs\n      subject: \'New request created \' + req._id\n      text: (if @S.dev then \'https://dev.openaccessbutton.org/request/\' else \'https://openaccessbutton.org/request/\') + req._id\n  return req';
+`P.svc.oaworks.request = (req, uacc, fast, notify=true) ->
+  dom
+  if req.dom
+    dom = req.dom
+    delete req.dom
+  return false if JSON.stringify(req).indexOf('<script') isnt -1
+  req = @tdm.clean req
+  req.type ?= 'article'
+  req.url = req.url[0] if _.isArray req.url
+  req.doi = req.url if not req.doi? and req.url? and req.url.indexOf('10.') isnt -1 and req.url.split('10.')[1].indexOf('/') isnt -1
+  req.doi = '10.' + req.doi.split('10.')[1].split('?')[0].split('#')[0] if req.doi? and req.doi.indexOf('10.') isnt 0
+  req.doi = decodeURIComponent(req.doi) if req.doi
+  if req.url? and req.url.indexOf('eu.alma.exlibrisgroup.com') isnt -1
+    req.url += (if req.url.indexOf('?') is -1 then '?' else '&') + 'oabLibris=' + Random.id()
+    if req.title? and typeof req.title is 'string' and req.title.length > 0 and texist = oab_request.find {title:req.title,type:req.type}
+      texist.cache = true
+      return texist
+  else if req.doi or req.title or req.url
+    eq = {type: req.type}
+    if req.doi
+      eq.doi = req.doi
+    else if req.title
+      eq.title = req.title
+    else
+      eq.url = req.url
+    if exists = oab_request.find eq
+      exists.cache = true
+      return exists
+  return false if not req.test and @svc.oaworks.blacklist req.url
+
+  rid = if req._id and oab_request.get(req._id) then req._id else oab_request.insert {url:req.url,type:req.type,_id:req._id}
+  user = if uacc then (if typeof uacc is 'string' then API.accounts.retrieve(uacc) else uacc) else undefined
+  send_confirmation = false
+  if not req.user? and user and req.story
+    send_confirmation = true
+    un = user.profile?.firstname ? user.username ? user.emails[0].address
+    req.user =
+      id: user._id
+      username: un
+      email: user.emails[0].address
+      firstname: user.profile?.firstname
+      lastname: user.profile?.lastname
+      affiliation: user.service?.openaccessbutton?.profile?.affiliation
+      profession: user.service?.openaccessbutton?.profile?.profession
+  req.count ?= if req.story then 1 else 0
+
+  if not req.doi or not req.title or not req.email
+    try
+      cr = @svc.oaworks.metadata {url: req.url}, {doi: req.doi}
+      for c of cr
+        if c is 'email'
+          for e in cr.email
+            isauthor = false
+            if cr?.author?
+              for a in cr.author
+                isauthor = a.family and e.toLowerCase().indexOf(a.family.toLowerCase()) isnt -1
+            if isauthor and @mail.validate(e, @S.svc.oaworks.mail?.pubkey).is_valid
+              req.email = e
+              break
+        else
+          req[c] ?= cr[c]
+  if _.isArray(req.author) and not req.author_affiliation
+    for author in req.author
+      try
+        if req.email.toLowerCase().indexOf(author.family) isnt -1
+          req.author_affiliation = author.affiliation[0].name
+          break
+  req.keywords ?= []
+  req.title ?= ''
+  req.doi ?= ''
+  req.author = []
+  req.journal = ''
+  req.issn = ''
+  req.publisher = ''
+  if not req.email and req.author_affiliation
+    try
+      for author in req.author
+        if author.affiliation[0].name is req.author_affiliation
+          # it would be possible to lookup ORCID here if the author has one in the crossref data, but that would only get us an email for people who make it public
+          # previous analysis showed that this is rare. So not doing it yet
+          email = @src.hunter.email {company: req.author_affiliation, first_name: author.family, last_name: author.given}, @S.svc.oaworks.hunter.api_key
+          if email?.email?
+            req.email = email.email
+            break
+
+  if req.story
+    res = oab_request.search 'rating:1 AND story.exact:"' + req.story + '"'
+    if res.hits.total
+      nres = oab_request.search 'rating:0 AND story.exact:"' + req.story + '"'
+      req.rating = 1 if nres.hits.total is 0
+
+  req.status ?= if not req.story or not req.title or not req.email or not req.user? then "help" else "moderate"
+  if req.year
+    try
+      req.year = parseInt(req.year) if typeof req.year is 'string'
+      if req.year < 2000
+        req.status = 'closed'
+        req.closed_on_create = true
+        req.closed_on_create_reason = 'pre2000'
+    try
+      if fast and (new Date()).getFullYear() - req.year > 5 # only doing these on fast means only doing them via UI for now
+        req.status = 'closed'
+        req.closed_on_create = true
+        req.closed_on_create_reason = 'gt5'
+  if fast and not req.doi? and req.status isnt 'closed'
+    req.status = 'closed'
+    req.closed_on_create = true
+    req.closed_on_create_reason = 'nodoi'
+  if fast and req.crossref_type? and req.crossref_type isnt 'journal-article' and req.status isnt 'closed'
+    req.status = 'closed'
+    req.closed_on_create = true
+    req.closed_on_create_reason = 'notarticle'
+
+  req.receiver = @uid()
+  req._id = rid
+  if req.title? and typeof req.title is 'string'
+    try req.title = req.title.charAt(0).toUpperCase() + req.title.slice(1)
+  if req.journal? and typeof req.journal is 'string'
+    try req.journal = req.journal.charAt(0).toUpperCase() + req.journal.slice(1)
+  oab_request.update rid, req
+  if (fast and req.user?.email?) or send_confirmation
+    try
+      tmpl = API.mail.template 'initiator_confirmation.html'
+      sub = API.service.oab.substitute tmpl.content, {_id: req._id, url: req.url, title:(req.title ? req.url) }
+      @mail
+        service: 'openaccessbutton',
+        from: sub.from ? @S.svc.oaworks.mail.from
+        to: req.user.email
+        subject: sub.subject ? 'New request created ' + req._id
+        html: sub.content
+  if req.story # and notify
+    # for now still send if not notify, but remove Natalia (Joe requested it this way, so he still gets them on bulk creates, but Natalia does not)
+    addrs = @S.svc.oaworks.notify.request
+    if not notify and typeof addrs isnt 'string' and 'natalia.norori@openaccessbutton.org' in addrs
+      addrs.splice(addrs.indexOf('natalia.norori@openaccessbutton.org'),1)
+    @mail
+      service: 'openaccessbutton'
+      from: 'natalia.norori@openaccessbutton.org'
+      to: addrs
+      subject: 'New request created ' + req._id
+      text: (if @S.dev then 'https://dev.openaccessbutton.org/request/' else 'https://openaccessbutton.org/request/') + req._id
+  return req`;
 
 
 // https://jcheminf.springeropen.com/articles/10.1186/1758-2946-3-47
@@ -8282,8 +11071,8 @@ P.svc.oaworks.scrape = async function(content, doi) {
 };
 
 
-S.built = "Sun Apr 04 2021 04:35:42 GMT+0100";
-S.system = "b7118231f853479e290c6178985a346d99ffd4bad9157769d0aac5c2707a06f5";
+S.built = "Wed Apr 07 2021 12:49:51 GMT+0100";
+S.system = "ec76246a7f8da9e3a3d5c79a5b8654de86298d41f57965103d5b1d92f2b45c0e";
 P.puppet = {_bg: true}// added by constructor
 
 P.scripts.testoab = {_bg: true}// added by constructor

@@ -180,7 +180,7 @@ P = (scheduled) ->
       break
 
   @route = @parts.join '/'
-  @routes = {} # build an obj keyed by all the route strings (for the status page) maybe useful elsewhere. Each points to some useful info probably...
+  @routes = []
   @fn = '' # the function name that was mapped to by the URL routes in the request will be stored here
   @scheduled = true if scheduled or @route is 'log/_schedule' # and restrict this to root, or disable URL route to it
   #@nolog = true if ... # don't log if nolog is present and its value matches a secret key? Or if @S.log is false?
@@ -289,7 +289,7 @@ P = (scheduled) ->
             # TODO if lg.qry is a string like a title, with no other search qualifiers in it, and f._search is a string, treat f._search as the key name to search in
             # BUT if there are no spaces in lg.qry, it's probably supposed to be part of the key - that should be handled above anyway
             res = await @index lg.key, rec ? (if lg.qry then await @index.translate(lg.qry) else undefined)
-            if @fn isnt n and typeof lg.qry is 'string' and not rec and res?.hits?.total is 1
+            if @fn isnt n and typeof lg.qry is 'string' and lg.qry.indexOf(' ') is -1 and not rec and res?.hits?.total is 1 and lg.qry.indexOf(res.hits.hits[0]._id isnt -1)
               try res = res.hits.hits[0]._source
             lg.cached = 'index' if res? and not rec?
         @cached = lg.cached if lg.cached and @fn.startsWith n # record whether or not the main function result was cached in index or kv
@@ -302,10 +302,10 @@ P = (scheduled) ->
           try
             # TODO could @_timeout this and if it runs out, throw new Error() to go to bg machine
             # TODO this replace of _ with / affects function names with underscores in them - if there are any, need a neater way to handle switching back to url form
-            res = await @fetch @S.bg + '/' + lg.key.replace(/_/g, '/'), bup # if this takes too long the whole route function will timeout and cascade to bg
+            res = await @fetch @S.bg + '/' + lg.key.replace(/_/g, '/') + (if @refresh then '?refresh=true' else ''), bup # if this takes too long the whole route function will timeout and cascade to bg
             lg.bg = true
         # if it's an index function with a sheet setting, or a sheet param has been provided, what to do by default?
-        if not res? and f._sheet # this will happen on background where possible, because above will have routed to bg if it was available
+        if not res? and f._sheet and (@refresh or not exists = @index rt) # this will happen on background where possible, because above will have routed to bg if it was available
           res = await @src.google.sheets f._sheet
           res = await f(res) if typeof f is 'function' # process the sheet with the parent if it is a function
           await @index rt, ''
@@ -384,7 +384,7 @@ P = (scheduled) ->
             @fn += (if @fn is '' then '' else '.') + pk
             fn = a[k] if typeof a[k] is 'function' and n.indexOf('._') is -1 # URL routes can't call _abc functions or ones under them
           if typeof a[k] is 'function' and not a[k]._hidden and n.indexOf('scripts.') is -1
-            @routes[(n + (if n then '.' else '') + k).replace(/\./g, '/')] = true # TODO this should read from the auth method, and only show things the current user can access, and also search for description / comment?
+            @routes.push (n + (if n then '.' else '') + k).replace(/\./g, '/') # TODO this could check the auth method, and only show things the current user can access, and also search for description / comment?
         _lp(p[k], a[k], n + (if n then '.' else '') + k) if not Array.isArray(p[k]) and (not k.startsWith('_') or typeof a[k] is 'function')
   _lp P, @, ''
   if pk and prs.length # catch any remaining url params beyond the max depth of P
@@ -403,12 +403,14 @@ P = (scheduled) ->
         if fs._sheet # reload the sheet, at some interval?
           recs = await @src.google.sheets fs._sheet
           recs = await fs(res) if typeof fs is 'function'
-        else
-          await @kv._each fs._schedule, (kn) ->
-            if kn.indexOf('/') isnt -1 and kn isnt fs._schedule
-              rec = await @kv kn, (if fs._kv then undefined else '') # if kv not explicitly set, delete when moving to index
-              rec._id ?= kn.split('/').pop()
-              recs.push rec
+        await @kv._each fs._schedule, (kn) ->
+          if kn.indexOf('/') isnt -1 and kn isnt fs._schedule
+            # if kv not explicitly set, delete when moving to index
+            # this could also be used as a way to replicate changes back into a sheet after reload
+            # but would need at least a way to properly uniquely identify records between sheet and index
+            rec = await @kv kn, if fs._kv then undefined else ''
+            rec._id ?= kn.split('/').pop()
+            recs.push rec
         if recs.length
           @waitUntil @index fs._schedule, recs
         res.push indexed: recs.length

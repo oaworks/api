@@ -164,13 +164,14 @@ P.svc.oaworks.permissions = (meta, ror, getmeta) ->
     if not rs?.hits?.total
       # look up the ROR in wikidata - if found, get the qid from the P17 country snak, look up that country qid
       # get the P297 ISO 3166-1 alpha-2 code, search affiliations for that
-      if rwd = await @src.wikidata 'snaks.property.exact:"P6782" AND snaks.property.exact:"P17" AND (snaks.value.exact:"' + meta.ror.join(" OR snaks.value.exact:") + '")'
+      if rw = await @src.wikidata 'snaks.property.exact:"P6782" AND snaks.property.exact:"P17" AND (snaks.value.exact:"' + meta.ror.join(" OR snaks.value.exact:") + '")'
         snkd = false
-        for snak in rwd.snaks
-          if snkd
-            break
-          else if snak.property is 'P17'
-            if cwd = await @src.wikidata snak.qid
+        for ro in rw.hits?.hits ? []
+          break if snkd
+          rwd = ro._source
+          for snak in rwd.snaks
+            break if snkd
+            if snak.property is 'P17' and cwd = await @src.wikidata snak.qid
               for sn in cwd.snaks
                 if sn.property is 'P297'
                   snkd = true
@@ -182,8 +183,7 @@ P.svc.oaworks.permissions = (meta, ror, getmeta) ->
       rors.push tr
 
   if issns.length or meta.publisher
-    console.log meta.publisher
-    qr = if issns.length then 'issuer.id.keyword:"' + issns.join('" OR issuer.id.keyword:"') + '"' else ''
+    qr = if issns.length then 'issuer.id:"' + issns.join('" OR issuer.id:"') + '"' else ''
     if meta.publisher
       qr += ' OR ' if qr isnt ''
       qr += 'issuer.id:"' + meta.publisher + '"' # how exact/fuzzy can this be
@@ -425,6 +425,9 @@ P.svc.oaworks.permission = (recs=[]) ->
               cids.push(an) if an not in cids
         cids.push(nid) if nid not in cids
       nr.issuer.id = cids
+    else if nr.issuer.id.startsWith('10.') and nr.issuer.id.indexOf('/') isnt -1 and nr.issuer.id.indexOf(' ') is -1
+      console.log nr.issuer.id
+      nr.DOI = nr.issuer.id
     nr.permission_required = rec.has_policy? and rec.has_policy.toLowerCase().indexOf('permission required') isnt -1
 
     for k of rec
@@ -482,5 +485,6 @@ P.svc.oaworks.permission = (recs=[]) ->
   return if ready.length is 1 then ready[0] else ready
 
 P.svc.oaworks.permission._sheet = '1qBb0RV1XgO3xOQMdHJBAf3HCJlUgsXqDVauWAtxde4A'
+P.svc.oaworks.permission._prefix = false
 #P.svc.oaworks.permission._bg = true
 

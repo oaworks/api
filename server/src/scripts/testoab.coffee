@@ -7,7 +7,7 @@ P.scripts.testoab = () ->
   results = {checked: 0, errors: 0, matched: 0, dois: 0, nodoi: 0, titles: 0, permissions: {present: 0, matched: 0}, ill: {present: 0, matched: 0}, unmatched: {}}
   for r in finds?.hits?.hits ? []
     results.checked += 1
-    try
+    if true #try
       match = {}
       rec = r._source
       if typeof rec.input is 'string'
@@ -36,20 +36,20 @@ P.scripts.testoab = () ->
           if res.permissions?.best_permission?
             res.permissions.best_permission.issuer.id = res.permissions.best_permission.issuer.id.join(',') if Array.isArray res.permissions.best_permission?.issuer?.id
             rec.permissions.best_permission.issuer.id = rec.permissions.best_permission.issuer.id.join(',') if Array.isArray rec.permissions.best_permission?.issuer?.id
-            if res.permissions.best_permission?.issuer?.id is rec.permissions.best_permission?.issuer?.id
+            if res.permissions.best_permission.issuer?.id is rec.permissions.best_permission.issuer?.id
               results.permissions.matched += 1
             else
-              results.unmatched['permission_' + rec.input] = new: res.permissions.best_permission?.issuer?.id, old: rec.permissions.best_permission?.issuer?.id
+              results.unmatched['permission_' + rec.input] = new: res.permissions.best_permission.issuer.id, old: rec.permissions.best_permission.issuer.id, count: if results.unmatched['permission_' + rec.input]? then results.unmatched['permission_' + rec.input].count + 1 else 1
           else
-            results.unmatched['permission_' + rec.input] = new: res.permissions.best_permission?.issuer?.id, old: rec.permissions.best_permission?.issuer?.id
+            results.unmatched['permission_' + rec.input] = new: res.permissions?.best_permission?.issuer?.id, old: rec.permissions?.best_permission?.issuer?.id, count: if results.unmatched['permission_' + rec.input]? then results.unmatched['permission_' + rec.input].count + 1 else 1
         if rec.ill?.subscription?
           results.ill.present += 1
           if res.ill?.subscription?.found is rec.ill.subscription.found
             results.ill.matched += 1
           else
-            results.unmatched['instantill_' + rec.input] = new: res.ill?.subscription?.found, old: rec.ill?.subscription?.found
-    catch
-      results.errors += 1
+            results.unmatched['instantill_' + rec.input] = new: res.ill?.subscription?.found, old: rec.ill?.subscription?.found, count: if results.unmatched['instantill_' + rec.input]? then results.unmatched['instantill_' + rec.input].count + 1 else 1
+    #catch
+    #  results.errors += 1
 
   if @params.mail isnt false
     @mail msg: results

@@ -1,22 +1,6 @@
 
 P.tdm = {}
 
-P.tdm.clean = (text) ->
-	text ?= this?.params?.clean ? this?.params?.text ? this?.params?.q
-	_bad_chars = [
-		{bad: '‘', good: "'"},
-		{bad: '’', good: "'"},
-		{bad: '´', good: "'"},
-		{bad: '“', good: '"'},
-		{bad: '”', good: '"'},
-		{bad: '–', good: '-'},
-		{bad: '-', good: '-'}
-	]
-	for c in _bad_chars
-		re = new RegExp c.bad, 'g'
-		text = text.replace re, c.good
-	return text
-
 P.tdm.occurrence = (content, sub, overlap) ->
 	content ?= this?.params?.content ? this?.params?.url
 	content = @fetch(content) if content.indexOf('http') is 0

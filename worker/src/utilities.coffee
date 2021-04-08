@@ -32,17 +32,6 @@ P.hash = (content) ->
     # crypto is imported by the server-side main api file
     return crypto.createHash('sha256').update(content, 'utf8').digest 'hex' # md5 would be preferable but web crypto /subtle doesn't support md5
 
-P.copy = (obj) ->
-  try obj ?= @params
-  return JSON.parse JSON.stringify obj
-
-P.keys = (obj) ->
-  try obj ?= @params
-  keys = []
-  for k of obj ? {}
-    keys.push(k) if obj[k]? and k not in keys
-  return keys
-
 P.sleep = (ms) -> # await this when calling it to actually wait
   try ms ?= @params.ms
   return new Promise (resolve) => setTimeout resolve, ms ? 1000
@@ -73,24 +62,6 @@ P.form = (params) ->
         po += p + '=' + encodeURIComponent (if typeof ppt is 'object' then JSON.stringify(ppt) else ppt)
   return po
 
-P.dot = (obj, key) ->
-  # TODO can add back in a way to pass in values or deletions if necessary, and traversing lists too
-  try
-    if typeof obj is 'string' and typeof key is 'object'
-      st = obj
-      obj = key
-      key = st
-    obj = @copy(obj) if obj?
-    if not obj? and this?.params?.key?
-      obj = @copy @params
-      key = obj.key
-      delete obj.key
-    key = key.split('.') if typeof key is 'string'
-    obj = obj[k] for k in key
-    return obj
-  catch
-    return undefined
-
 P.decode = (content) ->
   _decode = (content) ->
     # https://stackoverflow.com/questions/44195322/a-plain-javascript-way-to-decode-html-entities-works-on-both-browsers-and-node
@@ -108,7 +79,39 @@ P.decode = (content) ->
       num = parseInt(numStr, 10)
       return String.fromCharCode(num)
     ))
-  return _decode(content).replace(/\n/g,'')
+  text = await _decode(content).replace(/\n/g,'')
+  for c in [{bad: '‘', good: "'"}, {bad: '’', good: "'"}, {bad: '´', good: "'"}, {bad: '“', good: '"'}, {bad: '”', good: '"'}, {bad: '–', good: '-'}, {bad: '-', good: '-'}]
+    re = new RegExp c.bad, 'g'
+    text = text.replace re, c.good
+  return text
+
+P.copy = (obj) ->
+  try obj ?= @params
+  return JSON.parse JSON.stringify obj
+
+P.keys = (obj) ->
+  try obj ?= @params
+  keys = []
+  for k of obj ? {}
+    keys.push(k) if obj[k]? and k not in keys
+  return keys
+
+P.dot = (obj, key) ->
+  # TODO can add back in a way to pass in values or deletions if necessary, and traversing lists too
+  if typeof obj is 'string' and typeof key is 'object'
+    st = obj
+    obj = key
+    key = st
+  if not obj? and this?.params?.key?
+    obj = @copy @params
+    key = obj.key
+  key = key.split('.') if typeof key is 'string'
+  try
+    res = obj
+    res = res[k] for k in key
+    return res
+  catch
+    return undefined
 
 P.flatten = (obj) ->
   obj ?= @params
