@@ -101,7 +101,7 @@ try
 P = (scheduled) ->
   # the context here is the fetch event
   @started = Date.now() # not strictly accurate in a workers environment, but handy nevertheless, used for comparison when logs are finally written
-  console.log @started
+
   # make @S settings object local to this fetch event
   # this header is defined later because the built date is added to the end of the file by the deploy script, so it's not known until now
   try S.headers['X-' + S.name] ?= (if S.version then 'v' + S.version else '') + (if S.built then ' built ' + S.built  else '')
