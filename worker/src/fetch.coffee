@@ -52,6 +52,13 @@ P.fetch = (url, params) ->
   if typeof url isnt 'string'
     return false
   else
+    try
+      if url.indexOf('?') isnt -1
+        url = url.split('?')[0] + '?'
+        for qp in url.split('?')[1].split '&'
+          [k,v] = qp.split '='
+          v ?= ''
+          url += k + '=' + encodeURIComponent v
     if S.system and ((typeof S.bg is 'string' and url.startsWith S.bg) or (typeof S.kv is 'string' and S.kv.startsWith('http') and url.startsWith S.kv))
       params.headers ?= {} # add the system auth code when passing anything back to bg, or when bg passing to worker to reach kv
       params.headers['x-' + S.name + '-system'] ?= S.system

@@ -113,7 +113,7 @@ P = (scheduled) ->
   # it probably would appear to change, but may still be in there, then may get saved in cache etc which prob isn't wanted
   # unless results SHOULD differ by apikey? Probably on any route where that is the case, caching should be disabled
   if @request.url? and @request.url.indexOf('?') isnt -1
-    for qp in @request.url.split('?')[1].split('&')
+    for qp in @request.url.split('?')[1].split '&'
       kp = qp.split '='
       @params[kp[0]] = if kp.length is 1 then true else if typeof kp[1] is 'string' and kp[1].toLowerCase() is 'true' then true else if typeof kp[1] is 'string' and kp[1].toLowerCase() is 'false' then false else if qp.endsWith('=') then true else kp[1]
       if typeof @params[kp[0]] is 'string' and @params[kp[0]].replace(/[0-9]/g,'').length is 0 and not @params[kp[0]].startsWith('0')
