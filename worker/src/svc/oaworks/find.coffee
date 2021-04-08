@@ -63,6 +63,7 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
   metadata.pmcid ?= options.pmcid ? options.pmc
   await _metadata(options.citation) if options.citation
   try metadata.title = metadata.title.replace(/(<([^>]+)>)/g,'').replace(/\+/g,' ').trim()
+  try metadata.title = await @decode metadata.title
   try metadata.doi = metadata.doi.split(' ')[0].replace('http://','').replace('https://','').replace('doi.org/','').replace('doi:','').trim()
   delete metadata.doi if typeof metadata.doi isnt 'string' or metadata.doi.indexOf('10.') isnt 0
 

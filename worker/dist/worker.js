@@ -8464,6 +8464,9 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
     metadata.title = metadata.title.replace(/(<([^>]+)>)/g, '').replace(/\+/g, ' ').trim();
   } catch (error) {}
   try {
+    metadata.title = (await this.decode(metadata.title));
+  } catch (error) {}
+  try {
     metadata.doi = metadata.doi.split(' ')[0].replace('http://', '').replace('https://', '').replace('doi.org/', '').replace('doi:', '').trim();
   } catch (error) {}
   if (typeof metadata.doi !== 'string' || metadata.doi.indexOf('10.') !== 0) {
@@ -11075,8 +11078,8 @@ P.svc.oaworks.scrape = async function(content, doi) {
 };
 
 
-S.built = "Thu Apr 08 2021 11:35:57 GMT+0100";
-S.system = "0dc31895485488246f74b1799589b6f0575965928e0acd7edaad101329ff2dc6";
+S.built = "Thu Apr 08 2021 12:00:44 GMT+0100";
+S.system = "42c4dbaa28e1313fee08a2c190e8d3991c29cdb7c6a802c1084150a72940d810";
 P.puppet = {_bg: true}// added by constructor
 
 P.scripts.testoab = {_bg: true}// added by constructor
