@@ -17,7 +17,7 @@
 P.src.epmc = (qrystr, from, size) ->
   qrystr ?= @params.epmc ? @params.doi
   qrystr = 'DOI:' + qrystr if qrystr.indexOf('10.') is 0 and qrystr.indexOf(' ') is -1 and qrystr.split('/').length is 2 
-  url = 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=' + qrystr + '%20sort_date:y&resulttype=core&format=json'
+  url = 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=' + qrystr + ' sort_date:y&resulttype=core&format=json'
   url += '&pageSize=' + size if size? #can handle 1000, have not tried more, docs do not say
   url += '&cursorMark=' + from if from? # used to be a from pager, but now uses a cursor
   ret = {}

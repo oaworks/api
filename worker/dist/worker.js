@@ -673,7 +673,7 @@ P = async function(scheduled) {
         });
       }
     }
-    this.log();
+    //@log()
     return this._response(res); // use this or just fall through to final return?
   } else if (typeof fn === 'function') {
     if (this.S.name && this.S.system && this.headers['x-' + this.S.name + '-system'] === this.S.system) {
@@ -1845,11 +1845,14 @@ P.fetch = async function(url, params) {
         ref2 = url.split('?')[1].split('&');
         for (j = 0, len1 = ref2.length; j < len1; j++) {
           qp = ref2[j];
+          if (!nu.endsWith('?')) {
+            nu += '&';
+          }
           [k, v] = qp.split('=');
           if (v == null) {
             v = '';
           }
-          nu += k + '=' + encodeURIComponent(v);
+          nu += k + '=' + (v.indexOf('%') !== -1 ? v : encodeURIComponent(v));
         }
         url = nu;
       }
@@ -5299,7 +5302,7 @@ P.src.epmc = async function(qrystr, from, size) {
   if (qrystr.indexOf('10.') === 0 && qrystr.indexOf(' ') === -1 && qrystr.split('/').length === 2) {
     qrystr = 'DOI:' + qrystr;
   }
-  url = 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=' + qrystr + '%20sort_date:y&resulttype=core&format=json';
+  url = 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=' + qrystr + ' sort_date:y&resulttype=core&format=json';
   if (size != null) {
     url += '&pageSize=' + size; //can handle 1000, have not tried more, docs do not say
   }
@@ -11100,8 +11103,8 @@ P.svc.oaworks.scrape = async function(content, doi) {
 };
 
 
-S.built = "Fri Apr 09 2021 04:39:07 GMT+0100";
-S.system = "c9159732e5f865def884328c817ef8de0f62043a4cc50295714c239d28e8b460";
+S.built = "Fri Apr 09 2021 07:44:25 GMT+0100";
+S.system = "bd2702342e6786ecb2a917fc9a0d0d90bc4500e503c661787c3fdc6148d88124";
 P.puppet = {_bg: true}// added by constructor
 
 P.scripts.testoab = {_bg: true}// added by constructor
