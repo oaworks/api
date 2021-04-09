@@ -2052,9 +2052,7 @@ P.log = async function(msg) {
           msg.logs.push(l);
         }
       }
-      if (msg.createdAt == null) {
-        msg.createdAt = Date.now();
-      }
+      msg.createdAt = new Date(); //Date.now()
       if (msg.name == null) {
         msg.name = S.name;
       }
@@ -11102,8 +11100,8 @@ P.svc.oaworks.scrape = async function(content, doi) {
 };
 
 
-S.built = "Fri Apr 09 2021 00:36:28 GMT+0100";
-S.system = "f0017e512a27e0a89847408506dd91de56ccbda6cf2a56d073ca753445e19e4d";
+S.built = "Fri Apr 09 2021 04:39:07 GMT+0100";
+S.system = "c9159732e5f865def884328c817ef8de0f62043a4cc50295714c239d28e8b460";
 P.puppet = {_bg: true}// added by constructor
 
 P.scripts.testoab = {_bg: true}// added by constructor
