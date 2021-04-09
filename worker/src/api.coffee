@@ -417,7 +417,7 @@ P = (scheduled) ->
         if recs.length
           @waitUntil @index fs._schedule, recs
         res.push indexed: recs.length
-    @log()
+    #@log()
     return @_response res # use this or just fall through to final return?
 
   else if typeof fn is 'function'

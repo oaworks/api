@@ -56,6 +56,7 @@ P.fetch = (url, params) ->
       if url.indexOf('?') isnt -1
         nu = url.split('?')[0] + '?'
         for qp in url.split('?')[1].split '&'
+          nu += '&' if not nu.endsWith '?'
           [k,v] = qp.split '='
           v ?= ''
           nu += k + '=' + encodeURIComponent v
