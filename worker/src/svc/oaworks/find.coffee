@@ -53,7 +53,7 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
       else
         metadata.title = options.url
     delete options.url if options.url.indexOf('http') isnt 0 or options.url.indexOf('.') is -1
-  if options.title and (options.title.indexOf('{') isnt -1 or (options.title.replace('...','').match(/\./gi) ? []).length > 3 or (options.title.match(/\(/gi) ? []).length > 2)
+  if typeof options.title is 'string' and (options.title.indexOf('{') isnt -1 or (options.title.replace('...','').match(/\./gi) ? []).length > 3 or (options.title.match(/\(/gi) ? []).length > 2)
     options.citation = options.title # titles that look like citations
     delete options.title
 
@@ -174,7 +174,7 @@ P.svc.oaworks.citation = (citation) ->
   
   try citation ?= @params.citation ? @params
   if typeof citation is 'string' and (citation.indexOf('{') is 0 or citation.indexOf('[') is 0)
-    try citation = JSON.parse options.citation
+    try citation = JSON.parse citation
 
   if typeof citation is 'object'
     res.doi = citation.DOI ? citation.doi

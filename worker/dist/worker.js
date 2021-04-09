@@ -8466,7 +8466,7 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
       delete options.url;
     }
   }
-  if (options.title && (options.title.indexOf('{') !== -1 || ((ref4 = options.title.replace('...', '').match(/\./gi)) != null ? ref4 : []).length > 3 || ((ref5 = options.title.match(/\(/gi)) != null ? ref5 : []).length > 2)) {
+  if (typeof options.title === 'string' && (options.title.indexOf('{') !== -1 || ((ref4 = options.title.replace('...', '').match(/\./gi)) != null ? ref4 : []).length > 3 || ((ref5 = options.title.match(/\(/gi)) != null ? ref5 : []).length > 2)) {
     options.citation = options.title; // titles that look like citations
     delete options.title;
   }
@@ -8672,7 +8672,7 @@ P.svc.oaworks.citation = function(citation) {
   } catch (error) {}
   if (typeof citation === 'string' && (citation.indexOf('{') === 0 || citation.indexOf('[') === 0)) {
     try {
-      citation = JSON.parse(options.citation);
+      citation = JSON.parse(citation);
     } catch (error) {}
   }
   if (typeof citation === 'object') {
@@ -11103,8 +11103,8 @@ P.svc.oaworks.scrape = async function(content, doi) {
 };
 
 
-S.built = "Fri Apr 09 2021 07:44:25 GMT+0100";
-S.system = "bd2702342e6786ecb2a917fc9a0d0d90bc4500e503c661787c3fdc6148d88124";
+S.built = "Fri Apr 09 2021 12:28:50 GMT+0100";
+S.system = "5f31b98a1a55d648a044f1b49575370203d3766aa11844a5aa332cfc01468d3c";
 P.puppet = {_bg: true}// added by constructor
 
 P.scripts.testoab = {_bg: true}// added by constructor
