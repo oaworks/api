@@ -75,16 +75,17 @@ P.svc.oaworks.ill = (opts) -> # only worked on POST with optional auth
 P.svc.oaworks.ill._index = true
 
 
-P.svc.oaworks.ill.collect = () ->
-  sid = @params.collect # end of the url is an SID
+P.svc.oaworks.ill.collect = (params) ->
+  params ?= @copy @params
+  sid = params.collect # end of the url is an SID
+  params._id ?= await @uid()
   # example AKfycbwPq7xWoTLwnqZHv7gJAwtsHRkreJ1hMJVeeplxDG_MipdIamU6
   url = 'https://script.google.com/macros/s/' + sid + '/exec?'
-  for q of @params
-    url += q + '=' + @params[q] + '&' if q isnt 'collect'
-  url += 'uuid=' + @uid()
+  for q of params
+    url += (if q is '_id' then 'uuid' else q) + '=' + params[q] + '&' if q isnt 'collect'
   @waitUntil @fetch url
+  @waitUntil @svc.rscvd params
   return true
-
 
 P.svc.oaworks.ill.openurl = (config, meta) ->
   # Will eventually redirect after reading openurl params passed here, somehow. 

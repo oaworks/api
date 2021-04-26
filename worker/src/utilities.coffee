@@ -80,10 +80,13 @@ P.decode = (content) ->
       num = parseInt(numStr, 10)
       return String.fromCharCode(num)
     ))
-  text = await _decode(content).replace(/\n/g,'')
+  text = await _decode content
+  text = text.replace /\n/g, ' '
   for c in [{bad: '‘', good: "'"}, {bad: '’', good: "'"}, {bad: '´', good: "'"}, {bad: '“', good: '"'}, {bad: '”', good: '"'}, {bad: '–', good: '-'}, {bad: '-', good: '-'}]
     re = new RegExp c.bad, 'g'
     text = text.replace re, c.good
+  text = decodeURIComponent(text) if text.indexOf('%2') isnt -1
+  text = decodeURIComponent(text) if text.indexOf('%2') isnt -1 # some of the data we handle was double encoded, so like %2520, so need two decodes
   return text
 
 P.copy = (obj) ->
@@ -185,7 +188,29 @@ P.template = (content, vars) ->
 
 P._templates = _index: true # an index to store templates in - although generally should be handled at the individual function/service level
 
-
+P.date = (rt) ->
+  rt ?= @params.date
+  try
+    rt = rt.toString() if typeof rt is 'number'
+    rt = rt[0] if Array.isArray(rt) and rt.length is 1 and Array.isArray rt[0]
+    if typeof rt isnt 'string'
+      try
+        for k of rt
+          rt[k] = '01' if typeof rt[k] not in ['number', 'string']
+        rt = rt.join '-'
+    rt = decodeURIComponent rt
+    rt = rt.split('T')[0] if rt.indexOf('T') isnt -1
+    rt = rt.replace(/\//g, '-').replace(/-(\d)-/g, "-0$1-").replace /-(\d)$/, "-0$1"
+    rt += '-01' if rt.indexOf('-') is -1
+    pts = rt.split '-'
+    if pts.length isnt 3
+      rt += '-01' 
+      pts = rt.split '-'
+    rt = undefined if pts.length isnt 3
+    rt = pts.reverse().join('-') if pts[0].length < pts[2].length
+    return rt
+  catch
+    return undefined
 
 '''
 P.retry = (fn, params=[], opts={}) ->

@@ -11,7 +11,7 @@ P.svc.oaworks.permissions = (meta, ror, getmeta) ->
       em = new Date em.setMonth em.getMonth() + rec.embargo_months
       rec.embargo_end = em.toISOString().split('T')[0]
     delete rec.embargo_end if rec.embargo_end is ''
-    rec.copyright_name = if rec.copyright_owner is 'publisher' then (if typeof rec.issuer.parent_policy is 'string' then rec.issuer.parent_policy else if typeof rec.issuer.id is 'string' then rec.issuer.id else rec.issuer.id[0]) else if rec.copyright_owner in ['journal','affiliation'] then (meta.journal ? '') else if (rec.copyright_owner and rec.copyright_owner.toLowerCase().indexOf('author') isnt -1) and meta.author? and meta.author.length and (meta.author[0].name or meta.author[0].family) then (meta.author[0].name ? meta.author[0].family) + (if meta.author.length > 1 then ' et al' else '') else ''
+    rec.copyright_name = if rec.copyright_owner is 'publisher' then (if typeof rec.issuer.parent_policy is 'string' then rec.issuer.parent_policy else if typeof rec.issuer.id is 'string' then rec.issuer.id else rec.issuer.id[0]) else if rec.copyright_owner in ['journal','affiliation'] then (meta.journal ? '') else if (haddoi and rec.copyright_owner and rec.copyright_owner.toLowerCase().indexOf('author') isnt -1) and meta.author? and meta.author.length and (meta.author[0].name or meta.author[0].family) then (meta.author[0].name ? meta.author[0].family) + (if meta.author.length > 1 then ' et al' else '') else ''
     if rec.copyright_name in ['publisher','journal'] and (cr or meta.doi or rec.provenance?.example)
       if cr is false
         cr = await @src.crossref.works meta.doi ? rec.provenance.example
@@ -208,7 +208,7 @@ P.svc.oaworks.permissions = (meta, ror, getmeta) ->
     if af?.publisher
       pisoa = await @svc.oaworks.oapublisher af.publisher
 
-  if typeof af is 'object' and (af.is_oa or pisoa)
+  if typeof af is 'object' and (af.indoaj or pisoa)
     altoa =
       can_archive: true
       version: 'publishedVersion'
@@ -250,8 +250,8 @@ P.svc.oaworks.permissions = (meta, ror, getmeta) ->
     altoa.score = await _score altoa
     perms.all_permissions.push altoa
 
-  if haddoi and meta.doi and oadoi = await @src.oadoi meta.doi
-    if oadoi?.best_oa_location?.license and oadoi.best_oa_location.license.indexOf('cc') isnt -1
+  if meta.doi and oadoi = await @src.oadoi meta.doi
+    if (haddoi or oadoi?.journal_is_oa) and oadoi?.best_oa_location?.license and oadoi.best_oa_location.license.indexOf('cc') isnt -1
       doa =
         can_archive: true
         version: oadoi.best_oa_location.version
@@ -414,13 +414,11 @@ P.svc.oaworks.permission = (recs=[]) ->
     nr.issuer.id = if rec.id.indexOf(',') isnt -1 then rec.id.split(',') else rec.id
     if typeof nr.issuer.id isnt 'string'
       cids = []
-      inaj = false
       for nid in nr.issuer.id
         nid = nid.trim()
         if nr.issuer.type is 'journal' and nid.indexOf('-') isnt -1 and nid.indexOf(' ') is -1
           nid = nid.toUpperCase()
           if af = await @svc.oaworks.journal 'issn.exact:"' + nid + '"'
-            inaj = true
             for an in af.issn
               cids.push(an) if an not in cids
         cids.push(nid) if nid not in cids

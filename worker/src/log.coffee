@@ -33,23 +33,26 @@ P.log = (msg) ->
           colo: @request.cf.colo
           country: @request.cf.country
       try
-        msg.request.headers =
-          ip: @headers['x-real-ip']
-          'user-agent': @headers['user-agent']
-          referer: @headers.referer
+        msg.request.headers = @headers # just get all headers to see what's useful?
+      #catch
+      #try
+      #  msg.request.headers = {}
+      #  msg.headers.ip = (@headers['x-forwarded-for'] ? @headers['x-real-ip']) if @headers['x-real-ip'] or @headers['x-forwarded-for']
+      #  msg.headers['user-agent'] = @headers['user-agent'] if @headers['user-agent']
+      #  msg.headers.referer = @headers.referer if @headers.referer
       try
-        msg.fn ?= @fn
-        msg.refresh = @refresh
+        msg.fn = @fn if not msg.fn? and @fn?
+        msg.refresh = @refresh if @refresh
         msg.parts = @parts
-        msg.completed = @completed
-        msg.cached = @cached
+        msg.completed = @completed if @completed
+        msg.cached = @cached if @cached
       try
         # don't stringify the whole obj, allow individual keys, but make them all strings to avoid mapping clashes
         msg.params = {}
         for p of @params
           msg.params[p] = if typeof @params[p] is 'string' then @params[p] else JSON.stringify @params[p]
       try msg.apikey = @headers.apikey? or @headers['x-apikey']? # only record if apikey was provided or not
-      try msg.user = @user?._id
+      try msg.user = @user._id if @user?._id?
       msg.unauthorised = true if @unauthorised
     else if typeof msg is 'object' and msg.res and msg.args # this indicates the fn had _diff true
       try # find a previous log for the same thing and if it's different add a diff: true to the log of this one. Or diff: false if same, to track that it was diffed
@@ -62,8 +65,8 @@ P.log = (msg) ->
       if Array.isArray(this?._logs) and @_logs.length
         for l in @_logs
           #msg.msg ?= l.msg
-          msg.alert ?= l.alert
-          msg.notify ?= l.notify
+          msg.alert ?= l.alert if l.alert
+          msg.notify ?= l.notify if l.notify
           msg.logs.push l
       msg.createdAt = new Date() #Date.now()
       msg.name ?= S.name

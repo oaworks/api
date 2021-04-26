@@ -16,5 +16,5 @@ P.svc.oaworks.journal = (q) ->
 P.svc.oaworks.oapublisher = (publisher) ->
   try publisher ?= @params.publisher
   tc = await @fetch 'https://dev.api.cottagelabs.com/service/jct/journal?q=publisher:"' + publisher + '" AND NOT discontinued:true'
-  oac = await @fetch 'https://dev.api.cottagelabs.com/service/jct/journal?q=publisher:"' + publisher + '" AND NOT discontinued:true AND is_oa:true'
+  oac = await @fetch 'https://dev.api.cottagelabs.com/service/jct/journal?q=publisher:"' + publisher + '" AND NOT discontinued:true AND isdoaj:true'
   return tc.hits.total is oac.hits.total

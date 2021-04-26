@@ -19,6 +19,7 @@ S.headers ?=
   'Access-Control-Allow-Methods': 'HEAD, GET, PUT, POST, DELETE, OPTIONS'
   'Access-Control-Allow-Origin': '*'
   'Access-Control-Allow-Headers': 'X-apikey, X-id, Origin, X-Requested-With, Content-Type, Content-Disposition, Accept, DNT, Keep-Alive, User-Agent, If-Modified-Since, Cache-Control'
+  'Permissions-Policy': 'interest-cohort=()'
 S.formats ?= ['html', 'csv'] # allow formatted responses in this list
 S.svc ?= {}
 S.src ?= {}
@@ -150,6 +151,8 @@ P = (scheduled) ->
   # e.g apikey, id, resume, token, access_token, email?
   try @uid = @headers['x-uid'] ? @headers.uid ? @params.uid
   try @apikey = @headers['x-apikey'] ? @headers.apikey ? @params.apikey
+  delete @headers['x-apikey'] if @headers['x-apikey']
+  delete @headers.apikey if @headers.apikey
   delete @params.apikey if @params.apikey
   delete @params.uid if @params.uid
   if @params.refresh
@@ -247,7 +250,7 @@ P = (scheduled) ->
             res = _async: @params.async # user should keep waiting
         else if f._index or f._kv
           if arguments.length is 1
-            if f._index and @index._q arguments[0]
+            if f._index and await @index._q arguments[0]
               lg.qry = arguments[0]
             else if typeof arguments[0] is 'string'
               if arguments[0].length
@@ -277,18 +280,18 @@ P = (scheduled) ->
               rec = ''
             else if isq = await @index._q @params
               lg.qry = @params
-            else
+            else if @parts.indexOf('create') is @parts.length - 1 or @parts.indexOf('save') is @parts.length - 1
               rec = @copy @params
               delete rec[c] for c in @parts
               rec = undefined if JSON.stringify(rec) is '{}'
             lg.key = @route
 
         lg.key = rt + '/' + lg.key.replace(/\//g, '_').replace(rt, '').replace(/^_/, '') if lg.key
-        if not res? and (f._index or f._kv) and (not @refresh or (f._sheet and @fn isnt n)) # and not rec? and not fn.qry))
+        if not res? and (f._index or f._kv) and (not @refresh or (f._sheet and @fn isnt n) or (@fn is n and rec)) # and not rec? and not fn.qry))
           if f._kv and lg.key.indexOf('/') isnt -1 and not lg.qry # check kv first if there is an ID present
             res = await @kv lg.key, rec
             lg.cached = 'kv' if res? and not rec?
-          if not res? and f._index and (rec or f._search) # otherwise try the index
+          if not res? and f._index and (rec? or f._search) # otherwise try the index
             # TODO if lg.qry is a string like a title, with no other search qualifiers in it, and f._search is a string, treat f._search as the key name to search in
             # BUT if there are no spaces in lg.qry, it's probably supposed to be part of the key - that should be handled above anyway
             res = await @index lg.key, rec ? (if lg.qry then await @index.translate(lg.qry) else undefined)
@@ -308,24 +311,27 @@ P = (scheduled) ->
             res = await @fetch @S.bg + '/' + lg.key.replace(/_/g, '/') + (if @refresh then '?refresh=true' else ''), bup # if this takes too long the whole route function will timeout and cascade to bg
             lg.bg = true
         # if it's an index function with a sheet setting, or a sheet param has been provided, what to do by default?
-        if not res? and f._sheet and (@refresh or not exists = @index rt) # this will happen on background where possible, because above will have routed to bg if it was available
+        if not res? and f._sheet and (@refresh or not exists = await @index rt) # this will happen on background where possible, because above will have routed to bg if it was available
           res = await @src.google.sheets f._sheet
           res = await f(res) if typeof f is 'function' # process the sheet with the parent if it is a function
           await @index rt, ''
           @waitUntil _save rt, @copy(res), f
           res = res.length
-        if not res? and typeof (f[@request.method] ? f) is 'function' # it could also be an index or kv config object with no default function
-          if f._async
-            lg.async = true
-            res = _async: @rid
-            _async = (rt, f) =>
-              if ares = await (f[@request.method] ? f).apply @, arguments
-                _save rt, @copy(ares), f
-            @waitUntil _async rt, f
-          else
-            res = await (f[@request.method] ? f).apply @, arguments
-            if res? and (f._kv or f._index)
-              @waitUntil _save rt, @copy(res), f
+        if not res?
+          if typeof (f[@request.method] ? f) is 'function' # it could also be an index or kv config object with no default function
+            if f._async
+              lg.async = true
+              res = _async: @rid
+              _async = (rt, f) =>
+                if ares = await (f[@request.method] ? f).apply @, arguments
+                  _save rt, @copy(ares), f
+              @waitUntil _async rt, f
+            else
+              res = await (f[@request.method] ? f).apply @, arguments
+              if res? and (f._kv or f._index)
+                @waitUntil _save rt, @copy(res), f
+          else if f._index and not lg.qry and not rec and rt.indexOf('/') is -1 and not exists = await @index rt # create the index
+            res = await @index rt, (if typeof f._index isnt 'object' then {} else {settings: f._index.settings, mappings: f._index.mappings, aliases: f._index.aliases})
 
         if f._diff and @request.method is 'GET' and res? and not lg.cached and not lg.async
           try
@@ -456,7 +462,9 @@ P = (scheduled) ->
       # Random delay for https://en.wikipedia.org/wiki/Timing_attack https://www.owasp.org/index.php/Blocking_Brute_Force_Attacks#Finding_Other_Countermeasures
       @unauthorised = true
       await @sleep 200 * (1 + Math.random())
-      res = status: 401 # not authorised
+      res = status: 401 # not authorised - if @format is html, provide a login box?
+      if @format is 'html'
+        res.body = await @auth()
 
   res = '' if (not res? or (typeof res is 'object' and res.status is 404)) and @url.replace('.ico','').replace('.gif','').replace('.png','').endsWith 'favicon'
   resp = if typeof res is 'object' and not Array.isArray(res) and typeof res.headers?.append is 'function' then res else await @_response res
@@ -490,11 +498,11 @@ P._response = (res) -> # this provides a Response object. It's outside the main 
     status = 200
   
   if not @S.headers['Content-Type']?
-    # TODO add formatting if the URL ended with .csv or something like that (or header requested particular format)
-    if @format and typeof res isnt 'string' and @format in ['html', 'csv']
-      try
-        res = await @convert['json2' + @format] res
-        @S.headers['Content-Type'] = if @format is 'html' then 'text/html; charset=UTF-8' else 'text/csv; charset=UTF-8'
+    if @format and @format in ['html', 'csv']
+      if typeof res isnt 'string'
+        try
+          res = await @convert['json2' + @format] res
+      @S.headers['Content-Type'] = if @format is 'html' then 'text/html; charset=UTF-8' else 'text/csv; charset=UTF-8'
     if typeof res isnt 'string'
       try res = JSON.stringify res, '', 2
     @S.headers['Content-Type'] ?= 'application/json; charset=UTF-8'

@@ -211,26 +211,27 @@ P.svc.oaworks.citation = (citation) ->
     res.abstract = citation.abstract ? citation.abstractText if citation.abstract or citation.abstractText
     try res.abstract = @convert.html2txt(res.abstract).replace(/\n/g,' ').replace('Abstract ','') if res.abstract
 
-    res.year = citation.year if citation.year
-    try res.year ?= citation.journalInfo.yearOfPublication.trim()
     for p in ['published-print', 'journal-issue.published-print', 'journalInfo.printPublicationDate', 'firstPublicationDate', 'journalInfo.electronicPublicationDate', 'published', 'published_date', 'issued', 'published-online', 'created', 'deposited', 'indexed']
-      if rt = citation[p] ? citation['journal-issue']?[p.replace('journal-issue.','')] ? citation['journalInfo']?[p.replace('journalInfo.','')]
-        rt = rt.toString() if typeof rt is 'number'
-        try rt = rt['date-time'].toString() if typeof rt isnt 'string'
-        if typeof rt isnt 'string'
-          try
-            for dpt in rt['date-parts'][0]
-              dpt[k] = '-01' if typeof dpt[k] not in ['number', 'string']
-            rt = rt['date-parts'][0].join '-'
-        if typeof rt is 'string'
-          res.published = if rt.indexOf('T') isnt -1 then rt.split('T')[0] else rt
-          res.published = res.published.replace(/\//g, '-').replace(/-(\d)-/g, "-0$1-").replace /-(\d)$/, "-0$1"
-          res.published += '-01' if res.published.indexOf('-') is -1
-          res.published += '-01' if res.published.split('-').length isnt 3
-          res.year ?= res.published.split('-')[0]
-          delete res.published if res.published.split('-').length isnt 3
-          delete res.year if res.year.length isnt 4
+      if not res.published or res.DOI
+        if rt = citation[p] ? citation['journal-issue']?[p.replace('journal-issue.','')] ? citation['journalInfo']?[p.replace('journalInfo.','')]
+          rt = rt.toString() if typeof rt is 'number'
+          try rt = rt['date-time'].toString() if typeof rt isnt 'string'
+          if typeof rt isnt 'string'
+            try
+              for k of rt['date-parts'][0]
+                rt['date-parts'][0][k] = '01' if typeof rt['date-parts'][0][k] not in ['number', 'string']
+              rt = rt['date-parts'][0].join '-'
+          if typeof rt is 'string'
+            res.published = if rt.indexOf('T') isnt -1 then rt.split('T')[0] else rt
+            res.published = res.published.replace(/\//g, '-').replace(/-(\d)-/g, "-0$1-").replace /-(\d)$/, "-0$1"
+            res.published += '-01' if res.published.indexOf('-') is -1
+            res.published += '-01' if res.published.split('-').length isnt 3
+            res.year ?= res.published.split('-')[0]
+            delete res.published if res.published.split('-').length isnt 3
+            delete res.year if res.year.length isnt 4
         break if res.published
+    res.year ?= citation.year if citation.year
+    try res.year ?= citation.journalInfo.yearOfPublication.trim()
 
     if not res.author? and (citation.author? or citation.z_authors? or citation.authorList?.author)
       res.author ?= []

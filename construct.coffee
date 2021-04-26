@@ -39,13 +39,14 @@ if args.length and 'worker' not in args and 'server' not in args
   args.push 'worker' # do both unless only one is specified
   args.push 'server'
 if not args.length
-  args = ['build', 'deploy', 'worker', 'server', 'secrets']
+  args = ['build', 'deploy', 'worker', 'server', 'secrets', 'client']
   console.log "Doing full deploy, which tries all options:"
-  console.log "build - build one or both of worker and server"
+  console.log "build - build one or both of worker and server (defaults to both unless only one is specified)"
   console.log "deploy - deploy one or both of worker and server (if settings configure somewhere to deploy to)"
   console.log "worker - build/deploy the worker (deploys to cloudflare if suitable env settings are available)"
   console.log "server - build/deploy the server (deploys to remote server if suitable env settings are available)"
-  console.log "secrets - deploy secrets (if any) to cloudflare worker (secrets are always included in a server build)\n"
+  console.log "secrets - deploy secrets (if any) to cloudflare worker (secrets are always included in a server build)"
+  console.log "client - builds the supplemental browser scripts in the client directory\n"
 
 if not fs.existsSync('./' + GROUP + 'secrets') and not fs.existsSync('./worker/' + GROUP + 'secrets') and not fs.existsSync('./server/' + GROUP + 'secrets')
   console.log "No settings or secrets available, so DEMO version being built. Read more about settings and secrets in the docs."
@@ -125,9 +126,10 @@ _w = () ->
   #console.log await _exec 'which google-chrome'
 
   wfl = ''
+  sfl = ''
   if 'build' in args
-    if 'worker' in args
-      console.log "Building worker"
+    if 'worker' in args or 'server' in args
+      console.log "Building worker" + (if 'worker' in args then '' else ' (necessary for compilation into server)')
       if fs.existsSync './worker/dist'
         try fs.unlinkSync './worker/dist/worker.js'
       else
@@ -156,14 +158,13 @@ _w = () ->
 
     if 'server' in args
       console.log "Building server"
-      if args.length and 'worker' not in args
+      if not wfl.length
         if fs.existsSync './worker/dist/worker.js'
-          sfl = fs.readFileSync('./worker/dist/worker.js').toString()
+          wfl = fs.readFileSync('./worker/dist/worker.js').toString()
         else
           console.log 'Server build cannot complete until worker build has run at least once, making ./worker/dist/worker.js available for incorporation'
           process.exit()
-      else
-        sfl = wfl
+      sfl = wfl
       if fs.existsSync './server/dist'
         try fs.unlinkSync './server/dist/server.js'
       else
@@ -183,6 +184,15 @@ _w = () ->
             if wfl.indexOf('\n' + bgp) is -1
               console.log 'adding ' + bgp + ' bg stub to worker'
               wfl += '\n' + bgp + ' = ' + (if line.indexOf('{}') isnt -1 then '{}' else '{_bg: true}') + '// added by constructor\n'
+
+    if 'client' in args
+      # TODO add a browser build of the main app too, at least all parts that can run browser-side
+      console.log "Building client files"
+      for fl in await _walk './client'
+        if fl.endsWith '.coffee'
+          console.log fl
+          cpl = coffee.compile fs.readFileSync(fl).toString(), bare: true
+          fs.writeFileSync fl.replace('.coffee', '.js'), cpl
 
   if 'server' in args
     if fs.existsSync './server/' + GROUP + 'secrets'
@@ -228,7 +238,7 @@ _w = () ->
     console.log "No worker secrets folder present, so no worker secrets imported to cloudflare or built into server script\n"
 
   if 'build' in args
-    if 'worker' in args
+    if 'worker' in args or 'server' in args # server needs worker to be built as well anyway
       fs.writeFileSync './worker/dist/worker.js', wfl
       await _exec 'cd ./worker && npm run build'
       console.log 'Worker file size ' + (fs.statSync('./worker/dist/worker.min.js').size)/1024 + 'K'
@@ -247,11 +257,15 @@ _w = () ->
       else
         console.log "No worker file available to deploy to cloudflare at worker/dist/worker.min.js\n"
   
-    if 'server' in args and fs.existsSync './server/dist/server.min.js'
+    if 'server' in args
       for CNE in CNS
         if CNE.SCP
-          console.log "Deploying server to " + CNE.SCP + (if CNE.NAME then ' for ' + CNE.NAME else '')
-          console.log await _exec 'scp ./server/dist/server.min.js ' + CNE.SCP
+          if fs.existsSync './server/dist/server.min.js'
+            console.log "Deploying server to " + CNE.SCP + (if CNE.NAME then ' for ' + CNE.NAME else '')
+            console.log await _exec 'scp ./server/dist/server.min.js ' + CNE.SCP
+          else
+            console.log "No server file available to deploy at server/dist/server.min.js\n"
+            break
 
   if 'construct' in args
     # not done by default, and not mentioned. Unnecessary, because even if a js is constructed, it still needs coffee for the translation stage

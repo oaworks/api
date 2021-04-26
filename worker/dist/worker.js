@@ -46,7 +46,8 @@ if (S.headers == null) {
   S.headers = {
     'Access-Control-Allow-Methods': 'HEAD, GET, PUT, POST, DELETE, OPTIONS',
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'X-apikey, X-id, Origin, X-Requested-With, Content-Type, Content-Disposition, Accept, DNT, Keep-Alive, User-Agent, If-Modified-Since, Cache-Control'
+    'Access-Control-Allow-Headers': 'X-apikey, X-id, Origin, X-Requested-With, Content-Type, Content-Disposition, Accept, DNT, Keep-Alive, User-Agent, If-Modified-Since, Cache-Control',
+    'Permissions-Policy': 'interest-cohort=()'
   };
 }
 
@@ -251,6 +252,12 @@ P = async function(scheduled) {
   try {
     this.apikey = (ref4 = (ref5 = this.headers['x-apikey']) != null ? ref5 : this.headers.apikey) != null ? ref4 : this.params.apikey;
   } catch (error) {}
+  if (this.headers['x-apikey']) {
+    delete this.headers['x-apikey'];
+  }
+  if (this.headers.apikey) {
+    delete this.headers.apikey;
+  }
   if (this.params.apikey) {
     delete this.params.apikey;
   }
@@ -408,7 +415,7 @@ P = async function(scheduled) {
           }
         } else if (f._index || f._kv) {
           if (arguments.length === 1) {
-            if (f._index && this.index._q(arguments[0])) {
+            if (f._index && (await this.index._q(arguments[0]))) {
               lg.qry = arguments[0];
             } else if (typeof arguments[0] === 'string') {
               if (arguments[0].length) {
@@ -442,7 +449,7 @@ P = async function(scheduled) {
               rec = '';
             } else if (isq = (await this.index._q(this.params))) {
               lg.qry = this.params;
-            } else {
+            } else if (this.parts.indexOf('create') === this.parts.length - 1 || this.parts.indexOf('save') === this.parts.length - 1) {
               rec = this.copy(this.params);
               ref8 = this.parts;
               for (l = 0, len2 = ref8.length; l < len2; l++) {
@@ -459,14 +466,14 @@ P = async function(scheduled) {
         if (lg.key) {
           lg.key = rt + '/' + lg.key.replace(/\//g, '_').replace(rt, '').replace(/^_/, '');
         }
-        if ((res == null) && (f._index || f._kv) && (!this.refresh || (f._sheet && this.fn !== n))) { // and not rec? and not fn.qry))
+        if ((res == null) && (f._index || f._kv) && (!this.refresh || (f._sheet && this.fn !== n) || (this.fn === n && rec))) { // and not rec? and not fn.qry))
           if (f._kv && lg.key.indexOf('/') !== -1 && !lg.qry) { // check kv first if there is an ID present
             res = (await this.kv(lg.key, rec));
             if ((res != null) && (rec == null)) {
               lg.cached = 'kv';
             }
           }
-          if ((res == null) && f._index && (rec || f._search)) { // otherwise try the index
+          if ((res == null) && f._index && ((rec != null) || f._search)) { // otherwise try the index
             // TODO if lg.qry is a string like a title, with no other search qualifiers in it, and f._search is a string, treat f._search as the key name to search in
             // BUT if there are no spaces in lg.qry, it's probably supposed to be part of the key - that should be handled above anyway
             res = (await this.index(lg.key, rec != null ? rec : (lg.qry ? (await this.index.translate(lg.qry)) : void 0)));
@@ -499,7 +506,7 @@ P = async function(scheduled) {
           } catch (error) {}
         }
         // if it's an index function with a sheet setting, or a sheet param has been provided, what to do by default?
-        if ((res == null) && f._sheet && (this.refresh || !(exists = this.index(rt)))) { // this will happen on background where possible, because above will have routed to bg if it was available
+        if ((res == null) && f._sheet && (this.refresh || !(exists = (await this.index(rt))))) { // this will happen on background where possible, because above will have routed to bg if it was available
           res = (await this.src.google.sheets(f._sheet));
           if (typeof f === 'function') { // process the sheet with the parent if it is a function
             res = (await f(res));
@@ -508,24 +515,32 @@ P = async function(scheduled) {
           this.waitUntil(_save(rt, this.copy(res), f));
           res = res.length;
         }
-        if ((res == null) && typeof ((ref10 = f[this.request.method]) != null ? ref10 : f) === 'function') { // it could also be an index or kv config object with no default function
-          if (f._async) {
-            lg.async = true;
-            res = {
-              _async: this.rid
-            };
-            _async = async(rt, f) => {
-              var ares, ref11;
-              if (ares = (await ((ref11 = f[this.request.method]) != null ? ref11 : f).apply(this, arguments))) {
-                return _save(rt, this.copy(ares), f);
+        if (res == null) {
+          if (typeof ((ref10 = f[this.request.method]) != null ? ref10 : f) === 'function') { // it could also be an index or kv config object with no default function
+            if (f._async) {
+              lg.async = true;
+              res = {
+                _async: this.rid
+              };
+              _async = async(rt, f) => {
+                var ares, ref11;
+                if (ares = (await ((ref11 = f[this.request.method]) != null ? ref11 : f).apply(this, arguments))) {
+                  return _save(rt, this.copy(ares), f);
+                }
+              };
+              this.waitUntil(_async(rt, f));
+            } else {
+              res = (await ((ref11 = f[this.request.method]) != null ? ref11 : f).apply(this, arguments));
+              if ((res != null) && (f._kv || f._index)) {
+                this.waitUntil(_save(rt, this.copy(res), f));
               }
-            };
-            this.waitUntil(_async(rt, f));
-          } else {
-            res = (await ((ref11 = f[this.request.method]) != null ? ref11 : f).apply(this, arguments));
-            if ((res != null) && (f._kv || f._index)) {
-              this.waitUntil(_save(rt, this.copy(res), f));
             }
+          } else if (f._index && !lg.qry && !rec && rt.indexOf('/') === -1 && !(exists = (await this.index(rt)))) { // create the index
+            res = (await this.index(rt, (typeof f._index !== 'object' ? {} : {
+              settings: f._index.settings,
+              mappings: f._index.mappings,
+              aliases: f._index.aliases
+            })));
           }
         }
         if (f._diff && this.request.method === 'GET' && (res != null) && !lg.cached && !lg.async) {
@@ -719,8 +734,11 @@ P = async function(scheduled) {
       this.unauthorised = true;
       await this.sleep(200 * (1 + Math.random()));
       res = {
-        status: 401 // not authorised
+        status: 401 // not authorised - if @format is html, provide a login box?
       };
+      if (this.format === 'html') {
+        res.body = (await this.auth());
+      }
     }
   }
   if (((res == null) || (typeof res === 'object' && res.status === 404)) && this.url.replace('.ico', '').replace('.gif', '').replace('.png', '').endsWith('favicon')) {
@@ -768,12 +786,13 @@ P._response = async function(res) { // this provides a Response object. It's out
     status = 200;
   }
   if (this.S.headers['Content-Type'] == null) {
-    // TODO add formatting if the URL ended with .csv or something like that (or header requested particular format)
-    if (this.format && typeof res !== 'string' && ((ref1 = this.format) === 'html' || ref1 === 'csv')) {
-      try {
-        res = (await this.convert['json2' + this.format](res));
-        this.S.headers['Content-Type'] = this.format === 'html' ? 'text/html; charset=UTF-8' : 'text/csv; charset=UTF-8';
-      } catch (error) {}
+    if (this.format && ((ref1 = this.format) === 'html' || ref1 === 'csv')) {
+      if (typeof res !== 'string') {
+        try {
+          res = (await this.convert['json2' + this.format](res));
+        } catch (error) {}
+      }
+      this.S.headers['Content-Type'] = this.format === 'html' ? 'text/html; charset=UTF-8' : 'text/csv; charset=UTF-8';
     }
     if (typeof res !== 'string') {
       try {
@@ -820,6 +839,7 @@ P.scripts = {};
 // curl -X GET "https://api.lvatn.com/auth" -H "x-id:YOURUSERIDHERE" -H "x-apikey:YOURAPIKEYHERE"
 // curl -X GET "https://api.lvatn.com/auth?apikey=YOURAPIKEYHERE"
 
+// NOTE all emails will be lowercased
 // store user record object in kv as user/:UID (value is stringified json object)
 // store a map of email(s) to UID user/email/:EMAIL (or email hash) (value is a UID)
 // and store a map of API keys as well, user/apikey/:KEY (value is user ID) (could have more than one, and have ones that give different permissions)
@@ -846,7 +866,7 @@ P.auth = async function(key, val) {
   }
   if ((this.params.access_token == null) || !(user = (await this.oauth()))) {
     if (this.params.token && (eml = (await this.kv('auth/token/' + this.params.token, '')))) { // true causes delete after found
-      if (uid = (await this.kv('user/email/' + eml))) {
+      if (uid = (await this.kv('user/email/' + eml.toLowerCase()))) {
         user = (await this.kv('user/' + uid)); // get the user record if it already exists
       }
       if (user == null) {
@@ -861,7 +881,7 @@ P.auth = async function(key, val) {
     if (!user && ((this.params.resume != null) || this.cookie)) { // accept resume on a header too?
       uid = this.id;
       if (!uid && (this.params.email != null)) { // accept resume with email instead of id?
-        uid = (await this.kv('user/email/' + this.params.email));
+        uid = (await this.kv('user/email/' + this.params.email.toLowerCase()));
       }
       if (!(resume = this.params.resume)) { // login by resume token if provided in param or cookie
         // check where is cookie?
@@ -901,7 +921,11 @@ P.auth = async function(key, val) {
 
   // if this is called with no variables, and no defaults, provide a count of users?
   // but then if logged in and on this route, what does it provide? the user account?
-  return user;
+  if ((key == null) && (val == null) && (user == null) && this.format === 'html') {
+    return '<input style="min-width:250px;" type="text" name="email" placeholder="Enter your email address to sign in"><input style="display:none;min-width:250px;" type="text" name="token" placeholder="Enter the login token once you receive it">';
+  } else {
+    return user;
+  }
 };
 
 P.auth.token = async function(email, from, subject, text, html, template, url) {
@@ -909,6 +933,7 @@ P.auth.token = async function(email, from, subject, text, html, template, url) {
   if (email == null) {
     email = (ref = this.params.email) != null ? ref : '';
   }
+  email = email.toLowerCase();
   if (from == null) {
     from = (ref1 = (ref2 = S.auth) != null ? ref2.from : void 0) != null ? ref1 : 'nobody@example.com';
   }
@@ -1052,21 +1077,20 @@ P.oauth = async function(token, cid) {
   var ref, ref1, ref10, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, ret, sets, uid, user, validate;
   // https://developers.google.com/identity/protocols/OAuth2UserAgent#validatetoken
   sets = {};
-  if (token == null) {
-    token = this.params.access_token;
-  }
-  if (token) {
+  if (token != null ? token : token = this.params.access_token) {
     try {
       // we did also have facebook oauth in here, still in old code, but decided to drop it unless explicitly required again
-      validate = (await this.http.post('https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=' + token));
+      validate = (await this.fetch('https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=' + token, {
+        method: 'POST' // has to be a POST even though it sends nothing
+      }));
       if (cid == null) {
         cid = (ref = (ref1 = S.svc[(ref2 = this.params.service) != null ? ref2 : 'z']) != null ? (ref3 = ref1.google) != null ? (ref4 = ref3.oauth) != null ? (ref5 = ref4.client) != null ? ref5.id : void 0 : void 0 : void 0 : void 0) != null ? ref : (ref6 = S.use) != null ? (ref7 = ref6.google) != null ? (ref8 = ref7.oauth) != null ? (ref9 = ref8.client) != null ? ref9.id : void 0 : void 0 : void 0 : void 0;
       }
       if ((cid != null) && ((ref10 = validate.data) != null ? ref10.aud : void 0) === cid) {
-        ret = (await this.http.get('https://www.googleapis.com/oauth2/v2/userinfo?access_token=' + token));
-        if (uid = (await this.kv('user/email/' + ret.data.email))) {
+        ret = (await this.fetch('https://www.googleapis.com/oauth2/v2/userinfo?access_token=' + token));
+        if (uid = (await this.kv('user/email/' + ret.data.email.toLowerCase()))) {
           if (!(user = (await this.kv('user/' + uid)))) {
-            user = (await this.auth._insert(ret.data.email));
+            user = (await this.auth._insert(ret.data.email.toLowerCase()));
           }
         }
         if (user.google == null) {
@@ -1096,10 +1120,12 @@ P.oauth = async function(token, cid) {
   return user;
 };
 
+// an oauth client-side would require the google oauth client token. It's not a secret, but must be got in advance from google account provider
+// ours is '360291218230-r9lteuqaah0veseihnk7nc6obialug84.apps.googleusercontent.com' - but that's no use to anyone else, unless wanting to login with us
 // the Oauth URL that would trigger something like this would be like:
 // grl = 'https://accounts.google.com/o/oauth2/v2/auth?response_type=token&include_granted_scopes=true'
 // grl += '&scope=https://www.googleapis.com/auth/userinfo.email+https://www.googleapis.com/auth/userinfo.profile'
-// grl += '&state=' + state + '&redirect_uri=' + noddy.oauthRedirectUri + '&client_id=' + noddy.oauthGoogleClientId
+// grl += '&state=' + state + '&redirect_uri=' + pradm.oauthRedirectUri + '&client_id=' + pradm.oauthGoogleClientId
 // state would be something like Math.random().toString(36).substring(2,8) and would be sent and also kept for checking against the response
 // the response from oauth login page would go back to current page and have a # with access_token= and state=
 // NOTE as it is after a # these would only be available on a browser, as servers don't get the # part of a URL
@@ -1122,7 +1148,7 @@ P.auth._insert = async function(key, val) {
       } catch (error) {}
       try {
         if (user.email != null) {
-          this.kv('user/email/' + user.email, '-');
+          this.kv('user/email/' + user.email.toLowerCase(), '-');
         }
       } catch (error) {}
       return this.kv('user/' + key, '');
@@ -1130,19 +1156,19 @@ P.auth._insert = async function(key, val) {
   } else {
     if (typeof key === 'string' && key.indexOf('@') !== -1 && key.indexOf('.') !== -1) { // put this through a validator, either/both a regex and a service
       //else # update the user with the provided val
-      em = key;
+      em = key.toLowerCase();
     }
     if ((key == null) && (this != null ? (ref1 = this.user) != null ? ref1._id : void 0 : void 0)) {
       key = 'user/' + this.user._id;
     }
     if (key.indexOf('@') !== -1) {
-      key = (await this.kv('user/email/' + key));
+      key = (await this.kv('user/email/' + key.toLowerCase()));
     }
     res = (await this.kv('user/' + key));
     if (res == null) {
       if (em) {
         u = {
-          email: em.trim(), //store email here or not?
+          email: em.trim().toLowerCase(), //store email here or not?
           apikey: this.uid(), // store the apikey here or not?
           profile: {}
         };
@@ -1153,7 +1179,7 @@ P.auth._insert = async function(key, val) {
         u.createdAt = Date.now();
         u._id = this.uid();
         this.kv('user/apikey/' + apikey, u._id);
-        this.kv('user/email/' + email, u._id); // or hash of email
+        this.kv('user/email/' + email.toLowerCase(), u._id); // or hash of email
         this.kv('user/' + u._id, u);
         return u;
       } else {
@@ -1192,42 +1218,55 @@ var indexOf = [].indexOf;
 
 P.convert = {};
 
-P.convert.json2csv = async function(recs) {
-  var es, h, headers, i, j, k, len, len1, len2, m, newline, quote, rec, records, ref, ref1, ref2, ref3, separator, val;
+P.convert.json2csv = async function(recs, params) {
+  var h, headers, i, j, k, len, len1, newline, nk, quote, rc, rec, records, ref, ref1, ref2, ref3, ref4, ref5, rs, separator;
   if (recs == null) {
     recs = (ref = this.body) != null ? ref : this.params;
   }
-  if (this.params.url) {
-    recs = (await this.fetch(url));
+  if (params == null) {
+    params = this.params;
   }
-  es = false;
-  try {
-    if ((recs != null ? (ref1 = recs.hits) != null ? ref1.hits : void 0 : void 0) != null) {
-      es = true;
+  if (params.url) {
+    recs = (await this.fetch(params.url));
+  }
+  if (params.es || ((recs != null ? (ref1 = recs.hits) != null ? ref1.hits : void 0 : void 0) != null)) {
+    try {
       recs = recs.hits.hits;
-    }
-  } catch (error) {}
+      params.es = true;
+    } catch (error) {}
+  }
   if (!Array.isArray(recs)) {
     recs = [recs];
   }
-  quote = '"';
-  separator = ',';
-  newline = '\n';
+  quote = (ref2 = params.quote) != null ? ref2 : '"';
+  separator = (ref3 = params.separator) != null ? ref3 : ',';
+  newline = (ref4 = params.newline) != null ? ref4 : '\n';
   if (!recs.length) {
     return '';
   } else {
-    headers = []; // is it useful to allow provision of default headers/fields?
+    headers = [];
     records = '';
     for (i = 0, len = recs.length; i < len; i++) {
       rec = recs[i];
-      if (es === true && (rec._source || rec.fields)) {
-        rec = (ref2 = rec._source) != null ? ref2 : rec.fields;
+      if (records.length) {
+        records += newline;
       }
-      if (this.params.subset) {
-        rec = rec[this.params.subset];
+      if (params.es !== false && (rec._source || rec.fields)) {
+        rc = {
+          _id: '<a onclick="this.setAttribute(\'href\', window.location.href.split(\'.html\')[0].split(\'/\').pop() + \'/\' + this.getAttribute(\'href\') )" href="' + rec._id + '.html">' + rec._id + '</a>'
+        };
+        rs = (ref5 = rec._source) != null ? ref5 : rec.fields;
+// could add controls to alter the order here, or customise key names
+        for (nk in rs) {
+          rc[nk] = rs[nk];
+        }
+        rec = rc;
       }
-      if (this.params.flatten) {
+      if (params.flatten) {
         rec = (await this.flatten(rec));
+      }
+      if (params.subset) {
+        rec = (await this.dot(rec, params.subset));
       }
       for (k in rec) {
         if ((rec[k] != null) && indexOf.call(headers, k) < 0) {
@@ -1236,49 +1275,64 @@ P.convert.json2csv = async function(recs) {
       }
       for (j = 0, len1 = headers.length; j < len1; j++) {
         h = headers[j];
-        if (records.endsWith(quote)) {
+        if (records.length && !records.endsWith(newline)) {
           records += separator;
         }
         records += quote;
-        try {
-          ref3 = (Array.isArray(rec[h]) ? rec[h] : [rec[h]]);
-          for (m = 0, len2 = ref3.length; m < len2; m++) {
-            val = ref3[m];
-            if ((val != null) && val !== '') {
-              if (!records.endsWith(quote)) {
-                records += ', ';
-              }
-              try {
-                val = JSON.stringify(val).replace(/^"/, '').replace(/"$/, '');
-              } catch (error) {}
-              // TODO escape any instances of quote in v with a regex replace
-              val = val.replace(/"/g, '\\"');
-              records += val;
+        if (rec[h] != null) {
+          try {
+            if (Array.isArray(rec[h]) && rec[h].length === 1 && Array.isArray(rec[h][0])) {
+              rec[h] = rec[h][0];
             }
-          }
-        } catch (error) {}
+          } catch (error) {}
+          try {
+            if (Array.isArray(rec[h]) && rec[h].length && typeof rec[h][0] === 'string') {
+              rec[h] = rec[h].join(', ');
+            }
+          } catch (error) {}
+          try {
+            if (typeof rec[h] === 'object') {
+              rec[h] = JSON.stringify(rec[h]);
+            }
+          } catch (error) {}
+          try {
+            rec[h] = rec[h].replace(/"/g, quote + quote);
+          } catch (error) {}
+          try {
+            rec[h] = rec[h].replace(/,,/g, separator); // TODO change this for a regex of the separator
+          } catch (error) {}
+          try {
+            rec[h] = rec[h].replace(/\n/g, ' ');
+          } catch (error) {}
+          try {
+            rec[h] = rec[h].replace(/\s\s/g, ' ');
+          } catch (error) {}
+          try {
+            records += rec[h];
+          } catch (error) {}
+        }
         records += quote;
-      }
-      if (records.length) {
-        records += newline;
       }
     }
     return quote + headers.join(quote + separator + quote) + quote + '\n' + records;
   }
 };
 
-P.convert.csv2json = async function(csv) {
-  var h, header, headers, i, j, len, len1, len2, line, lines, m, newline, quote, ref, res, row, separator, vals;
+P.convert.csv2json = async function(csv, params) {
+  var h, header, headers, i, j, len, len1, len2, line, lines, m, newline, quote, ref, ref1, ref2, ref3, res, row, separator, vals;
   if (csv == null) {
     csv = (ref = this.body) != null ? ref : this.params.csv;
   }
   if (this.params.url) {
     csv = (await this.fetch(url));
   }
-  quote = '"';
-  separator = ',';
-  newline = '\n';
-  csv = csv.replace(/\\"/g, 'XXX_QUOTER_GOES_HERE_XXX');
+  if (params == null) {
+    params = this.params;
+  }
+  quote = (ref1 = params.quote) != null ? ref1 : '"';
+  separator = (ref2 = params.separator) != null ? ref2 : ',';
+  newline = (ref3 = params.newline) != null ? ref3 : '\n';
+  csv = csv.replace(/""/g, 'XXX_QUOTER_GOES_HERE_XXX'); // TODO change this for a regex of whatever the quote char is
   res = [];
   if (typeof csv === 'string' && csv.length) {
     lines = csv.split(newline);
@@ -1302,6 +1356,9 @@ P.convert.csv2json = async function(csv) {
             row[h] = vals.shift();
             if (row[h]) {
               row[h] = row[h].replace(/^"/, '').replace(/"$/, '').replace(/XXX_QUOTER_GOES_HERE_XXX/g, quote);
+              try {
+                row[h] = JSON.parse(row[h]);
+              } catch (error) {}
             }
           }
         }
@@ -1313,7 +1370,7 @@ P.convert.csv2json = async function(csv) {
 };
 
 P.convert.csv2html = async function(csv) {
-  var header, headers, i, j, len, len1, len2, line, lines, m, newline, quote, ref, ref1, ref2, res, separator, v;
+  var header, headers, i, j, len, len1, len2, line, lines, ln, m, newline, quote, ref, ref1, ref2, res, separator, v, vn;
   if (csv == null) {
     csv = (ref = this.body) != null ? ref : this.params.csv;
   }
@@ -1323,93 +1380,165 @@ P.convert.csv2html = async function(csv) {
   quote = '"';
   separator = ',';
   newline = '\n';
-  csv = csv.replace(/\\"/g, 'XXX_QUOTER_GOES_HERE_XXX');
-  res = '<table style="border:1px solid #ccc; border-collapse: collapse;">';
+  csv = csv.replace(/,,/g, separator + quote + quote + separator); // TODO change this for a regex of the separator
+  res = '<style>table.paradigm tr:nth-child(even) {background: #eee}table.paradigm tr:nth-child(odd) {background: #fff}</style>';
+  res += '<table class="paradigm" style="border-collapse: collapse;">';
   if (typeof csv === 'string' && csv.length) {
     lines = csv.split(newline);
     if (lines.length) {
       res += '<thead><tr>';
       headers = lines.shift();
-      ref1 = headers.split(quote + separator);
+      ln = 0;
+      ref1 = headers.split(quote + separator + quote);
       for (i = 0, len = ref1.length; i < len; i++) {
         header = ref1[i];
-        if (header.indexOf(quote) === 0) {
-          header = header.replace(quote, '');
-        }
-        res += '<th style="padding:2px; border:1px solid #ccc;">' + header + '</th>';
+        res += '<th style="padding:2px; border:1px solid #ccc;">' + header.replace(/"/g, '') + '</th>';
+        ln += 1;
       }
       res += '</tr></thead><tbody>';
       for (j = 0, len1 = lines.length; j < len1; j++) {
         line = lines[j];
         res += '<tr>';
-        ref2 = line.split(quote + separator);
+        while (line.indexOf(',"",') !== -1) {
+          line = line.replace(',"",', ',"XXX_EMPTY_XXX",');
+        }
+        while (line.startsWith('"",')) {
+          line = line.replace('"",', '"XXX_EMPTY_XXX",');
+        }
+        while (line.endsWith(',""')) {
+          line = line.slice(0, line.length - 3);
+        }
+        line = line.replace(/""/g, 'XXX_QUOTER_GOES_HERE_XXX'); // TODO change this for a regex of whatever the quote char is
+        vn = 0;
+        ref2 = line.split(quote + separator + quote);
         for (m = 0, len2 = ref2.length; m < len2; m++) {
           v = ref2[m];
-          res += '<td style="padding:2px; border:1px solid #ccc;">';
-          if (v) {
-            v = v.replace(/^"/, '').replace(/"$/, '');
-            res += v.replace(/\</g, '&lt;').replace(/\>/g, '&gt;');
+          vn += 1;
+          res += '<td style="padding:2px; border:1px solid #ccc;vertical-align:text-top;">';
+          v = v.replace(/^"/, '').replace(/"$/, '');
+          if (v !== 'XXX_EMPTY_XXX') {
+            if (v.indexOf('{') === 0 || v.indexOf('[') === 0) {
+              res += '<a href="#" onclick="if (this.nextSibling.style.display === \'none\') {this.nextSibling.style.display = \'block\'} else {this.nextSibling.style.display = \'none\'}; return false;">...</a><div style="display:none;">';
+              res += (await this.convert.json2html(JSON.parse(v.replace(/XXX_QUOTER_GOES_HERE_XXX/g, quote))));
+              res += '</div>';
+            } else {
+              res += v.replace(/XXX_QUOTER_GOES_HERE_XXX/g, quote); // .replace(/\</g, '&lt;').replace(/\>/g, '&gt;')
+            }
           }
           res += '</td>'; // add a regex replace of the separator, avoiding escaped instances
+        }
+        while (vn < ln) {
+          res += '<td style="padding:2px; border:1px solid #ccc;vertical-align:text-top;"></td>';
+          vn += 1;
         }
         res += '</tr>';
       }
       res += '</tbody>';
     }
   }
-  res = res.replace(/XXX_QUOTER_GOES_HERE_XXX/g, quote);
   return res + '</table>';
 };
 
-P.convert.json2html = async function(recs) {
-  var _draw, ref, res;
+P.convert.json2html = async function(recs, params) {
+  var _draw, i, j, len, len1, part, parts, pt, ref, ref1, ref2, res, st, tbl;
   if (recs == null) {
     recs = (ref = this.body) != null ? ref : this.params;
   }
-  if (this.params.url) {
+  if (params == null) {
+    params = this.params;
+  }
+  if (params.url) {
     recs = (await this.fetch(url));
   }
-  if (Array.isArray(recs)) {
-    return this.convert.csv2html((await this.convert.json2csv(recs)));
+  if (params.subset && !Array.isArray(recs)) {
+    parts = params.subset.split('.');
+    while (part = parts.shift()) {
+      if (typeof recs === 'object' && !Array.isArray(recs) && (recs[part] != null)) {
+        recs = recs[part];
+      } else {
+        break;
+      }
+    }
+  }
+  if (Array.isArray(recs) || ((recs != null ? (ref1 = recs.hits) != null ? ref1.hits : void 0 : void 0) && params.es !== false)) {
+    if (parts != null) {
+      params.subset = parts.join('.');
+    }
+    tbl = (await this.convert.csv2html((await this.convert.json2csv(recs, params))));
+    return tbl;
   } else {
     res = '<div>';
-    if (this.params.subset) {
-      recs = recs[this.params.subset];
-      res += '<h3>' + this.params.subset + ':</h3>';
-      res += '<input type="hidden" id="options_subset" value="' + this.params.subset + '">';
+    if (params.edit) { // extras only for rscvd for now but should be any management fields to add and not yet present
+      res += '<div style="clear:both; margin:-1px 0px;"><div style="float:left;width: 150px; overflow: scroll;"><b><p>status</p></b></div>';
+      res += '<div style="float:left;"><select class="pradmForm" id="status" style="margin-top:15px;margin-bottom:0px;min-width:180px;">';
+      ref2 = ['', 'Verified', 'Denied', 'Progressing', 'Overdue', 'Provided', 'Cancelled', 'Done'];
+      for (i = 0, len = ref2.length; i < len; i++) {
+        st = ref2[i];
+        res += '<option' + (recs.status === st ? ' selected="selected"' : '') + '>' + st + '</option>';
+      }
+      delete recs.status;
+      res += '</select></div>';
     }
-    if (this.params.flatten) {
+    if (params.flatten) {
       recs = (await this.flatten(recs));
       res += '<input type="hidden" id="options_flatten" value="true">';
     }
+    if (params.subset) {
+      if (parts.length) {
+        for (j = 0, len1 = parts.length; j < len1; j++) {
+          pt = parts[j];
+          recs = recs[pt];
+        }
+      }
+      res += '<h3>' + params.subset + ':</h3>';
+      res += '<input type="hidden" id="options_subset" value="' + params.subset + '">';
+    }
     _draw = (rec) => {
-      var i, k, len, ok, ref1, results;
+      var k, len2, m, ok, ref3, results, rks;
+      if (params.edit) { // just for rscvd demo for now
+        if (rec.comments == null) {
+          rec.comments = '';
+        }
+      }
       results = [];
       for (k in rec) {
-        if ((rec[k] != null) && rec[k] !== '' && (!Array.isArray(rec[k]) || rec[k].length)) {
-          res += '<div style="clear:both; border:1px solid #ccc; margin:-1px 0px;"><div style="float:left;width: 150px; overflow: scroll;"><b><p>' + k + '</p></b></div>';
+        try {
+          if (Array.isArray(rec[k]) && rec[k].length === 1 && Array.isArray(rec[k][0])) {
+            // for example crossref date-parts are an array in an array, pretty useless, so dump the external array
+            rec[k] = rec[k][0];
+          }
+        } catch (error) {}
+        if ((rec[k] != null) && (!Array.isArray(rec[k]) || rec[k].length)) { // and rec[k] isnt ''
+          res += '<div style="clear:both; ' + (!params.edit ? 'border:1px solid #ccc; ' : '') + 'margin:-1px 0px;"><div style="float:left;width: 150px; overflow: scroll;"><b><p>' + k + '</p></b></div>';
           res += '<div style="float:left;">';
-          res += this.params.edit ? '<textarea id="' + k + '" style="min-height:100px;width:100%;">' : '';
+          res += params.edit ? '<textarea class="pradmForm" id="' + k + '" style="min-height:80px;width:100%;margin-bottom:5px;">' : '';
           if (Array.isArray(rec[k])) {
             if (typeof rec[k][0] === 'object') {
-              ref1 = rec[k];
-              for (i = 0, len = ref1.length; i < len; i++) {
-                ok = ref1[i];
+              ref3 = rec[k];
+              for (m = 0, len2 = ref3.length; m < len2; m++) {
+                ok = ref3[m];
                 _draw(ok);
               }
-            } else if (typeof rec[k][0] === 'string') {
-              res += (this.params.edit ? '' : '<p>') + rec[k].join(', ') + (this.params.edit ? '' : '</p>');
             } else {
-              res += (this.params.edit ? '' : '<p>') + JSON.stringify(rec[k]) + (this.params.edit ? '' : '</p>');
+              try {
+                rks = rec[k].join(', ');
+              } catch (error) {
+                try {
+                  rks = JSON.stringify(rec[k]);
+                } catch (error) {
+                  rks = rec[k];
+                }
+              }
+              try {
+                res += (params.edit ? '' : '<p>') + rks + (params.edit ? '' : '</p>');
+              } catch (error) {}
             }
           } else if (typeof rec[k] === 'object') {
             _draw(rec[k]);
-          } else if (typeof rec[k] === 'string') {
-            res += (this.params.edit ? '' : '<p>') + rec[k] + (this.params.edit ? '' : '</p>');
           } else {
-            res += (this.params.edit ? '' : '<p>') + JSON.stringify(rec[k]) + (this.params.edit ? '' : '</p>');
+            res += (params.edit ? '' : '<p>') + rec[k] + (params.edit ? '' : '</p>');
           }
-          res += this.params.edit ? '</textarea>' : '';
+          res += params.edit ? '</textarea>' : '';
           results.push(res += '</div></div>');
         } else {
           results.push(void 0);
@@ -1418,10 +1547,12 @@ P.convert.json2html = async function(recs) {
       return results;
     };
     _draw(recs);
-    if (this.params.edit) {
-      res += ''; // TODO add a save button, or notify that login is required - and some js to POST the altered data
+    res += '</div>';
+    if (params.edit) {
+      res = '<script type="text/javascript" src="/client/pradm.js"></script><script type="text/javascript" src="/client/pradmEdit.js"></script>' + res;
+      res += '<script type="text/javascript">pradm.edit()</script>';
     }
-    return res + '</div>';
+    return res;
   }
 };
 
@@ -1998,20 +2129,28 @@ P.log = async function(msg) {
         };
       } catch (error) {}
       try {
-        msg.request.headers = {
-          ip: this.headers['x-real-ip'],
-          'user-agent': this.headers['user-agent'],
-          referer: this.headers.referer
-        };
+        msg.request.headers = this.headers; // just get all headers to see what's useful?
       } catch (error) {}
       try {
-        if (msg.fn == null) {
+        if ((msg.fn == null) && (this.fn != null)) {
+          //catch
+          //try
+          //  msg.request.headers = {}
+          //  msg.headers.ip = (@headers['x-forwarded-for'] ? @headers['x-real-ip']) if @headers['x-real-ip'] or @headers['x-forwarded-for']
+          //  msg.headers['user-agent'] = @headers['user-agent'] if @headers['user-agent']
+          //  msg.headers.referer = @headers.referer if @headers.referer
           msg.fn = this.fn;
         }
-        msg.refresh = this.refresh;
+        if (this.refresh) {
+          msg.refresh = this.refresh;
+        }
         msg.parts = this.parts;
-        msg.completed = this.completed;
-        msg.cached = this.cached;
+        if (this.completed) {
+          msg.completed = this.completed;
+        }
+        if (this.cached) {
+          msg.cached = this.cached;
+        }
       } catch (error) {}
       try {
         // don't stringify the whole obj, allow individual keys, but make them all strings to avoid mapping clashes
@@ -2024,7 +2163,9 @@ P.log = async function(msg) {
         msg.apikey = (this.headers.apikey != null) || (this.headers['x-apikey'] != null);
       } catch (error) {}
       try {
-        msg.user = (ref = this.user) != null ? ref._id : void 0;
+        if (((ref = this.user) != null ? ref._id : void 0) != null) {
+          msg.user = this.user._id;
+        }
       } catch (error) {}
       if (this.unauthorised) {
         msg.unauthorised = true;
@@ -2045,12 +2186,16 @@ P.log = async function(msg) {
         ref1 = this._logs;
         for (j = 0, len1 = ref1.length; j < len1; j++) {
           l = ref1[j];
-          //msg.msg ?= l.msg
-          if (msg.alert == null) {
-            msg.alert = l.alert;
+          if (l.alert) {
+            //msg.msg ?= l.msg
+            if (msg.alert == null) {
+              msg.alert = l.alert;
+            }
           }
-          if (msg.notify == null) {
-            msg.notify = l.notify;
+          if (l.notify) {
+            if (msg.notify == null) {
+              msg.notify = l.notify;
+            }
           }
           msg.logs.push(l);
         }
@@ -2769,7 +2914,8 @@ P.decode = async function(content) {
       return String.fromCharCode(num);
     }));
   };
-  text = (await _decode(content).replace(/\n/g, ''));
+  text = (await _decode(content));
+  text = text.replace(/\n/g, ' ');
   ref3 = [
     {
       bad: '‘',
@@ -2804,6 +2950,12 @@ P.decode = async function(content) {
     c = ref3[i];
     re = new RegExp(c.bad, 'g');
     text = text.replace(re, c.good);
+  }
+  if (text.indexOf('%2') !== -1) {
+    text = decodeURIComponent(text);
+  }
+  if (text.indexOf('%2') !== -1) { // some of the data we handle was double encoded, so like %2520, so need two decodes
+    text = decodeURIComponent(text);
   }
   return text;
 };
@@ -2983,6 +3135,53 @@ P.template = async function(content, vars) {
 
 P._templates = {
   _index: true // an index to store templates in - although generally should be handled at the individual function/service level
+};
+
+P.date = function(rt) {
+  var k, pts, ref;
+  if (rt == null) {
+    rt = this.params.date;
+  }
+  try {
+    if (typeof rt === 'number') {
+      rt = rt.toString();
+    }
+    if (Array.isArray(rt) && rt.length === 1 && Array.isArray(rt[0])) {
+      rt = rt[0];
+    }
+    if (typeof rt !== 'string') {
+      try {
+        for (k in rt) {
+          if ((ref = typeof rt[k]) !== 'number' && ref !== 'string') {
+            rt[k] = '01';
+          }
+        }
+        rt = rt.join('-');
+      } catch (error) {}
+    }
+    rt = decodeURIComponent(rt);
+    if (rt.indexOf('T') !== -1) {
+      rt = rt.split('T')[0];
+    }
+    rt = rt.replace(/\//g, '-').replace(/-(\d)-/g, "-0$1-").replace(/-(\d)$/, "-0$1");
+    if (rt.indexOf('-') === -1) {
+      rt += '-01';
+    }
+    pts = rt.split('-');
+    if (pts.length !== 3) {
+      rt += '-01';
+      pts = rt.split('-');
+    }
+    if (pts.length !== 3) {
+      rt = void 0;
+    }
+    if (pts[0].length < pts[2].length) {
+      rt = pts.reverse().join('-');
+    }
+    return rt;
+  } catch (error) {
+    return void 0;
+  }
 };
 
 `P.retry = (fn, params=[], opts={}) ->
@@ -3268,8 +3467,12 @@ else`;
     // CREATE can happen on index if index params are provided or empty object is provided
     // https://www.elastic.co/guide/en/elasticsearch/reference/current/indices-create-index.html
     // simplest create would be {} or settings={number_of_shards:1} where 1 is default anyway
-    if ((typeof data === 'string' && data.indexOf('\n') !== -1) || Array.isArray(data)) {
-      return cidx._bulk(route, data); // bulk create (TODO what about if wanting other bulk actions?)
+    if ((typeof data === 'string' && (data === '' || data.indexOf('\n') !== -1)) || Array.isArray(data)) {
+      if (data === '') {
+        return cidx._submit(route, data);
+      } else {
+        return cidx._bulk(route, data); // bulk create (TODO what about if wanting other bulk actions?)
+      }
     } else if (typeof data === 'object') {
       if (cidx._q(data)) {
         return cidx._submit(route + '/_search', (await cidx.translate(data, qopts)));
@@ -3302,7 +3505,7 @@ else`;
     // Should @params be able to default to write data on index/key?
     // TODO check how ES7.x accepts update with script in them
     if ((data != null) && JSON.stringify(data) !== '{}') {
-      route = data.script != null ? route + '/_update?retry_on_conflict=2' : route.replace('/', '/_create/'); // does PUT create work if it already exists? or PUT _doc? or POST _create?
+      route = data === '' ? route : data.script != null ? route + '/_update?retry_on_conflict=2' : route.replace('/', '/_doc/'); // does PUT create work if it already exists? or PUT _doc? or POST _create?
       return cidx._submit(route, data); // or just get the record
     } else {
       ret = (await cidx._submit(route.replace('/', '/_doc/')));
@@ -3860,7 +4063,7 @@ P.index._each = async function(route, q, opts, fn) {
 };
 
 P.index._bulk = async function(route, data, action = 'index', bulk = 50000) {
-  var cidx, counter, meta, pkg, prefix, r, ref1, ref2, rid, row, rows, rs;
+  var cidx, counter, errs, i, j, k, len, meta, pkg, prefix, r, ref1, ref2, ref3, rid, row, rows, rs;
   // https://www.elastic.co/guide/en/elasticsearch/reference/1.4/docs-bulk.html
   // https://www.elastic.co/guide/en/elasticsearch/reference/1.4/docs-update.html
   prefix = (await this.dot(P, (route.split('/')[0]).replace(/_/g, '.') + '._prefix'));
@@ -3921,7 +4124,17 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000) {
           }
         }));
         if ((this != null ? (ref2 = this.S) != null ? ref2.dev : void 0 : void 0) && (rs != null ? rs.errors : void 0)) {
-          console.log('Bulk load errors: ' + rs.errors + ', like: ' + JSON.stringify(rs.items[0]));
+          errs = [];
+          ref3 = rs.items;
+          for (j = 0, len = ref3.length; j < len; j++) {
+            i = ref3[j];
+            for (k in i) {
+              if (i[k].status >= 300) {
+                errs.push(i);
+              }
+            }
+          }
+          console.log('Bulk load errors: ' + errs.length + ', like: ' + JSON.stringify(errs[0]));
         }
         pkg = '';
         counter = 0;
@@ -3996,7 +4209,7 @@ P.index._q = function(q, rt) { // could this be a query as opposed to an _id or 
     if ((q.q != null) || (q.query != null)) {
       return true; // q or query COULD be valid values of an object, in which case don't pass such objects to ambiguous locations such as the first param of an index function
     }
-  } else if (typeof q === 'string' && q.indexOf('\n') === -1) { // newlines indicates a bulk load string
+  } else if (typeof q === 'string' && q.length && q.indexOf('\n') === -1) { // newlines indicates a bulk load string
     if (typeof rt === 'string' && q.toLowerCase().startsWith(rt.toLowerCase())) {
       return false; // handy check for a string that is probably an index route, just to save manually checking elsewhere
     } else if (q.startsWith('?') || q.startsWith('q=')) { // like an incoming URL query params string
@@ -4699,27 +4912,21 @@ P.kv._each = async function(prefix, fn, size) {
 // http://www.base-search.net/about/download/base_interface.pdf
 P.src.base = {};
 
-P.src.base.doi = async function(doi, format) {
-  var res;
-  res = (await this.src.base.get(doi));
-  if (format) {
-    return this.src.base.format(res);
-  } else {
-    return res;
-  }
+P.src.base.doi = async function(doi) {
+  //return @src.base.get doi
+  return (await this.fetch('https://dev.api.cottagelabs.com/use/base/doi/' + doi));
 };
 
 P.src.base.title = async function(title) {
-  var ct, ret, simplify;
-  simplify = /[\u0300-\u036F]/g;
-  title = title.toLowerCase().normalize('NFKD').replace(simplify, '').replace(/ß/g, 'ss');
+  var ct, ret;
+  title = title.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036F]/g, '').replace(/ß/g, 'ss');
   ret = (await this.src.base.get('dctitle:"' + title + '"'));
   if (((ret != null ? ret.dctitle : void 0) != null) || (ret.title != null)) {
     if (ret.title == null) {
       ret.title = ret.dctitle;
     }
     if (ret.title) {
-      ct = ret.title.toLowerCase().normalize('NFKD').replace(simplify, '').replace(/ß/g, 'ss');
+      ct = ret.title.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036F]/g, '').replace(/ß/g, 'ss');
       if (ct && ct.length <= title.length * 1.2 && ct.length >= title.length * .8 && title.replace(/ /g, '').indexOf(ct.replace(' ', '').replace(' ', '').replace(' ', '').split(' ')[0]) !== -1) {
         return ret;
       }
@@ -4731,22 +4938,20 @@ P.src.base.title = async function(title) {
 P.src.base.get = async function(qry) {
   var ref, res;
   res = (await this.src.base.search(qry));
-  res = (res != null ? (ref = res.docs) != null ? ref.length : void 0 : void 0) ? res.docs[0] : void 0;
-  if (res != null) {
-    res.url = (await this.resolve(res.dclink));
-  }
-  return res;
-};
-
-P.src.base.search = async function(qry = '*', from, size, format) {
-  var d, proxy, res, url;
-  // it uses offset and hits (default 10) for from and size, and accepts solr query syntax
-  // string terms, "" to be next to each other, otherwise ANDed, can accept OR, and * or ? wildcards, brackets to group, - to negate
-  proxy = this.S.proxy; // need to route through the proxy so requests come from registered IP
-  if (!proxy) {
+  if (res != null ? (ref = res.docs) != null ? ref.length : void 0 : void 0) {
+    return res.docs[0];
+  } else {
     return void 0;
   }
+};
+
+P.src.base.search = async function(qry = '*', from, size) {
+  var res, url;
   if (qry.indexOf('"') === -1 && qry.indexOf(' ') !== -1) {
+    // it uses offset and hits (default 10) for from and size, and accepts solr query syntax
+    // string terms, "" to be next to each other, otherwise ANDed, can accept OR, and * or ? wildcards, brackets to group, - to negate
+    //proxy = @S.proxy # need to route through the proxy so requests come from registered IP
+    //return undefined if not proxy
     qry = qry.replace(/ /g, '+');
   }
   url = 'https://api.base-search.net/cgi-bin/BaseHttpSearchInterface.fcgi?func=PerformSearch&format=json&query=' + qry;
@@ -4758,13 +4963,9 @@ P.src.base.search = async function(qry = '*', from, size, format) {
   }
   url += '&sortBy=dcdate+desc';
   try {
+    // add bg true to this as well, or proxy
     res = (await this.fetch(url)); //, {timeout:timeout,npmRequestOptions:{proxy:proxy}}
-    res = JSON.parse(res.content).response;
-    if (format) {
-      for (d in res.docs) {
-        res.docs[d] = (await this.src.base.format(res.docs[d]));
-      }
-    }
+    res = JSON.parse(res).response;
     res.data = res.docs;
     delete res.docs;
     res.total = res.numFound;
@@ -4772,127 +4973,10 @@ P.src.base.search = async function(qry = '*', from, size, format) {
   } catch (error) {}
 };
 
-P.src.base.format = function(rec, metadata = {}) {
-  var a, ar, as, i, id, j, len, len1, ref, ref1;
-  try {
-    if (metadata.title == null) {
-      metadata.title = rec.dctitle;
-    }
-  } catch (error) {}
-  try {
-    if (metadata.doi == null) {
-      metadata.doi = rec.dcdoi[0];
-    }
-  } catch (error) {}
-  try {
-    if (metadata.author == null) {
-      metadata.author = [];
-    }
-    ref = rec[rec.dcperson != null ? 'dcperson' : 'dccreator'];
-    for (i = 0, len = ref.length; i < len; i++) {
-      a = ref[i];
-      as = a.split(' ');
-      ar = {
-        name: a,
-        given: as[as.length - 1]
-      };
-      try {
-        ar.family = as[0];
-      } catch (error) {}
-      metadata.author.push(ar);
-    }
-  } catch (error) {}
-  try {
-    if (metadata.journal == null) {
-      metadata.journal = rec.dcsource.split(',')[0];
-    }
-  } catch (error) {}
-  try {
-    if (metadata.volume == null) {
-      metadata.volume = rec.dcsource.toLowerCase().split('vol')[1].split(',')[0].trim();
-    }
-  } catch (error) {}
-  try {
-    if (metadata.issue == null) {
-      metadata.issue = rec.dcsource.toLowerCase().split('iss')[1].split(',')[0].trim();
-    }
-  } catch (error) {}
-  try {
-    if (metadata.page == null) {
-      metadata.page = rec.dcsource.toLowerCase().split('iss')[1].split('p')[1].split('(')[0].trim();
-    }
-  } catch (error) {}
-  try {
-    if (metadata.year == null) {
-      metadata.year = rec.dcyear;
-    }
-  } catch (error) {}
-  try {
-    if (metadata.published == null) {
-      metadata.published = rec.dcdate.split('T')[0];
-    }
-  } catch (error) {}
-  try {
-    if (metadata.year && !metadata.published) {
-      metadata.published = metadata.year + '-01-01';
-    }
-  } catch (error) {}
-  try {
-    if (metadata.publisher == null) {
-      metadata.publisher = rec.dcpublisher[0];
-    }
-  } catch (error) {}
-  try {
-    ref1 = rec.dcrelation;
-    for (j = 0, len1 = ref1.length; j < len1; j++) {
-      id = ref1[j];
-      if (id.length === 9 && id.indexOf('-') === 4) {
-        if (meta.issn == null) {
-          meta.issn = id;
-        }
-        break;
-      }
-    }
-  } catch (error) {}
-  try {
-    if (metadata.keyword == null) {
-      metadata.keyword = rec.dcsubject;
-    }
-  } catch (error) {}
-  try {
-    if (metadata.abstract == null) {
-      metadata.abstract = rec.dcdescription.replace('Abstract ', '');
-    }
-  } catch (error) {}
-  try {
-    if (metadata.url == null) {
-      metadata.url = rec.dclink;
-    }
-  } catch (error) {}
-  try {
-    if (metadata.pdf == null) {
-      metadata.pdf = rec.pdf;
-    }
-  } catch (error) {}
-  try {
-    if (metadata.url == null) {
-      metadata.url = rec.url;
-    }
-  } catch (error) {}
-  try {
-    if (metadata.redirect == null) {
-      metadata.redirect = rec.redirect;
-    }
-  } catch (error) {}
-  return metadata;
-};
-
 // core docs:
 // http://core.ac.uk/docs/
 // http://core.ac.uk/docs/#!/articles/searchArticles
 // http://core.ac.uk:80/api-v2/articles/search/doi:"10.1186/1471-2458-6-309"
-var ref, ref1, ref2, ref3, ref4;
-
 P.src.core = {};
 
 P.src.core.doi = function(doi) {
@@ -4907,9 +4991,9 @@ P.src.core.title = function(title) {
 };
 
 P.src.core.get = async function(qrystr) {
-  var i, j, len, op, ref, res, ret;
+  var i, j, len, ref, res, ret;
   ret = (await this.src.core.search(qrystr));
-  if (ret.total) {
+  if (ret != null ? ret.total : void 0) {
     res = ret.data[0];
     ref = ret.data;
     for (j = 0, len = ref.length; j < len; j++) {
@@ -4920,22 +5004,17 @@ P.src.core.get = async function(qrystr) {
       }
     }
   }
-  if (res != null) {
-    op = (await this.src.core.redirect(res));
-    res.url = op.url;
-    res.redirect = op.redirect;
-  }
   return res;
 };
 
-P.src.core.search = async function(qrystr, from, size = 10, format, timeout = (ref = (ref1 = (ref2 = API.settings.use) != null ? (ref3 = ref2.core) != null ? ref3.timeout : void 0 : void 0) != null ? ref1 : (ref4 = API.settings.use) != null ? ref4._timeout : void 0) != null ? ref : 10000) {
-  var apikey, r, rd, ref5, res, url;
+P.src.core.search = async function(qrystr, from, size = 10) {
+  var apikey, ref, res, url;
   // assume incoming query string is of ES query string format
   // assume from and size are ES typical
   // but core only accepts certain field searches:
   // title, description, fullText, authorsString, publisher, repositoryIds, doi, identifiers, language.name and year
   // for paging core uses "page" from 1 (but can only go up to 100?) and "pageSize" defaulting to 10 but can go up to 100
-  apikey = (ref5 = this.S.src.core) != null ? ref5.apikey : void 0;
+  apikey = (ref = this.S.src.core) != null ? ref.apikey : void 0;
   if (!apikey) {
     return void 0;
   }
@@ -4948,142 +5027,12 @@ P.src.core.search = async function(qrystr, from, size = 10, format, timeout = (r
     url += '&page=' + (Math.floor(from / size) + 1);
   }
   try {
-    res = (await this.fetch(url)); //, {timeout:timeout}
-    rd = res.data.data;
-    if (format) {
-      for (r in rd) {
-        rd[r] = (await this.src.core.format(rd[r]));
-      }
-    }
+    res = (await this.fetch(url)); //, {timeout: 10000}
     return {
       total: res.data.totalHits,
-      data: rd
+      data: res.data.data
     };
   } catch (error) {}
-};
-
-P.src.core.redirect = async function(record) {
-  var j, len, ref5, res, resolved, u;
-  res = {};
-  if (record.fulltextIdentifier) {
-    res.url = record.fulltextIdentifier;
-  } else {
-    ref5 = record.fulltextUrls;
-    for (j = 0, len = ref5.length; j < len; j++) {
-      u = ref5[j];
-      if (u.indexOf('core.ac.uk') !== -1) {
-        res.url = u;
-        break;
-      } else {
-        resolved = (await this.resolve(u));
-        if (resolved && resolved.indexOf('.pdf') !== -1) {
-          res.url = resolved;
-        }
-      }
-    }
-  }
-  return res;
-};
-
-P.src.core.format = function(rec, metadata = {}) {
-  var a, ar, as, j, len, parts, ref5;
-  try {
-    if (metadata.title == null) {
-      metadata.title = rec.title;
-    }
-  } catch (error) {}
-  try {
-    if (metadata.doi == null) {
-      metadata.doi = rec.doi;
-    }
-  } catch (error) {}
-  try {
-    if (metadata.author == null) {
-      metadata.author = [];
-    }
-    ref5 = rec.authors;
-    for (j = 0, len = ref5.length; j < len; j++) {
-      ar = ref5[j];
-      as = ar.split(' ');
-      a = {
-        name: ar,
-        given: as[0]
-      };
-      try {
-        a.family = as[as.length - 1];
-      } catch (error) {}
-      metadata.author.push(a);
-    }
-  } catch (error) {}
-  try {
-    if (metadata.publisher == null) {
-      metadata.publisher = rec.publisher;
-    }
-  } catch (error) {}
-  try {
-    if (metadata.published == null) {
-      metadata.published = rec.datePublished;
-    }
-    if (metadata.published.indexOf('-') === -1) {
-      if (metadata.published.toString().length === 4) {
-        metadata.year = metadata.published;
-        metadata.published += '-01-01';
-      } else {
-        delete metadata.published;
-      }
-    } else {
-      parts = metadata.published.split('-');
-      if (parts[0].length === 4) {
-        if (parts.length === 2) {
-          parts.push('01');
-        }
-        if (parts.length === 1) {
-          parts.push('01');
-          parts.push('01');
-        }
-        metadata.published = parts.join('-');
-      } else {
-        delete metadata.published;
-      }
-    }
-  } catch (error) {}
-  try {
-    if (metadata.year == null) {
-      metadata.year = rec.year;
-    }
-    if (typeof metadata.year === 'number') {
-      metadata.year = metadata.year.toString();
-    }
-    if (typeof metadata.year !== 'string' || metadata.year.length !== 4) {
-      delete metadata.year;
-    }
-    try {
-      if ((metadata.published == null) && (metadata.year != null)) {
-        metadata.published = metadata.year + '-01-01';
-      }
-    } catch (error) {}
-  } catch (error) {}
-  try {
-    if (metadata.pdf == null) {
-      metadata.pdf = rec.pdf;
-    }
-  } catch (error) {}
-  try {
-    if (metadata.url == null) {
-      metadata.url = rec.url;
-    }
-  } catch (error) {}
-  try {
-    if (metadata.open == null) {
-      metadata.open = rec.open;
-    }
-  } catch (error) {}
-  try {
-    if (metadata.redirect == null) {
-      metadata.redirect = rec.redirect;
-    }
-  } catch (error) {}
-  return metadata;
 };
 
   // https://github.com/CrossRef/rest-api-doc/blob/master/rest_api.md
@@ -5299,7 +5248,7 @@ P.src.epmc = async function(qrystr, from, size) {
   if (qrystr == null) {
     qrystr = (ref = this.params.epmc) != null ? ref : this.params.doi;
   }
-  if (qrystr.indexOf('10.') === 0 && qrystr.indexOf(' ') === -1 && qrystr.split('/').length === 2) {
+  if (qrystr.indexOf('10.') === 0 && qrystr.indexOf(' ') === -1 && qrystr.split('/').length >= 2) {
     qrystr = 'DOI:' + qrystr;
   }
   url = 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=' + qrystr + ' sort_date:y&resulttype=core&format=json';
@@ -5314,8 +5263,27 @@ P.src.epmc = async function(qrystr, from, size) {
   ret.total = res.hitCount;
   ret.data = (ref1 = (ref2 = res.resultList) != null ? ref2.result : void 0) != null ? ref1 : [];
   ret.cursor = res.nextCursorMark;
-  return ret;
+  if (this.params.doi && ret.total === 1) {
+    return ret.data[0];
+  } else {
+    return ret;
+  }
 };
+
+P.src.epmc.doi = async function(ident) {
+  var res;
+  if (ident == null) {
+    ident = this.params.doi;
+  }
+  res = (await this.src.epmc('DOI:' + ident));
+  if (res.total) {
+    return res.data[0];
+  } else {
+    return void 0;
+  }
+};
+
+P.src.epmc.doi._hidden = true;
 
 P.src.epmc.pmid = async function(ident) {
   var res;
@@ -5838,8 +5806,8 @@ API.use.google.sheets.api.values = (sheetid, opts={}) ->
 // Use case: To get the name of a Principal Investigator, call @src.grist(the_grant_id).data.Person
 // Will return {FamilyName: "Friston", GivenName: "Karl", Initials: "KJ", Title: "Prof"}
 P.src.grist = async function(qrystr, from) {
-  var GRIST_API_PAGE_SIZE, ref, ref1, res, url;
-  GRIST_API_PAGE_SIZE = 25;
+  var ref, ref1, res, url;
+  // note in Grist API one of the params is resultType, in EPMC REST API the same param is resulttype .
   if (qrystr == null) {
     qrystr = this.params.grist;
   }
@@ -5848,7 +5816,7 @@ P.src.grist = async function(qrystr, from) {
   }
   url = 'https://www.ebi.ac.uk/europepmc/GristAPI/rest/get/query=' + qrystr + '&resultType=core&format=json';
   if (from != null) {
-    url += '&page=' + (Math.floor(from / GRIST_API_PAGE_SIZE) + 1);
+    url += '&page=' + (Math.floor(from / 25) + 1);
   }
   res = (await this.fetch(url));
   return {
@@ -6038,169 +6006,6 @@ P.src.oadoi._index = true;
 P.src.oadoi._key = 'doi';
 
 P.src.oadoi._prefix = false;
-
-// docs:
-// http://opendoar.org/tools/api.html
-// http://opendoar.org/tools/api13manual.html
-// example:
-// http://opendoar.org/api13.php?fields=rname&kwd=Aberdeen%20University%20Research%20Archive
-P.src.opendoar = {
-  _index: true
-};
-
-P.src.opendoar.parse = function(rec) {
-  var c, cl, cn, co, cont, i, j, k, l, len, len1, len2, len3, len4, ll, m, n, p, po, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref45, ref46, ref47, ref48, ref49, ref5, ref50, ref51, ref52, ref53, ref6, ref7, ref8, ref9, ret, st, std, t;
-  ret = {
-    _id: rec.$.rID
-  };
-  ret.name = (ref = rec.rName) != null ? ref[0] : void 0;
-  ret.acronym = (ref1 = rec.rAcronym) != null ? ref1[0] : void 0;
-  ret.url = (ref2 = rec.rUrl) != null ? ref2[0] : void 0;
-  ret.oai = (ref3 = rec.rOaiBaseUrl) != null ? ref3[0] : void 0;
-  ret.uname = (ref4 = rec.uName) != null ? ref4[0] : void 0;
-  ret.uacronym = (ref5 = rec.uAcronym) != null ? ref5[0] : void 0;
-  ret.uurl = (ref6 = rec.uUrl) != null ? ref6[0] : void 0;
-  ret.oname = (ref7 = rec.oName) != null ? ref7[0] : void 0;
-  ret.oacronym = (ref8 = rec.oAcronym) != null ? ref8[0] : void 0;
-  ret.ourl = (ref9 = rec.oUrl) != null ? ref9[0] : void 0;
-  ret.address = (ref10 = rec.rPostalAddress) != null ? ref10[0] : void 0;
-  ret.phone = (ref11 = rec.paPhone) != null ? ref11[0] : void 0;
-  ret.fax = (ref12 = rec.paFax) != null ? ref12[0] : void 0;
-  ret.description = (ref13 = rec.rDescription) != null ? ref13[0] : void 0;
-  ret.remarks = (ref14 = rec.rRemarks) != null ? ref14[0] : void 0;
-  if (((ref15 = rec.rYearEstablished) != null ? (ref16 = ref15[0]) != null ? ref16.length : void 0 : void 0) > 0 && parseInt(rec.rYearEstablished[0])) {
-    ret.established = rec.rYearEstablished[0];
-  }
-  ret.type = (ref17 = rec.repositoryType) != null ? ref17[0] : void 0;
-  ret.operational = (ref18 = rec.operationalStatus) != null ? ref18[0] : void 0;
-  ret.software = (ref19 = rec.rSoftWareName) != null ? ref19[0] : void 0;
-  ret.version = (ref20 = rec.rSoftWareVersion) != null ? ref20[0] : void 0;
-  if (rec.paLatitude && rec.paLongitude) {
-    ret.location = {
-      geo: {
-        lat: rec.paLatitude[0],
-        lon: rec.paLongitude[0]
-      }
-    };
-  }
-  if (((ref21 = rec.country) != null ? (ref22 = ref21[0]) != null ? ref22.cCountry : void 0 : void 0) != null) {
-    ret.country = rec.country[0].cCountry[0];
-    if (ret.countryIso == null) {
-      ret.countryIso = (ref23 = rec.country[0].cIsoCode) != null ? ref23[0] : void 0;
-    }
-  }
-  if (((ref24 = rec.classes) != null ? (ref25 = ref24[0]) != null ? ref25.class : void 0 : void 0) != null) {
-    ret.classes = [];
-    ref26 = rec.classes[0].class;
-    for (i = 0, len = ref26.length; i < len; i++) {
-      c = ref26[i];
-      cl = {};
-      cl.code = (ref27 = c.clCode) != null ? ref27[0] : void 0;
-      cl.title = (ref28 = c.clTitle) != null ? ref28[0] : void 0;
-      ret.classes.push(cl);
-    }
-  }
-  if (((ref29 = rec.languages) != null ? (ref30 = ref29[0]) != null ? ref30.language : void 0 : void 0) != null) {
-    ret.languages = [];
-    ref31 = rec.languages[0].language;
-    for (j = 0, len1 = ref31.length; j < len1; j++) {
-      l = ref31[j];
-      ll = {};
-      ll.iso = (ref32 = l.lIsoCode) != null ? ref32[0] : void 0;
-      ll.name = (ref33 = l.lName) != null ? ref33[0] : void 0;
-      ret.languages.push(ll);
-    }
-  }
-  if (((ref34 = rec.contentTypes) != null ? (ref35 = ref34[0]) != null ? ref35.contentType : void 0 : void 0) != null) {
-    ret.contents = [];
-    ref36 = rec.contentTypes[0].contentType;
-    for (k = 0, len2 = ref36.length; k < len2; k++) {
-      t = ref36[k];
-      co = {};
-      co.type = t._;
-      co.id = (ref37 = t.$) != null ? ref37.ctID : void 0;
-      ret.contents.push(co);
-    }
-  }
-  if ((ref38 = rec.policies) != null ? (ref39 = ref38[0]) != null ? ref39.policy : void 0 : void 0) {
-    ret.policies = [];
-    ref40 = rec.policies[0].policy;
-    for (m = 0, len3 = ref40.length; m < len3; m++) {
-      p = ref40[m];
-      po = {};
-      po.type = (ref41 = p.policyType) != null ? (ref42 = ref41[0]) != null ? ref42._ : void 0 : void 0;
-      po.grade = (ref43 = p.policyGrade) != null ? (ref44 = ref43[0]) != null ? ref44._ : void 0 : void 0;
-      if (((ref45 = p.poStandard) != null ? (ref46 = ref45[0]) != null ? ref46.item : void 0 : void 0) != null) {
-        std = [];
-        if ((function() {
-          var len4, n, ref47, results;
-          ref47 = p.poStandard[0].item;
-          results = [];
-          for (n = 0, len4 = ref47.length; n < len4; n++) {
-            st = ref47[n];
-            results.push(typeof st === "string");
-          }
-          return results;
-        })()) {
-          std.push(st);
-        }
-        po.standard = std;
-      }
-      ret.policies.push(po);
-    }
-  }
-  if (((ref47 = rec.contacts) != null ? (ref48 = ref47[0]) != null ? ref48.person : void 0 : void 0) != null) {
-    ret.contacts = [];
-    ref49 = rec.contacts[0].person;
-    for (n = 0, len4 = ref49.length; n < len4; n++) {
-      cn = ref49[n];
-      cont = {};
-      cont.name = (ref50 = cn.pName) != null ? ref50[0] : void 0;
-      cont.title = (ref51 = cn.pJobTitle) != null ? ref51[0] : void 0;
-      cont.email = (ref52 = cn.pEmail) != null ? ref52[0] : void 0;
-      cont.phone = (ref53 = cn.pPhone) != null ? ref53[0] : void 0;
-      ret.contacts.push(cont);
-    }
-  }
-  return ret;
-};
-
-P.src.opendoar.search = async function(qrystr, show = 'basic', raw) {
-  var data, i, js, len, r, ref, res, url;
-  try {
-    url = 'http://opendoar.org/api13.php?show=' + show + '&kwd=' + qrystr;
-    res = (await this.fetch(url));
-    js = (await this.convert.xml2json(res.content));
-    data = [];
-    ref = js.OpenDOAR.repositories[0].repository;
-    for (i = 0, len = ref.length; i < len; i++) {
-      r = ref[i];
-      data.push((await this.src.opendoar.parse(r)));
-    }
-    return {
-      total: js.OpenDOAR.repositories[0].repository.length,
-      data: data
-    };
-  } catch (error) {}
-};
-
-P.src.opendoar.index = async function() {
-  var data, i, js, len, r, ref, res, url;
-  try {
-    url = 'http://opendoar.org/api13.php?all=y&show=max';
-    res = (await this.fetch(url));
-    js = (await this.convert.xml2json(res.content));
-    data = [];
-    ref = js.OpenDOAR.repositories[0].repository;
-    for (i = 0, len = ref.length; i < len; i++) {
-      r = ref[i];
-      data.push((await this.src.opendoar.parse(r)));
-    }
-    this.src.opendoar('');
-    this.src.opendoar(data);
-  } catch (error) {}
-  return true;
-};
 
 // pubmed API http://www.ncbi.nlm.nih.gov/books/NBK25497/
 // examples http://www.ncbi.nlm.nih.gov/books/NBK25498/#chapter3.ESearch__ESummaryEFetch
@@ -6638,6 +6443,49 @@ P.src.pubmed.format = function(rec, metadata = {}) {
   return metadata;
 };
 
+try {
+  S.svc.sherpa = JSON.parse(SECRETS_SHERPA);
+} catch (error) {}
+
+P.src.sherpa = {};
+
+P.src.sherpa.opendoar = {
+  _index: true,
+  _prefix: false
+};
+
+// https://v2.sherpa.ac.uk/api/object-retrieval.html
+P.src.sherpa.opendoar.import = async function() {
+  var counter, i, len, offset, rec, recs, ref, res;
+  this.src.sherpa.opendoar('');
+  recs = [];
+  counter = 0;
+  offset = 0;
+  while (res = (await this.fetch('https://v2.sherpa.ac.uk/cgi/retrieve?api-key=' + this.S.svc.sherpa.apikey + '&item-type=repository&format=Json&offset=' + offset))) {
+    if (((typeof res !== "undefined" && res !== null ? res.items : void 0) == null) || !res.items.length) {
+      break;
+    }
+    console.log(offset, counter, res.items.length);
+    offset += 100; // opendoar returns 100 at a time by default, and that is also the max
+    ref = res.items;
+    for (i = 0, len = ref.length; i < len; i++) {
+      rec = ref[i];
+      counter += 1;
+      recs.push(rec);
+      if (recs.length === 2000) {
+        await this.src.sherpa.opendoar(recs);
+        recs = [];
+      }
+    }
+  }
+  if (recs.length) {
+    await this.src.sherpa.opendoar(recs);
+  }
+  return counter;
+};
+
+P.src.sherpa.opendoar.import._hidden = true;
+
 // TODO copy over from old system
 P.src.wikidata = function(q) {
   var ref, ref1;
@@ -7052,106 +6900,125 @@ P.status = async function() {
   return res;
 };
 
-var _formatepmcdate,
-  indexOf = [].indexOf;
-
-P.svc.lantern = {};
+var indexOf = [].indexOf;
 
 P.svc.lantern = async function(jid) {
-  var j, job, p, processes, ref, ref1;
+  var i, job, ref, ref1, ref2, ref3, text;
   if (jid == null) {
     jid = (ref = this.params.lantern) != null ? ref : this.params.job;
   }
+  if (jid && jid.startsWith('10.')) {
+    jid = void 0;
+  }
   if (jid != null) {
-    job = (await this.svc.lantern._job(jid));
-    p = (await this.job.progress(job));
-    job.progress = p != null ? p : 0;
+    job = (await this.svc.lantern.job(jid));
+    job.progress = (await this.svc.lantern.progress(job));
     return job;
   } else {
-    if (this.params.doi || this.params.pmid || this.params.pmc || this.params.pmcid) {
-      j = {
-        new: true,
-        service: 'lantern'
-      };
-      if (j.email == null) {
-        j.email = this.params.email;
+    if (this.params.doi || this.params.lantern || this.params.pmid || this.params.pmc || this.params.pmcid || this.body) {
+      job = {};
+      if (job.email == null) {
+        job.email = this.params.email;
       }
-      j.wellcome = this.queryParams.wellcome != null;
-      try {
-        j.refresh = this.params.refresh;
-      } catch (error) {}
-      j._id = job_job.insert(j);
+      job._id = this.uid();
       if (this.body) {
-        processes = typeof this.body === 'object' && !Array.isArray(this.body) && this.body.list ? (processes = this.body.list, j.name != null ? j.name : j.name = this.body.name) : processes = this.body;
+        if (typeof this.body === 'object' && !Array.isArray(this.body) && this.body.list) {
+          job.processes = this.body.list;
+          if (job.name == null) {
+            job.name = this.body.name;
+          }
+        } else {
+          job.processes = this.body;
+        }
       } else {
-        j.processes = [];
-        if (this.params.doi) {
-          j.processes.push({
-            doi: this.queryParams.doi
+        job.processes = [];
+        if (this.params.doi || this.params.lantern) {
+          job.processes.push({
+            doi: (ref1 = this.params.doi) != null ? ref1 : this.params.lantern
           });
         }
         if (this.params.pmid) {
-          j.processes.push({
-            pmid: this.queryParams.pmid
+          job.processes.push({
+            pmid: this.params.pmid
           });
         }
         if (this.params.pmcid || this.params.pmc) {
-          j.processes.push({
-            pmcid: (ref1 = this.params.pmcid) != null ? ref1 : this.params.pmc
+          job.processes.push({
+            pmcid: (ref2 = this.params.pmcid) != null ? ref2 : this.params.pmc
           });
         }
-        if (j.name == null) {
-          j.name = this.params.name;
+        if (job.name == null) {
+          job.name = this.params.name;
         }
       }
-      this.svc.lantern.job(j);
-      return j;
+      this.svc.lantern.job(job);
+      for (i in job.processes) {
+        this.svc.lantern.process(job.processes[i], parseInt(i) === job.processes.length - 1 ? job : void 0);
+      }
+      if (job.email) {
+        text = 'Dear ' + job.email + '\n\nWe\'ve just started processing a batch of identifiers for you, and you can see the progress of the job here:\n\n';
+        text += 'https://compliance.cottagelabs.com#' + job._id;
+        text += '\n\nIf you didn\'t submit this request yourself, it probably means that another service is running ';
+        text += 'it on your behalf, so this is just to keep you informed about what\'s happening with your account; ';
+        text += 'you don\'t need to do anything else.\n\nYou\'ll get another email when your job has completed.\n\n';
+        this.mail({
+          from: 'Lantern <lantern@cottagelabs.com>',
+          to: job.email,
+          subject: 'Wellcome Compliance: job ' + ((ref3 = job.name) != null ? ref3 : job._id) + ' submitted successfully',
+          text: text
+        });
+      }
+      return job;
     } else {
       return {
-        name: 'Lantern for Wellcome'
+        name: 'Lantern for Wellcome',
+        version: this.S.version,
+        base: this.S.dev ? this.base : void 0,
+        built: this.S.built
       };
     }
   }
 };
 
-P.svc.lantern._job = {
+P.svc.lantern.job = {
   _index: true
 };
 
-P.svc.lantern.progress = async function(jid) {
-  var job, ref;
-  if (jid == null) {
-    jid = (ref = this.params.lantern) != null ? ref : this.params.job;
-  }
-  job = (await this.svc.lantern(jid));
-  return job.progress;
+P.svc.lantern.result = {
+  _index: true
 };
 
-P.svc.lantern.results = async function(jid) {
-  var fieldconfig, fieldnames, fields, fname, gc, grantcount, grnt, job, jr, len, len1, len2, len3, m, n, o, pr, printname, q, r, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, result, results, rgc, rr, tpn;
+P.svc.lantern.results = async function(jid, count) {
+  var fieldconfig, fields, fname, gc, grantcount, grnt, j, job, jr, k, len, len1, len2, len3, len4, m, n, o, pr, printname, proc, r, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, result, results, rgc, rr, tpn;
   if (jid == null) {
-    jid = (ref = this.params.lantern) != null ? ref : this.params.job;
+    jid = (ref = (ref1 = this.params.lantern) != null ? ref1 : this.params.results) != null ? ref : this.params.job;
   }
-  job = (await this.svc.lantern(jid));
-  jr = (await this.job.results(job));
+  job = (await this.svc.lantern.job(jid));
+  jr = count ? 0 : [];
+  ref2 = job.processes;
+  for (j = 0, len = ref2.length; j < len; j++) {
+    proc = ref2[j];
+    if (res = (await this.svc.lantern.result(proc._id))) {
+      if (count) {
+        jr += 1;
+      } else {
+        jr.push(res);
+      }
+    }
+  }
   if (this.format !== 'csv') {
     return jr;
   } else {
-    fieldnames = {};
-    try {
-      // TODO this config will only read lantern fields configs, but if this is a wellcome job, it should perhaps still be reading the old wellcome fields configs.
-      fieldnames = typeof this.S.svc.lantern.fieldnames === 'object' ? this.S.svc.lantern.fieldnames : JSON.parse((await this.fetch(this.S.svc.lantern.fieldnames)));
-    } catch (error) {}
-    fields = (ref1 = this.S.svc.lantern) != null ? ref1.fields : void 0;
+    fields = ["pmcid", "pmid", "doi", "title", "journal_title", "pure_oa", "issn", "eissn", "publication_date", "electronic_publication_date", "publisher", "publisher_licence", "licence", "epmc_licence", "licence_source", "epmc_licence_source", "in_epmc", "epmc_xml", "aam", "open_access", "ahead_of_print", "romeo_colour", "preprint_embargo", "preprint_self_archiving", "postprint_embargo", "postprint_self_archiving", "publisher_copy_embargo", "publisher_copy_self_archiving", "authors", "in_core", "in_base", "repositories", "repository_urls", "repository_oai_ids", "repository_fulltext_urls", "confidence", "compliance_wellcome_standard", "compliance_wellcome_deluxe"];
     grantcount = 0;
     fieldconfig = [];
     results = [];
-    for (m = 0, len = job.length; m < len; m++) {
-      res = job[m];
+    for (k = 0, len1 = job.length; k < len1; k++) {
+      res = job[k];
       result = {};
-      for (n = 0, len1 = fields.length; n < len1; n++) {
-        fname = fields[n];
-        printname = (ref2 = (ref3 = fieldnames[fname]) != null ? ref3.short_name : void 0) != null ? ref2 : fname;
+      for (m = 0, len2 = fields.length; m < len2; m++) {
+        fname = fields[m];
+        printname = (ref3 = (ref4 = P.svc.lantern._fields[fname]) != null ? ref4.short_name : void 0) != null ? ref3 : fname;
         if (indexOf.call(fieldconfig, printname) < 0) {
           fieldconfig.push(printname);
         }
@@ -7166,21 +7033,21 @@ P.svc.lantern.results = async function(jid) {
         } else if (fname === 'repositories' || fname === 'repository_urls' || fname === 'repository_fulltext_urls' || fname === 'repository_oai_ids') {
           result[printname] = '';
           if (res.repositories != null) {
-            ref4 = res.repositories;
-            for (o = 0, len2 = ref4.length; o < len2; o++) {
-              rr = ref4[o];
+            ref5 = res.repositories;
+            for (n = 0, len3 = ref5.length; n < len3; n++) {
+              rr = ref5[n];
               if (rr.name) {
                 if (result[printname]) {
                   result[printname] += '\r\n';
                 }
                 if (fname === 'repositories') {
-                  result[printname] += (ref5 = rr.name) != null ? ref5 : '';
+                  result[printname] += (ref6 = rr.name) != null ? ref6 : '';
                 } else if (fname === 'repository_urls') {
-                  result[printname] += (ref6 = rr.url) != null ? ref6 : '';
+                  result[printname] += (ref7 = rr.url) != null ? ref7 : '';
                 } else if (fname === 'repository_fulltext_urls') {
                   result[printname] += rr.fulltexts != null ? rr.fulltexts.join() : '';
                 } else if (fname === 'repository_oai_ids') {
-                  result[printname] += (ref7 = rr.oai) != null ? ref7 : '';
+                  result[printname] += (ref8 = rr.oai) != null ? ref8 : '';
                 }
               }
             }
@@ -7202,19 +7069,19 @@ P.svc.lantern.results = async function(jid) {
       }
       if (res.grants != null) {
         rgc = 0;
-        ref8 = res.grants;
-        for (q = 0, len3 = ref8.length; q < len3; q++) {
-          grnt = ref8[q];
+        ref9 = res.grants;
+        for (o = 0, len4 = ref9.length; o < len4; o++) {
+          grnt = ref9[o];
           rgc += 1;
-          result[((ref10 = (ref11 = fieldnames.grant) != null ? ref11.short_name : void 0) != null ? ref10 : 'grant').split(' ')[0] + ' ' + rgc] = (ref9 = grnt.grantId) != null ? ref9 : '';
-          result[((ref13 = (ref14 = fieldnames.agency) != null ? ref14.short_name : void 0) != null ? ref13 : 'agency').split(' ')[0] + ' ' + rgc] = (ref12 = grnt.agency) != null ? ref12 : '';
-          result[((ref16 = (ref17 = fieldnames.pi) != null ? ref17.short_name : void 0) != null ? ref16 : 'pi').split(' ')[0] + ' ' + rgc] = (ref15 = grnt.PI) != null ? ref15 : (grnt.grantId || grnt.agency ? 'Unknown' : '');
+          result[((ref11 = (ref12 = P.svc.lantern._fields.grant) != null ? ref12.short_name : void 0) != null ? ref11 : 'grant').split(' ')[0] + ' ' + rgc] = (ref10 = grnt.grantId) != null ? ref10 : '';
+          result[((ref14 = (ref15 = P.svc.lantern._fields.agency) != null ? ref15.short_name : void 0) != null ? ref14 : 'agency').split(' ')[0] + ' ' + rgc] = (ref13 = grnt.agency) != null ? ref13 : '';
+          result[((ref17 = (ref18 = P.svc.lantern._fields.pi) != null ? ref18.short_name : void 0) != null ? ref17 : 'pi').split(' ')[0] + ' ' + rgc] = (ref16 = grnt.PI) != null ? ref16 : (grnt.grantId || grnt.agency ? 'Unknown' : '');
         }
         if (rgc > grantcount) {
           grantcount = rgc;
         }
       }
-      tpn = (ref18 = (ref19 = fieldnames['provenance']) != null ? ref19.short_name : void 0) != null ? ref18 : 'provenance';
+      tpn = (ref19 = (ref20 = P.svc.lantern._fields['provenance']) != null ? ref20.short_name : void 0) != null ? ref19 : 'provenance';
       result[tpn] = '';
       if (res.provenance != null) {
         for (pr in res.provenance) {
@@ -7226,38 +7093,58 @@ P.svc.lantern.results = async function(jid) {
     }
     gc = 1;
     while (gc < grantcount + 1) {
-      fieldconfig.push(((ref20 = (ref21 = fieldnames.grant) != null ? ref21.short_name : void 0) != null ? ref20 : 'grant').split(' ')[0] + ' ' + gc);
-      fieldconfig.push(((ref22 = (ref23 = fieldnames.agency) != null ? ref23.short_name : void 0) != null ? ref22 : 'agency').split(' ')[0] + ' ' + gc);
-      fieldconfig.push(((ref24 = (ref25 = fieldnames.pi) != null ? ref25.short_name : void 0) != null ? ref24 : 'pi').split(' ')[0] + ' ' + gc);
+      fieldconfig.push(((ref21 = (ref22 = P.svc.lantern._fields.grant) != null ? ref22.short_name : void 0) != null ? ref21 : 'grant').split(' ')[0] + ' ' + gc);
+      fieldconfig.push(((ref23 = (ref24 = P.svc.lantern._fields.agency) != null ? ref24.short_name : void 0) != null ? ref23 : 'agency').split(' ')[0] + ' ' + gc);
+      fieldconfig.push(((ref25 = (ref26 = P.svc.lantern._fields.pi) != null ? ref26.short_name : void 0) != null ? ref25 : 'pi').split(' ')[0] + ' ' + gc);
       gc++;
     }
     if (indexOf.call(ignorefields, 'provenance') < 0) {
-      fieldconfig.push((ref26 = (ref27 = fieldnames.provenance) != null ? ref27.short_name : void 0) != null ? ref26 : 'provenance');
+      fieldconfig.push((ref27 = (ref28 = P.svc.lantern._fields.provenance) != null ? ref28.short_name : void 0) != null ? ref27 : 'provenance');
     }
     return this.convert.json2csv(results);
   }
 };
 
-P.svc.lantern.licence = function(url, content, start, end) {
-  var l, len, lic, licences, m, match, urlmatch, urlmatcher;
+P.svc.lantern.progress = async function(jid) {
+  var job, progress, ref, ref1;
+  if (jid == null) {
+    jid = (ref = (ref1 = this.params.lantern) != null ? ref1 : this.params.progress) != null ? ref : this.params.job;
+  }
+  job = typeof jid === 'object' ? jid : (await this.svc.lantern(jid));
+  progress = (await this.svc.lantern.results(job, true));
+  // TODO calculate the progress of the job somehow
+  return Math.ceil((progress / job.processes.length) * 10000) / 100;
+};
+
+P.svc.lantern.licence = async function(url, content, start, end) {
+  var j, l, len, lh, lics, match, ref, ref1, ref2, ref3, urlmatch, urlmatcher;
+  if (url == null) {
+    url = this.params.url;
+  }
   if (url != null) {
     url = url.replace(/(^\s*)|(\s*$)/g, '');
   }
   if (content == null) {
-    content = this.puppet(url);
+    content = (ref = this.params.content) != null ? ref : this.body;
   }
+  try {
+    if (content == null) {
+      content = (await this.puppet(url));
+    }
+  } catch (error) {}
   if (typeof content === 'number') {
     content = void 0;
   }
-  lic = {};
-  if (url != null) {
+  if (start == null) {
+    start = this.params.start;
+  }
+  if (end == null) {
+    end = this.params.end;
+  }
+  if (url) {
     lic.url = url;
   }
-  if (resolve && (typeof resolved !== "undefined" && resolved !== null)) {
-    lic.resolved = resolved;
-  }
   if (typeof content === 'string') {
-    licences = this.svc.lantern.licences();
     if ((start != null) && content.indexOf(start) !== -1) {
       content = content.split(start)[1];
     }
@@ -7268,8 +7155,11 @@ P.svc.lantern.licence = function(url, content, start, end) {
       lic.large = true;
       content = content.substring(0, 500000) + content.substring(content.length - 500000, content.length);
     }
-    for (m = 0, len = licences.length; m < len; m++) {
-      l = licences[m];
+    lics = (await this.svc.lantern.licences('*', 100000));
+    ref3 = (ref1 = lics != null ? (ref2 = lics.hits) != null ? ref2.hits : void 0 : void 0) != null ? ref1 : [];
+    for (j = 0, len = ref3.length; j < len; j++) {
+      lh = ref3[j];
+      l = lh._source;
       if (l.domain === '*' || !l.domain || (url == null) || l.domain.toLowerCase().indexOf(url.toLowerCase().replace('http://', '').replace('https://', '').replace('www.', '').split('/')[0]) !== -1) {
         match = l.match.toLowerCase().replace(/[^a-z0-9]/g, '');
         urlmatcher = l.match.indexOf('://') !== -1 ? l.match.toLowerCase().split('://')[1].split('"')[0].split(' ')[0] : false;
@@ -7287,151 +7177,99 @@ P.svc.lantern.licence = function(url, content, start, end) {
 };
 
 P.svc.lantern.licences = {
-  _sheet: true // @S.svc.lantern.licence.remote
+  _sheet: '1yJOpE_YMdDxCKaK0DqWoCJDdq8Ep1b-_J1xYVKGsiYI',
+  _prefix: false
 };
 
-P.svc.lantern.job = function(job) {
-  var i, j, ref, text;
-  for (i in job.processes) {
-    j = job.processes[i];
-    if (j.doi == null) {
-      j.doi = j.DOI;
-    }
-    if (j.pmid == null) {
-      j.pmid = j.PMID;
-    }
-    if (j.pmcid == null) {
-      j.pmcid = j.PMCID;
-    }
-    if (j.title == null) {
-      j.title = j.TITLE;
-    }
-    if (j.title == null) {
-      j.title = j['article title'];
-    }
-    if (j.title == null) {
-      j.title = j['Article title'];
-    }
-    if (j.title == null) {
-      j.title = j['Article Title'];
-    }
-    if (j.title) {
-      j.title = j.title.replace(/\s\s+/g, ' ').trim();
-    }
-    if (j.pmcid) {
-      j.pmcid = j.pmcid.replace(/[^0-9]/g, '');
-    }
-    if (j.pmid) {
-      j.pmid = j.pmid.replace(/[^0-9]/g, '');
-    }
-    if (j.doi) {
-      j.doi = decodeURIComponent(j.doi.replace(/ /g, ''));
-    }
-    job.processes[i] = {
-      doi: j.doi,
-      pmcid: j.pmcid,
-      pmid: j.pmid,
-      title: j.title,
-      refresh: job.refresh,
-      wellcome: job.wellcome
-    };
-  }
-  if (job.email) {
-    text = 'Dear ' + job.email + '\n\nWe\'ve just started processing a batch of identifiers for you, ';
-    text += 'and you can see the progress of the job here:\n\n';
-    text += 'https://compliance.cottagelabs.com#';
-    text += job._id;
-    text += '\n\nIf you didn\'t submit this request yourself, it probably means that another service is running ';
-    text += 'it on your behalf, so this is just to keep you informed about what\'s happening with your account; ';
-    text += 'you don\'t need to do anything else.\n\n';
-    text += 'You\'ll get another email when your job has completed.\n\n';
-    text += 'The Lantern ' + (job.wellcome ? '(Wellcome Compliance) ' : '') + 'Team\n\nP.S This is an automated email, please do not reply to it.';
-    this.mail({
-      from: 'Lantern <lantern@cottagelabs.com>',
-      to: job.email,
-      subject: (job.wellcome ? 'Wellcome Compliance:' : 'Lantern:') + ' job ' + ((ref = job.name) != null ? ref : job._id) + ' submitted successfully',
-      text: text
-    });
-  }
-  return job;
-};
-
-P.svc.lantern.complete = function(job) {
-  var ref, text;
-  if (job.email) {
-    text = 'Dear ' + job.email + '\n\nWe\'ve just finished processing a batch ';
-    text += 'of identifiers for you, and you can download the final results here:\n\n';
-    text += 'https://compliance.cottagelabs.com#';
-    text += job._id;
-    text += '\n\nIf you didn\'t submit the original request yourself, it probably means ';
-    text += 'that another service was running it on your behalf, so this is just to keep you ';
-    text += 'informed about what\'s happening with your account; you don\'t need to do anything else.';
-    text += '\n\nThe Lantern ' + (job.wellcome ? '(Wellcome Compliance) ' : '') + 'Team\n\nP.S This is an automated email, please do not reply to it.';
-    return this.mail({
-      from: 'Lantern <lantern@cottagelabs.com>',
-      to: job.email,
-      subject: (job.wellcome ? 'Wellcome Compliance:' : 'Lantern:') + ' job ' + ((ref = job.name) != null ? ref : job._id) + ' completed successfully',
-      text: text
-    });
-  }
-};
-
-_formatepmcdate = function(date) {
-  var dateparts, dp, dy, mth, mths, tmth, yr;
-  try {
-    date = date.replace(/\//g, '-');
-    if (date.indexOf('-') !== -1) {
-      if (date.length < 11) {
-        dp = date.split('-');
-        if (dp.length === 3) {
-          if (date.indexOf('-') < 4) {
-            return dp[2] + '-' + dp[1] + '-' + dp[0] + 'T00:00:00Z';
-          } else {
-            return date + 'T00:00:00Z';
-          }
-        } else if (dp.length === 2) {
-          if (date.indexOf('-') < 4) {
-            return dp[1] + dp[0] + date + '-01T00:00:00Z';
-          } else {
-            return date + '-01T00:00:00Z';
+P.svc.lantern.process = async function(proc, last) {
+  var _formatepmcdate, aam, base, core, crossref, diss, doaj, domain, efd, epmc_compliance_lic, epmc_lics, eupmc, extrainfo, fd, fofxml, fu, gr, grants, gres, grid, j, job, k, km, lastresort, len, len1, len2, len3, len4, len5, len6, lic, m, msg, n, o, oa, p, pid, pm, ps, pu, publisher_licence_check_ran, q, rc, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rep, res, resolved, result, result_invalid_date_of_electronic_publication, rpo, st, text, xml;
+  _formatepmcdate = function(date) {
+    var dateparts, dp, dy, mth, mths, tmth, yr;
+    try {
+      date = date.replace(/\//g, '-');
+      if (date.indexOf('-') !== -1) {
+        if (date.length < 11) {
+          dp = date.split('-');
+          if (dp.length === 3) {
+            if (date.indexOf('-') < 4) {
+              return dp[2] + '-' + dp[1] + '-' + dp[0] + 'T00:00:00Z';
+            } else {
+              return date + 'T00:00:00Z';
+            }
+          } else if (dp.length === 2) {
+            if (date.indexOf('-') < 4) {
+              return dp[1] + dp[0] + date + '-01T00:00:00Z';
+            } else {
+              return date + '-01T00:00:00Z';
+            }
           }
         }
-      }
-      return date;
-    } else {
-      dateparts = date.replace(/  /g, ' ').split(' ');
-      yr = dateparts[0].toString();
-      mth = dateparts.length > 1 ? dateparts[1] : 1;
-      if (isNaN(parseInt(mth))) {
-        mths = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-        tmth = mth.toLowerCase().substring(0, 3);
-        mth = mths.indexOf(tmth) !== -1 ? mths.indexOf(tmth) + 1 : "01";
+        return date;
       } else {
-        mth = parseInt(mth);
+        dateparts = date.replace(/  /g, ' ').split(' ');
+        yr = dateparts[0].toString();
+        mth = dateparts.length > 1 ? dateparts[1] : 1;
+        if (isNaN(parseInt(mth))) {
+          mths = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+          tmth = mth.toLowerCase().substring(0, 3);
+          mth = mths.indexOf(tmth) !== -1 ? mths.indexOf(tmth) + 1 : "01";
+        } else {
+          mth = parseInt(mth);
+        }
+        mth = mth.toString();
+        if (mth.length === 1) {
+          mth = "0" + mth;
+        }
+        dy = dateparts.length > 2 ? dateparts[2].toString() : "01";
+        if (dy.length === 1) {
+          dy = "0" + dy;
+        }
+        return yr + '-' + mth + '-' + dy + 'T00:00:00Z';
       }
-      mth = mth.toString();
-      if (mth.length === 1) {
-        mth = "0" + mth;
-      }
-      dy = dateparts.length > 2 ? dateparts[2].toString() : "01";
-      if (dy.length === 1) {
-        dy = "0" + dy;
-      }
-      return yr + '-' + mth + '-' + dy + 'T00:00:00Z';
+    } catch (error) {
+      return void 0;
     }
-  } catch (error) {
-    return void 0;
-  }
-};
-
-P.svc.lantern.process = async function(proc) {
-  var aam, base, core, crossref, diss, doaj, domain, efd, epmc_compliance_lic, epmc_lics, err, eupmc, extrainfo, fd, fofxml, fu, gr, grants, gres, grid, identtypes, k, lastresort, len, len1, len2, len3, len4, len5, len6, lic, m, main, msg, n, o, p, pid, prst, ps, publisher_licence_check_ran, q, rc, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rep, repo, res, res2, resolved, result, result_invalid_date_of_electronic_publication, romeo, s, st, stt, stub, t, u, url, xml;
+  };
   if (proc == null) {
     proc = {
       doi: this.params.doi,
       pmid: this.params.pmid,
       pmcid: this.params.pmcid
     };
+  }
+  ref = ['DOI', 'PMID', 'PMCID', 'TITLE'];
+  for (j = 0, len = ref.length; j < len; j++) {
+    pu = ref[j];
+    if (proc[pu]) {
+      proc[pu.toLowerCase()] = proc[pu];
+    }
+  }
+  if (proc.doi == null) {
+    proc.doi = proc.DOI;
+  }
+  if (proc.pmid == null) {
+    proc.pmid = proc.PMID;
+  }
+  if (proc.pmcid == null) {
+    proc.pmcid = (ref1 = (ref2 = proc.PMCID) != null ? ref2 : proc.PMC) != null ? ref1 : proc.pmc;
+  }
+  if (proc.title == null) {
+    proc.title = (ref3 = (ref4 = proc['article title']) != null ? ref4 : proc['Article title']) != null ? ref3 : proc['Article Title'];
+  }
+  if (proc.title) {
+    proc.title = proc.title.replace(/\s\s+/g, ' ').trim();
+  }
+  if (proc.pmcid) {
+    proc.pmcid = proc.pmcid.replace(/[^0-9]/g, '');
+  }
+  if (proc.pmid) {
+    proc.pmid = proc.pmid.replace(/[^0-9]/g, '');
+  }
+  if (proc.doi) {
+    proc.doi = decodeURIComponent(proc.doi.replace(/ /g, ''));
+  }
+  if (proc._id == null) {
+    proc._id = proc.doi ? proc.doi.replace(/\//g, '_') : (ref5 = (ref6 = proc.pmcid) != null ? ref6 : proc.pmid) != null ? ref5 : (await this.uid());
   }
   result = {
     _id: proc._id,
@@ -7456,54 +7294,33 @@ P.svc.lantern.process = async function(proc) {
     aam: false, // set to true if is an eupmc author manuscript
     open_access: false, // set to true if eupmc or other source says is oa
     ahead_of_print: void 0, // if pubmed returns a date for this, it will be a date
-    romeo_colour: 'unknown', // the sherpa romeo colour
     preprint_embargo: 'unknown',
     preprint_self_archiving: 'unknown',
     postprint_embargo: 'unknown',
     postprint_self_archiving: 'unknown',
     publisher_copy_embargo: 'unknown',
     publisher_copy_self_archiving: 'unknown',
-    authors: [], // eupmc author list if available (could look on other sources too?)
+    authors: [], // eupmc author list if available
     in_core: 'unknown',
     in_base: 'unknown',
     repositories: [], // where CORE or BASE says it is. Should be list of objects
     grants: [], // a list of grants, probably from eupmc for now
     confidence: 0, // 1 if matched on ID, 0.9 if title to 1 result, 0.7 if title to multiple results, 0 if unknown article
-    //score: 0
     provenance: []
   };
+  ref7 = ['pmcid', 'pmid', 'doi', 'title'];
   // search eupmc by (in order) pmcid, pmid, doi, title
-  identtypes = ['pmcid', 'pmid', 'doi', 'title'];
-  eupmc;
-  for (m = 0, len = identtypes.length; m < len; m++) {
-    st = identtypes[m];
-    if (typeof eupmc === "undefined" || eupmc === null) {
-      if (proc[st]) {
-        stt = st;
-        prst = proc[st];
-        if (stt === 'title') {
-          stt = 'search';
-          prst = 'TITLE:"' + prst.replace('"', '') + '"';
-        }
-        if (stt === 'pmcid') {
-          stt = 'pmc';
-        }
-        res = this.src.epmc[stt](prst);
-        if ((res != null ? res.id : void 0) && stt !== 'search') {
-          eupmc = res;
-          result.confidence = 1;
-        } else if (stt === 'search') {
-          if (res.total === 1) {
-            eupmc = res.data[0];
-            result.confidence = 0.9;
-          } else {
-            prst = prst.replace('"', '');
-            res2 = this.src.epmc[stt](prst);
-            if (res2.total === 1) {
-              eupmc = res2.data[0];
-              result.confidence = 0.7;
-            }
-          }
+  for (k = 0, len1 = ref7.length; k < len1; k++) {
+    st = ref7[k];
+    if (proc[st]) {
+      if (res = (await this.src.epmc[st === 'pmcid' ? 'pmc' : st](proc[st]))) {
+        eupmc = res;
+        result.confidence = st !== 'title' ? 1 : res.title.toLowerCase() === proc[st].toLowerCase() ? 1 : 0.9;
+        break;
+      } else if (st === 'title' && (res = (await this.src.epmc('title:' + proc[st])))) {
+        if (((res != null ? res.data : void 0) != null) && res.data.length) {
+          eupmc = res.data[0];
+          result.confidence = 0.7;
         }
       }
     }
@@ -7535,7 +7352,7 @@ P.svc.lantern.process = async function(proc) {
     } else {
       result.provenance.push('This article is not open access according to EUPMC, but since 6th March 2020 we take this to mean only that the publisher did not indicate to EUPMC that it can be included in their Open Access subset - it may well still be an OA article.');
     }
-    if ((ref = eupmc.journalInfo) != null ? ref.journal : void 0) {
+    if ((ref8 = eupmc.journalInfo) != null ? ref8.journal : void 0) {
       if (eupmc.journalInfo.journal.title) {
         result.journal_title = eupmc.journalInfo.journal.title;
         result.provenance.push('Added journal title from EUPMC');
@@ -7552,13 +7369,12 @@ P.svc.lantern.process = async function(proc) {
         result.provenance.push('Added eissn from EUPMC');
       }
     }
-    if ((ref1 = eupmc.grantsList) != null ? ref1.grant : void 0) {
+    if ((ref9 = eupmc.grantsList) != null ? ref9.grant : void 0) {
       result.grants = eupmc.grantsList.grant;
       result.provenance.push('Added grants data from EUPMC');
     }
-    if ((ref2 = eupmc.journalInfo) != null ? ref2.dateOfPublication : void 0) {
-      fd = (await _formatepmcdate(eupmc.journalInfo.dateOfPublication));
-      if (fd != null) {
+    if ((ref10 = eupmc.journalInfo) != null ? ref10.dateOfPublication : void 0) {
+      if (fd = (await _formatepmcdate(eupmc.journalInfo.dateOfPublication))) {
         result.publication_date = fd;
         result.provenance.push('Added date of publication from EUPMC');
       } else {
@@ -7567,8 +7383,7 @@ P.svc.lantern.process = async function(proc) {
       }
     }
     if (eupmc.electronicPublicationDate) {
-      efd = (await _formatepmcdate(eupmc.electronicPublicationDate));
-      if (efd) {
+      if (efd = (await _formatepmcdate(eupmc.electronicPublicationDate))) {
         result.electronic_publication_date = efd;
         result.provenance.push('Added electronic publication date from EUPMC');
       } else {
@@ -7605,7 +7420,7 @@ P.svc.lantern.process = async function(proc) {
     } else {
       result.provenance.push('Could not find licence via EUPMC');
     }
-    if ((ref3 = eupmc.authorList) != null ? ref3.author : void 0) {
+    if ((ref11 = eupmc.authorList) != null ? ref11.author : void 0) {
       result.authors = eupmc.authorList.author;
       result.provenance.push('Added author list from EUPMC');
     }
@@ -7645,11 +7460,11 @@ P.svc.lantern.process = async function(proc) {
       result.publisher = crossref.publisher;
       result.provenance.push('Added publisher name from Crossref');
       if (!result.issn && (crossref.issn || ((crossref.ISSN != null) && crossref.ISSN.length > 0))) {
-        result.issn = (ref4 = crossref.issn) != null ? ref4 : crossref.ISSN[0];
+        result.issn = (ref12 = crossref.issn) != null ? ref12 : crossref.ISSN[0];
         result.provenance.push('Added ISSN from Crossref');
       }
       if (!result.journal_title && (crossref.journal || ((crossref['container-title'] != null) && crossref['container-title'].length > 0))) {
-        result.journal_title = (ref5 = crossref.journal) != null ? ref5 : crossref['container-title'][0];
+        result.journal_title = (ref13 = crossref.journal) != null ? ref13 : crossref['container-title'][0];
         result.provenance.push('Added journal title from Crossref');
       }
       if (!result.authors && crossref.author) {
@@ -7657,13 +7472,13 @@ P.svc.lantern.process = async function(proc) {
         result.provenance.push('Added author list from Crossref');
       }
       if (!result.title && (crossref.title != null) && crossref.title.length > 0) {
-        result.title = _.isArray(crossref.title) ? crossref.title[0] : crossref.title;
+        result.title = Array.isArray(crossref.title) ? crossref.title[0] : crossref.title;
         result.provenance.push('Added article title from Crossref');
       }
     } else {
       result.provenance.push('Unable to obtain information about this article from Crossref.');
     }
-    core = (await this.src.core(result.doi));
+    core = (await this.src.core.doi(result.doi));
     if (core != null ? core.id : void 0) {
       result.in_core = true;
       result.provenance.push('Found DOI in CORE');
@@ -7672,9 +7487,9 @@ P.svc.lantern.process = async function(proc) {
         result.provenance.push('Added authors from CORE');
       }
       if ((core.repositories != null) && core.repositories.length > 0) {
-        ref6 = core.repositories;
-        for (n = 0, len1 = ref6.length; n < len1; n++) {
-          rep = ref6[n];
+        ref14 = core.repositories;
+        for (m = 0, len2 = ref14.length; m < len2; m++) {
+          rep = ref14[m];
           rc = {
             name: rep.name
           };
@@ -7685,9 +7500,9 @@ P.svc.lantern.process = async function(proc) {
             rc.url = rep.uri;
           } else {
             try {
-              repo = (await this.src.opendoar.search(rep.name));
-              if (repo.total === 1 && repo.data[0].url) {
-                rc.url = repo.data[0].url;
+              res = (await this.src.sherpa.opendoar('repository_metadata.name:"' + rep.name + '"'));
+              if (res.hits.hits[0]._source.repository_metadata.name.toLowerCase().indexOf(rep.name.toLowerCase()) !== -1) {
+                rc.url = repo.repository_metadata.url;
                 result.provenance.push('Added repo base URL from OpenDOAR');
               } else {
                 result.provenance.push('Searched OpenDOAR but could not find repo and/or URL');
@@ -7699,9 +7514,9 @@ P.svc.lantern.process = async function(proc) {
           rc.fulltexts = [];
           lastresort = void 0;
           if (core.fulltextUrls) {
-            ref7 = core.fulltextUrls;
-            for (o = 0, len2 = ref7.length; o < len2; o++) {
-              fu = ref7[o];
+            ref15 = core.fulltextUrls;
+            for (n = 0, len3 = ref15.length; n < len3; n++) {
+              fu = ref15[n];
               if (fu.indexOf('core.ac.uk') === -1) {
                 resolved = (await this.resolve(fu));
                 if (resolved && rc.fulltexts.indexOf(resolved) === -1) {
@@ -7737,14 +7552,17 @@ P.svc.lantern.process = async function(proc) {
       result.provenance.push('Found DOI in BASE');
       try {
         domain = base.dclink.split('://')[1].split('/')[0];
-        repo = (await this.src.opendoar.search(domain));
-        if (repo.total === 1 && (repo.data[0].url != null) && typeof repo.data[0].url === 'string' && repo.data[0].url.indexOf(domain) !== -1) {
-          result.repositories.push({
+        res = (await this.src.sherpa.opendoar('repository_metadata.name.name:"' + rep.name + '"'));
+        if (res.hits.hits[0]._source.repository_metadata.url.toLowerCase().indexOf(domain.toLowerCase()) !== -1) {
+          rpo = {
             fulltexts: [base.dclink],
-            url: repo.data[0].url,
-            name: repo.data[0].name,
-            oai: repo.data[0].oai
-          });
+            url: res.hits.hits[0]._source.repository_metadata.url,
+            oai: res.hits.hits[0]._source.repository_metadata.oai_url
+          };
+          try {
+            rpo.name = res.hits.hits[0]._source.repository_metadata.name[0].name;
+          } catch (error) {}
+          result.repositories.push(rpo);
           result.provenance.push('Added repo base URL from OpenDOAR');
         } else {
           result.provenance.push('Searched OpenDOAR but could not find repo and/or URL');
@@ -7765,9 +7583,9 @@ P.svc.lantern.process = async function(proc) {
   }
   if ((result.grants != null) && result.grants.length > 0) {
     grants = [];
-    ref8 = result.grants;
-    for (q = 0, len3 = ref8.length; q < len3; q++) {
-      gr = ref8[q];
+    ref16 = result.grants;
+    for (o = 0, len4 = ref16.length; o < len4; o++) {
+      gr = ref16[o];
       if (gr.grantId) {
         grid = gr.grantId;
         if (gr.agency && gr.agency.toLowerCase().indexOf('wellcome') !== -1) {
@@ -7808,7 +7626,7 @@ P.svc.lantern.process = async function(proc) {
     result.provenance.push('Not attempting Grist API grant lookups since no grants data was obtained from EUPMC.');
   }
   if (result.pmid && !result.in_epmc) {
-    result.ahead_of_print = this.src.pubmed.aheadofprint(result.pmid);
+    result.ahead_of_print = (await this.src.pubmed.aheadofprint(result.pmid));
     if (result.ahead_of_print !== false) {
       result.provenance.push('Checked ahead of print status on pubmed, date found ' + result.ahead_of_print);
     } else {
@@ -7825,18 +7643,18 @@ P.svc.lantern.process = async function(proc) {
     result.provenance.push(msg);
   }
   if (result.issn) {
-    ref9 = result.issn.split(',');
-    for (s = 0, len4 = ref9.length; s < len4; s++) {
-      diss = ref9[s];
-      doaj = this.src.doaj.journals.issn(diss);
+    ref17 = result.issn.split(',');
+    for (p = 0, len5 = ref17.length; p < len5; p++) {
+      diss = ref17[p];
+      doaj = (await this.src.doaj.journals.issn(diss));
       if (doaj != null) {
         result.pure_oa = true;
         result.provenance.push('Confirmed journal is listed in DOAJ');
         if (result.publisher == null) {
-          result.publisher = (ref10 = doaj.bibjson) != null ? ref10.publisher : void 0;
+          result.publisher = (ref18 = doaj.bibjson) != null ? ref18.publisher : void 0;
         }
         if (result.journal_title == null) {
-          result.journal_title = (ref11 = doaj.bibjson) != null ? ref11.title : void 0;
+          result.journal_title = (ref19 = doaj.bibjson) != null ? ref19.title : void 0;
         }
         break;
       }
@@ -7844,88 +7662,67 @@ P.svc.lantern.process = async function(proc) {
     if (result.pure_oa !== true) {
       result.provenance.push('Could not find journal in DOAJ');
     }
-    romeo = this.src.sherpa.romeo.search({
-      issn: result.issn
-    });
-    if (romeo.status == null) {
-      if (!result.journal_title) {
-        if (((ref12 = romeo.journal) != null ? ref12.jtitle : void 0) != null) {
-          result.journal_title = romeo.journal.jtitle;
-          result.provenance.push('Added journal title from Sherpa Romeo');
-        } else {
-          result.provenance.push('Tried, but could not add journal title from Sherpa Romeo.');
+  }
+  if (!result.issn) {
+    result.provenance.push('Not attempting to add any data from Open Access Button - don\'t have a journal ISSN to use for lookup.');
+  } else if (this.svc.oaworks == null) {
+    result.provenance.push('Not attempting to add any data from Open Access Button - OAB is not available.');
+  } else if (oa = (await this.svc.oaworks.find({
+    issn: result.issn,
+    permissions: true
+  }))) {
+    if (!result.journal_title) {
+      if (((ref20 = oa.metadata) != null ? ref20.journal : void 0) != null) {
+        result.journal_title = oa.metadata.journal;
+        result.provenance.push('Added journal title Open Access Button');
+      } else {
+        result.provenance.push('Tried, but could not add journal title from Open Access Button.');
+      }
+    }
+    if (!result.publisher) {
+      if (((ref21 = oa.metadata) != null ? ref21.publisher : void 0) != null) {
+        result.publisher = oa.metadata.publisher;
+        result.provenance.push('Added publisher from Open Access Button');
+      } else {
+        result.provenance.push('Tried, but could not add publisher from Open Access Button.');
+      }
+    }
+    if ((((ref22 = oa.permissions) != null ? ref22.all_permissions : void 0) != null) && oa.permissions.all_permissions.length) {
+      ref23 = oa.permissions.all_permissions;
+      for (q = 0, len6 = ref23.length; q < len6; q++) {
+        pm = ref23[q];
+        km = pm.version === 'submittedVersion' ? 'preprint' : pm.version === 'acceptedVersion' ? 'postprint' : pm.version === 'publishedVersion' ? 'publisher_copy' : void 0;
+        if (km != null) {
+          result[km + '_embargo'] = (pm.embargo_months ? pm.embargo_months + ' months' : '') + (pm.embargo_end ? ' ending ' + pm.embargo_end : '');
+          result[km + '_self_archiving'] = pm.deposit_statement;
         }
       }
-      if (!result.publisher) {
-        if (((ref13 = romeo.publisher) != null ? ref13.name : void 0) != null) {
-          result.publisher = romeo.publisher.name;
-          result.provenance.push('Added publisher from Sherpa Romeo');
-        } else {
-          result.provenance.push('Tried, but could not add publisher from Sherpa Romeo.');
-        }
-      }
-      result.romeo_colour = romeo.colour;
-      try {
-        ref14 = ['preprint', 'postprint', 'publisher_copy'];
-        for (t = 0, len5 = ref14.length; t < len5; t++) {
-          k = ref14[t];
-          main = k === 'publisher_copy' ? 'pdfversion' : k + 's';
-          stub = k.replace('print', '').replace('publisher_copy', 'pdf');
-          if ((((ref15 = romeo.publisher) != null ? ref15[main] : void 0) != null) && typeof romeo.publisher[main] === 'object') {
-            if ((romeo.publisher[main][stub + 'restrictions'] != null) && romeo.publisher[main][stub + 'restrictions'].length) {
-              if (result[k + '_embargo'] === 'unknown') {
-                result[k + '_embargo'] = '';
-              } else {
-                result[k + '_embargo'] += ',';
-              }
-              ref16 = romeo.publisher[main][stub + 'restrictions'];
-              for (u = 0, len6 = ref16.length; u < len6; u++) {
-                p = ref16[u];
-                result[k + '_embargo'] += p;
-              }
-            }
-            if (romeo.publisher[main][stub + 'archiving']) {
-              result[k + '_self_archiving'] = romeo.publisher[main][stub + 'archiving'];
-            }
-          }
-        }
-        result.provenance.push('Added embargo and archiving data from Sherpa Romeo');
-      } catch (error) {
-        err = error;
-        result.provenance.push('Could not process embargo and archiving data from Sherpa Romeo');
-      }
+      result.provenance.push('Added embargo and archiving data from Open Access Button');
     } else {
-      result.provenance.push('Unable to add any data from Sherpa Romeo.');
+      result.provenance.push('No embargo and archiving data available from Open Access Button');
     }
   } else {
-    result.provenance.push('Not attempting to add any data from Sherpa Romeo - don\'t have a journal ISSN to use for lookup.');
+    result.provenance.push('Unable to add any data from Open Access Button.');
   }
   publisher_licence_check_ran = false;
-  if (!result.licence || ((ref17 = result.licence) !== 'cc-by' && ref17 !== 'cc-zero')) {
+  if (!result.licence || ((ref24 = result.licence) !== 'cc-by' && ref24 !== 'cc-zero')) {
     publisher_licence_check_ran = true;
-    if (result.doi) {
-      url = (await this.resolve('https://doi.org/' + result.doi));
-    }
-    if ((url != null) && typeof url === 'string' && url.indexOf('europepmc') === -1) { // if it resolves to eupmc then it would already have been checked above
-      lic = (await this.svc.lantern.licence(url));
-      if (lic.licence && lic.licence !== 'unknown') {
-        result.licence = lic.licence;
-        result.licence_source = 'publisher_splash_page';
-        result.publisher_licence = lic.licence;
-        extrainfo = '';
-        if (lic.match) {
-          extrainfo += ' If licence statements contain URLs we will try to find those in addition to ' + 'searching for the statement\'s text. The match in this case was: \'' + lic.match.replace(/<.*?>/gi, '') + '\' .';
-        }
-        result.provenance.push('Added licence (' + result.publisher_licence + ') via article publisher splash page lookup to ' + url + '.' + extrainfo);
-      } else {
-        result.publisher_licence = 'unknown';
-        result.provenance.push('Unable to retrieve licence data via article publisher splash page lookup to ' + url + '.');
-        if (lic.large) {
-          result.provenance.push('Retrieved content was very long, so was contracted to 500,000 chars from start and end to process');
-        }
+    lic = (await this.svc.lantern.licence('https://doi.org/' + result.doi));
+    if (lic.licence && lic.licence !== 'unknown') {
+      result.licence = lic.licence;
+      result.licence_source = 'publisher_splash_page';
+      result.publisher_licence = lic.licence;
+      extrainfo = '';
+      if (lic.match) {
+        extrainfo += ' If licence statements contain URLs we will try to find those in addition to ' + 'searching for the statement\'s text. The match in this case was: \'' + lic.match.replace(/<.*?>/gi, '') + '\' .';
       }
+      result.provenance.push('Added licence (' + result.publisher_licence + ') via article publisher splash page lookup to ' + url + '.' + extrainfo);
     } else {
-      result.provenance.push('Unable to retrieve licence data via article publisher splash page - cannot obtain a suitable URL to run the licence detection on.');
+      result.publisher_licence = 'unknown';
+      result.provenance.push('Unable to retrieve licence data via article publisher splash page lookup to ' + url + '.');
+      if (lic.large) {
+        result.provenance.push('Retrieved content was very long, so was contracted to 500,000 chars from start and end to process');
+      }
     }
   } else {
     result.provenance.push('Not attempting to retrieve licence data via article publisher splash page lookup.');
@@ -7956,7 +7753,151 @@ P.svc.lantern.process = async function(proc) {
   if (result.in_epmc && epmc_lics && result.open_access) {
     result.compliance_wellcome_deluxe = true;
   }
+  this.svc.lantern.result(result);
+  if (last) { // last is the job ID
+    job = typeof last === 'object' ? last : (await this.svc.lantern.job(last));
+    if (job != null ? job.email : void 0) {
+      text = 'Dear ' + job.email + '\n\nWe\'ve just finished processing a batch of identifiers for you, and you can download the final results here:\n\n';
+      text += 'https://compliance.cottagelabs.com#' + job._id + '\n\nIf you didn\'t submit the original request yourself, it probably means ';
+      text += 'that another service was running it on your behalf, so this is just to keep you informed about what\'s happening with your account; you don\'t need to do anything else.';
+      this.mail({
+        from: 'Lantern <lantern@cottagelabs.com>',
+        to: job.email,
+        subject: 'Wellcome Compliance: job ' + ((ref25 = job.name) != null ? ref25 : job._id) + ' completed successfully',
+        text: text
+      });
+    }
+  }
   return result;
+};
+
+P.svc.lantern._fields = {
+  "pmcid": {
+    "short_name": "PMCID"
+  },
+  "pmid": {
+    "short_name": "PMID"
+  },
+  "doi": {
+    "short_name": "DOI"
+  },
+  "title": {
+    "short_name": "Article title"
+  },
+  "journal_title": {
+    "short_name": "Journal title"
+  },
+  "pure_oa": {
+    "short_name": "Pure Open Access"
+  },
+  "issn": {
+    "short_name": "ISSN"
+  },
+  "eissn": {
+    "short_name": "EISSN"
+  },
+  "publication_date": {
+    "short_name": "Publication Date"
+  },
+  "electronic_publication_date": {
+    "short_name": "Electronic Publication Date"
+  },
+  "publisher": {
+    "short_name": "Publisher"
+  },
+  "publisher_licence": {
+    "short_name": "Publisher Licence"
+  },
+  "epmc_licence": {
+    "short_name": "EPMC Licence"
+  },
+  "epmc_licence_source": {
+    "short_name": "EPMC Licence Source"
+  },
+  "licence_source": {
+    "short_name": "Licence Source"
+  },
+  "licence": {
+    "short_name": "Licence"
+  },
+  "in_epmc": {
+    "short_name": "Fulltext in EPMC?"
+  },
+  "epmc_xml": {
+    "short_name": "XML Fulltext?"
+  },
+  "aam": {
+    "short_name": "AAM?"
+  },
+  "open_access": {
+    "short_name": "Open Access"
+  },
+  "ahead_of_print": {
+    "short_name": "Ahead of Print?"
+  },
+  "romeo_colour": {
+    "short_name": "Sherpa Romeo Colour"
+  },
+  "preprint_embargo": {
+    "short_name": "Preprint Embargo"
+  },
+  "preprint_self_archiving": {
+    "short_name": "Preprint Self-Archiving Policy"
+  },
+  "postprint_embargo": {
+    "short_name": "Postprint Embargo"
+  },
+  "postprint_self_archiving": {
+    "short_name": "Postprint Self-Archiving Policy"
+  },
+  "publisher_copy_embargo": {
+    "short_name": "Publisher's Copy Embargo"
+  },
+  "publisher_copy_self_archiving": {
+    "short_name": "Publisher's Copy Self-Archiving Policy"
+  },
+  "authors": {
+    "short_name": "Author(s)"
+  },
+  "in_core": {
+    "short_name": "In CORE?"
+  },
+  "in_base": {
+    "short_name": "In BASE?"
+  },
+  "repositories": {
+    "short_name": "Archived Repositories"
+  },
+  "repository_urls": {
+    "short_name": "Repository URLs"
+  },
+  "repository_oai_ids": {
+    "short_name": "Repository OAI IDs"
+  },
+  "repository_fulltext_urls": {
+    "short_name": "Repository Fulltext URLs"
+  },
+  "grant": {
+    "short_name": "Grant {X}"
+  },
+  "agency": {
+    "short_name": "Agency {X}"
+  },
+  "pi": {
+    "short_name": "PI {X}"
+  },
+  "confidence": {
+    "short_name": "Correct Article Confidence"
+  },
+  "compliance_wellcome_standard": {
+    "short_name": "Compliance Wellcome Standard"
+  },
+  "compliance_wellcome_deluxe": {
+    "short_name": "Compliance Wellcome Deluxe"
+  },
+  "provenance": {
+    "short_name": "Provenance"
+  }
 };
 
 try {
@@ -8663,7 +8604,7 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
 // Yi-Jeng Chen. (2016). Young Children's Collaboration on the Computer with Friends and Acquaintances. Journal of Educational Technology & Society, 19(1), 158-170. Retrieved November 19, 2020, from http://www.jstor.org/stable/jeductechsoci.19.1.158
 // Baker, T. S., Eisenberg, D., & Eiserling, F. (1977). Ribulose Bisphosphate Carboxylase: A Two-Layered, Square-Shaped Molecule of Symmetry 422. Science, 196(4287), 293-295. doi:10.1126/science.196.4287.293
 P.svc.oaworks.citation = function(citation) {
-  var a, aff, ak, au, bt, cf, clc, cn, dpt, i, j, key, l, len, len1, len10, len2, len3, len4, len5, len6, len7, len8, len9, m, mn, n, o, p, pt, pts, q, r, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref45, ref46, ref47, ref48, ref49, ref5, ref50, ref51, ref52, ref53, ref54, ref55, ref56, ref57, ref58, ref6, ref7, ref8, ref9, res, rmn, rt, s, sy, t, u, v, w;
+  var a, aff, ak, au, bt, cf, clc, cn, i, j, k, key, l, len, len1, len2, len3, len4, len5, len6, len7, len8, len9, m, mn, n, o, p, pt, pts, q, r, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref45, ref46, ref47, ref48, ref49, ref5, ref50, ref51, ref52, ref53, ref54, ref55, ref56, ref57, ref6, ref7, ref8, ref9, res, rmn, rt, s, sy, t, u, v;
   res = {};
   try {
     if (citation == null) {
@@ -8802,55 +8743,47 @@ P.svc.oaworks.citation = function(citation) {
         res.abstract = this.convert.html2txt(res.abstract).replace(/\n/g, ' ').replace('Abstract ', '');
       }
     } catch (error) {}
-    if (citation.year) {
-      res.year = citation.year;
-    }
-    try {
-      if (res.year == null) {
-        res.year = citation.journalInfo.yearOfPublication.trim();
-      }
-    } catch (error) {}
     ref24 = ['published-print', 'journal-issue.published-print', 'journalInfo.printPublicationDate', 'firstPublicationDate', 'journalInfo.electronicPublicationDate', 'published', 'published_date', 'issued', 'published-online', 'created', 'deposited', 'indexed'];
     for (j = 0, len1 = ref24.length; j < len1; j++) {
       p = ref24[j];
-      if (rt = (ref25 = (ref26 = citation[p]) != null ? ref26 : (ref27 = citation['journal-issue']) != null ? ref27[p.replace('journal-issue.', '')] : void 0) != null ? ref25 : (ref28 = citation['journalInfo']) != null ? ref28[p.replace('journalInfo.', '')] : void 0) {
-        if (typeof rt === 'number') {
-          rt = rt.toString();
-        }
-        try {
-          if (typeof rt !== 'string') {
-            rt = rt['date-time'].toString();
+      if (!res.published || res.DOI) {
+        if (rt = (ref25 = (ref26 = citation[p]) != null ? ref26 : (ref27 = citation['journal-issue']) != null ? ref27[p.replace('journal-issue.', '')] : void 0) != null ? ref25 : (ref28 = citation['journalInfo']) != null ? ref28[p.replace('journalInfo.', '')] : void 0) {
+          if (typeof rt === 'number') {
+            rt = rt.toString();
           }
-        } catch (error) {}
-        if (typeof rt !== 'string') {
           try {
-            ref29 = rt['date-parts'][0];
-            for (n = 0, len2 = ref29.length; n < len2; n++) {
-              dpt = ref29[n];
-              if ((ref30 = typeof dpt[k]) !== 'number' && ref30 !== 'string') {
-                dpt[k] = '-01';
-              }
+            if (typeof rt !== 'string') {
+              rt = rt['date-time'].toString();
             }
-            rt = rt['date-parts'][0].join('-');
           } catch (error) {}
-        }
-        if (typeof rt === 'string') {
-          res.published = rt.indexOf('T') !== -1 ? rt.split('T')[0] : rt;
-          res.published = res.published.replace(/\//g, '-').replace(/-(\d)-/g, "-0$1-").replace(/-(\d)$/, "-0$1");
-          if (res.published.indexOf('-') === -1) {
-            res.published += '-01';
+          if (typeof rt !== 'string') {
+            try {
+              for (k in rt['date-parts'][0]) {
+                if ((ref29 = typeof rt['date-parts'][0][k]) !== 'number' && ref29 !== 'string') {
+                  rt['date-parts'][0][k] = '01';
+                }
+              }
+              rt = rt['date-parts'][0].join('-');
+            } catch (error) {}
           }
-          if (res.published.split('-').length !== 3) {
-            res.published += '-01';
-          }
-          if (res.year == null) {
-            res.year = res.published.split('-')[0];
-          }
-          if (res.published.split('-').length !== 3) {
-            delete res.published;
-          }
-          if (res.year.length !== 4) {
-            delete res.year;
+          if (typeof rt === 'string') {
+            res.published = rt.indexOf('T') !== -1 ? rt.split('T')[0] : rt;
+            res.published = res.published.replace(/\//g, '-').replace(/-(\d)-/g, "-0$1-").replace(/-(\d)$/, "-0$1");
+            if (res.published.indexOf('-') === -1) {
+              res.published += '-01';
+            }
+            if (res.published.split('-').length !== 3) {
+              res.published += '-01';
+            }
+            if (res.year == null) {
+              res.year = res.published.split('-')[0];
+            }
+            if (res.published.split('-').length !== 3) {
+              delete res.published;
+            }
+            if (res.year.length !== 4) {
+              delete res.year;
+            }
           }
         }
         if (res.published) {
@@ -8858,28 +8791,38 @@ P.svc.oaworks.citation = function(citation) {
         }
       }
     }
-    if ((res.author == null) && ((citation.author != null) || (citation.z_authors != null) || ((ref31 = citation.authorList) != null ? ref31.author : void 0))) {
+    if (citation.year) {
+      if (res.year == null) {
+        res.year = citation.year;
+      }
+    }
+    try {
+      if (res.year == null) {
+        res.year = citation.journalInfo.yearOfPublication.trim();
+      }
+    } catch (error) {}
+    if ((res.author == null) && ((citation.author != null) || (citation.z_authors != null) || ((ref30 = citation.authorList) != null ? ref30.author : void 0))) {
       if (res.author == null) {
         res.author = [];
       }
       try {
-        ref34 = (ref32 = (ref33 = citation.author) != null ? ref33 : citation.z_authors) != null ? ref32 : citation.authorList.author;
-        for (o = 0, len3 = ref34.length; o < len3; o++) {
-          a = ref34[o];
+        ref33 = (ref31 = (ref32 = citation.author) != null ? ref32 : citation.z_authors) != null ? ref31 : citation.authorList.author;
+        for (n = 0, len2 = ref33.length; n < len2; n++) {
+          a = ref33[n];
           if (typeof a === 'string') {
             res.author.push({
               name: a
             });
           } else {
             au = {};
-            au.given = (ref35 = a.given) != null ? ref35 : a.firstName;
-            au.family = (ref36 = a.family) != null ? ref36 : a.lastName;
-            au.name = (au.given ? au.given + ' ' : '') + ((ref37 = au.family) != null ? ref37 : '');
+            au.given = (ref34 = a.given) != null ? ref34 : a.firstName;
+            au.family = (ref35 = a.family) != null ? ref35 : a.lastName;
+            au.name = (au.given ? au.given + ' ' : '') + ((ref36 = au.family) != null ? ref36 : '');
             if (a.affiliation != null) {
               try {
-                ref38 = (au.affiliation ? (Array.isArray(a.affiliation) ? a.affiliation : [a.affiliation]) : au.authorAffiliationDetailsList.authorAffiliation);
-                for (q = 0, len4 = ref38.length; q < len4; q++) {
-                  aff = ref38[q];
+                ref37 = (au.affiliation ? (Array.isArray(a.affiliation) ? a.affiliation : [a.affiliation]) : au.authorAffiliationDetailsList.authorAffiliation);
+                for (o = 0, len3 = ref37.length; o < len3; o++) {
+                  aff = ref37[o];
                   if (typeof aff === 'string') {
                     if (au.affiliation == null) {
                       au.affiliation = [];
@@ -8892,7 +8835,7 @@ P.svc.oaworks.citation = function(citation) {
                       au.affiliation = [];
                     }
                     au.affiliation.push({
-                      name: ((ref39 = aff.name) != null ? ref39 : aff.affiliation).replace(/\s\s+/g, ' ').trim()
+                      name: ((ref38 = aff.name) != null ? ref38 : aff.affiliation).replace(/\s\s+/g, ' ').trim()
                     });
                   }
                 }
@@ -8909,18 +8852,18 @@ P.svc.oaworks.citation = function(citation) {
       }
     } catch (error) {}
     try {
-      if ((((ref40 = citation.keywordList) != null ? ref40.keyword : void 0) != null) && citation.keywordList.keyword.length && typeof citation.keywordList.keyword[0] === 'string') {
+      if ((((ref39 = citation.keywordList) != null ? ref39.keyword : void 0) != null) && citation.keywordList.keyword.length && typeof citation.keywordList.keyword[0] === 'string') {
         res.keyword = citation.keywordList.keyword;
       }
     } catch (error) {}
     try {
-      ref45 = [...((ref41 = (ref42 = citation.meshHeadingList) != null ? ref42.meshHeading : void 0) != null ? ref41 : []), ...((ref43 = (ref44 = citation.chemicalList) != null ? ref44.chemical : void 0) != null ? ref43 : [])];
-      for (r = 0, len5 = ref45.length; r < len5; r++) {
-        m = ref45[r];
+      ref44 = [...((ref40 = (ref41 = citation.meshHeadingList) != null ? ref41.meshHeading : void 0) != null ? ref40 : []), ...((ref42 = (ref43 = citation.chemicalList) != null ? ref43.chemical : void 0) != null ? ref42 : [])];
+      for (q = 0, len4 = ref44.length; q < len4; q++) {
+        m = ref44[q];
         if (res.keyword == null) {
           res.keyword = [];
         }
-        mn = typeof m === 'string' ? m : (ref46 = m.name) != null ? ref46 : m.descriptorName;
+        mn = typeof m === 'string' ? m : (ref45 = m.name) != null ? ref45 : m.descriptorName;
         if (typeof mn === 'string' && mn && indexOf.call(res.keyword, mn) < 0) {
           res.keyword.push(mn);
         }
@@ -8933,7 +8876,7 @@ P.svc.oaworks.citation = function(citation) {
       res.licence = citation.licence.trim().replace(/ /g, '-');
     }
     try {
-      if (((ref47 = citation.best_oa_location) != null ? ref47.license : void 0) && ((ref48 = citation.best_oa_location) != null ? ref48.license : void 0) !== null) {
+      if (((ref46 = citation.best_oa_location) != null ? ref46.license : void 0) && ((ref47 = citation.best_oa_location) != null ? ref47.license : void 0) !== null) {
         if (res.licence == null) {
           res.licence = citation.best_oa_location.license;
         }
@@ -8941,9 +8884,9 @@ P.svc.oaworks.citation = function(citation) {
     } catch (error) {}
     if (!res.licence) {
       if (Array.isArray(citation.assertion)) {
-        ref49 = citation.assertion;
-        for (s = 0, len6 = ref49.length; s < len6; s++) {
-          a = ref49[s];
+        ref48 = citation.assertion;
+        for (r = 0, len5 = ref48.length; r < len5; r++) {
+          a = ref48[r];
           if (a.label === 'OPEN ACCESS' && a.URL && a.URL.indexOf('creativecommons') !== -1) {
             if (res.licence == null) {
               res.licence = a.URL; // and if the record has a URL, it can be used as an open URL rather than a paywall URL, or the DOI can be used
@@ -8952,9 +8895,9 @@ P.svc.oaworks.citation = function(citation) {
         }
       }
       if (Array.isArray(citation.license)) {
-        ref51 = (ref50 = citation.license) != null ? ref50 : [];
-        for (t = 0, len7 = ref51.length; t < len7; t++) {
-          l = ref51[t];
+        ref50 = (ref49 = citation.license) != null ? ref49 : [];
+        for (s = 0, len6 = ref50.length; s < len6; s++) {
+          l = ref50[s];
           if (l.URL && l.URL.indexOf('creativecommons') !== -1 && (!res.licence || res.licence.indexOf('creativecommons') === -1)) {
             if (res.licence == null) {
               res.licence = l.URL;
@@ -8968,13 +8911,13 @@ P.svc.oaworks.citation = function(citation) {
     }
     // if there is a URL to use but not open, store it as res.paywall
     if (res.url == null) {
-      res.url = (ref52 = (ref53 = citation.best_oa_location) != null ? ref53.url_for_pdf : void 0) != null ? ref52 : (ref54 = citation.best_oa_location) != null ? ref54.url : void 0; //? citation.url # is this always an open URL? check the sources, and check where else the open URL could be. Should it be blacklist checked and dereferenced?
+      res.url = (ref51 = (ref52 = citation.best_oa_location) != null ? ref52.url_for_pdf : void 0) != null ? ref51 : (ref53 = citation.best_oa_location) != null ? ref53.url : void 0; //? citation.url # is this always an open URL? check the sources, and check where else the open URL could be. Should it be blacklist checked and dereferenced?
     }
-    if (!res.url && (((ref55 = citation.fullTextUrlList) != null ? ref55.fullTextUrl : void 0) != null)) { // epmc fulltexts
-      ref56 = citation.fullTextUrlList.fullTextUrl;
-      for (u = 0, len8 = ref56.length; u < len8; u++) {
-        cf = ref56[u];
-        if (((ref57 = cf.availabilityCode.toLowerCase()) === 'oa' || ref57 === 'f') && (!res.url || (cf.documentStyle === 'pdf' && res.url.indexOf('pdf') === -1))) {
+    if (!res.url && (((ref54 = citation.fullTextUrlList) != null ? ref54.fullTextUrl : void 0) != null)) { // epmc fulltexts
+      ref55 = citation.fullTextUrlList.fullTextUrl;
+      for (t = 0, len7 = ref55.length; t < len7; t++) {
+        cf = ref55[t];
+        if (((ref56 = cf.availabilityCode.toLowerCase()) === 'oa' || ref56 === 'f') && (!res.url || (cf.documentStyle === 'pdf' && res.url.indexOf('pdf') === -1))) {
           res.url = cf.url;
         }
       }
@@ -9009,8 +8952,8 @@ P.svc.oaworks.citation = function(citation) {
       } catch (error) {}
       try {
         pts = citation.replace(/,\./g, ' ').split(' ');
-        for (v = 0, len9 = pts.length; v < len9; v++) {
-          pt = pts[v];
+        for (u = 0, len8 = pts.length; u < len8; u++) {
+          pt = pts[u];
           if (!res.year) {
             pt = pt.replace(/[^0-9]/g, '');
             if (pt.length === 4) {
@@ -9079,9 +9022,9 @@ P.svc.oaworks.citation = function(citation) {
           if (bt.length > 6) {
             if (bt.indexOf(',') !== -1) {
               res.author = [];
-              ref58 = bt.split(',');
-              for (w = 0, len10 = ref58.length; w < len10; w++) {
-                ak = ref58[w];
+              ref57 = bt.split(',');
+              for (v = 0, len9 = ref57.length; v < len9; v++) {
+                ak = ref57[v];
                 res.author.push({
                   name: ak
                 });
@@ -9484,18 +9427,24 @@ P.svc.oaworks.ill = async function(opts) { // only worked on POST with optional 
 //P.svc.oaworks.ill._kv = true
 P.svc.oaworks.ill._index = true;
 
-P.svc.oaworks.ill.collect = function() {
+P.svc.oaworks.ill.collect = async function(params) {
   var q, sid, url;
-  sid = this.params.collect; // end of the url is an SID
+  if (params == null) {
+    params = this.copy(this.params);
+  }
+  sid = params.collect; // end of the url is an SID
+  if (params._id == null) {
+    params._id = (await this.uid());
+  }
   // example AKfycbwPq7xWoTLwnqZHv7gJAwtsHRkreJ1hMJVeeplxDG_MipdIamU6
   url = 'https://script.google.com/macros/s/' + sid + '/exec?';
-  for (q in this.params) {
+  for (q in params) {
     if (q !== 'collect') {
-      url += q + '=' + this.params[q] + '&';
+      url += (q === '_id' ? 'uuid' : q) + '=' + params[q] + '&';
     }
   }
-  url += 'uuid=' + this.uid();
   this.waitUntil(this.fetch(url));
+  this.waitUntil(this.svc.rscvd(params));
   return true;
 };
 
@@ -9840,7 +9789,7 @@ P.svc.oaworks.oapublisher = async function(publisher) {
     }
   } catch (error) {}
   tc = (await this.fetch('https://dev.api.cottagelabs.com/service/jct/journal?q=publisher:"' + publisher + '" AND NOT discontinued:true'));
-  oac = (await this.fetch('https://dev.api.cottagelabs.com/service/jct/journal?q=publisher:"' + publisher + '" AND NOT discontinued:true AND is_oa:true'));
+  oac = (await this.fetch('https://dev.api.cottagelabs.com/service/jct/journal?q=publisher:"' + publisher + '" AND NOT discontinued:true AND isdoaj:true'));
   return tc.hits.total === oac.hits.total;
 };
 
@@ -9861,7 +9810,7 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
     if (rec.embargo_end === '') {
       delete rec.embargo_end;
     }
-    rec.copyright_name = rec.copyright_owner === 'publisher' ? (typeof rec.issuer.parent_policy === 'string' ? rec.issuer.parent_policy : typeof rec.issuer.id === 'string' ? rec.issuer.id : rec.issuer.id[0]) : (ref1 = rec.copyright_owner) === 'journal' || ref1 === 'affiliation' ? (ref2 = meta.journal) != null ? ref2 : '' : (rec.copyright_owner && rec.copyright_owner.toLowerCase().indexOf('author') !== -1) && (meta.author != null) && meta.author.length && (meta.author[0].name || meta.author[0].family) ? ((ref3 = meta.author[0].name) != null ? ref3 : meta.author[0].family) + (meta.author.length > 1 ? ' et al' : '') : '';
+    rec.copyright_name = rec.copyright_owner === 'publisher' ? (typeof rec.issuer.parent_policy === 'string' ? rec.issuer.parent_policy : typeof rec.issuer.id === 'string' ? rec.issuer.id : rec.issuer.id[0]) : (ref1 = rec.copyright_owner) === 'journal' || ref1 === 'affiliation' ? (ref2 = meta.journal) != null ? ref2 : '' : (haddoi && rec.copyright_owner && rec.copyright_owner.toLowerCase().indexOf('author') !== -1) && (meta.author != null) && meta.author.length && (meta.author[0].name || meta.author[0].family) ? ((ref3 = meta.author[0].name) != null ? ref3 : meta.author[0].family) + (meta.author.length > 1 ? ' et al' : '') : '';
     if (((ref4 = rec.copyright_name) === 'publisher' || ref4 === 'journal') && (cr || meta.doi || ((ref5 = rec.provenance) != null ? ref5.example : void 0))) {
       if (cr === false) {
         cr = (await this.src.crossref.works((ref6 = meta.doi) != null ? ref6 : rec.provenance.example));
@@ -10206,7 +10155,7 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
       pisoa = (await this.svc.oaworks.oapublisher(af.publisher));
     }
   }
-  if (typeof af === 'object' && (af.is_oa || pisoa)) {
+  if (typeof af === 'object' && (af.indoaj || pisoa)) {
     altoa = {
       can_archive: true,
       version: 'publishedVersion',
@@ -10265,8 +10214,8 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
     altoa.score = (await _score(altoa));
     perms.all_permissions.push(altoa);
   }
-  if (haddoi && meta.doi && (oadoi = (await this.src.oadoi(meta.doi)))) {
-    if ((oadoi != null ? (ref17 = oadoi.best_oa_location) != null ? ref17.license : void 0 : void 0) && oadoi.best_oa_location.license.indexOf('cc') !== -1) {
+  if (meta.doi && (oadoi = (await this.src.oadoi(meta.doi)))) {
+    if ((haddoi || (oadoi != null ? oadoi.journal_is_oa : void 0)) && (oadoi != null ? (ref17 = oadoi.best_oa_location) != null ? ref17.license : void 0 : void 0) && oadoi.best_oa_location.license.indexOf('cc') !== -1) {
       doa = {
         can_archive: true,
         version: oadoi.best_oa_location.version,
@@ -10419,7 +10368,7 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
 
 // https://docs.google.com/spreadsheets/d/1qBb0RV1XgO3xOQMdHJBAf3HCJlUgsXqDVauWAtxde4A/edit
 P.svc.oaworks.permission = async function(recs = []) {
-  var af, an, cids, dt, i, inaj, j, k, keys, kn, l, lc, len, len1, len2, len3, len4, len5, m, n, name, nd, nid, nk, nps, nr, nv, o, q, rcs, ready, rec, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, s, st;
+  var af, an, cids, dt, i, j, k, keys, kn, l, lc, len, len1, len2, len3, len4, len5, m, n, name, nd, nid, nk, nps, nr, nv, o, q, rcs, ready, rec, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, s, st;
   if (typeof recs === 'object' && !Array.isArray(recs)) {
     recs = [recs];
   }
@@ -10507,7 +10456,6 @@ P.svc.oaworks.permission = async function(recs = []) {
     nr.issuer.id = rec.id.indexOf(',') !== -1 ? rec.id.split(',') : rec.id;
     if (typeof nr.issuer.id !== 'string') {
       cids = [];
-      inaj = false;
       ref1 = nr.issuer.id;
       for (m = 0, len2 = ref1.length; m < len2; m++) {
         nid = ref1[m];
@@ -10515,7 +10463,6 @@ P.svc.oaworks.permission = async function(recs = []) {
         if (nr.issuer.type === 'journal' && nid.indexOf('-') !== -1 && nid.indexOf(' ') === -1) {
           nid = nid.toUpperCase();
           if (af = (await this.svc.oaworks.journal('issn.exact:"' + nid + '"'))) {
-            inaj = true;
             ref2 = af.issn;
             for (n = 0, len3 = ref2.length; n < len3; n++) {
               an = ref2[n];
@@ -10902,6 +10849,51 @@ to create a request the url and type are required, What about story?
   return req`;
 
 
+P.svc.rscvd = function() {
+  return 'RSCVD API (prototype)';
+};
+
+P.svc.rscvd._index = true;
+
+P.svc.rscvd.retrieve = async function() {
+  var ak, i, j, key, kv, len, len1, params, r, rec, recs, ref, ref1, ref2, res, sid, size, u, val;
+  ak = this.apikey; //? ''
+  size = (ref = this.params.size) != null ? ref : '20000';
+  if (ak) {
+    res = (await this.fetch('https://api.cottagelabs.com/log?apikey=' + ak + '&sort=createdAt:asc&q=endpoint:collect&size=' + size));
+    recs = [];
+    ref1 = res.hits.hits;
+    for (i = 0, len = ref1.length; i < len; i++) {
+      r = ref1[i];
+      // /api/service/oab/ill/collect/AKfycbwFA_R-0gjzVS9029ByVpduCYJbHLH0ujstNng1aNnRogw1htU?where=InstantILL&doi=10.3109%252F0167482X.2010.503330&atitle=Management%2520of%2520post%2520traumatic%2520stress%2520disorder%2520after%2520childbirth%253A%2520a%2520review&crossref_type=journal-article&aulast=Lapp%252C%2520Leann%2520K.%252C%2520Agbokou%252C%2520Catherine%252C%2520Peretti%252C%2520Charles-Siegfried%252C%2520Ferreri%252C%2520Florian&title=Journal%2520of%2520Psychosomatic%2520Obstetrics%2520%2526%2520Gynecology&issue=3&volume=31&pages=113-122&issn=0167-482X&publisher=Informa%2520UK%2520Limited&year=2010&date=2010-07-01&url=https%253A%252F%252Fdoi.org%252F10.3109%252F0167482X.2010.503330&notes=Subscription%2520check%2520done%2C%2520found%2520nothing.%2520OA%2520availability%2520check%2520done%2C%2520found%2520nothing.&email=mcclay.ill%2540qub.ac.uk&name=Ivona%2520Coghlan&organization=McClay%2520Library%252C%2520Queen%27s%2520University%2520Belfast&reference=IC00226&other=
+      u = r._source.url;
+      if (typeof u === 'string' && u.startsWith('/api/service/oab/ill/collect/')) {
+        [sid, params] = u.replace('/api/service/oab/ill/collect/', '').split('?');
+        if (typeof sid === 'string' && typeof params === 'string') {
+          rec = {
+            sid: sid
+          };
+          ref2 = params.split('&');
+          for (j = 0, len1 = ref2.length; j < len1; j++) {
+            kv = ref2[j];
+            [key, val] = kv.split('=');
+            rec[key] = decodeURIComponent(decodeURIComponent(val));
+            try {
+              if (key === 'date' || key === 'needed-by') {
+                rec[key] = (await this.date(rec[key]));
+              }
+            } catch (error) {}
+          }
+          recs.push(rec);
+        }
+      }
+    }
+    await this.svc.rscvd('');
+    this.waitUntil(this.svc.rscvd(recs));
+    return res.hits.total + ', ' + recs.length;
+  }
+};
+
 // https://jcheminf.springeropen.com/articles/10.1186/1758-2946-3-47
 P.svc.oaworks.scrape = async function(content, doi) {
   var cl, cnts, d, i, j, k, kk, l, len, len1, len2, len3, len4, m, me, meta, mk, mkp, mls, mm, mr, mstr, my, n, o, p, q, ref, ref1, ref2, str, ud;
@@ -11103,8 +11095,8 @@ P.svc.oaworks.scrape = async function(content, doi) {
 };
 
 
-S.built = "Fri Apr 09 2021 12:28:50 GMT+0100";
-S.system = "5f31b98a1a55d648a044f1b49575370203d3766aa11844a5aa332cfc01468d3c";
+S.built = "Mon Apr 26 2021 06:51:21 GMT+0100";
+S.system = "305bbcfa28555702ffe4f657da22a2ed4a6f29f27aa885bba8b9e0d77dc643fb";
 P.puppet = {_bg: true}// added by constructor
 
 P.scripts.testoab = {_bg: true}// added by constructor

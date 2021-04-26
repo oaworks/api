@@ -85,8 +85,11 @@ P.index = (route, data, qopts) ->
     # CREATE can happen on index if index params are provided or empty object is provided
     # https://www.elastic.co/guide/en/elasticsearch/reference/current/indices-create-index.html
     # simplest create would be {} or settings={number_of_shards:1} where 1 is default anyway
-    if (typeof data is 'string' and data.indexOf('\n') isnt -1) or Array.isArray data
-      return cidx._bulk route, data # bulk create (TODO what about if wanting other bulk actions?)
+    if (typeof data is 'string' and (data is '' or data.indexOf('\n') isnt -1)) or Array.isArray data
+      if data is ''
+        return cidx._submit route, data
+      else
+        return cidx._bulk route, data # bulk create (TODO what about if wanting other bulk actions?)
     else if typeof data is 'object'
       if cidx._q data
         return cidx._submit route + '/_search', await cidx.translate data, qopts
@@ -107,7 +110,7 @@ P.index = (route, data, qopts) ->
     # Should @params be able to default to write data on index/key?
     # TODO check how ES7.x accepts update with script in them
     if data? and JSON.stringify(data) isnt '{}'
-      route = if data.script? then route + '/_update?retry_on_conflict=2' else route.replace '/', '/_create/' # does PUT create work if it already exists? or PUT _doc? or POST _create?
+      route = if data is '' then route else if data.script? then route + '/_update?retry_on_conflict=2' else route.replace '/', '/_doc/' # does PUT create work if it already exists? or PUT _doc? or POST _create?
       return cidx._submit route, data
     else # or just get the record
       ret = await cidx._submit route.replace '/', '/_doc/'
@@ -418,7 +421,11 @@ P.index._bulk = (route, data, action='index', bulk=50000) ->
       if counter is bulk or parseInt(r) is (rows.length - 1) or pkg.length > 70000000
         rs = await cidx._submit '/_bulk', {body:pkg, headers: {'Content-Type': 'application/x-ndjson'}}
         if this?.S?.dev and rs?.errors
-          console.log 'Bulk load errors: ' + rs.errors + ', like: ' + JSON.stringify rs.items[0]
+          errs = []
+          for i in rs.items
+            for k of i
+              errs.push(i) if i[k].status >= 300
+          console.log 'Bulk load errors: ' + errs.length + ', like: ' + JSON.stringify errs[0]
         pkg = ''
         counter = 0
     return rows.length
@@ -457,7 +464,7 @@ P.index._q = (q, rt) -> # could this be a query as opposed to an _id or index/_i
       return false if q[k] # these keys indicate some sort of index settings object rather than query
     if q.q? or q.query?
       return true # q or query COULD be valid values of an object, in which case don't pass such objects to ambiguous locations such as the first param of an index function
-  else if typeof q is 'string' and q.indexOf('\n') is -1 # newlines indicates a bulk load string
+  else if typeof q is 'string' and q.length and q.indexOf('\n') is -1 # newlines indicates a bulk load string
     if typeof rt is 'string' and q.toLowerCase().startsWith rt.toLowerCase()
       return false # handy check for a string that is probably an index route, just to save manually checking elsewhere
     else if q.startsWith('?') or q.startsWith('q=') # like an incoming URL query params string

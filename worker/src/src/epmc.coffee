@@ -16,7 +16,7 @@
 
 P.src.epmc = (qrystr, from, size) ->
   qrystr ?= @params.epmc ? @params.doi
-  qrystr = 'DOI:' + qrystr if qrystr.indexOf('10.') is 0 and qrystr.indexOf(' ') is -1 and qrystr.split('/').length is 2 
+  qrystr = 'DOI:' + qrystr if qrystr.indexOf('10.') is 0 and qrystr.indexOf(' ') is -1 and qrystr.split('/').length >= 2
   url = 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=' + qrystr + ' sort_date:y&resulttype=core&format=json'
   url += '&pageSize=' + size if size? #can handle 1000, have not tried more, docs do not say
   url += '&cursorMark=' + from if from? # used to be a from pager, but now uses a cursor
@@ -25,7 +25,16 @@ P.src.epmc = (qrystr, from, size) ->
   ret.total = res.hitCount
   ret.data = res.resultList?.result ? []
   ret.cursor = res.nextCursorMark
-  return ret
+  if @params.doi and ret.total is 1
+    return ret.data[0]
+  else
+    return ret
+
+P.src.epmc.doi = (ident) ->
+  ident ?= @params.doi
+  res = await @src.epmc 'DOI:' + ident
+  return if res.total then res.data[0] else undefined
+P.src.epmc.doi._hidden = true
 
 P.src.epmc.pmid = (ident) ->
   ident ?= @params.pmid

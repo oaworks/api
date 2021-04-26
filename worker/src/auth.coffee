@@ -2,6 +2,7 @@
 # curl -X GET "https://api.lvatn.com/auth" -H "x-id:YOURUSERIDHERE" -H "x-apikey:YOURAPIKEYHERE"
 # curl -X GET "https://api.lvatn.com/auth?apikey=YOURAPIKEYHERE"
 
+# NOTE all emails will be lowercased
 # store user record object in kv as user/:UID (value is stringified json object)
 # store a map of email(s) to UID user/email/:EMAIL (or email hash) (value is a UID)
 # and store a map of API keys as well, user/apikey/:KEY (value is user ID) (could have more than one, and have ones that give different permissions)
@@ -22,7 +23,7 @@ P.auth = (key, val) ->
   
   if not @params.access_token? or not user = await @oauth()
     if @params.token and eml = await @kv 'auth/token/' + @params.token, '' # true causes delete after found
-      if uid = await @kv 'user/email/' + eml
+      if uid = await @kv 'user/email/' + eml.toLowerCase()
         user = await @kv 'user/' + uid # get the user record if it already exists
       user ?= await @auth._insert eml # create the user record if not existing, as this is the first token login attempt for this email address
     if not user and @apikey
@@ -31,7 +32,7 @@ P.auth = (key, val) ->
     if not user and (@params.resume? or @cookie) # accept resume on a header too?
       uid = @id
       if not uid and @params.email? # accept resume with email instead of id?
-        uid = await @kv 'user/email/' + @params.email
+        uid = await @kv 'user/email/' + @params.email.toLowerCase()
       if not resume = @params.resume # login by resume token if provided in param or cookie
         try # check where is cookie?
           cookie = JSON.parse decodeURIComponent(@cookie).split((S.auth?.cookie?.name ? S.name ? 'n2') + "=")[1].split(';')[0]
@@ -63,11 +64,15 @@ P.auth = (key, val) ->
 
   # if this is called with no variables, and no defaults, provide a count of users?
   # but then if logged in and on this route, what does it provide? the user account?
-  return user
+  if not key? and not val? and not user? and @format is 'html'
+    return '<input style="min-width:250px;" type="text" name="email" placeholder="Enter your email address to sign in"><input style="display:none;min-width:250px;" type="text" name="token" placeholder="Enter the login token once you receive it">'
+  else
+    return user
 
 
 P.auth.token = (email, from, subject, text, html, template, url) ->
   email ?= @params.email ? ''
+  email = email.toLowerCase()
   from ?= S.auth?.from ? 'nobody@example.com'
   subject ?= S.auth?.subject ? 'Please complete your login'
 
@@ -168,17 +173,16 @@ P.auth.logout = (user) -> # how about triggering a logout on a different user ac
 P.oauth = (token, cid) ->
   # https://developers.google.com/identity/protocols/OAuth2UserAgent#validatetoken
   sets = {}
-  token ?= @params.access_token
-  if token
+  if token ?= @params.access_token
     try
       # we did also have facebook oauth in here, still in old code, but decided to drop it unless explicitly required again
-      validate = await @http.post 'https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=' + token
+      validate = await @fetch 'https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=' + token, method: 'POST' # has to be a POST even though it sends nothing
       cid ?= S.svc[@params.service ? 'z']?.google?.oauth?.client?.id ? S.use?.google?.oauth?.client?.id
       if cid? and validate.data?.aud is cid
-        ret = await @http.get 'https://www.googleapis.com/oauth2/v2/userinfo?access_token=' + token
-        if uid = await @kv 'user/email/' + ret.data.email
+        ret = await @fetch 'https://www.googleapis.com/oauth2/v2/userinfo?access_token=' + token
+        if uid = await @kv 'user/email/' + ret.data.email.toLowerCase()
           if not user = await @kv 'user/' + uid
-            user = await @auth._insert ret.data.email
+            user = await @auth._insert ret.data.email.toLowerCase()
         sets.google = {id:ret.data.id} if not user.google?
         if ret.data.name
           sets.name = ret.data.name if not user.name
@@ -189,10 +193,12 @@ P.oauth = (token, cid) ->
   if user? and JSON.stringify(sets) isnt '{}'
     user = await @user.update user.id, sets
   return user
+# an oauth client-side would require the google oauth client token. It's not a secret, but must be got in advance from google account provider
+# ours is '360291218230-r9lteuqaah0veseihnk7nc6obialug84.apps.googleusercontent.com' - but that's no use to anyone else, unless wanting to login with us
 # the Oauth URL that would trigger something like this would be like:
 # grl = 'https://accounts.google.com/o/oauth2/v2/auth?response_type=token&include_granted_scopes=true'
 # grl += '&scope=https://www.googleapis.com/auth/userinfo.email+https://www.googleapis.com/auth/userinfo.profile'
-# grl += '&state=' + state + '&redirect_uri=' + noddy.oauthRedirectUri + '&client_id=' + noddy.oauthGoogleClientId
+# grl += '&state=' + state + '&redirect_uri=' + pradm.oauthRedirectUri + '&client_id=' + pradm.oauthGoogleClientId
 # state would be something like Math.random().toString(36).substring(2,8) and would be sent and also kept for checking against the response
 # the response from oauth login page would go back to current page and have a # with access_token= and state=
 # NOTE as it is after a # these would only be available on a browser, as servers don't get the # part of a URL
@@ -206,20 +212,20 @@ P.auth._insert = (key, val) ->
       user = if @user?._id is key then @user else await @kv 'user/' + key
       try @auth.logout key
       try @kv('user/apikey/' + user.apikey, '-') if user.apikey?
-      try @kv('user/email/' + user.email, '-') if user.email?
+      try @kv('user/email/' + user.email.toLowerCase(), '-') if user.email?
       @kv 'user/' + key, ''
     #else # update the user with the provided val
   else
-    em = key if typeof key is 'string' and key.indexOf('@') isnt -1 and key.indexOf('.') isnt -1 # put this through a validator, either/both a regex and a service
+    em = key.toLowerCase() if typeof key is 'string' and key.indexOf('@') isnt -1 and key.indexOf('.') isnt -1 # put this through a validator, either/both a regex and a service
     if not key? and this?.user?._id
       key = 'user/' + @user._id
     if key.indexOf('@') isnt -1
-      key = await @kv 'user/email/' + key
+      key = await @kv 'user/email/' + key.toLowerCase()
     res = await @kv 'user/' + key
     if not res?
       if em
         u =
-          email: em.trim() #store email here or not?
+          email: em.trim().toLowerCase() #store email here or not?
           apikey: @uid() # store the apikey here or not?
           profile: {}
         first = false # if no other user accounts yet
@@ -227,7 +233,7 @@ P.auth._insert = (key, val) ->
         u.createdAt = Date.now()
         u._id = @uid()
         @kv 'user/apikey/' + apikey, u._id
-        @kv 'user/email/' + email, u._id # or hash of email
+        @kv 'user/email/' + email.toLowerCase(), u._id # or hash of email
         @kv 'user/' + u._id, u
         return u
       else

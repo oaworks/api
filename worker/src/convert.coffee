@@ -1,57 +1,61 @@
 
 P.convert = {}
 
-P.convert.json2csv = (recs) ->
+P.convert.json2csv = (recs, params) ->
   recs ?= @body ? @params
-  if @params.url
-    recs = await @fetch url
-  es = false
-  try
-    if recs?.hits?.hits?
-      es = true
+  params ?= @params
+  if params.url
+    recs = await @fetch params.url
+  if params.es or recs?.hits?.hits?
+    try
       recs = recs.hits.hits
+      params.es = true
   recs = [recs] if not Array.isArray recs
-  quote = '"'
-  separator = ','
-  newline = '\n'
+  quote = params.quote ? '"'
+  separator = params.separator ? ','
+  newline = params.newline ? '\n'
   if not recs.length
     return ''
   else
-    headers = [] # is it useful to allow provision of default headers/fields?
+    headers = []
     records = ''
     for rec in recs
-      if es is true and (rec._source or rec.fields)
-        rec = rec._source ? rec.fields
-      if @params.subset
-        rec = rec[@params.subset]
-      if @params.flatten
+      records += newline if records.length
+      if params.es isnt false and (rec._source or rec.fields)
+        rc = _id: '<a onclick="this.setAttribute(\'href\', window.location.href.split(\'.html\')[0].split(\'/\').pop() + \'/\' + this.getAttribute(\'href\') )" href="' + rec._id + '.html">' + rec._id + '</a>'
+        rs = rec._source ? rec.fields
+        rc[nk] = rs[nk] for nk of rs # could add controls to alter the order here, or customise key names
+        rec = rc
+      if params.flatten
         rec = await @flatten rec
+      if params.subset
+        rec = await @dot rec, params.subset
       for k of rec
         headers.push(k) if rec[k]? and k not in headers
       for h in headers
-        records += separator if records.endsWith quote
+        records += separator if records.length and not records.endsWith newline
         records += quote
-        try
-          for val in (if Array.isArray(rec[h]) then rec[h] else [rec[h]])
-            if val? and val isnt ''
-              records += ', ' if not records.endsWith quote
-              try
-                val = JSON.stringify(val).replace(/^"/, '').replace(/"$/, '')
-              # TODO escape any instances of quote in v with a regex replace
-              val = val.replace /"/g, '\\"'
-              records += val
+        if rec[h]?
+          try rec[h] = rec[h][0] if Array.isArray(rec[h]) and rec[h].length is 1 and Array.isArray rec[h][0]
+          try rec[h] = rec[h].join(', ') if Array.isArray(rec[h]) and rec[h].length and typeof rec[h][0] is 'string'
+          try rec[h] = JSON.stringify(rec[h]) if typeof rec[h] is 'object'
+          try rec[h] = rec[h].replace /"/g, quote + quote
+          try rec[h] = rec[h].replace /,,/g, separator # TODO change this for a regex of the separator
+          try rec[h] = rec[h].replace /\n/g, ' '
+          try rec[h] = rec[h].replace /\s\s/g, ' '
+          try records += rec[h]
         records += quote
-      records += newline if records.length
     return quote + headers.join(quote + separator + quote) + quote + '\n' + records
 
-P.convert.csv2json = (csv) ->
+P.convert.csv2json = (csv, params) ->
   csv ?= @body ? @params.csv
   if @params.url
     csv = await @fetch url
-  quote = '"'
-  separator = ','
-  newline = '\n'
-  csv = csv.replace /\\"/g, 'XXX_QUOTER_GOES_HERE_XXX'
+  params ?= @params
+  quote = params.quote ? '"'
+  separator = params.separator ? ','
+  newline = params.newline ? '\n'
+  csv = csv.replace /""/g, 'XXX_QUOTER_GOES_HERE_XXX' # TODO change this for a regex of whatever the quote char is
   res = []
   if typeof csv is 'string' and csv.length
     lines = csv.split newline
@@ -69,6 +73,7 @@ P.convert.csv2json = (csv) ->
             row[h] = vals.shift()
             if row[h]
               row[h] = row[h].replace(/^"/, '').replace(/"$/, '').replace /XXX_QUOTER_GOES_HERE_XXX/g, quote
+              try row[h] = JSON.parse row[h]
         res.push row
   return res
 
@@ -79,71 +84,114 @@ P.convert.csv2html = (csv) ->
   quote = '"'
   separator = ','
   newline = '\n'
-  csv = csv.replace /\\"/g, 'XXX_QUOTER_GOES_HERE_XXX'
-  res = '<table style="border:1px solid #ccc; border-collapse: collapse;">'
+  csv = csv.replace /,,/g, separator + quote + quote + separator # TODO change this for a regex of the separator
+  res = '<style>table.paradigm tr:nth-child(even) {background: #eee}\
+table.paradigm tr:nth-child(odd) {background: #fff}</style>'
+  res += '<table class="paradigm" style="border-collapse: collapse;">'
   if typeof csv is 'string' and csv.length
     lines = csv.split newline
     if lines.length
       res += '<thead><tr>'
       headers = lines.shift()
-      for header in headers.split quote + separator
-        header = header.replace(quote, '') if header.indexOf(quote) is 0
-        res += '<th style="padding:2px; border:1px solid #ccc;">' + header + '</th>'
+      ln = 0
+      for header in headers.split quote + separator + quote
+        res += '<th style="padding:2px; border:1px solid #ccc;">' + header.replace(/"/g, '') + '</th>'
+        ln += 1
       res += '</tr></thead><tbody>'
       for line in lines
         res += '<tr>'
-        for v in line.split quote + separator
-          res += '<td style="padding:2px; border:1px solid #ccc;">'
-          if v
-            v = v.replace(/^"/, '').replace(/"$/, '')
-            res += v.replace(/\</g, '&lt;').replace(/\>/g, '&gt;')
+        line = line.replace(',"",', ',"XXX_EMPTY_XXX",') while line.indexOf(',"",') isnt -1
+        line = line.replace('"",','"XXX_EMPTY_XXX",') while line.startsWith '"",'
+        line = line.slice(0,line.length-3) while line.endsWith ',""'
+        line = line.replace /""/g, 'XXX_QUOTER_GOES_HERE_XXX' # TODO change this for a regex of whatever the quote char is
+        vn = 0
+        for v in line.split quote + separator + quote
+          vn += 1
+          res += '<td style="padding:2px; border:1px solid #ccc;vertical-align:text-top;">'
+          v = v.replace(/^"/, '').replace(/"$/, '')
+          if v isnt 'XXX_EMPTY_XXX'
+            if v.indexOf('{') is 0 or v.indexOf('[') is 0
+              res += '<a href="#" onclick="if (this.nextSibling.style.display === \'none\') {this.nextSibling.style.display = \'block\'} else {this.nextSibling.style.display = \'none\'}; return false;">...</a><div style="display:none;">'
+              res += await @convert.json2html JSON.parse v.replace /XXX_QUOTER_GOES_HERE_XXX/g, quote
+              res += '</div>'
+            else
+              res += v.replace /XXX_QUOTER_GOES_HERE_XXX/g, quote # .replace(/\</g, '&lt;').replace(/\>/g, '&gt;')
           res += '</td>' # add a regex replace of the separator, avoiding escaped instances
+        while vn < ln
+          res += '<td style="padding:2px; border:1px solid #ccc;vertical-align:text-top;"></td>'
+          vn += 1
         res += '</tr>'
       res += '</tbody>'
-  res = res.replace /XXX_QUOTER_GOES_HERE_XXX/g, quote
   return res + '</table>'
 
-P.convert.json2html = (recs) ->
+P.convert.json2html = (recs, params) ->
   recs ?= @body ? @params
-  if @params.url
+  params ?= @params
+  if params.url
     recs = await @fetch url
-  if Array.isArray recs
-    return @convert.csv2html await @convert.json2csv recs
+  if params.subset and not Array.isArray recs
+    parts = params.subset.split '.'
+    while part = parts.shift()
+      if typeof recs is 'object' and not Array.isArray(recs) and recs[part]?
+        recs = recs[part]
+      else
+        break
+  if Array.isArray(recs) or (recs?.hits?.hits and params.es isnt false)
+    params.subset = parts.join('.') if parts?
+    tbl = await @convert.csv2html await @convert.json2csv recs, params
+    return tbl
   else
     res = '<div>'
-    if @params.subset
-      recs = recs[@params.subset]
-      res += '<h3>' + @params.subset + ':</h3>'
-      res += '<input type="hidden" id="options_subset" value="' + @params.subset + '">'
-    if @params.flatten
+    if params.edit # extras only for rscvd for now but should be any management fields to add and not yet present
+      res += '<div style="clear:both; margin:-1px 0px;"><div style="float:left;width: 150px; overflow: scroll;"><b><p>status</p></b></div>'
+      res += '<div style="float:left;"><select class="pradmForm" id="status" style="margin-top:15px;margin-bottom:0px;min-width:180px;">'
+      for st in ['', 'Verified', 'Denied', 'Progressing', 'Overdue', 'Provided', 'Cancelled', 'Done']
+        res += '<option' + (if recs.status is st then ' selected="selected"' else '') + '>' + st + '</option>'
+      delete recs.status
+      res += '</select></div>'
+    if params.flatten
       recs = await @flatten recs
       res += '<input type="hidden" id="options_flatten" value="true">'
+    if params.subset
+      if parts.length
+        recs = recs[pt] for pt in parts
+      res += '<h3>' + params.subset + ':</h3>'
+      res += '<input type="hidden" id="options_subset" value="' + params.subset + '">'
     _draw = (rec) =>
+      if params.edit # just for rscvd demo for now
+        rec.comments ?= ''
       for k of rec
-        if rec[k]? and rec[k] isnt '' and (not Array.isArray(rec[k]) or rec[k].length)
-          res += '<div style="clear:both; border:1px solid #ccc; margin:-1px 0px;"><div style="float:left;width: 150px; overflow: scroll;"><b><p>' + k + '</p></b></div>'
+        # for example crossref date-parts are an array in an array, pretty useless, so dump the external array
+        try rec[k] = rec[k][0] if Array.isArray(rec[k]) and rec[k].length is 1 and Array.isArray rec[k][0]
+        if rec[k]? and (not Array.isArray(rec[k]) or rec[k].length) # and rec[k] isnt ''
+          res += '<div style="clear:both; ' + (if not params.edit then 'border:1px solid #ccc; ' else '') + 'margin:-1px 0px;"><div style="float:left;width: 150px; overflow: scroll;"><b><p>' + k + '</p></b></div>'
           res += '<div style="float:left;">'
-          res += if @params.edit then '<textarea id="' + k + '" style="min-height:100px;width:100%;">' else ''
+          res += if params.edit then '<textarea class="pradmForm" id="' + k + '" style="min-height:80px;width:100%;margin-bottom:5px;">' else ''
           if Array.isArray rec[k]
             if typeof rec[k][0] is 'object'
               for ok in rec[k]
                 _draw ok
-            else if typeof rec[k][0] is 'string'
-              res += (if @params.edit then '' else '<p>') + rec[k].join(', ') + (if @params.edit then '' else '</p>')
             else
-              res += (if @params.edit then '' else '<p>') + JSON.stringify(rec[k]) + (if @params.edit then '' else '</p>')
+              try
+                rks = rec[k].join ', '
+              catch
+                try
+                  rks = JSON.stringify rec[k]
+                catch
+                  rks = rec[k]
+              try res += (if params.edit then '' else '<p>') + rks + (if params.edit then '' else '</p>')
           else if typeof rec[k] is 'object'
             _draw rec[k]
-          else if typeof rec[k] is 'string'
-            res += (if @params.edit then '' else '<p>') + rec[k] + (if @params.edit then '' else '</p>')
           else
-            res += (if @params.edit then '' else '<p>') + JSON.stringify(rec[k]) + (if @params.edit then '' else '</p>')
-          res += if @params.edit then '</textarea>' else ''
+            res += (if params.edit then '' else '<p>') + rec[k] + (if params.edit then '' else '</p>')
+          res += if params.edit then '</textarea>' else ''
           res += '</div></div>'
     _draw recs
-    if @params.edit
-      res += '' # TODO add a save button, or notify that login is required - and some js to POST the altered data
-    return res + '</div>'
+    res += '</div>'
+    if params.edit
+      res = '<script type="text/javascript" src="/client/pradm.js"></script><script type="text/javascript" src="/client/pradmEdit.js"></script>' + res
+      res += '<script type="text/javascript">pradm.edit()</script>'
+    return res
 
 P.convert.json2txt = (content) ->
   content ?= @body ? @params
