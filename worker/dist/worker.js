@@ -5107,7 +5107,7 @@ P.src.crossref.works = async function(doi) {
       }
       // for now just get from old system instead of crossref
       //url = 'https://api.crossref.org/works/' + doi
-      url = 'https://dev.api.cottagelabs.com/use/crossref/works/' + doi;
+      url = 'https://dev.api.cottagelabs.com/use/crossref/works?doi=' + doi;
       res = (await this.fetch(url)); //, {headers: _xref_hdr}
     }
   }
@@ -8317,7 +8317,7 @@ var indexOf = [].indexOf;
 P.svc.oaworks.metadata = async function(doi) {
   var res;
   res = (await this.svc.oaworks.find(doi)); // may not be a DOI, but most likely thing
-  return res.metadata;
+  return res != null ? res.metadata : void 0;
 };
 
 P.svc.oaworks.find = async function(options, metadata = {}, content) {
@@ -8354,6 +8354,9 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
   }
   if (content == null) {
     content = (ref = options.dom) != null ? ref : (typeof this.body === 'string' ? this.body : void 0);
+  }
+  if (options.metadata) {
+    options.find = options.metadata;
   }
   if (options.find) {
     if (options.find.indexOf('10.') === 0 && options.find.indexOf('/') !== -1) {
@@ -10218,7 +10221,7 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
     perms.all_permissions.push(altoa);
   }
   if (meta.doi && (oadoi = (await this.src.oadoi(meta.doi)))) {
-    if ((haddoi || (oadoi != null ? oadoi.journal_is_oa : void 0)) && (oadoi != null ? (ref17 = oadoi.best_oa_location) != null ? ref17.license : void 0 : void 0) && oadoi.best_oa_location.license.indexOf('cc') !== -1) {
+    if (haddoi && (oadoi != null ? (ref17 = oadoi.best_oa_location) != null ? ref17.license : void 0 : void 0) && oadoi.best_oa_location.license.indexOf('cc') !== -1) { // (haddoi or oadoi?.journal_is_oa)
       doa = {
         can_archive: true,
         version: oadoi.best_oa_location.version,
@@ -10362,9 +10365,7 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
       status: 501
     };
   } else {
-    if (this.S.dev) {
-      perms.meta = meta;
-    }
+    //perms.meta = meta if @S.dev
     return perms;
   }
 };
@@ -11098,8 +11099,8 @@ P.svc.oaworks.scrape = async function(content, doi) {
 };
 
 
-S.built = "Mon Apr 26 2021 08:07:07 GMT+0100";
-S.system = "7e310e1a30c33c8b79637f0db45405dbc870ef93741b1dbb032b1d0526df26cb";
+S.built = "Mon Apr 26 2021 09:45:17 GMT+0100";
+S.system = "8370eb3851a6bb9255ba15cc6810434b540ea72f599efb5191afdca13c9fb5f3";
 P.puppet = {_bg: true}// added by constructor
 
 P.scripts.testoab = {_bg: true}// added by constructor

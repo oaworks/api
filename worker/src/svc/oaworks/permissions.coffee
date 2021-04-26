@@ -251,7 +251,7 @@ P.svc.oaworks.permissions = (meta, ror, getmeta) ->
     perms.all_permissions.push altoa
 
   if meta.doi and oadoi = await @src.oadoi meta.doi
-    if (haddoi or oadoi?.journal_is_oa) and oadoi?.best_oa_location?.license and oadoi.best_oa_location.license.indexOf('cc') isnt -1
+    if haddoi and oadoi?.best_oa_location?.license and oadoi.best_oa_location.license.indexOf('cc') isnt -1 # (haddoi or oadoi?.journal_is_oa)
       doa =
         can_archive: true
         version: oadoi.best_oa_location.version
@@ -332,7 +332,7 @@ P.svc.oaworks.permissions = (meta, ror, getmeta) ->
       body: if typeof overall_policy_restriction isnt 'string' then overall_policy_restriction else msgs[overall_policy_restriction.toLowerCase()] ? overall_policy_restriction
       status: 501
   else
-    perms.meta = meta if @S.dev
+    #perms.meta = meta if @S.dev
     return perms
 
 

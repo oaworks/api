@@ -1,7 +1,7 @@
 
 P.svc.oaworks.metadata = (doi) ->
   res = await @svc.oaworks.find doi # may not be a DOI, but most likely thing
-  return res.metadata
+  return res?.metadata
 
 
 P.svc.oaworks.find = (options, metadata={}, content) ->
@@ -20,7 +20,8 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
   try options ?= @copy @params
   options ?= {}
   content ?= options.dom ? (if typeof @body is 'string' then @body else undefined)
-
+  
+  options.find = options.metadata if options.metadata
   if options.find
     if options.find.indexOf('10.') is 0 and options.find.indexOf('/') isnt -1
       options.doi = options.find

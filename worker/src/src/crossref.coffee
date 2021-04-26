@@ -41,7 +41,7 @@ P.src.crossref.works = (doi) ->
       doi = '10.' + doi.split('/10.')[1] if doi.indexOf('10.') isnt 0 and doi.indexOf('/10.') isnt -1
       # for now just get from old system instead of crossref
       #url = 'https://api.crossref.org/works/' + doi
-      url = 'https://dev.api.cottagelabs.com/use/crossref/works/' + doi
+      url = 'https://dev.api.cottagelabs.com/use/crossref/works?doi=' + doi
       res = await @fetch url #, {headers: _xref_hdr}
 
   if res?.DOI? #res?.message?.DOI?
