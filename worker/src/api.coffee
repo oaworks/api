@@ -177,12 +177,14 @@ P = (scheduled) ->
     if pf in @S.formats
       @format = pf
       @parts[@parts.length-1] = @parts[@parts.length-1].replace '.' + pf, ''
+  if @parts.length is 1 and @parts[0] in ['docs', 'client'] and typeof @S.bg is 'string' and @S.pass
+    throw new Error() # send to backend to handle requests for anything that should be served from folders on disk
   for d of @S.domains ? {} # allows requests from specific domains to route directly to a subroute, or more usefully, a specific service
     if @base.indexOf(d) isnt -1
       @domain = d
       @parts = [...@S.domains[d], ...@parts]
       break
-      
+  
   console.log(@base, @domain) if @S.dev and @S.bg is true
 
   @route = @parts.join '/'

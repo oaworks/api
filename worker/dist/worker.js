@@ -145,7 +145,7 @@ try {
 } catch (error) {}
 
 P = async function(scheduled) {
-  var _lp, _return, _save, authd, base, base1, base2, d, fn, fs, hd, i, j, kp, kpn, l, len, len1, len2, name, pf, pk, prs, qp, recs, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, resp, schedule;
+  var _lp, _return, _save, authd, base, base1, base2, d, fn, fs, hd, i, j, kp, kpn, l, len, len1, len2, name, pf, pk, prs, qp, recs, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, resp, schedule;
   // the context here is the fetch event
   this.started = Date.now(); // not strictly accurate in a workers environment, but handy nevertheless, used for comparison when logs are finally written
   try {
@@ -295,7 +295,10 @@ P = async function(scheduled) {
       this.parts[this.parts.length - 1] = this.parts[this.parts.length - 1].replace('.' + pf, '');
     }
   }
-  for (d in (ref6 = this.S.domains) != null ? ref6 : {}) {
+  if (this.parts.length === 1 && ((ref6 = this.parts[0]) === 'docs' || ref6 === 'client') && typeof this.S.bg === 'string' && this.S.pass) {
+    throw new Error(); // send to backend to handle requests for anything that should be served from folders on disk
+  }
+  for (d in (ref7 = this.S.domains) != null ? ref7 : {}) {
     if (this.base.indexOf(d) !== -1) {
       this.domain = d;
       this.parts = [...this.S.domains[d], ...this.parts];
@@ -314,7 +317,7 @@ P = async function(scheduled) {
   //@nolog = true if ... # don't log if nolog is present and its value matches a secret key? Or if @S.log is false?
   this._logs = []; // place for a running request to dump multiple logs, which will combine and save at the end of the overall request
   if (this.route === '') { //don't bother doing anything, just serve a direct P._response with the API details
-    return P._response.call(this, (ref7 = this.request.method) === 'HEAD' || ref7 === 'OPTIONS' ? '' : {
+    return P._response.call(this, (ref8 = this.request.method) === 'HEAD' || ref8 === 'OPTIONS' ? '' : {
       name: this.S.name,
       version: this.S.version,
       base: (this.S.dev ? this.base : void 0),
@@ -323,8 +326,8 @@ P = async function(scheduled) {
   }
   // a save method called by the following _return when necessary
   _save = async(k, r, f) => {
-    var c, exists, id, l, len2, ref8, ref9;
-    if ((r != null) && (typeof r !== 'object' || Array.isArray(r) || (((ref8 = r.headers) != null ? ref8.append : void 0) !== 'function' && (typeof r.status !== 'number' || r.status < 200 || r.status > 600)))) {
+    var c, exists, id, l, len2, ref10, ref9;
+    if ((r != null) && (typeof r !== 'object' || Array.isArray(r) || (((ref9 = r.headers) != null ? ref9.append : void 0) !== 'function' && (typeof r.status !== 'number' || r.status < 200 || r.status > 600)))) {
       // if the function returned a Response object, or something with an error status, don't save it
       if (f._key && Array.isArray(r) && r.length && (r[0]._id == null) && (r[0][f._key] != null)) {
         for (l = 0, len2 = r.length; l < len2; l++) {
@@ -332,7 +335,7 @@ P = async function(scheduled) {
           c._id = (Array.isArray(c[f._key]) ? c[f._key][0] : c[f._key]);
         }
       }
-      id = Array.isArray(r) ? '' : '/' + (f._key && r[f._key] ? r[f._key] : (ref9 = r._id) != null ? ref9 : this.uid()).replace(/\//g, '_').replace(k + '_', '').toLowerCase();
+      id = Array.isArray(r) ? '' : '/' + (f._key && r[f._key] ? r[f._key] : (ref10 = r._id) != null ? ref10 : this.uid()).replace(/\//g, '_').replace(k + '_', '').toLowerCase();
       if (f._kv && !Array.isArray(r)) { //_kv should be set for things that MUST be in the kv - they won't be removed, but will be copied to index if _index is also true
         this.kv(k + id, r, f._kv);
       }
@@ -385,7 +388,7 @@ P = async function(scheduled) {
       return JSON.parse(JSON.stringify(f));
     } else {
       _wrapped = async function() {
-        var _async, adone, bup, c, di, dr, exists, isq, l, len2, len3, len4, lg, m, o, qopts, rec, ref10, ref11, ref12, ref13, ref8, ref9, res, rt, st;
+        var _async, adone, bup, c, di, dr, exists, isq, l, len2, len3, len4, lg, m, o, qopts, rec, ref10, ref11, ref12, ref13, ref14, ref9, res, rt, st;
         st = Date.now(); // again, not necessarily going to be accurate in a workers environment
         rt = n.replace(/\./g, '_');
         lg = {
@@ -451,9 +454,9 @@ P = async function(scheduled) {
               lg.qry = this.params;
             } else if (this.parts.indexOf('create') === this.parts.length - 1 || this.parts.indexOf('save') === this.parts.length - 1) {
               rec = this.copy(this.params);
-              ref8 = this.parts;
-              for (l = 0, len2 = ref8.length; l < len2; l++) {
-                c = ref8[l];
+              ref9 = this.parts;
+              for (l = 0, len2 = ref9.length; l < len2; l++) {
+                c = ref9[l];
                 delete rec[c];
               }
               if (JSON.stringify(rec) === '{}') {
@@ -477,7 +480,7 @@ P = async function(scheduled) {
             // TODO if lg.qry is a string like a title, with no other search qualifiers in it, and f._search is a string, treat f._search as the key name to search in
             // BUT if there are no spaces in lg.qry, it's probably supposed to be part of the key - that should be handled above anyway
             res = (await this.index(lg.key, rec != null ? rec : (lg.qry ? (await this.index.translate(lg.qry)) : void 0)));
-            if (this.fn !== n && typeof lg.qry === 'string' && lg.qry.indexOf(' ') === -1 && !rec && (res != null ? (ref9 = res.hits) != null ? ref9.total : void 0 : void 0) === 1 && lg.qry.indexOf(res.hits.hits[0]._id !== -1)) {
+            if (this.fn !== n && typeof lg.qry === 'string' && lg.qry.indexOf(' ') === -1 && !rec && (res != null ? (ref10 = res.hits) != null ? ref10.total : void 0 : void 0) === 1 && lg.qry.indexOf(res.hits.hits[0]._id !== -1)) {
               try {
                 res = res.hits.hits[0]._source;
               } catch (error) {}
@@ -516,21 +519,21 @@ P = async function(scheduled) {
           res = res.length;
         }
         if (res == null) {
-          if (typeof ((ref10 = f[this.request.method]) != null ? ref10 : f) === 'function') { // it could also be an index or kv config object with no default function
+          if (typeof ((ref11 = f[this.request.method]) != null ? ref11 : f) === 'function') { // it could also be an index or kv config object with no default function
             if (f._async) {
               lg.async = true;
               res = {
                 _async: this.rid
               };
               _async = async(rt, f) => {
-                var ares, ref11;
-                if (ares = (await ((ref11 = f[this.request.method]) != null ? ref11 : f).apply(this, arguments))) {
+                var ares, ref12;
+                if (ares = (await ((ref12 = f[this.request.method]) != null ? ref12 : f).apply(this, arguments))) {
                   return _save(rt, this.copy(ares), f);
                 }
               };
               this.waitUntil(_async(rt, f));
             } else {
-              res = (await ((ref11 = f[this.request.method]) != null ? ref11 : f).apply(this, arguments));
+              res = (await ((ref12 = f[this.request.method]) != null ? ref12 : f).apply(this, arguments));
               if ((res != null) && (f._kv || f._index)) {
                 this.waitUntil(_save(rt, this.copy(res), f));
               }
@@ -549,17 +552,17 @@ P = async function(scheduled) {
             if (Array.isArray(f._diff) && typeof f._diff[0] === 'string') {
               if (f._diff[0].startsWith('-')) { // it's a list of keys to ignore
                 dr = this.copy(res);
-                ref12 = f._diff;
+                ref13 = f._diff;
                 // it's a list of keys to include
-                for (m = 0, len3 = ref12.length; m < len3; m++) {
-                  d = ref12[m];
+                for (m = 0, len3 = ref13.length; m < len3; m++) {
+                  d = ref13[m];
                   delete dr[d.replace('-', '')];
                 }
               } else {
                 dr = {};
-                ref13 = f._diff;
-                for (o = 0, len4 = ref13.length; o < len4; o++) {
-                  di = ref13[o];
+                ref14 = f._diff;
+                for (o = 0, len4 = ref14.length; o < len4; o++) {
+                  di = ref14[o];
                   dr[di] = res[di];
                 }
               }
@@ -601,7 +604,7 @@ P = async function(scheduled) {
   prs = [...this.parts];
   pk = void 0;
   _lp = (p, a, n) => {
-    var ref8, results;
+    var ref9, results;
     // TODO consider if it would be useful to have the construct script build a default of this
     // NOTE that may reduce the configurability of it per call, or at least may require some additional config at call time anyway, 
     // which may limit the value of having it pre-configured in the first place
@@ -614,7 +617,7 @@ P = async function(scheduled) {
     }
     results = [];
     for (k in p) {
-      if ((ref8 = typeof p[k]) !== 'function' && ref8 !== 'object') {
+      if ((ref9 = typeof p[k]) !== 'function' && ref9 !== 'object') {
         try {
           results.push(a[k] = JSON.parse(JSON.stringify(p[k])));
         } catch (error) {
@@ -712,12 +715,12 @@ P = async function(scheduled) {
     }
     // TODO check the blacklist
     if (authd) {
-      if (typeof fn._format === 'string' && (ref8 = fn._format, indexOf.call(this.S.formats, ref8) >= 0)) {
+      if (typeof fn._format === 'string' && (ref9 = fn._format, indexOf.call(this.S.formats, ref9) >= 0)) {
         if (this.format == null) {
           this.format = fn._format;
         }
       }
-      if ((ref9 = this.request.method) === 'HEAD' || ref9 === 'OPTIONS') {
+      if ((ref10 = this.request.method) === 'HEAD' || ref10 === 'OPTIONS') {
         res = '';
       } else if (fn._cache !== false && !this.refresh && (this.request.method === 'GET' || (this.request.method === 'POST' && this.index._q(this.params))) && (res = (await this._cache()))) { // this will return empty if nothing relevant was ever put in there anyway
         // how about caching of responses to logged in users, by param or header?
@@ -744,14 +747,14 @@ P = async function(scheduled) {
   if (((res == null) || (typeof res === 'object' && res.status === 404)) && this.url.replace('.ico', '').replace('.gif', '').replace('.png', '').endsWith('favicon')) {
     res = '';
   }
-  resp = typeof res === 'object' && !Array.isArray(res) && typeof ((ref10 = res.headers) != null ? ref10.append : void 0) === 'function' ? res : (await this._response(res));
-  if (this.scheduled || (this.parts.length && ((ref11 = this.parts[0]) !== 'log' && ref11 !== 'status') && ((ref12 = this.request.method) !== 'HEAD' && ref12 !== 'OPTIONS') && (res != null) && res !== '')) {
-    if (this.completed && fn._cache !== false && resp.status === 200 && (typeof res !== 'object' || Array.isArray(res) || ((ref13 = res.hits) != null ? ref13.total : void 0) !== 0) && (!fn._sheet || typeof res !== 'number' || !this.refresh)) {
+  resp = typeof res === 'object' && !Array.isArray(res) && typeof ((ref11 = res.headers) != null ? ref11.append : void 0) === 'function' ? res : (await this._response(res));
+  if (this.scheduled || (this.parts.length && ((ref12 = this.parts[0]) !== 'log' && ref12 !== 'status') && ((ref13 = this.request.method) !== 'HEAD' && ref13 !== 'OPTIONS') && (res != null) && res !== '')) {
+    if (this.completed && fn._cache !== false && resp.status === 200 && (typeof res !== 'object' || Array.isArray(res) || ((ref14 = res.hits) != null ? ref14.total : void 0) !== 0) && (!fn._sheet || typeof res !== 'number' || !this.refresh)) {
       this._cache(void 0, resp, fn._cache); // fn._cache can be a number of seconds for cache to live, so pass it to cache to use if suitable
     }
     this.log();
   }
-  if (!this.completed && !this.cached && !this.unauthorised && !this.scheduled && this.S.pass && typeof this.S.bg === 'string' && ((ref14 = this.request.method) !== 'HEAD' && ref14 !== 'OPTIONS')) {
+  if (!this.completed && !this.cached && !this.unauthorised && !this.scheduled && this.S.pass && typeof this.S.bg === 'string' && ((ref15 = this.request.method) !== 'HEAD' && ref15 !== 'OPTIONS')) {
     // TODO add a regular schedule to check logs for things that didn't complete, and set them to _bg by default so they don't keep timing out
     throw new Error();
   } else {
@@ -11095,8 +11098,8 @@ P.svc.oaworks.scrape = async function(content, doi) {
 };
 
 
-S.built = "Mon Apr 26 2021 06:51:21 GMT+0100";
-S.system = "305bbcfa28555702ffe4f657da22a2ed4a6f29f27aa885bba8b9e0d77dc643fb";
+S.built = "Mon Apr 26 2021 08:07:07 GMT+0100";
+S.system = "7e310e1a30c33c8b79637f0db45405dbc870ef93741b1dbb032b1d0526df26cb";
 P.puppet = {_bg: true}// added by constructor
 
 P.scripts.testoab = {_bg: true}// added by constructor

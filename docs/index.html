@@ -446,6 +446,7 @@ the need for a vendor at all.
 
 # _hidden can be set to stop ane endpoint showing up on the list of available endpoints
 
+
 <p>Why we did it this way</p>
 
 Radical caching - cache is log is history (is test) is status is alerts is data
@@ -496,10 +497,10 @@ not been considered core.
 Then we have other things that we use remotely - systems 
 run by other people that we want to query and get data from, or send data to. 
 
-And finally we have the services - things we write that use the rest of Noddy, 
+And finally we have the services - things we write that use the rest of Paradigm, 
 and they provide a specific service over a defined set of API endpoints, such 
 as Open Access Button. Technically there is also the "frontend" layer, but that 
-is mostly outside Noddy itself. There are also various third party services we use 
+is mostly outside Paradigm itself. There are also various third party services we use 
 as part of our infrastructure, so I’ll list them for completeness as well.
 
 Written in node.js, using coffeescript or javascript, and able to run other 
@@ -541,11 +542,12 @@ any kind of javascript anyway. The good thing about this though, as with coffees
 is that we don’t gain or lose by not using it now - it all ends up as js anyway, 
 so we’re open to it at any time.
 
-Noddy places no constraints on what kind of “frontend” it requires. 
-There are some useful client-side javascript libraries that are helpful on 
-browser UIs, such as one that interacts with the Noddy login API 
+Paradigm places no constraints on what kind of UI it requires - it's just an API, 
+and anything can connect to it. There are some useful client-side javascript 
+libraries that are helpful on 
+browser UIs, such as one that interacts with the Paradigm login API 
 (login/auth is pretty complex so this is the most useful thing to provide to the frontend). 
-Noddy is intentionally designed this way so that frontends can be kept simple, 
+Paradigm is intentionally designed this way so that frontends can be kept simple, 
 and can be nothing more than some js libraries and static sites, which are very 
 easy to deploy and extremely stable. I am aware of many more complex frontend 
 frameworks and integrated frameworks, but none have ever provided sufficient 
@@ -562,97 +564,55 @@ curve on things like passwordless login from static pages by a few years.
 
 <h3>History</h3>
 
-I've been developing software for academic research for at least 
-fifteen years. About ten years ago I founded Cottage Labs, where we build 
-open source academic software infrastructure projects. We "run" or contribute to 
-the technical side of quite a few national/international academic services, such as 
-DOAJ, the Japanese National Institute of Materials Science, Norwegian national 
-research data repositories, various UK universities repositories, and some other 
-international collaborations such as the Invenio repository software development 
-which is led by CERN and is what Zenodo runs on.
-
-Research starts with literature review - searching for relevant stuff to learn 
+<p>Research starts with literature review - searching for relevant stuff to learn 
 from and add to. It ends with publication - contributing new material for others 
-to find and build upon. But the "start" can't actually happen unless the "end" 
-happens, and unfortunately the end is intrinsically less fulfilling.
+to find and build upon. But the <b>start</b> can't actually happen unless the <b>end</b>
+happens, and unfortunately the end is intrinsically less fulfilling.</p>
 
-I've worked on many projects that set out to revolutionise 
-the academic workflow, and yet very few have achieved anything close, and the 
-reason is simple - most researchers don't want to revolutionise their workflow, 
-because it's very particular to their domain, and they just want to get on with 
-their actual job. For those that did want to take advantage of a new way of 
-publishing and sharing their work, the web itself is really all that was needed, 
-and they've <a href="https://arxiv.org">already done it</a>.
-
-For those stuck in the middle, there's a dichotomy - are we trying to support 
-what they want to do, or are we trying to make them do things differently?
-
-The OAB focus has been on getting things out there that help people, but that 
-doesn’t mean it has to be us who does so - we’re not aiming to build specific 
-products/services for our own benefit, or to generate sales of a particular tool; 
-if we make useful things, or we encourage or help others to do so, either outcome 
+<p>OA.Works - initially as Open Access Button - has been building things that help 
+researchers share their work. We're not aiming to build specific 
+products/services for our own benefit, or to generate sales of a particular tool.
+If we make useful things, or we encourage or help others to do so, either outcome 
 is great. But there's definitely some stuff that someone needs to build, to make 
-it easier for those in the middle to move forward. So the aims of OAB have evolved 
-through:
+it easier for those in the middle to move forward. So our aims have evolved.</p>
 
-Find out how much stuff is not open and make a lot of noise about it to raise 
-awareness and to map the open/closed-ness of published research
+<p>We first wanted to find out how much research is not open and make a lot of noise 
+about it to raise awareness and to map the openness of research. Next we decided to 
+help people find open access versions of articles they can't access, and 
+to request from authors if it's not already openly available. Then, with the help of 
+librarians, we started encouraging authors to deposit anything they have the right 
+to deposit, and make it really simple for an author to know that they can, and to do so.</p>
 
-Help people find open access versions of stuff they found but can’t access, and 
-to request stuff from authors that isn’t yet open access, with the help of librarians, 
-and using “stories” compelling people to share
+<p>None of these are <b>technical</b> goals - we didn't start out intending to build 
+any particular app or technical solution. Instead, a focus on making things powerfully 
+simple, so that it becomes really easy and clear why someone should use some new tool 
+in their typical, traditional workflow, drives our technical decisions. We use 
+whatever we can to make something relevant to the average user, to help change 
+attitudes towards new approaches.</p>
 
-Help and encourage authors to deposit stuff that they have the right to deposit, 
-again with the help of librarians, and make it really simple for an author to do so
+<p>So how can we make things powerfully simple and yet also have a system that is 
+able to deal with very complex situations? As we don't know in advance what 
+tools we end up needing to build, or how much time and budget we have 
+to do so, we needed a way to be able to do fairly complex developments even if 
+they don't seem critical to the project at the time. We achieved this because 
+our software has never been just one thing - it is part of a larger stack that 
+has grown over the years across various projects and personal interests. We try 
+to generalise a lot of potentially complex problems and then implement them into 
+project deliverables when they became useful.</p>
 
-None of these are "technical" goals - we didn't start out saying "let's build 
-an app to do X" - but we have built some useful tools, and helped others as well, 
-and we've only made something new where it was lacking before, or where a better 
-solution was really needed.
+<p>There have also been downsides to this approach. Complex "backend" development is 
+often not seen as high priority from a project perspective, and time to document, 
+test, sysadmin, or refactor is often a big delay to more visible project deliverables. 
+Users and funders understand things that they can actually "see", like a new UI widget, 
+so the more successful we were at making the frontend look powerfully simple, the less 
+time we put into hard, invisible (but critical) things. Now, with more time and resources, 
+we have an opportunity to take more advantage of the hidden part of the iceberg of work 
+we've been doing over the years. By making that work more visible, and by making it a 
+goal of our project in itself to make this available to other people, we also hold 
+ourselves accountable for keeping up with these "things"hidden" aspects of our work.</p>
 
-A focus on making things powerfully simple is often lacking in many projects, but 
-that's what is most important when trying to get everyone into the revolution. It 
-has to be really easy and clear why they should do this new thing, and it has to 
-just fit in with whatever else they're still stuck having to do every day in the 
-meantime. 
-
-Spending years in discussions of things like file and metadata formats, are 
-certainly not of any relevance or interest to the average end user, so it is 
-not going to help change attitudes towards using them. Even if those things are 
-necessary (and some of them really aren't...), we also have to take responsibility 
-for making these powerful things simple to use.
-
-But how can we make things powerfully simple and yet also have a system that is 
-able to deal with very complex situations?And as we don’t know in advance what 
-tools we actually want to end up building, or how much time and budget we have 
-to do so, we have had to have a way to be able to do fairly complex 
-developments even if they don’t seem critical to the project at the time.
-
-We’ve achieved this because our software has never been just the OAB - it is part 
-of a larger stack that has grown over the years that I’ve worked on various 
-projects and my own research and interests.
-
-This allowed me to maximise how much I could deliver to each project whilst also 
-minimising the amount of boring repetitive work I would have to do. I tried to 
-generalise a lot of potentially complex problems and then implement them into 
-project deliverables when they became useful. 
-
-There have also been downsides to this approach, and to project work in general. 
-Complex "backend" development is often not seen as high priority from a project 
-perspective, and time to document, test, sysadmin, or refactor is often a big delay to 
-more visible project deliverables - users and funders understand things that 
-they can actually "see", like a new UI widget, as being "delivered"; and the more 
-successful we were at making the frontend look powerfully simple, the less time 
-we put into hard, invisible (but critical) things we need to keep doing.
-
-So, with more time and resources, we have an opportunity to take more advantage 
-of the hidden part of the iceberg of work we've been doing over the years. By 
-making that work more visible, as part of the project deliverables in its 
-own right and as a standalone body of work that is of use to others, we also 
-hold ourselves accountable for keeping up with these things.
-
-The stack has gone through four major versions already, and now in version five 
-it has become the API framework that we're now releasing as Paradigm.
+<p>The stack has gone through four major versions already, and now in version five 
+it has become the API framework that we're now releasing as Paradigm.</p>
 
 
 <h3>Use in your projects</h3>
