@@ -4,7 +4,7 @@
 
 _xref_hdr = {'User-Agent': S.name + '; mailto:' + S.mail?.to}
 
-P.src.crossref = {}
+P.src.crossref ?= {}
 
 P.src.crossref.journals = (issn) ->
   # by being an index, should default to a search of the index, then run this query if not present, which should get saved to the index
@@ -45,14 +45,7 @@ P.src.crossref.works = (doi) ->
       res = await @fetch url #, {headers: _xref_hdr}
 
   if res?.DOI? #res?.message?.DOI?
-    rec = res #res.data.message
-    if rec.year is "null" or (typeof rec.published is 'string' and rec.published.indexOf('null') isnt -1)
-      delete rec.year if rec.year is "null" # temporary avoidance of some errors in old crossref data import
-      delete rec.published
-      delete rec.publishedAt
-    delete rec.relation
-    delete rec.reference # is there anything worth doing with these? In some cases they are extremely long, enough to cause problems in the index
-    try rec.abstract = @convert.html2txt(rec.abstract) if typeof rec.abstract is 'string' and this?.convert?.html2txt?
+    rec = await @src.crossref.works._prep res #res.data.message
     return rec
   else
     return undefined
@@ -91,7 +84,48 @@ P.src.crossref.works.title = (title) ->
           res = r._source
   return res
 
-# and need the code that builds the index and keeps it up to date
-# and someting to trigger a load each day for example
-# probably requires a cron schedule to read some kind of setting or KV of last-updated indexes, and their update schedule
-# doing the regular index update will probably be a long-running job, so needs to be triggered but run on the backend machine
+P.src.crossref.works._prep = (rec) ->
+  rec.abstract = rec.abstract.replace(/<.*?>/g, '').replace(/^ABSTRACT/, '') if rec.abstract
+  rec._id ?= rec.DOI.replace /\//g, '_'
+  # try to build a published_date and publishedAt field?
+  for a in rec.assertion ? []
+    if a.label is 'OPEN ACCESS'
+      if a.URL and a.URL.indexOf('creativecommons') isnt -1
+        rec.license ?= []
+        rec.license.push 'URL': a.URL
+      rec.is_oa = true
+  for l in rec.license ? []
+    if l.URL and l.URL.indexOf('creativecommons') isnt -1 and (not rec.licence or rec.licence.indexOf('creativecommons') is -1)
+      rec.licence = l.URL
+      try rec.licence = 'cc-' + rec.licence.split('/licenses/')[1].replace(/^\//, '').replace(/\/$/, '').replace(/\//g, '-')
+      rec.is_oa = true
+  try
+    if rec.reference and rec.reference.length > 200
+      rec.reference_original_length = rec.reference.length
+      rec.reference = rec.reference.slice 0, 200
+  try
+    if rec.relation and rec.relation.length > 100
+      rec.relation_original_length = rec.relation.length
+      rec.relation = rec.relation.slice 0, 100
+    
+  for p in ['published-print','published-online','issued','deposited','indexed']
+    if rec[p]
+      try
+        if rec[p]['date-time'] and rec[p]['date-time'].split('T')[0].split('-').length is 3
+          rec.published ?= rec[p]['date-time'].split('T')[0]
+          rec.year ?= rec.published.split('-')[0] if rec.published?
+        pbl = ''
+        if rec[p]['date-parts'] and rec[p]['date-parts'].length and rec[p]['date-parts'][0]
+          rp = rec[p]['date-parts'][0]
+          pbl = rp[0]
+          if pbl and pbl isnt 'null'
+            if rp.length is 1
+              pbl += '-01-01'
+            else
+              pbl += if rp.length > 1 then '-' + (if rp[1].toString().length is 1 then '0' else '') + rp[1] else '-01'
+              pbl += if rp.length > 2 then '-' + (if rp[2].toString().length is 1 then '0' else '') + rp[2] else '-01'
+            if not rec.published
+              rec.year = pbl.split('-')[0]
+            rec.publishedAt ?= rec[p].timestamp
+
+  return rec

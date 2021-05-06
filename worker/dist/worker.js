@@ -512,7 +512,7 @@ P = async function(scheduled) {
         if ((res == null) && f._sheet && (this.refresh || !(exists = (await this.index(rt))))) { // this will happen on background where possible, because above will have routed to bg if it was available
           res = (await this.src.google.sheets(f._sheet));
           if (typeof f === 'function') { // process the sheet with the parent if it is a function
-            res = (await f(res));
+            res = (await f.apply(this, [res]));
           }
           await this.index(rt, '');
           this.waitUntil(_save(rt, this.copy(res), f));
@@ -636,7 +636,7 @@ P = async function(scheduled) {
               fn = a[k];
             }
           }
-          if (typeof a[k] === 'function' && !a[k]._hidden && n.indexOf('scripts.') === -1) {
+          if (typeof a[k] === 'function' && !p[k]._hidden && n.indexOf('scripts') !== 0 && n.indexOf('.scripts') === -1) {
             this.routes.push((n + (n ? '.' : '') + k).replace(/\./g, '/')); // TODO this could check the auth method, and only show things the current user can access, and also search for description / comment?
           }
         }
@@ -1219,7 +1219,9 @@ P.auth._update = async function(r, user) {
 
 var indexOf = [].indexOf;
 
-P.convert = {};
+if (P.convert == null) {
+  P.convert = {};
+}
 
 P.convert.json2csv = async function(recs, params) {
   var h, headers, i, j, k, len, len1, newline, nk, quote, rc, rec, records, ref, ref1, ref2, ref3, ref4, ref5, rs, separator;
@@ -1781,6 +1783,22 @@ P.convert.mime = function(fn) {
   } else {
     return false;
   }
+};
+
+P.convert.stream2txt = function(stream) {
+  var chunks;
+  chunks = [];
+  return new Promise((resolve, reject) => {
+    stream.on('data', (chunk) => {
+      return chunks.push(Buffer.from(chunk));
+    });
+    stream.on('error', (err) => {
+      return reject(err);
+    });
+    return stream.on('end', () => {
+      return resolve(Buffer.concat(chunks).toString('utf8'));
+    });
+  });
 };
 
 // write examples of how to do various things here
@@ -2466,18 +2484,30 @@ P.mail = async function(opts) {
 };
 
 P.mail.validate = async function(e, apikey) {
-  var f, ref, ref1, ref2;
-  if (apikey == null) {
-    apikey = (ref = S.mail) != null ? ref.pubkey : void 0;
-  }
+  var ns, nsp, ref, ref1, v;
+  //apikey ?= @S.mail?.pubkey
   if (e == null) {
-    e = this != null ? (ref1 = this.params) != null ? ref1.email : void 0 : void 0;
+    e = this != null ? (ref = this.params) != null ? ref.email : void 0 : void 0;
   }
-  if (typeof e === 'string' && typeof apikey === 'string') {
-    // also add a simple regex validator if mailgun validation is not available - and cache the validations
-    f = (ref2 = this != null ? this.fetch : void 0) != null ? ref2 : P.fetch;
-    return (await f('https://api.mailgun.net/v3/address/validate?syntax_only=false&address=' + encodeURIComponent(e) + '&api_key=' + apikey));
+  if (typeof e === 'string' && e.length && (e.indexOf(' ') === -1 || (e.startsWith('"') && e.split('"@').length === 2))) {
+    try {
+      if (typeof apikey === 'string') {
+        v = (await this.fetch('https://api.mailgun.net/v3/address/validate?syntax_only=false&address=' + encodeURIComponent(e) + '&api_key=' + apikey));
+        return (ref1 = v.did_you_mean) != null ? ref1 : v.is_valid;
+      }
+    } catch (error) {}
+    //(?:[a-z0-9!#$%&amp;'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&amp;'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])
+    ns = e.split('@');
+    if (ns.length === 2 && ns[0].length && ns[0].length < 65 && ((ns[0].startsWith('"') && ns[0].endsWith('"')) || (ns[0].indexOf(' ') === -1 && ns[0].indexOf(',') === -1 && ns[0].indexOf(':') === -1 && ns[0].indexOf(';') === -1))) {
+      if (ns[1].length && ns[1].indexOf(',') === -1 && ns[1].indexOf(' ') === -1) {
+        nsp = ns[1].split('.');
+        if (nsp.length > 1 && (nsp.length !== 2 || nsp[0] !== 'example')) {
+          return true;
+        }
+      }
+    }
   }
+  return false;
 };
 
 var base, base1, base2;
@@ -3140,10 +3170,24 @@ P._templates = {
   _index: true // an index to store templates in - although generally should be handled at the individual function/service level
 };
 
-P.date = function(rt) {
-  var k, pts, ref;
+P.date = function(rt, timed) {
+  var k, pts, ref, ret;
   if (rt == null) {
     rt = this.params.date;
+  }
+  if (timed == null) {
+    timed = this.params.time;
+  }
+  if (typeof rt === 'number' || (typeof rt === 'string' && rt.indexOf(' ') === -1 && rt.length > 10 && rt.indexOf('T') === -1)) {
+    try {
+      ret = new Date(parseInt(rt));
+      ret = ret.toISOString();
+      if (timed) {
+        return ret;
+      } else {
+        return ret.split('T')[0];
+      }
+    } catch (error) {}
   }
   try {
     if (typeof rt === 'number') {
@@ -3185,6 +3229,53 @@ P.date = function(rt) {
   } catch (error) {
     return void 0;
   }
+};
+
+P.datetime = function() {
+  var ref;
+  return this.date(this.params.datetime, (ref = this.params.time) != null ? ref : true);
+};
+
+P.epoch = function(epoch) {
+  var end, ref, start;
+  if (epoch == null) {
+    epoch = this.params.epoch;
+  }
+  try {
+    if (epoch.length > 10 && parseInt(epoch)) {
+      return this.date(this.params.epoch, (ref = this.params.time) != null ? ref : true);
+    }
+  } catch (error) {}
+  if (typeof epoch === 'number') {
+    epoch = epoch.toString();
+  }
+  if (epoch.length === 4) {
+    epoch += '-01';
+  }
+  if (epoch.split('-').length < 3) {
+    epoch += '-01';
+  }
+  if (epoch.indexOf('T') === -1) {
+    epoch += 'T';
+  }
+  if (epoch.indexOf(':') === -1) {
+    epoch += '00:00';
+  }
+  if (epoch.split(':').length < 3) {
+    epoch += ':00';
+  }
+  if (epoch.indexOf('.') === -1) {
+    epoch += '.';
+  }
+  [start, end] = epoch.split('.');
+  end = end.replace('Z', '').replace('z', '');
+  while (end.length < 3) {
+    end += '0';
+  }
+  if (end.indexOf('Z') === -1) {
+    end += 'Z';
+  }
+  return new Date(start + '.' + end).valueOf();
 };
 
 `P.retry = (fn, params=[], opts={}) ->
@@ -4941,8 +5032,8 @@ P.src.base.title = async function(title) {
 P.src.base.get = async function(qry) {
   var ref, res;
   res = (await this.src.base.search(qry));
-  if (res != null ? (ref = res.docs) != null ? ref.length : void 0 : void 0) {
-    return res.docs[0];
+  if (res != null ? (ref = res.data) != null ? ref.length : void 0 : void 0) {
+    return res.data[0];
   } else {
     return void 0;
   }
@@ -5040,14 +5131,16 @@ P.src.core.search = async function(qrystr, from, size = 10) {
 
   // https://github.com/CrossRef/rest-api-doc/blob/master/rest_api.md
   // http://api.crossref.org/works/10.1016/j.paid.2009.02.013
-var _xref_hdr, ref,
+var _xref_hdr, base, ref,
   indexOf = [].indexOf;
 
 _xref_hdr = {
   'User-Agent': S.name + '; mailto:' + ((ref = S.mail) != null ? ref.to : void 0)
 };
 
-P.src.crossref = {};
+if ((base = P.src).crossref == null) {
+  base.crossref = {};
+}
 
 P.src.crossref.journals = async function(issn) {
   var isq, ref1, res, url;
@@ -5090,7 +5183,7 @@ P.src.crossref.journals.doi = async function(issn) {
 };
 
 P.src.crossref.works = async function(doi) {
-  var rec, ref1, ref2, ref3, res, url;
+  var rec, ref1, ref2, res, url;
   if (doi == null) {
     doi = (ref1 = (ref2 = this.params.works) != null ? ref2 : this.params.doi) != null ? ref1 : this.params.title || this.params.q;
   }
@@ -5112,21 +5205,7 @@ P.src.crossref.works = async function(doi) {
     }
   }
   if ((res != null ? res.DOI : void 0) != null) {
-    rec = res; //res.data.message
-    if (rec.year === "null" || (typeof rec.published === 'string' && rec.published.indexOf('null') !== -1)) {
-      if (rec.year === "null") { // temporary avoidance of some errors in old crossref data import
-        delete rec.year;
-      }
-      delete rec.published;
-      delete rec.publishedAt;
-    }
-    delete rec.relation;
-    delete rec.reference; // is there anything worth doing with these? In some cases they are extremely long, enough to cause problems in the index
-    try {
-      if (typeof rec.abstract === 'string' && ((this != null ? (ref3 = this.convert) != null ? ref3.html2txt : void 0 : void 0) != null)) {
-        rec.abstract = this.convert.html2txt(rec.abstract);
-      }
-    } catch (error) {}
+    rec = (await this.src.crossref.works._prep(res)); //res.data.message
     return rec;
   } else {
     return void 0; //res?.message?.DOI?
@@ -5192,10 +5271,92 @@ P.src.crossref.works.title = async function(title) {
   return res;
 };
 
-// and need the code that builds the index and keeps it up to date
-// and someting to trigger a load each day for example
-// probably requires a cron schedule to read some kind of setting or KV of last-updated indexes, and their update schedule
-// doing the regular index update will probably be a long-running job, so needs to be triggered but run on the backend machine
+P.src.crossref.works._prep = function(rec) {
+  var a, i, j, k, l, len, len1, len2, p, pbl, ref1, ref2, ref3, ref4, ref5, rp;
+  if (rec.abstract) {
+    rec.abstract = rec.abstract.replace(/<.*?>/g, '').replace(/^ABSTRACT/, '');
+  }
+  if (rec._id == null) {
+    rec._id = rec.DOI.replace(/\//g, '_');
+  }
+  ref2 = (ref1 = rec.assertion) != null ? ref1 : [];
+  // try to build a published_date and publishedAt field?
+  for (i = 0, len = ref2.length; i < len; i++) {
+    a = ref2[i];
+    if (a.label === 'OPEN ACCESS') {
+      if (a.URL && a.URL.indexOf('creativecommons') !== -1) {
+        if (rec.license == null) {
+          rec.license = [];
+        }
+        rec.license.push({
+          'URL': a.URL
+        });
+      }
+      rec.is_oa = true;
+    }
+  }
+  ref4 = (ref3 = rec.license) != null ? ref3 : [];
+  for (j = 0, len1 = ref4.length; j < len1; j++) {
+    l = ref4[j];
+    if (l.URL && l.URL.indexOf('creativecommons') !== -1 && (!rec.licence || rec.licence.indexOf('creativecommons') === -1)) {
+      rec.licence = l.URL;
+      try {
+        rec.licence = 'cc-' + rec.licence.split('/licenses/')[1].replace(/^\//, '').replace(/\/$/, '').replace(/\//g, '-');
+      } catch (error) {}
+      rec.is_oa = true;
+    }
+  }
+  try {
+    if (rec.reference && rec.reference.length > 200) {
+      rec.reference_original_length = rec.reference.length;
+      rec.reference = rec.reference.slice(0, 200);
+    }
+  } catch (error) {}
+  try {
+    if (rec.relation && rec.relation.length > 100) {
+      rec.relation_original_length = rec.relation.length;
+      rec.relation = rec.relation.slice(0, 100);
+    }
+  } catch (error) {}
+  ref5 = ['published-print', 'published-online', 'issued', 'deposited', 'indexed'];
+  for (k = 0, len2 = ref5.length; k < len2; k++) {
+    p = ref5[k];
+    if (rec[p]) {
+      try {
+        if (rec[p]['date-time'] && rec[p]['date-time'].split('T')[0].split('-').length === 3) {
+          if (rec.published == null) {
+            rec.published = rec[p]['date-time'].split('T')[0];
+          }
+          if (rec.published != null) {
+            if (rec.year == null) {
+              rec.year = rec.published.split('-')[0];
+            }
+          }
+        }
+        pbl = '';
+        if (rec[p]['date-parts'] && rec[p]['date-parts'].length && rec[p]['date-parts'][0]) {
+          rp = rec[p]['date-parts'][0];
+          pbl = rp[0];
+          if (pbl && pbl !== 'null') {
+            if (rp.length === 1) {
+              pbl += '-01-01';
+            } else {
+              pbl += rp.length > 1 ? '-' + (rp[1].toString().length === 1 ? '0' : '') + rp[1] : '-01';
+              pbl += rp.length > 2 ? '-' + (rp[2].toString().length === 1 ? '0' : '') + rp[2] : '-01';
+            }
+            if (!rec.published) {
+              rec.year = pbl.split('-')[0];
+            }
+            if (rec.publishedAt == null) {
+              rec.publishedAt = rec[p].timestamp;
+            }
+          }
+        }
+      } catch (error) {}
+    }
+  }
+  return rec;
+};
 
 P.src.doaj = {};
 
@@ -5817,14 +5978,14 @@ P.src.grist = async function(qrystr, from) {
   if (qrystr.indexOf('gid:') !== 0 && qrystr.indexOf(' ') === -1 && parseInt(qrystr)) {
     qrystr = 'gid:' + qrystr; // check the qrystr to decide if this should be added or not
   }
-  url = 'https://www.ebi.ac.uk/europepmc/GristAPI/rest/get/query=' + qrystr + '&resultType=core&format=json';
+  url = 'https://www.ebi.ac.uk/europepmc/GristAPI/rest/get/query=' + encodeURIComponent(qrystr) + '&resultType=core&format=json';
   if (from != null) {
     url += '&page=' + (Math.floor(from / 25) + 1);
   }
   res = (await this.fetch(url));
   return {
-    total: res.data.HitCount,
-    data: (ref = (ref1 = res.data.RecordList) != null ? ref1.Record : void 0) != null ? ref : {}
+    total: res.HitCount,
+    data: (ref = (ref1 = res.RecordList) != null ? ref1.Record : void 0) != null ? ref : {}
   };
 };
 
@@ -6903,1005 +7064,654 @@ P.status = async function() {
   return res;
 };
 
-var indexOf = [].indexOf;
+`P.svc.lantern = (jid) ->
+  jid ?= @params.lantern ? @params.job
+  jid = undefined if jid and jid.startsWith '10.'
+  if jid?
+    job = await @svc.lantern.job jid
+    job.progress = await @svc.lantern.progress job
+    return job
+  else
+    if @params.doi or @params.lantern or @params.pmid or @params.pmc or @params.pmcid or @body
+      job = {}
+      job.email ?= @params.email
+      job._id = @uid()
+      if @body
+        if typeof @body is 'object' and not Array.isArray(@body) and @body.list
+          job.processes = @body.list
+          job.name ?= @body.name
+        else
+          job.processes = @body
+      else
+        job.processes = []
+        job.processes.push({doi: @params.doi ? @params.lantern}) if @params.doi or @params.lantern
+        job.processes.push({pmid: @params.pmid}) if @params.pmid
+        job.processes.push({pmcid: @params.pmcid ? @params.pmc}) if @params.pmcid or @params.pmc
+        job.name ?= @params.name
 
-P.svc.lantern = async function(jid) {
-  var i, job, ref, ref1, ref2, ref3, text;
-  if (jid == null) {
-    jid = (ref = this.params.lantern) != null ? ref : this.params.job;
-  }
-  if (jid && jid.startsWith('10.')) {
-    jid = void 0;
-  }
-  if (jid != null) {
-    job = (await this.svc.lantern.job(jid));
-    job.progress = (await this.svc.lantern.progress(job));
-    return job;
-  } else {
-    if (this.params.doi || this.params.lantern || this.params.pmid || this.params.pmc || this.params.pmcid || this.body) {
-      job = {};
-      if (job.email == null) {
-        job.email = this.params.email;
-      }
-      job._id = this.uid();
-      if (this.body) {
-        if (typeof this.body === 'object' && !Array.isArray(this.body) && this.body.list) {
-          job.processes = this.body.list;
-          if (job.name == null) {
-            job.name = this.body.name;
-          }
-        } else {
-          job.processes = this.body;
-        }
-      } else {
-        job.processes = [];
-        if (this.params.doi || this.params.lantern) {
-          job.processes.push({
-            doi: (ref1 = this.params.doi) != null ? ref1 : this.params.lantern
-          });
-        }
-        if (this.params.pmid) {
-          job.processes.push({
-            pmid: this.params.pmid
-          });
-        }
-        if (this.params.pmcid || this.params.pmc) {
-          job.processes.push({
-            pmcid: (ref2 = this.params.pmcid) != null ? ref2 : this.params.pmc
-          });
-        }
-        if (job.name == null) {
-          job.name = this.params.name;
-        }
-      }
-      this.svc.lantern.job(job);
-      for (i in job.processes) {
-        this.svc.lantern.process(job.processes[i], parseInt(i) === job.processes.length - 1 ? job : void 0);
-      }
-      if (job.email) {
-        text = 'Dear ' + job.email + '\n\nWe\'ve just started processing a batch of identifiers for you, and you can see the progress of the job here:\n\n';
-        text += 'https://compliance.cottagelabs.com#' + job._id;
-        text += '\n\nIf you didn\'t submit this request yourself, it probably means that another service is running ';
-        text += 'it on your behalf, so this is just to keep you informed about what\'s happening with your account; ';
-        text += 'you don\'t need to do anything else.\n\nYou\'ll get another email when your job has completed.\n\n';
-        this.mail({
-          from: 'Lantern <lantern@cottagelabs.com>',
-          to: job.email,
-          subject: 'Wellcome Compliance: job ' + ((ref3 = job.name) != null ? ref3 : job._id) + ' submitted successfully',
+      @svc.lantern.job job
+      for i of job.processes
+        @svc.lantern.process job.processes[i], if parseInt(i) is job.processes.length - 1 then job else undefined
+      if job.email
+        text = 'Dear ' + job.email + '\n\nWe\'ve just started processing a batch of identifiers for you, and you can see the progress of the job here:\n\n'
+        text += 'https://compliance.cottagelabs.com#' + job._id
+        text += '\n\nIf you didn\'t submit this request yourself, it probably means that another service is running '
+        text += 'it on your behalf, so this is just to keep you informed about what\'s happening with your account; '
+        text += 'you don\'t need to do anything else.\n\nYou\'ll get another email when your job has completed.\n\n'
+        @mail
+          from: 'Lantern <lantern@cottagelabs.com>'
+          to: job.email
+          subject: 'Wellcome Compliance: job ' + (job.name ? job._id) + ' submitted successfully'
           text: text
-        });
-      }
-      return job;
-    } else {
-      return {
-        name: 'Lantern for Wellcome',
-        version: this.S.version,
-        base: this.S.dev ? this.base : void 0,
-        built: this.S.built
-      };
-    }
-  }
-};
+      return job
+    else
+      return
+        name: 'Lantern for Wellcome'
+        version: @S.version
+        base: if @S.dev then @base else undefined
+        built: @S.built
 
-P.svc.lantern.job = {
-  _index: true
-};
+P.svc.lantern.job = _index: true
+P.svc.lantern.result = _index: true
 
-P.svc.lantern.result = {
-  _index: true
-};
+P.svc.lantern.results = (jid, count) ->
+  jid ?= @params.lantern ? @params.results ? @params.job
+  job = await @svc.lantern.job jid
+  jr = if count then 0 else []
+  for proc in job.processes
+    if res = await @svc.lantern.result proc._id
+      if count
+        jr += 1
+      else
+        jr.push res
+  if @format isnt 'csv'
+    return jr
+  else
+    fields = ["pmcid", "pmid", "doi", "title", "journal_title", "pure_oa", "issn", "eissn", "publication_date",
+      "electronic_publication_date", "publisher", "publisher_licence", "licence", "epmc_licence", "licence_source",
+      "epmc_licence_source", "in_epmc", "epmc_xml", "aam", "open_access", "ahead_of_print", "romeo_colour", "preprint_embargo",
+      "preprint_self_archiving", "postprint_embargo", "postprint_self_archiving", "publisher_copy_embargo", "publisher_copy_self_archiving",
+      "authors", "in_core", "in_base", "repositories", "repository_urls", "repository_oai_ids", "repository_fulltext_urls", "confidence",
+      "compliance_wellcome_standard", "compliance_wellcome_deluxe"
+    ]
+    grantcount = 0
+    fieldconfig = []
+    results = []
+    for res in job
+      result = {}
+      for fname in fields
+        printname = P.svc.lantern._fields[fname]?.short_name ? fname
+        fieldconfig.push(printname) if printname not in fieldconfig
+        if fname is 'authors'
+          result[printname] = ''
+          for r of res.authors
+            result[printname] += if r is '0' then '' else '\r\n'
+            result[printname] += res.authors[r].fullName if res.authors[r].fullName
+        else if fname in ['repositories','repository_urls','repository_fulltext_urls','repository_oai_ids']
+          result[printname] = ''
+          if res.repositories?
+            for rr in res.repositories
+              if rr.name
+                result[printname] += '\r\n' if result[printname]
+                if fname is 'repositories'
+                  result[printname] += rr.name ? ''
+                else if fname is 'repository_urls'
+                  result[printname] += rr.url ? ''
+                else if fname is 'repository_fulltext_urls'
+                  result[printname] += if rr.fulltexts? then rr.fulltexts.join() else ''
+                else if fname is 'repository_oai_ids'
+                  result[printname] += rr.oai ? ''
+        else if fname is 'pmcid' and res.pmcid
+          res.pmcid = 'PMC' + res.pmcid if res.pmcid.toLowerCase().indexOf('pmc') isnt 0
+          result[printname] = res.pmcid
+        else if res[fname] is true
+          result[printname] = 'TRUE'
+        else if res[fname] is false
+          result[printname] = 'FALSE'
+        else if not res[fname]? or res[fname] is 'unknown'
+          result[printname] = 'Unknown'
+        else
+          result[printname] = res[fname]
+      if res.grants?
+        rgc = 0
+        for grnt in res.grants
+          rgc += 1
+          result[(P.svc.lantern._fields.grant?.short_name ? 'grant').split(' ')[0] + ' ' + rgc] = grnt.grantId ? ''
+          result[(P.svc.lantern._fields.agency?.short_name ? 'agency').split(' ')[0] + ' ' + rgc] = grnt.agency ? ''
+          result[(P.svc.lantern._fields.pi?.short_name ? 'pi').split(' ')[0] + ' ' + rgc] = grnt.PI ? (if grnt.grantId or grnt.agency then 'Unknown' else '')
+        grantcount = rgc if rgc > grantcount
+      tpn = P.svc.lantern._fields['provenance']?.short_name ? 'provenance'
+      result[tpn] = ''
+      if res.provenance?
+        for pr of res.provenance
+          result[tpn] += if pr is '0' then '' else '\r\n'
+          result[tpn] += res.provenance[pr]
+      results.push result
+    gc = 1
+    while gc < grantcount+1
+      fieldconfig.push (P.svc.lantern._fields.grant?.short_name ? 'grant').split(' ')[0] + ' ' + gc
+      fieldconfig.push (P.svc.lantern._fields.agency?.short_name ? 'agency').split(' ')[0] + ' ' + gc
+      fieldconfig.push (P.svc.lantern._fields.pi?.short_name ? 'pi').split(' ')[0] + ' ' + gc
+      gc++
+    fieldconfig.push(P.svc.lantern._fields.provenance?.short_name ? 'provenance') if 'provenance' not in ignorefields
+    return @convert.json2csv results
 
-P.svc.lantern.results = async function(jid, count) {
-  var fieldconfig, fields, fname, gc, grantcount, grnt, j, job, jr, k, len, len1, len2, len3, len4, m, n, o, pr, printname, proc, r, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, result, results, rgc, rr, tpn;
-  if (jid == null) {
-    jid = (ref = (ref1 = this.params.lantern) != null ? ref1 : this.params.results) != null ? ref : this.params.job;
-  }
-  job = (await this.svc.lantern.job(jid));
-  jr = count ? 0 : [];
-  ref2 = job.processes;
-  for (j = 0, len = ref2.length; j < len; j++) {
-    proc = ref2[j];
-    if (res = (await this.svc.lantern.result(proc._id))) {
-      if (count) {
-        jr += 1;
-      } else {
-        jr.push(res);
-      }
-    }
-  }
-  if (this.format !== 'csv') {
-    return jr;
-  } else {
-    fields = ["pmcid", "pmid", "doi", "title", "journal_title", "pure_oa", "issn", "eissn", "publication_date", "electronic_publication_date", "publisher", "publisher_licence", "licence", "epmc_licence", "licence_source", "epmc_licence_source", "in_epmc", "epmc_xml", "aam", "open_access", "ahead_of_print", "romeo_colour", "preprint_embargo", "preprint_self_archiving", "postprint_embargo", "postprint_self_archiving", "publisher_copy_embargo", "publisher_copy_self_archiving", "authors", "in_core", "in_base", "repositories", "repository_urls", "repository_oai_ids", "repository_fulltext_urls", "confidence", "compliance_wellcome_standard", "compliance_wellcome_deluxe"];
-    grantcount = 0;
-    fieldconfig = [];
-    results = [];
-    for (k = 0, len1 = job.length; k < len1; k++) {
-      res = job[k];
-      result = {};
-      for (m = 0, len2 = fields.length; m < len2; m++) {
-        fname = fields[m];
-        printname = (ref3 = (ref4 = P.svc.lantern._fields[fname]) != null ? ref4.short_name : void 0) != null ? ref3 : fname;
-        if (indexOf.call(fieldconfig, printname) < 0) {
-          fieldconfig.push(printname);
-        }
-        if (fname === 'authors') {
-          result[printname] = '';
-          for (r in res.authors) {
-            result[printname] += r === '0' ? '' : '\r\n';
-            if (res.authors[r].fullName) {
-              result[printname] += res.authors[r].fullName;
-            }
-          }
-        } else if (fname === 'repositories' || fname === 'repository_urls' || fname === 'repository_fulltext_urls' || fname === 'repository_oai_ids') {
-          result[printname] = '';
-          if (res.repositories != null) {
-            ref5 = res.repositories;
-            for (n = 0, len3 = ref5.length; n < len3; n++) {
-              rr = ref5[n];
-              if (rr.name) {
-                if (result[printname]) {
-                  result[printname] += '\r\n';
-                }
-                if (fname === 'repositories') {
-                  result[printname] += (ref6 = rr.name) != null ? ref6 : '';
-                } else if (fname === 'repository_urls') {
-                  result[printname] += (ref7 = rr.url) != null ? ref7 : '';
-                } else if (fname === 'repository_fulltext_urls') {
-                  result[printname] += rr.fulltexts != null ? rr.fulltexts.join() : '';
-                } else if (fname === 'repository_oai_ids') {
-                  result[printname] += (ref8 = rr.oai) != null ? ref8 : '';
-                }
-              }
-            }
-          }
-        } else if (fname === 'pmcid' && res.pmcid) {
-          if (res.pmcid.toLowerCase().indexOf('pmc') !== 0) {
-            res.pmcid = 'PMC' + res.pmcid;
-          }
-          result[printname] = res.pmcid;
-        } else if (res[fname] === true) {
-          result[printname] = 'TRUE';
-        } else if (res[fname] === false) {
-          result[printname] = 'FALSE';
-        } else if ((res[fname] == null) || res[fname] === 'unknown') {
-          result[printname] = 'Unknown';
-        } else {
-          result[printname] = res[fname];
-        }
-      }
-      if (res.grants != null) {
-        rgc = 0;
-        ref9 = res.grants;
-        for (o = 0, len4 = ref9.length; o < len4; o++) {
-          grnt = ref9[o];
-          rgc += 1;
-          result[((ref11 = (ref12 = P.svc.lantern._fields.grant) != null ? ref12.short_name : void 0) != null ? ref11 : 'grant').split(' ')[0] + ' ' + rgc] = (ref10 = grnt.grantId) != null ? ref10 : '';
-          result[((ref14 = (ref15 = P.svc.lantern._fields.agency) != null ? ref15.short_name : void 0) != null ? ref14 : 'agency').split(' ')[0] + ' ' + rgc] = (ref13 = grnt.agency) != null ? ref13 : '';
-          result[((ref17 = (ref18 = P.svc.lantern._fields.pi) != null ? ref18.short_name : void 0) != null ? ref17 : 'pi').split(' ')[0] + ' ' + rgc] = (ref16 = grnt.PI) != null ? ref16 : (grnt.grantId || grnt.agency ? 'Unknown' : '');
-        }
-        if (rgc > grantcount) {
-          grantcount = rgc;
-        }
-      }
-      tpn = (ref19 = (ref20 = P.svc.lantern._fields['provenance']) != null ? ref20.short_name : void 0) != null ? ref19 : 'provenance';
-      result[tpn] = '';
-      if (res.provenance != null) {
-        for (pr in res.provenance) {
-          result[tpn] += pr === '0' ? '' : '\r\n';
-          result[tpn] += res.provenance[pr];
-        }
-      }
-      results.push(result);
-    }
-    gc = 1;
-    while (gc < grantcount + 1) {
-      fieldconfig.push(((ref21 = (ref22 = P.svc.lantern._fields.grant) != null ? ref22.short_name : void 0) != null ? ref21 : 'grant').split(' ')[0] + ' ' + gc);
-      fieldconfig.push(((ref23 = (ref24 = P.svc.lantern._fields.agency) != null ? ref24.short_name : void 0) != null ? ref23 : 'agency').split(' ')[0] + ' ' + gc);
-      fieldconfig.push(((ref25 = (ref26 = P.svc.lantern._fields.pi) != null ? ref26.short_name : void 0) != null ? ref25 : 'pi').split(' ')[0] + ' ' + gc);
-      gc++;
-    }
-    if (indexOf.call(ignorefields, 'provenance') < 0) {
-      fieldconfig.push((ref27 = (ref28 = P.svc.lantern._fields.provenance) != null ? ref28.short_name : void 0) != null ? ref27 : 'provenance');
-    }
-    return this.convert.json2csv(results);
-  }
-};
+P.svc.lantern.progress = (jid) ->
+  jid ?= @params.lantern ? @params.progress ? @params.job
+  job = if typeof jid is 'object' then jid else await @svc.lantern jid
+  progress = await @svc.lantern.results job, true
+  # TODO calculate the progress of the job somehow
+  return Math.ceil((progress/job.processes.length)*10000)/100
 
-P.svc.lantern.progress = async function(jid) {
-  var job, progress, ref, ref1;
-  if (jid == null) {
-    jid = (ref = (ref1 = this.params.lantern) != null ? ref1 : this.params.progress) != null ? ref : this.params.job;
-  }
-  job = typeof jid === 'object' ? jid : (await this.svc.lantern(jid));
-  progress = (await this.svc.lantern.results(job, true));
-  // TODO calculate the progress of the job somehow
-  return Math.ceil((progress / job.processes.length) * 10000) / 100;
-};
+P.svc.lantern.licence = (url, content, start, end) ->
+  url ?= @params.url
+  url = url.replace(/(^\s*)|(\s*$)/g,'') if url?
+  content ?= @params.content ? @body
+  try content ?= await @puppet url
+  content = undefined if typeof content is 'number'
+  start ?= @params.start
+  end ?= @params.end
 
-P.svc.lantern.licence = async function(url, content, start, end) {
-  var j, l, len, lh, lics, match, ref, ref1, ref2, ref3, urlmatch, urlmatcher;
-  if (url == null) {
-    url = this.params.url;
-  }
-  if (url != null) {
-    url = url.replace(/(^\s*)|(\s*$)/g, '');
-  }
-  if (content == null) {
-    content = (ref = this.params.content) != null ? ref : this.body;
-  }
-  try {
-    if (content == null) {
-      content = (await this.puppet(url));
-    }
-  } catch (error) {}
-  if (typeof content === 'number') {
-    content = void 0;
-  }
-  if (start == null) {
-    start = this.params.start;
-  }
-  if (end == null) {
-    end = this.params.end;
-  }
-  if (url) {
-    lic.url = url;
-  }
-  if (typeof content === 'string') {
-    if ((start != null) && content.indexOf(start) !== -1) {
-      content = content.split(start)[1];
-    }
-    if (end != null) {
-      content = content.split(end)[0];
-    }
-    if (content.length > 1000000) {
-      lic.large = true;
-      content = content.substring(0, 500000) + content.substring(content.length - 500000, content.length);
-    }
-    lics = (await this.svc.lantern.licences('*', 100000));
-    ref3 = (ref1 = lics != null ? (ref2 = lics.hits) != null ? ref2.hits : void 0 : void 0) != null ? ref1 : [];
-    for (j = 0, len = ref3.length; j < len; j++) {
-      lh = ref3[j];
-      l = lh._source;
-      if (l.domain === '*' || !l.domain || (url == null) || l.domain.toLowerCase().indexOf(url.toLowerCase().replace('http://', '').replace('https://', '').replace('www.', '').split('/')[0]) !== -1) {
-        match = l.match.toLowerCase().replace(/[^a-z0-9]/g, '');
-        urlmatcher = l.match.indexOf('://') !== -1 ? l.match.toLowerCase().split('://')[1].split('"')[0].split(' ')[0] : false;
-        urlmatch = urlmatcher ? content.toLowerCase().indexOf(urlmatcher) !== -1 : false;
-        if (urlmatch || content.toLowerCase().replace(/[^a-z0-9]/g, '').indexOf(match) !== -1) {
-          lic.licence = l.licence;
-          lic.match = l.match;
-          lic.matched = urlmatch ? urlmatcher : match;
-          break;
-        }
-      }
-    }
-  }
-  return lic;
-};
+  lic = {}
+  lic.url = url if url
+  if typeof content is 'string'
+    content = content.split(start)[1] if start? and content.indexOf(start) isnt -1
+    content = content.split(end)[0] if end?
+    if content.length > 1000000
+      lic.large = true
+      content = content.substring(0,500000) + content.substring(content.length-500000, content.length)
 
-P.svc.lantern.licences = {
-  _sheet: '1yJOpE_YMdDxCKaK0DqWoCJDdq8Ep1b-_J1xYVKGsiYI',
-  _prefix: false
-};
+    lics = await @svc.lantern.licences '*', 100000
+    for lh in lics?.hits?.hits ? []
+      l = lh._source
+      if  not l.matchesondomains or l.matchesondomains is '*' or not url? or l.matchesondomains.toLowerCase().indexOf(url.toLowerCase().replace('http://','').replace('https://','').replace('www.','').split('/')[0]) isnt -1
+        match = l.matchtext.toLowerCase().replace(/[^a-z0-9]/g, '')
+        urlmatcher = if l.matchtext.indexOf('://') isnt -1 then l.matchtext.toLowerCase().split('://')[1].split('"')[0].split(' ')[0] else false
+        urlmatch = if urlmatcher then content.toLowerCase().indexOf(urlmatcher) isnt -1 else false
+        if urlmatch or content.toLowerCase().replace(/[^a-z0-9]/g,'').indexOf(match) isnt -1
+          lic.licence = l.licencetype
+          lic.match = l.matchtext
+          lic.matched = if urlmatch then urlmatcher else match
+          break
+  return lic
 
-P.svc.lantern.process = async function(proc, last) {
-  var _formatepmcdate, aam, base, core, crossref, diss, doaj, domain, efd, epmc_compliance_lic, epmc_lics, eupmc, extrainfo, fd, fofxml, fu, gr, grants, gres, grid, j, job, k, km, lastresort, len, len1, len2, len3, len4, len5, len6, lic, m, msg, n, o, oa, p, pid, pm, ps, pu, publisher_licence_check_ran, q, rc, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rep, res, resolved, result, result_invalid_date_of_electronic_publication, rpo, st, text, xml;
-  _formatepmcdate = function(date) {
-    var dateparts, dp, dy, mth, mths, tmth, yr;
-    try {
-      date = date.replace(/\//g, '-');
-      if (date.indexOf('-') !== -1) {
-        if (date.length < 11) {
-          dp = date.split('-');
-          if (dp.length === 3) {
-            if (date.indexOf('-') < 4) {
-              return dp[2] + '-' + dp[1] + '-' + dp[0] + 'T00:00:00Z';
-            } else {
-              return date + 'T00:00:00Z';
-            }
-          } else if (dp.length === 2) {
-            if (date.indexOf('-') < 4) {
-              return dp[1] + dp[0] + date + '-01T00:00:00Z';
-            } else {
-              return date + '-01T00:00:00Z';
-            }
-          }
-        }
-        return date;
-      } else {
-        dateparts = date.replace(/  /g, ' ').split(' ');
-        yr = dateparts[0].toString();
-        mth = dateparts.length > 1 ? dateparts[1] : 1;
-        if (isNaN(parseInt(mth))) {
-          mths = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-          tmth = mth.toLowerCase().substring(0, 3);
-          mth = mths.indexOf(tmth) !== -1 ? mths.indexOf(tmth) + 1 : "01";
-        } else {
-          mth = parseInt(mth);
-        }
-        mth = mth.toString();
-        if (mth.length === 1) {
-          mth = "0" + mth;
-        }
-        dy = dateparts.length > 2 ? dateparts[2].toString() : "01";
-        if (dy.length === 1) {
-          dy = "0" + dy;
-        }
-        return yr + '-' + mth + '-' + dy + 'T00:00:00Z';
-      }
-    } catch (error) {
-      return void 0;
-    }
-  };
-  if (proc == null) {
-    proc = {
-      doi: this.params.doi,
-      pmid: this.params.pmid,
-      pmcid: this.params.pmcid
-    };
-  }
-  ref = ['DOI', 'PMID', 'PMCID', 'TITLE'];
-  for (j = 0, len = ref.length; j < len; j++) {
-    pu = ref[j];
-    if (proc[pu]) {
-      proc[pu.toLowerCase()] = proc[pu];
-    }
-  }
-  if (proc.doi == null) {
-    proc.doi = proc.DOI;
-  }
-  if (proc.pmid == null) {
-    proc.pmid = proc.PMID;
-  }
-  if (proc.pmcid == null) {
-    proc.pmcid = (ref1 = (ref2 = proc.PMCID) != null ? ref2 : proc.PMC) != null ? ref1 : proc.pmc;
-  }
-  if (proc.title == null) {
-    proc.title = (ref3 = (ref4 = proc['article title']) != null ? ref4 : proc['Article title']) != null ? ref3 : proc['Article Title'];
-  }
-  if (proc.title) {
-    proc.title = proc.title.replace(/\s\s+/g, ' ').trim();
-  }
-  if (proc.pmcid) {
-    proc.pmcid = proc.pmcid.replace(/[^0-9]/g, '');
-  }
-  if (proc.pmid) {
-    proc.pmid = proc.pmid.replace(/[^0-9]/g, '');
-  }
-  if (proc.doi) {
-    proc.doi = decodeURIComponent(proc.doi.replace(/ /g, ''));
-  }
-  if (proc._id == null) {
-    proc._id = proc.doi ? proc.doi.replace(/\//g, '_') : (ref5 = (ref6 = proc.pmcid) != null ? ref6 : proc.pmid) != null ? ref5 : (await this.uid());
-  }
-  result = {
-    _id: proc._id,
-    pmcid: proc.pmcid,
-    pmid: proc.pmid,
-    doi: proc.doi,
-    title: proc.title,
-    journal_title: void 0,
-    pure_oa: false, // set to true if found in doaj
-    issn: void 0,
-    eissn: void 0,
-    publication_date: void 0,
-    electronic_publication_date: void 0,
-    publisher: void 0,
-    publisher_licence: void 0,
-    licence: 'unknown', // what sort of licence this has - should be a string like "cc-by"
-    epmc_licence: 'unknown', // the licence in EPMC, should be a string like "cc-by"
-    licence_source: 'unknown', // where the licence info came from
-    epmc_licence_source: 'unknown', // where the EPMC licence info came from (fulltext xml, EPMC splash page, etc.)
-    in_epmc: false, // set to true if found
-    epmc_xml: false, // set to true if oa and in epmc and can retrieve fulltext xml from eupmc rest API url
-    aam: false, // set to true if is an eupmc author manuscript
-    open_access: false, // set to true if eupmc or other source says is oa
-    ahead_of_print: void 0, // if pubmed returns a date for this, it will be a date
-    preprint_embargo: 'unknown',
-    preprint_self_archiving: 'unknown',
-    postprint_embargo: 'unknown',
-    postprint_self_archiving: 'unknown',
-    publisher_copy_embargo: 'unknown',
-    publisher_copy_self_archiving: 'unknown',
-    authors: [], // eupmc author list if available
-    in_core: 'unknown',
-    in_base: 'unknown',
-    repositories: [], // where CORE or BASE says it is. Should be list of objects
-    grants: [], // a list of grants, probably from eupmc for now
-    confidence: 0, // 1 if matched on ID, 0.9 if title to 1 result, 0.7 if title to multiple results, 0 if unknown article
+P.svc.lantern.licences = _sheet: '1yJOpE_YMdDxCKaK0DqWoCJDdq8Ep1b-_J1xYVKGsiYI', _prefix: false
+
+
+P.svc.lantern.process = (proc, last) ->
+  _formatepmcdate = (date) ->
+    try
+      date = date.replace(/\//g,'-')
+      if date.indexOf('-') isnt -1
+        if date.length < 11
+          dp = date.split '-'
+          if dp.length is 3
+            if date.indexOf('-') < 4
+              return dp[2] + '-' + dp[1] + '-' + dp[0] + 'T00:00:00Z'
+            else
+              return date + 'T00:00:00Z'
+          else if dp.length is 2
+            if date.indexOf('-') < 4
+              return dp[1] + dp[0] + date + '-01T00:00:00Z'
+            else
+              return date + '-01T00:00:00Z'
+        return date
+      else
+        dateparts = date.replace(/  /g,' ').split(' ')
+        yr = dateparts[0].toString()
+        mth = if dateparts.length > 1 then dateparts[1] else 1
+        if isNaN(parseInt(mth))
+          mths = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec']
+          tmth = mth.toLowerCase().substring(0,3)
+          mth = if mths.indexOf(tmth) isnt -1 then mths.indexOf(tmth) + 1 else "01"
+        else
+          mth = parseInt mth
+        mth = mth.toString()
+        mth = "0" + mth if mth.length is 1
+        dy = if dateparts.length > 2 then dateparts[2].toString() else "01"
+        dy = "0" + dy if dy.length is 1
+        return yr + '-' + mth + '-' + dy + 'T00:00:00Z'
+    catch
+      return undefined
+
+  proc ?= doi: @params.doi, pmid: @params.pmid, pmcid: @params.pmcid
+  for pu in ['DOI', 'PMID', 'PMCID', 'TITLE']
+    proc[pu.toLowerCase()] = proc[pu] if proc[pu]
+  proc.doi ?= proc.DOI
+  proc.pmid ?= proc.PMID
+  proc.pmcid ?= proc.PMCID ? proc.PMC ? proc.pmc
+  proc.title ?= proc['article title'] ? proc['Article title'] ? proc['Article Title']
+  proc.title = proc.title.replace(/\s\s+/g,' ').trim() if proc.title
+  proc.pmcid = proc.pmcid.replace(/[^0-9]/g,'') if proc.pmcid
+  proc.pmid = proc.pmid.replace(/[^0-9]/g,'') if proc.pmid
+  proc.doi = decodeURIComponent(proc.doi.replace(/ /g,'')) if proc.doi
+  proc._id ?= if proc.doi then proc.doi.replace(/\//g, '_') else (proc.pmcid ? proc.pmid ? await @uid())
+
+  result =
+    _id: proc._id
+    pmcid: proc.pmcid
+    pmid: proc.pmid
+    doi: proc.doi
+    title: proc.title
+    journal_title: undefined
+    pure_oa: false # set to true if found in doaj
+    issn: undefined
+    eissn: undefined
+    publication_date: undefined
+    electronic_publication_date: undefined
+    publisher: undefined
+    publisher_licence: undefined
+    licence: 'unknown' # what sort of licence this has - should be a string like "cc-by"
+    epmc_licence: 'unknown' # the licence in EPMC, should be a string like "cc-by"
+    licence_source: 'unknown' # where the licence info came from
+    epmc_licence_source: 'unknown' # where the EPMC licence info came from (fulltext xml, EPMC splash page, etc.)
+    in_epmc: false # set to true if found
+    epmc_xml: false # set to true if oa and in epmc and can retrieve fulltext xml from eupmc rest API url
+    aam: false # set to true if is an eupmc author manuscript
+    open_access: false # set to true if eupmc or other source says is oa
+    ahead_of_print: undefined # if pubmed returns a date for this, it will be a date
+    preprint_embargo: 'unknown'
+    preprint_self_archiving: 'unknown'
+    postprint_embargo: 'unknown'
+    postprint_self_archiving: 'unknown'
+    publisher_copy_embargo: 'unknown'
+    publisher_copy_self_archiving: 'unknown'
+    authors: [] # eupmc author list if available
+    in_core: 'unknown'
+    in_base: 'unknown'
+    repositories: [] # where CORE or BASE says it is. Should be list of objects
+    grants:[] # a list of grants, probably from eupmc for now
+    confidence: 0 # 1 if matched on ID, 0.9 if title to 1 result, 0.7 if title to multiple results, 0 if unknown article
     provenance: []
-  };
-  ref7 = ['pmcid', 'pmid', 'doi', 'title'];
-  // search eupmc by (in order) pmcid, pmid, doi, title
-  for (k = 0, len1 = ref7.length; k < len1; k++) {
-    st = ref7[k];
-    if (proc[st]) {
-      if (res = (await this.src.epmc[st === 'pmcid' ? 'pmc' : st](proc[st]))) {
-        eupmc = res;
-        result.confidence = st !== 'title' ? 1 : res.title.toLowerCase() === proc[st].toLowerCase() ? 1 : 0.9;
-        break;
-      } else if (st === 'title' && (res = (await this.src.epmc('title:' + proc[st])))) {
-        if (((res != null ? res.data : void 0) != null) && res.data.length) {
-          eupmc = res.data[0];
-          result.confidence = 0.7;
-        }
-      }
-    }
-  }
-  if (eupmc != null) {
-    if (eupmc.pmcid && result.pmcid !== eupmc.pmcid) {
-      result.pmcid = eupmc.pmcid;
-      result.provenance.push('Added PMCID from EUPMC');
-    }
-    if (eupmc.pmid && result.pmid !== eupmc.pmid) {
-      result.pmid = eupmc.pmid;
-      result.provenance.push('Added PMID from EUPMC');
-    }
-    if (eupmc.doi && result.doi !== eupmc.doi) {
-      result.doi = eupmc.doi;
-      result.provenance.push('Added DOI from EUPMC');
-    }
-    if (eupmc.title && !result.title) {
-      result.title = eupmc.title;
-      result.provenance.push('Added article title from EUPMC');
-    }
-    if (eupmc.inEPMC === 'Y') {
-      result.in_epmc = true;
-      result.provenance.push('Confirmed fulltext is in EUPMC');
-    }
-    if (eupmc.isOpenAccess === 'Y') {
-      result.open_access = true;
-      result.provenance.push('Confirmed is open access from EUPMC');
-    } else {
-      result.provenance.push('This article is not open access according to EUPMC, but since 6th March 2020 we take this to mean only that the publisher did not indicate to EUPMC that it can be included in their Open Access subset - it may well still be an OA article.');
-    }
-    if ((ref8 = eupmc.journalInfo) != null ? ref8.journal : void 0) {
-      if (eupmc.journalInfo.journal.title) {
-        result.journal_title = eupmc.journalInfo.journal.title;
-        result.provenance.push('Added journal title from EUPMC');
-      }
-      if (eupmc.journalInfo.journal.issn) {
-        result.issn = eupmc.journalInfo.journal.issn;
-        result.provenance.push('Added issn from EUPMC');
-      }
-      if (eupmc.journalInfo.journal.essn) {
-        result.eissn = eupmc.journalInfo.journal.essn;
-        if (result.eissn && (!result.issn || result.issn.indexOf(result.eissn) === -1)) {
-          result.issn = (result.issn ? result.issn + ', ' : '') + result.eissn;
-        }
-        result.provenance.push('Added eissn from EUPMC');
-      }
-    }
-    if ((ref9 = eupmc.grantsList) != null ? ref9.grant : void 0) {
-      result.grants = eupmc.grantsList.grant;
-      result.provenance.push('Added grants data from EUPMC');
-    }
-    if ((ref10 = eupmc.journalInfo) != null ? ref10.dateOfPublication : void 0) {
-      if (fd = (await _formatepmcdate(eupmc.journalInfo.dateOfPublication))) {
-        result.publication_date = fd;
-        result.provenance.push('Added date of publication from EUPMC');
-      } else {
-        result._invalid_date_of_publication = eupmc.journalInfo.dateOfPublication;
-        result.provenance.push('Could not add invalid date of publication from EUPMC (' + result._invalid_date_of_publication + ')');
-      }
-    }
-    if (eupmc.electronicPublicationDate) {
-      if (efd = (await _formatepmcdate(eupmc.electronicPublicationDate))) {
-        result.electronic_publication_date = efd;
-        result.provenance.push('Added electronic publication date from EUPMC');
-      } else {
-        result_invalid_date_of_electronic_publication = eupmc.electronicPublicationDate;
-        result.provenance.push('Could not add invalid electronic publication date from EUPMC (' + result_invalid_date_of_electronic_publication + ')');
-      }
-    }
-    if (result.pmcid) { // removed need for being open_access or in_epmc (as according to epmc)
-      result.provenance.push('Checking if XML is available from EUPMC (since 6th March 2020 this is always done for any article we have a PMCID for, regardless of other EUPMC API values).');
-      xml = (await this.src.epmc.xml(result.pmcid));
-      if (xml === 404) {
-        fofxml = 'Not found in EUPMC when trying to fetch full text XML.';
-        fofxml += ' (We do this for any item we have a PMCID for since 6th March 2020, even if EUPMC indicates not in their open access category and/or fulltext not in EUPMC.';
-        result.provenance.push(fofxml);
-      } else if (typeof xml === 'string' && xml.indexOf('<') === 0) {
-        result.epmc_xml = true;
-        result.provenance.push('Confirmed fulltext XML is available from EUPMC');
-      } else if (xml != null) {
-        result.provenance.push('Encountered an error while retrieving the EUPMC full text XML. One possible reason is EUPMC being temporarily unavailable.');
-      }
-    }
-    lic = (await this.src.epmc.licence(result.pmcid, eupmc, xml));
-    if (lic !== false) {
-      result.licence = lic.licence;
-      result.epmc_licence = lic.licence;
-      result.licence_source = lic.source;
-      result.epmc_licence_source = lic.source;
-      extrainfo = '';
-      if (lic.match) {
-        extrainfo += ' If licence statements contain URLs we will try to find those in addition to ';
-        extrainfo += 'searching for the statement\'s text. The match in this case was: \'' + lic.match.replace(/<.*?>/gi, '') + '\' .';
-      }
-      result.provenance.push('Added EPMC licence (' + result.epmc_licence + ') from ' + lic.source + '.' + extrainfo);
-    } else {
-      result.provenance.push('Could not find licence via EUPMC');
-    }
-    if ((ref11 = eupmc.authorList) != null ? ref11.author : void 0) {
-      result.authors = eupmc.authorList.author;
-      result.provenance.push('Added author list from EUPMC');
-    }
-    if (result.in_epmc) {
-      aam = (await this.src.epmc.aam(result.pmcid, eupmc));
-      if (aam.aam === false) {
-        result.aam = false;
-        result.provenance.push('Checked author manuscript status in EUPMC, found no evidence of being one');
-      } else if (aam.aam === true) {
-        result.aam = true;
-        result.provenance.push('Checked author manuscript status in EUPMC, found in ' + aam.info);
-      } else if (aam.info.indexOf('404') !== -1) {
-        result.aam = false;
-        result.provenance.push('Unable to locate Author Manuscript information in EUPMC - could not find the article in EUPMC.');
-      } else if (aam.info.indexOf('error') !== -1) {
-        result.aam = 'unknown';
-        result.provenance.push('Error accessing EUPMC while trying to locate Author Manuscript information. EUPMC could be temporarily unavailable.');
-      } else if (aam.info.indexOf('blocking') !== -1) {
-        result.aam = 'unknown';
-        result.provenance.push('Error accessing EUPMC while trying to locate Author Manuscript information - EUPMC is blocking access.');
-      } else {
-        result.aam = 'unknown';
-      }
-    }
-  } else {
-    result.provenance.push('Unable to locate article in EPMC.');
-  }
-  if (!result.doi && !result.pmid && !result.pmcid) {
-    result.provenance.push('Unable to obtain DOI, PMID or PMCID for this article. Compliance information may be severely limited.');
-  }
-  if (result.doi) {
-    crossref = (await this.src.crossref.works(result.doi));
-    if (crossref != null) {
-      if (!result.confidence) {
-        result.confidence = 1;
-      }
-      result.publisher = crossref.publisher;
-      result.provenance.push('Added publisher name from Crossref');
-      if (!result.issn && (crossref.issn || ((crossref.ISSN != null) && crossref.ISSN.length > 0))) {
-        result.issn = (ref12 = crossref.issn) != null ? ref12 : crossref.ISSN[0];
-        result.provenance.push('Added ISSN from Crossref');
-      }
-      if (!result.journal_title && (crossref.journal || ((crossref['container-title'] != null) && crossref['container-title'].length > 0))) {
-        result.journal_title = (ref13 = crossref.journal) != null ? ref13 : crossref['container-title'][0];
-        result.provenance.push('Added journal title from Crossref');
-      }
-      if (!result.authors && crossref.author) {
-        result.authors = crossref.author;
-        result.provenance.push('Added author list from Crossref');
-      }
-      if (!result.title && (crossref.title != null) && crossref.title.length > 0) {
-        result.title = Array.isArray(crossref.title) ? crossref.title[0] : crossref.title;
-        result.provenance.push('Added article title from Crossref');
-      }
-    } else {
-      result.provenance.push('Unable to obtain information about this article from Crossref.');
-    }
-    core = (await this.src.core.doi(result.doi));
-    if (core != null ? core.id : void 0) {
-      result.in_core = true;
-      result.provenance.push('Found DOI in CORE');
-      if (!result.authors && core.authors) {
-        result.authors = core.author;
-        result.provenance.push('Added authors from CORE');
-      }
-      if ((core.repositories != null) && core.repositories.length > 0) {
-        ref14 = core.repositories;
-        for (m = 0, len2 = ref14.length; m < len2; m++) {
-          rep = ref14[m];
-          rc = {
-            name: rep.name
-          };
-          if (rep.oai != null) {
-            rc.oai = rep.oai;
-          }
-          if (rep.uri) {
-            rc.url = rep.uri;
-          } else {
-            try {
-              res = (await this.src.sherpa.opendoar('repository_metadata.name:"' + rep.name + '"'));
-              if (res.hits.hits[0]._source.repository_metadata.name.toLowerCase().indexOf(rep.name.toLowerCase()) !== -1) {
-                rc.url = repo.repository_metadata.url;
-                result.provenance.push('Added repo base URL from OpenDOAR');
-              } else {
-                result.provenance.push('Searched OpenDOAR but could not find repo and/or URL');
-              }
-            } catch (error) {
-              result.provenance.push('Tried but failed to search OpenDOAR for repo base URL');
-            }
-          }
-          rc.fulltexts = [];
-          lastresort = void 0;
-          if (core.fulltextUrls) {
-            ref15 = core.fulltextUrls;
-            for (n = 0, len3 = ref15.length; n < len3; n++) {
-              fu = ref15[n];
-              if (fu.indexOf('core.ac.uk') === -1) {
-                resolved = (await this.resolve(fu));
-                if (resolved && rc.fulltexts.indexOf(resolved) === -1) {
-                  if (rc.url && resolved.indexOf(rc.url.replace('http://', '').replace('https://', '').split('/')[0]) !== -1) {
-                    rc.fulltexts.unshift(resolved);
-                  } else {
-                    rc.fulltexts.push(resolved);
-                  }
-                }
-              } else if (lastresort == null) {
-                lastresort = fu;
-              }
-            }
-          }
-          if (rc.fulltexts.length === 0 && (lastresort != null)) {
-            rc.fulltexts.push(lastresort);
-          }
-          result.repositories.push(rc);
-        }
-        result.provenance.push('Added repositories that CORE claims article is available from');
-      }
-      if (!result.title && core.title) {
-        result.title = core.title;
-        result.provenance.push('Added title from CORE');
-      }
-    } else {
-      result.in_core = false;
-      result.provenance.push('Could not find DOI in CORE');
-    }
-    base = (await this.src.base.doi(result.doi));
-    if ((base != null ? base.dclink : void 0) != null) {
-      result.in_base = true;
-      result.provenance.push('Found DOI in BASE');
-      try {
-        domain = base.dclink.split('://')[1].split('/')[0];
-        res = (await this.src.sherpa.opendoar('repository_metadata.name.name:"' + rep.name + '"'));
-        if (res.hits.hits[0]._source.repository_metadata.url.toLowerCase().indexOf(domain.toLowerCase()) !== -1) {
-          rpo = {
-            fulltexts: [base.dclink],
-            url: res.hits.hits[0]._source.repository_metadata.url,
+
+  # search eupmc by (in order) pmcid, pmid, doi, title
+  for st in ['pmcid','pmid','doi','title']
+    if proc[st]
+      if res = await @src.epmc[if st is 'pmcid' then 'pmc' else st] proc[st]
+        eupmc = res
+        result.confidence = if st isnt 'title' then 1 else if res.title.toLowerCase() is proc[st].toLowerCase() then 1 else 0.9
+        break
+      else if st is 'title' and res = await @src.epmc 'title:' + proc[st]
+        if res?.data? and res.data.length
+          eupmc = res.data[0]
+          result.confidence = 0.7
+
+  if eupmc?
+    if eupmc.pmcid and result.pmcid isnt eupmc.pmcid
+      result.pmcid = eupmc.pmcid
+      result.provenance.push 'Added PMCID from EUPMC'
+    if eupmc.pmid and result.pmid isnt eupmc.pmid
+      result.pmid = eupmc.pmid
+      result.provenance.push 'Added PMID from EUPMC'
+    if eupmc.doi and result.doi isnt eupmc.doi
+      result.doi = eupmc.doi
+      result.provenance.push 'Added DOI from EUPMC'
+    if eupmc.title and not result.title
+      result.title = eupmc.title
+      result.provenance.push 'Added article title from EUPMC'
+    if eupmc.inEPMC is 'Y'
+      result.in_epmc = true
+      result.provenance.push 'Confirmed fulltext is in EUPMC'
+    if eupmc.isOpenAccess is 'Y'
+      result.open_access = true
+      result.provenance.push 'Confirmed is open access from EUPMC'
+    else
+      result.provenance.push 'This article is not open access according to EUPMC, but since 6th March 2020 we take this to mean only that the publisher did not indicate to EUPMC that it can be included in their Open Access subset - it may well still be an OA article.'
+    if eupmc.journalInfo?.journal
+      if eupmc.journalInfo.journal.title
+        result.journal_title = eupmc.journalInfo.journal.title
+        result.provenance.push 'Added journal title from EUPMC'
+      if eupmc.journalInfo.journal.issn
+        result.issn = eupmc.journalInfo.journal.issn
+        result.provenance.push 'Added issn from EUPMC'
+      if eupmc.journalInfo.journal.essn
+        result.eissn = eupmc.journalInfo.journal.essn
+        if result.eissn and ( not result.issn or result.issn.indexOf(result.eissn) is -1 )
+          result.issn = (if result.issn then result.issn + ', ' else '') + result.eissn
+        result.provenance.push 'Added eissn from EUPMC'
+    if eupmc.grantsList?.grant
+      result.grants = eupmc.grantsList.grant
+      result.provenance.push 'Added grants data from EUPMC'
+    if eupmc.journalInfo?.dateOfPublication
+      if fd = await _formatepmcdate eupmc.journalInfo.dateOfPublication
+        result.publication_date = fd
+        result.provenance.push 'Added date of publication from EUPMC'
+      else
+        result._invalid_date_of_publication = eupmc.journalInfo.dateOfPublication
+        result.provenance.push 'Could not add invalid date of publication from EUPMC (' + result._invalid_date_of_publication + ')'
+    if eupmc.electronicPublicationDate
+      if efd = await _formatepmcdate eupmc.electronicPublicationDate
+        result.electronic_publication_date = efd
+        result.provenance.push 'Added electronic publication date from EUPMC'
+      else
+        result_invalid_date_of_electronic_publication = eupmc.electronicPublicationDate
+        result.provenance.push 'Could not add invalid electronic publication date from EUPMC (' + result_invalid_date_of_electronic_publication + ')'
+
+    if result.pmcid # removed need for being open_access or in_epmc (as according to epmc)
+      result.provenance.push 'Checking if XML is available from EUPMC (since 6th March 2020 this is always done for any article we have a PMCID for, regardless of other EUPMC API values).'
+      xml = await @src.epmc.xml result.pmcid
+      if xml is 404
+        fofxml = 'Not found in EUPMC when trying to fetch full text XML.'
+        fofxml += ' (We do this for any item we have a PMCID for since 6th March 2020, even if EUPMC indicates not in their open access category and/or fulltext not in EUPMC.'
+        result.provenance.push fofxml
+      else if typeof xml is 'string' and xml.indexOf('<') is 0
+        result.epmc_xml = true
+        result.provenance.push 'Confirmed fulltext XML is available from EUPMC'
+      else if xml?
+        result.provenance.push 'Encountered an error while retrieving the EUPMC full text XML. One possible reason is EUPMC being temporarily unavailable.'
+
+    lic = await @src.epmc.licence result.pmcid, eupmc, xml
+    if lic isnt false
+      result.licence = lic.licence
+      result.epmc_licence = lic.licence
+      result.licence_source = lic.source
+      result.epmc_licence_source = lic.source
+      extrainfo = ''
+      if lic.match
+        extrainfo += ' If licence statements contain URLs we will try to find those in addition to '
+        extrainfo += 'searching for the statement\'s text. The match in this case was: \'' + lic.match.replace(/<.*?>/gi,'') + '\' .'
+      result.provenance.push 'Added EPMC licence (' + result.epmc_licence + ') from ' + lic.source + '.' + extrainfo
+    else
+      result.provenance.push 'Could not find licence via EUPMC'
+
+    if eupmc.authorList?.author
+      result.authors = eupmc.authorList.author
+      result.provenance.push 'Added author list from EUPMC'
+    if result.in_epmc
+      aam = await @src.epmc.aam result.pmcid, eupmc
+      if aam.aam is false
+        result.aam = false
+        result.provenance.push 'Checked author manuscript status in EUPMC, found no evidence of being one'
+      else if aam.aam is true
+        result.aam = true
+        result.provenance.push 'Checked author manuscript status in EUPMC, found in ' + aam.info
+      else if aam.info.indexOf('404') isnt -1
+        result.aam = false
+        result.provenance.push 'Unable to locate Author Manuscript information in EUPMC - could not find the article in EUPMC.'
+      else if aam.info.indexOf('error') isnt -1
+        result.aam = 'unknown'
+        result.provenance.push 'Error accessing EUPMC while trying to locate Author Manuscript information. EUPMC could be temporarily unavailable.'
+      else if aam.info.indexOf('blocking') isnt -1
+        result.aam = 'unknown'
+        result.provenance.push 'Error accessing EUPMC while trying to locate Author Manuscript information - EUPMC is blocking access.'
+      else
+        result.aam = 'unknown'
+  else
+    result.provenance.push 'Unable to locate article in EPMC.'
+
+  if not result.doi and not result.pmid and not result.pmcid
+    result.provenance.push 'Unable to obtain DOI, PMID or PMCID for this article. Compliance information may be severely limited.'
+
+  if result.doi
+    crossref = await @src.crossref.works result.doi
+    if crossref?
+      result.confidence = 1 if not result.confidence
+      result.publisher = crossref.publisher
+      result.provenance.push 'Added publisher name from Crossref'
+      if not result.issn and (crossref.issn or (crossref.ISSN? and crossref.ISSN.length > 0))
+        result.issn = crossref.issn ? crossref.ISSN[0]
+        result.provenance.push 'Added ISSN from Crossref'
+      if not result.journal_title and (crossref.journal or (crossref['container-title']? and crossref['container-title'].length > 0))
+        result.journal_title = crossref.journal ? crossref['container-title'][0]
+        result.provenance.push 'Added journal title from Crossref'
+      if not result.authors and crossref.author
+        result.authors = crossref.author
+        result.provenance.push 'Added author list from Crossref'
+      if not result.title and crossref.title? and crossref.title.length > 0
+        result.title = if Array.isArray(crossref.title) then crossref.title[0] else crossref.title
+        result.provenance.push 'Added article title from Crossref'
+    else
+      result.provenance.push 'Unable to obtain information about this article from Crossref.'
+
+    core = await @src.core.doi result.doi
+    if core?.id
+      result.in_core = true
+      result.provenance.push 'Found DOI in CORE'
+      if not result.authors and core.authors
+        result.authors = core.author
+        result.provenance.push 'Added authors from CORE'
+      if core.repositories? and core.repositories.length > 0
+        for rep in core.repositories
+          rc = {name:rep.name}
+          rc.oai = rep.oai if rep.oai?
+          if rep.uri
+            rc.url = rep.uri
+          else
+            try
+              res = await @src.sherpa.opendoar 'repository_metadata.name.name:"' + rep.name + '"'
+              if res.hits.hits[0]._source.repository_metadata.name.toLowerCase().indexOf(rep.name.toLowerCase()) isnt -1
+                rc.url = repo.repository_metadata.url
+                result.provenance.push 'Added repo base URL from OpenDOAR'
+              else
+                result.provenance.push 'Searched OpenDOAR but could not find repo and/or URL'
+            catch
+              result.provenance.push 'Tried but failed to search OpenDOAR for repo base URL'
+          rc.fulltexts = []
+          lastresort = undefined
+          if core.fulltextUrls
+            for fu in core.fulltextUrls
+              if fu.indexOf('core.ac.uk') is -1
+                resolved = await @resolve fu
+                if resolved and rc.fulltexts.indexOf(resolved) is -1
+                  if rc.url and resolved.indexOf(rc.url.replace('http://','').replace('https://','').split('/')[0]) isnt -1
+                    rc.fulltexts.unshift resolved
+                  else
+                    rc.fulltexts.push resolved
+              else if not lastresort?
+                lastresort = fu
+          rc.fulltexts.push(lastresort) if rc.fulltexts.length is 0 and lastresort?
+          result.repositories.push rc
+        result.provenance.push 'Added repositories that CORE claims article is available from'
+      if not result.title and core.title
+        result.title = core.title
+        result.provenance.push 'Added title from CORE'
+    else
+      result.in_core = false
+      result.provenance.push 'Could not find DOI in CORE'
+
+    base = await @src.base.doi result.doi
+    if base?.dclink?
+      result.in_base = true
+      result.provenance.push 'Found DOI in BASE'
+      try
+        domain = base.dclink.split('://')[1].split('/')[0]
+        res = await @src.sherpa.opendoar 'repository_metadata.url:"' + domain + '"'
+        if res.hits.hits[0]._source.repository_metadata.url.toLowerCase().indexOf(domain.toLowerCase()) isnt -1
+          rpo = 
+            fulltexts: [base.dclink]
+            url: res.hits.hits[0]._source.repository_metadata.url
             oai: res.hits.hits[0]._source.repository_metadata.oai_url
-          };
-          try {
-            rpo.name = res.hits.hits[0]._source.repository_metadata.name[0].name;
-          } catch (error) {}
-          result.repositories.push(rpo);
-          result.provenance.push('Added repo base URL from OpenDOAR');
-        } else {
-          result.provenance.push('Searched OpenDOAR but could not find repo and/or URL');
-        }
-      } catch (error) {
-        result.provenance.push('Tried but failed to search OpenDOAR for repo base URL');
-      }
-      if (!result.title && base.dctitle) {
-        result.title = base.dctitle;
-        result.provenance.push('Added title from BASE');
-      }
-    } else {
-      result.in_base = false;
-      result.provenance.push('Could not find DOI in BASE');
-    }
-  } else {
-    result.provenance.push('Not attempting Crossref / CORE / BASE lookups - do not have DOI for article.');
-  }
-  if ((result.grants != null) && result.grants.length > 0) {
-    grants = [];
-    ref16 = result.grants;
-    for (o = 0, len4 = ref16.length; o < len4; o++) {
-      gr = ref16[o];
-      if (gr.grantId) {
-        grid = gr.grantId;
-        if (gr.agency && gr.agency.toLowerCase().indexOf('wellcome') !== -1) {
-          grid = grid.split('/')[0];
-        }
-        gres = (await this.src.grist(grid));
-        if (gres.total && gres.total > 0 && gres.data.Person) {
-          ps = gres.data.Person;
-          pid = '';
-          if (ps.Title) {
-            pid += ps.Title + ' ';
-          }
-          if (ps.GivenName) {
-            pid += ps.GivenName + ' ';
-          }
-          if (!ps.GivenName && ps.Initials) {
-            pid += ps.Initials + ' ';
-          }
-          if (ps.FamilyName) {
-            pid += ps.FamilyName;
-          }
-          gr.PI = pid;
-          result.provenance.push('Found Grant PI for ' + grid + ' via Grist API');
-        } else {
-          result.provenance.push('Tried but failed to find Grant PI via Grist API');
-        }
-      } else {
-        gr.grantId = 'unknown';
-      }
-      if (gr.agency && gr.agency.toLowerCase().indexOf('wellcome') !== -1) {
-        grants.unshift(gr);
-      } else {
-        grants.push(gr);
-      }
-    }
-    result.grants = grants;
-  } else {
-    result.provenance.push('Not attempting Grist API grant lookups since no grants data was obtained from EUPMC.');
-  }
-  if (result.pmid && !result.in_epmc) {
-    result.ahead_of_print = (await this.src.pubmed.aheadofprint(result.pmid));
-    if (result.ahead_of_print !== false) {
-      result.provenance.push('Checked ahead of print status on pubmed, date found ' + result.ahead_of_print);
-    } else {
-      result.provenance.push('Checked ahead of print status on pubmed, no date found');
-    }
-  } else {
-    msg = 'Not checking ahead of print status on pubmed.';
-    if (!result.pmid) {
-      msg += ' We don\'t have the article\'s PMID.';
-    }
-    if (result.in_epmc) {
-      msg += ' The article is already in EUPMC.';
-    }
-    result.provenance.push(msg);
-  }
-  if (result.issn) {
-    ref17 = result.issn.split(',');
-    for (p = 0, len5 = ref17.length; p < len5; p++) {
-      diss = ref17[p];
-      doaj = (await this.src.doaj.journals.issn(diss));
-      if (doaj != null) {
-        result.pure_oa = true;
-        result.provenance.push('Confirmed journal is listed in DOAJ');
-        if (result.publisher == null) {
-          result.publisher = (ref18 = doaj.bibjson) != null ? ref18.publisher : void 0;
-        }
-        if (result.journal_title == null) {
-          result.journal_title = (ref19 = doaj.bibjson) != null ? ref19.title : void 0;
-        }
-        break;
-      }
-    }
-    if (result.pure_oa !== true) {
-      result.provenance.push('Could not find journal in DOAJ');
-    }
-  }
-  if (!result.issn) {
-    result.provenance.push('Not attempting to add any data from Open Access Button - don\'t have a journal ISSN to use for lookup.');
-  } else if (this.svc.oaworks == null) {
-    result.provenance.push('Not attempting to add any data from Open Access Button - OAB is not available.');
-  } else if (oa = (await this.svc.oaworks.find({
-    issn: result.issn,
-    permissions: true
-  }))) {
-    if (!result.journal_title) {
-      if (((ref20 = oa.metadata) != null ? ref20.journal : void 0) != null) {
-        result.journal_title = oa.metadata.journal;
-        result.provenance.push('Added journal title Open Access Button');
-      } else {
-        result.provenance.push('Tried, but could not add journal title from Open Access Button.');
-      }
-    }
-    if (!result.publisher) {
-      if (((ref21 = oa.metadata) != null ? ref21.publisher : void 0) != null) {
-        result.publisher = oa.metadata.publisher;
-        result.provenance.push('Added publisher from Open Access Button');
-      } else {
-        result.provenance.push('Tried, but could not add publisher from Open Access Button.');
-      }
-    }
-    if ((((ref22 = oa.permissions) != null ? ref22.all_permissions : void 0) != null) && oa.permissions.all_permissions.length) {
-      ref23 = oa.permissions.all_permissions;
-      for (q = 0, len6 = ref23.length; q < len6; q++) {
-        pm = ref23[q];
-        km = pm.version === 'submittedVersion' ? 'preprint' : pm.version === 'acceptedVersion' ? 'postprint' : pm.version === 'publishedVersion' ? 'publisher_copy' : void 0;
-        if (km != null) {
-          result[km + '_embargo'] = (pm.embargo_months ? pm.embargo_months + ' months' : '') + (pm.embargo_end ? ' ending ' + pm.embargo_end : '');
-          result[km + '_self_archiving'] = pm.deposit_statement;
-        }
-      }
-      result.provenance.push('Added embargo and archiving data from Open Access Button');
-    } else {
-      result.provenance.push('No embargo and archiving data available from Open Access Button');
-    }
-  } else {
-    result.provenance.push('Unable to add any data from Open Access Button.');
-  }
-  publisher_licence_check_ran = false;
-  if (!result.licence || ((ref24 = result.licence) !== 'cc-by' && ref24 !== 'cc-zero')) {
-    publisher_licence_check_ran = true;
-    lic = (await this.svc.lantern.licence('https://doi.org/' + result.doi));
-    if (lic.licence && lic.licence !== 'unknown') {
-      result.licence = lic.licence;
-      result.licence_source = 'publisher_splash_page';
-      result.publisher_licence = lic.licence;
-      extrainfo = '';
-      if (lic.match) {
-        extrainfo += ' If licence statements contain URLs we will try to find those in addition to ' + 'searching for the statement\'s text. The match in this case was: \'' + lic.match.replace(/<.*?>/gi, '') + '\' .';
-      }
-      result.provenance.push('Added licence (' + result.publisher_licence + ') via article publisher splash page lookup to ' + url + '.' + extrainfo);
-    } else {
-      result.publisher_licence = 'unknown';
-      result.provenance.push('Unable to retrieve licence data via article publisher splash page lookup to ' + url + '.');
-      if (lic.large) {
-        result.provenance.push('Retrieved content was very long, so was contracted to 500,000 chars from start and end to process');
-      }
-    }
-  } else {
-    result.provenance.push('Not attempting to retrieve licence data via article publisher splash page lookup.');
-    publisher_licence_check_ran = false;
-  }
-  if (!publisher_licence_check_ran && result.publisher_licence !== 'unknown') {
-    result.publisher_licence = "not applicable";
-  }
-  if (result.publisher_licence == null) {
-    result.publisher_licence = 'unknown';
-  }
-  if ((result.epmc_licence != null) && result.epmc_licence !== 'unknown' && !result.epmc_licence.startsWith('cc-')) {
-    result.epmc_licence = 'non-standard-licence';
-  }
-  if ((result.publisher_licence != null) && result.publisher_licence !== 'unknown' && result.publisher_licence !== "not applicable" && !result.publisher_licence.startsWith('cc-')) {
-    result.publisher_licence = 'non-standard-licence';
-  }
-  result.compliance_wellcome_standard = false;
-  result.compliance_wellcome_deluxe = false;
-  epmc_compliance_lic = result.epmc_licence ? result.epmc_licence.toLowerCase().replace(/ /g, '').replace(/-/g, '') : '';
-  epmc_lics = epmc_compliance_lic === 'ccby' || epmc_compliance_lic === 'cc0' || epmc_compliance_lic === 'cczero';
-  if (result.in_epmc && (result.aam || epmc_lics)) {
-    result.compliance_wellcome_standard = true;
-  }
-  if (result.in_epmc && result.aam) {
-    result.compliance_wellcome_deluxe = true;
-  }
-  if (result.in_epmc && epmc_lics && result.open_access) {
-    result.compliance_wellcome_deluxe = true;
-  }
-  this.svc.lantern.result(result);
-  if (last) { // last is the job ID
-    job = typeof last === 'object' ? last : (await this.svc.lantern.job(last));
-    if (job != null ? job.email : void 0) {
-      text = 'Dear ' + job.email + '\n\nWe\'ve just finished processing a batch of identifiers for you, and you can download the final results here:\n\n';
-      text += 'https://compliance.cottagelabs.com#' + job._id + '\n\nIf you didn\'t submit the original request yourself, it probably means ';
-      text += 'that another service was running it on your behalf, so this is just to keep you informed about what\'s happening with your account; you don\'t need to do anything else.';
-      this.mail({
-        from: 'Lantern <lantern@cottagelabs.com>',
-        to: job.email,
-        subject: 'Wellcome Compliance: job ' + ((ref25 = job.name) != null ? ref25 : job._id) + ' completed successfully',
+          try rpo.name = res.hits.hits[0]._source.repository_metadata.name[0].name
+          result.repositories.push rpo
+          result.provenance.push 'Added repo base URL from OpenDOAR'
+        else
+          result.provenance.push 'Searched OpenDOAR but could not find repo and/or URL'
+      catch
+        result.provenance.push 'Tried but failed to search OpenDOAR for repo base URL'
+      if not result.title and base.dctitle
+        result.title = base.dctitle
+        result.provenance.push 'Added title from BASE'
+    else
+      result.in_base = false
+      result.provenance.push 'Could not find DOI in BASE'
+
+  else
+    result.provenance.push 'Not attempting Crossref / CORE / BASE lookups - do not have DOI for article.'
+
+  if result.grants? and result.grants.length > 0
+    grants = []
+    for gr in result.grants
+      if gr.grantId
+        grid = gr.grantId
+        grid = grid.split('/')[0] if gr.agency and gr.agency.toLowerCase().indexOf('wellcome') isnt -1
+        gres = await @src.grist grid
+        if gres.total and gres.total > 0 and gres.data.Person
+          ps = gres.data.Person
+          pid = ''
+          pid += ps.Title + ' ' if ps.Title
+          pid += ps.GivenName + ' ' if ps.GivenName
+          pid += ps.Initials + ' ' if not ps.GivenName and ps.Initials
+          pid += ps.FamilyName if ps.FamilyName
+          gr.PI = pid
+          result.provenance.push 'Found Grant PI for ' + grid + ' via Grist API'
+        else
+          result.provenance.push 'Tried but failed to find Grant PI via Grist API'
+      else
+        gr.grantId = 'unknown'
+      if gr.agency and gr.agency.toLowerCase().indexOf('wellcome') isnt -1 then grants.unshift(gr) else grants.push(gr)
+    result.grants = grants
+  else
+    result.provenance.push 'Not attempting Grist API grant lookups since no grants data was obtained from EUPMC.'
+
+  if result.pmid and not result.in_epmc
+    result.ahead_of_print = await @src.pubmed.aheadofprint result.pmid
+    if result.ahead_of_print isnt false
+      result.provenance.push 'Checked ahead of print status on pubmed, date found ' + result.ahead_of_print
+    else
+      result.provenance.push 'Checked ahead of print status on pubmed, no date found'
+  else
+    msg = 'Not checking ahead of print status on pubmed.'
+    msg += ' We don\'t have the article\'s PMID.' if not result.pmid
+    msg += ' The article is already in EUPMC.' if result.in_epmc
+    result.provenance.push msg
+
+  if result.issn
+    for diss in result.issn.split ','
+      doaj = await @src.doaj.journals diss
+      if doaj?
+        result.pure_oa = true
+        result.provenance.push 'Confirmed journal is listed in DOAJ'
+        result.publisher ?= doaj.bibjson?.publisher?.name
+        result.journal_title ?= doaj.bibjson?.title
+        break
+    if result.pure_oa isnt true
+      result.provenance.push 'Could not find journal in DOAJ'
+
+  if not result.issn
+    result.provenance.push 'Not attempting to add any data from Open Access Button - don\'t have a journal ISSN to use for lookup.'
+  else if not @svc.oaworks?
+    result.provenance.push 'Not attempting to add any data from Open Access Button - OAB is not available.'
+  else if oa = await @svc.oaworks.find issn: result.issn, permissions: true
+    if not result.journal_title
+      if oa.metadata?.journal?
+        result.journal_title = oa.metadata.journal
+        result.provenance.push 'Added journal title Open Access Button'
+      else
+        result.provenance.push 'Tried, but could not add journal title from Open Access Button.'
+    if not result.publisher
+      if oa.metadata?.publisher?
+        result.publisher = oa.metadata.publisher
+        result.provenance.push 'Added publisher from Open Access Button'
+      else
+        result.provenance.push 'Tried, but could not add publisher from Open Access Button.'
+    if oa.permissions?.all_permissions? and oa.permissions.all_permissions.length
+      for pm in oa.permissions.all_permissions
+        km = if pm.version is 'submittedVersion' then 'preprint' else if pm.version is 'acceptedVersion' then 'postprint' else if pm.version is 'publishedVersion' then 'publisher_copy' else undefined
+        if km?
+          result[km + '_embargo'] = (if pm.embargo_months then pm.embargo_months + ' months' else '') + (if pm.embargo_end then ' ending ' + pm.embargo_end else '')
+          result[km + '_self_archiving'] = pm.deposit_statement
+      result.provenance.push 'Added embargo and archiving data from Open Access Button'
+    else
+      result.provenance.push 'No embargo and archiving data available from Open Access Button'
+  else
+    result.provenance.push 'Unable to add any data from Open Access Button.'
+
+  publisher_licence_check_ran = false
+  if not result.licence or result.licence not in ['cc-by','cc-zero']
+    publisher_licence_check_ran = true
+    lic = await @svc.lantern.licence 'https://doi.org/'+result.doi
+    if lic.licence and lic.licence isnt 'unknown'
+      result.licence = lic.licence
+      result.licence_source = 'publisher_splash_page'
+      result.publisher_licence = lic.licence
+      extrainfo = ''
+      if lic.match
+        extrainfo += ' If licence statements contain URLs we will try to find those in addition to ' +
+        'searching for the statement\'s text. The match in this case was: \'' + lic.match.replace(/<.*?>/gi,'') + '\' .'
+      result.provenance.push 'Added licence (' + result.publisher_licence + ') via article publisher splash page lookup.' + extrainfo
+    else
+      result.publisher_licence = 'unknown'
+      result.provenance.push 'Unable to retrieve licence data via article publisher splash page lookup.'
+      result.provenance.push 'Retrieved content was very long, so was contracted to 500,000 chars from start and end to process' if lic.large
+  else
+    result.provenance.push 'Not attempting to retrieve licence data via article publisher splash page lookup.'
+    publisher_licence_check_ran = false
+
+  result.publisher_licence = "not applicable" if not publisher_licence_check_ran and result.publisher_licence isnt 'unknown'
+  result.publisher_licence = 'unknown' if not result.publisher_licence?
+  if result.epmc_licence? and result.epmc_licence isnt 'unknown' and not result.epmc_licence.startsWith('cc-')
+    result.epmc_licence = 'non-standard-licence'
+  if result.publisher_licence? and result.publisher_licence isnt 'unknown' and result.publisher_licence isnt "not applicable" and not result.publisher_licence.startsWith('cc-')
+    result.publisher_licence = 'non-standard-licence'
+
+  result.compliance_wellcome_standard = false
+  result.compliance_wellcome_deluxe = false
+  epmc_compliance_lic = if result.epmc_licence then result.epmc_licence.toLowerCase().replace(/ /g,'').replace(/-/g,'') else ''
+  epmc_lics = epmc_compliance_lic in ['ccby','cc0','cczero']
+  result.compliance_wellcome_standard = true if result.in_epmc and (result.aam or epmc_lics)
+  result.compliance_wellcome_deluxe = true if result.in_epmc and result.aam
+  result.compliance_wellcome_deluxe = true if result.in_epmc and epmc_lics and result.open_access
+
+  @svc.lantern.result result
+  if last # last is the job ID
+    job = if typeof last is 'object' then last else await @svc.lantern.job last
+    if job?.email
+      text = 'Dear ' + job.email + '\n\nWe\'ve just finished processing a batch of identifiers for you, and you can download the final results here:\n\n'
+      text += 'https://compliance.cottagelabs.com#' + job._id + '\n\nIf you didn\'t submit the original request yourself, it probably means '
+      text += 'that another service was running it on your behalf, so this is just to keep you informed about what\'s happening with your account; you don\'t need to do anything else.'
+      @mail
+        from: 'Lantern <lantern@cottagelabs.com>'
+        to: job.email
+        subject: 'Wellcome Compliance: job ' + (job.name ? job._id) + ' completed successfully'
         text: text
-      });
-    }
-  }
-  return result;
-};
+
+  return result
 
 P.svc.lantern._fields = {
-  "pmcid": {
-    "short_name": "PMCID"
-  },
-  "pmid": {
-    "short_name": "PMID"
-  },
-  "doi": {
-    "short_name": "DOI"
-  },
-  "title": {
-    "short_name": "Article title"
-  },
-  "journal_title": {
-    "short_name": "Journal title"
-  },
-  "pure_oa": {
-    "short_name": "Pure Open Access"
-  },
-  "issn": {
-    "short_name": "ISSN"
-  },
-  "eissn": {
-    "short_name": "EISSN"
-  },
-  "publication_date": {
-    "short_name": "Publication Date"
-  },
-  "electronic_publication_date": {
-    "short_name": "Electronic Publication Date"
-  },
-  "publisher": {
-    "short_name": "Publisher"
-  },
-  "publisher_licence": {
-    "short_name": "Publisher Licence"
-  },
-  "epmc_licence": {
-    "short_name": "EPMC Licence"
-  },
-  "epmc_licence_source": {
-    "short_name": "EPMC Licence Source"
-  },
-  "licence_source": {
-    "short_name": "Licence Source"
-  },
-  "licence": {
-    "short_name": "Licence"
-  },
-  "in_epmc": {
-    "short_name": "Fulltext in EPMC?"
-  },
-  "epmc_xml": {
-    "short_name": "XML Fulltext?"
-  },
-  "aam": {
-    "short_name": "AAM?"
-  },
-  "open_access": {
-    "short_name": "Open Access"
-  },
-  "ahead_of_print": {
-    "short_name": "Ahead of Print?"
-  },
-  "romeo_colour": {
-    "short_name": "Sherpa Romeo Colour"
-  },
-  "preprint_embargo": {
-    "short_name": "Preprint Embargo"
-  },
-  "preprint_self_archiving": {
-    "short_name": "Preprint Self-Archiving Policy"
-  },
-  "postprint_embargo": {
-    "short_name": "Postprint Embargo"
-  },
-  "postprint_self_archiving": {
-    "short_name": "Postprint Self-Archiving Policy"
-  },
-  "publisher_copy_embargo": {
-    "short_name": "Publisher's Copy Embargo"
-  },
-  "publisher_copy_self_archiving": {
-    "short_name": "Publisher's Copy Self-Archiving Policy"
-  },
-  "authors": {
-    "short_name": "Author(s)"
-  },
-  "in_core": {
-    "short_name": "In CORE?"
-  },
-  "in_base": {
-    "short_name": "In BASE?"
-  },
-  "repositories": {
-    "short_name": "Archived Repositories"
-  },
-  "repository_urls": {
-    "short_name": "Repository URLs"
-  },
-  "repository_oai_ids": {
-    "short_name": "Repository OAI IDs"
-  },
-  "repository_fulltext_urls": {
-    "short_name": "Repository Fulltext URLs"
-  },
-  "grant": {
-    "short_name": "Grant {X}"
-  },
-  "agency": {
-    "short_name": "Agency {X}"
-  },
-  "pi": {
-    "short_name": "PI {X}"
-  },
-  "confidence": {
-    "short_name": "Correct Article Confidence"
-  },
-  "compliance_wellcome_standard": {
-    "short_name": "Compliance Wellcome Standard"
-  },
-  "compliance_wellcome_deluxe": {
-    "short_name": "Compliance Wellcome Deluxe"
-  },
-  "provenance": {
-    "short_name": "Provenance"
-  }
-};
+  "pmcid": {"short_name": "PMCID"},
+  "pmid": {"short_name": "PMID"},
+  "doi": {"short_name": "DOI"},
+  "title": {"short_name": "Article title"},
+  "journal_title": {"short_name": "Journal title"},
+  "pure_oa": {"short_name": "Pure Open Access"},
+  "issn": {"short_name": "ISSN"},
+  "eissn": {"short_name": "EISSN"},
+  "publication_date": {"short_name": "Publication Date"},
+  "electronic_publication_date": {"short_name": "Electronic Publication Date"},
+  "publisher": {"short_name": "Publisher"},
+  "publisher_licence": {"short_name": "Publisher Licence"},
+  "epmc_licence": {"short_name": "EPMC Licence"},
+  "epmc_licence_source": {"short_name": "EPMC Licence Source"},
+  "licence_source": {"short_name": "Licence Source"},
+  "licence": {"short_name": "Licence"},
+  "in_epmc": {"short_name": "Fulltext in EPMC?"},
+  "epmc_xml": {"short_name": "XML Fulltext?"},
+  "aam": {"short_name": "AAM?"},
+  "open_access": {"short_name": "Open Access"},
+  "ahead_of_print": {"short_name": "Ahead of Print?"},
+  "romeo_colour": {"short_name": "Sherpa Romeo Colour"},
+  "preprint_embargo": {"short_name": "Preprint Embargo"},
+  "preprint_self_archiving": {"short_name": "Preprint Self-Archiving Policy"},
+  "postprint_embargo": {"short_name": "Postprint Embargo"},
+  "postprint_self_archiving": {"short_name": "Postprint Self-Archiving Policy"},
+  "publisher_copy_embargo": {"short_name": "Publisher's Copy Embargo"},
+  "publisher_copy_self_archiving": {"short_name": "Publisher's Copy Self-Archiving Policy"},
+  "authors": {"short_name": "Author(s)"},
+  "in_core": {"short_name": "In CORE?"},
+  "in_base": {"short_name": "In BASE?"},
+  "repositories": {"short_name": "Archived Repositories"},
+  "repository_urls": {"short_name": "Repository URLs"},
+  "repository_oai_ids": {"short_name": "Repository OAI IDs"},
+  "repository_fulltext_urls": {"short_name": "Repository Fulltext URLs"},
+  "grant": {"short_name": "Grant {X}"},
+  "agency": {"short_name": "Agency {X}"},
+  "pi": {"short_name": "PI {X}"},
+  "confidence": {"short_name": "Correct Article Confidence"},
+  "compliance_wellcome_standard": {"short_name": "Compliance Wellcome Standard"},
+  "compliance_wellcome_deluxe": {"short_name": "Compliance Wellcome Deluxe"},
+  "provenance": {"short_name": "Provenance"}
+}`;
+
 
 try {
   S.svc.oaworks = JSON.parse(SECRETS_OAWORKS);
@@ -9787,22 +9597,37 @@ P.svc.oaworks.journal = async function(q) {
   }
 };
 
-P.svc.oaworks.oapublisher = async function(publisher) {
-  var oac, tc;
+P.svc.oaworks.journal.oa = async function(issn) {
+  var oac, ref, ref1, tc;
+  try {
+    // NOTE it is still to be decided what licence is acceptable to be counted as OA on the crossref index. For now it's anything CC, including NC
+    if (issn == null) {
+      issn = (ref = (ref1 = this.params.journal) != null ? ref1 : this.params.issn) != null ? ref : this.params.oa;
+    }
+  } catch (error) {}
+  tc = (await this.fetch('https://dev.api.cottagelabs.com/use/crossref/works?q=ISSN.exact:"' + issn + '"'));
+  oac = (await this.fetch('https://dev.api.cottagelabs.com/use/crossref/works?q=ISSN.exact:"' + issn + '" AND is_oa:true')); // could add AND NOT licence:nc
+  return tc.hits.total === oac.hits.total && (tc.hits.total !== 0 || oac.hits.total !== 0);
+};
+
+P.svc.oaworks.publisher = {};
+
+P.svc.oaworks.publisher.oa = async function(publisher) {
+  var oac, ref, tc;
   try {
     if (publisher == null) {
-      publisher = this.params.publisher;
+      publisher = (ref = this.params.publisher) != null ? ref : this.params.oa;
     }
   } catch (error) {}
   tc = (await this.fetch('https://dev.api.cottagelabs.com/service/jct/journal?q=publisher:"' + publisher + '" AND NOT discontinued:true'));
-  oac = (await this.fetch('https://dev.api.cottagelabs.com/service/jct/journal?q=publisher:"' + publisher + '" AND NOT discontinued:true AND isdoaj:true'));
-  return tc.hits.total === oac.hits.total;
+  oac = (await this.fetch('https://dev.api.cottagelabs.com/service/jct/journal?q=publisher:"' + publisher + '" AND NOT discontinued:true AND indoaj:true'));
+  return tc.hits.total === oac.hits.total && (tc.hits.total !== 0 || oac.hits.total !== 0);
 };
 
 var indexOf = [].indexOf;
 
 P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
-  var _getmeta, _prep, _score, af, altoa, an, cr, cwd, doa, fz, haddoi, i, inisn, issns, j, key, l, len, len1, len10, len11, len2, len3, len4, len5, len6, len7, len8, len9, longest, lvs, m, msgs, n, o, oadoi, overall_policy_restriction, p, pb, perms, pisoa, ps, q, qr, r, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref3, ref4, ref5, ref6, ref7, ref8, ref9, ro, rors, rp, rr, rs, rw, rwd, sn, snak, snkd, t, tr, u, v, vl, w, wp, x;
+  var _getmeta, _prep, _score, af, altoa, an, cr, cwd, doa, fz, haddoi, i, inisn, issns, j, key, l, len, len1, len10, len11, len12, len2, len3, len4, len5, len6, len7, len8, len9, longest, lvs, m, msgs, n, o, oadoi, overall_policy_restriction, p, pb, perms, pisoa, ps, q, qr, r, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref4, ref5, ref6, ref7, ref8, ref9, ro, rors, rp, rr, rs, rw, rwd, sn, snak, snkd, t, tr, u, v, vl, w, wp, x, y;
   overall_policy_restriction = false;
   cr = false;
   haddoi = false;
@@ -10024,7 +9849,7 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
       await _getmeta();
       try {
         if (meta.publisher == null) {
-          meta.publisher = af.publisher;
+          meta.publisher = af != null ? af.publisher : void 0;
         }
         if (af != null ? af.issn : void 0) {
           ref1 = (typeof af.issn === 'string' ? [af.issn] : af.issn);
@@ -10081,7 +9906,7 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
     if (typeof meta.ror === 'string') {
       meta.ror = [meta.ror];
     }
-    rs = (await this.svc.oaworks.permission('issuer.id:"' + meta.ror.join('" OR issuer.id:"') + '"'));
+    rs = (await this.svc.oaworks.permissions.affiliations('issuer.id:"' + meta.ror.join('" OR issuer.id:"') + '"'));
     if (!(rs != null ? (ref5 = rs.hits) != null ? ref5.total : void 0 : void 0)) {
       // look up the ROR in wikidata - if found, get the qid from the P17 country snak, look up that country qid
       // get the P297 ISO 3166-1 alpha-2 code, search affiliations for that
@@ -10106,7 +9931,7 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
                 sn = ref10[o];
                 if (sn.property === 'P297') {
                   snkd = true;
-                  rs = (await this.svc.oaworks.permission('issuer.id:"' + sn.value + '"'));
+                  rs = (await this.svc.oaworks.permissions.affiliations('issuer.id:"' + sn.value + '"'));
                   break;
                 }
               }
@@ -10123,33 +9948,36 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
       rors.push(tr);
     }
   }
-  if (issns.length || meta.publisher) {
+  if (issns.length) {
     qr = issns.length ? 'issuer.id:"' + issns.join('" OR issuer.id:"') + '"' : '';
-    if (meta.publisher) {
-      if (qr !== '') {
-        qr += ' OR ';
-      }
-      qr += 'issuer.id:"' + meta.publisher + '"'; // how exact/fuzzy can this be
-    }
-    ps = (await this.svc.oaworks.permission(qr));
-    if (((ps != null ? (ref14 = ps.hits) != null ? ref14.hits : void 0 : void 0) != null) && ps.hits.hits.length) {
-      ref15 = ps.hits.hits;
-      for (r = 0, len6 = ref15.length; r < len6; r++) {
-        p = ref15[r];
-        rp = (await _prep(p._source));
-        rp.score = (await _score(rp));
-        perms.all_permissions.push(rp);
-      }
+    ps = (await this.svc.oaworks.permissions.journals(qr));
+    ref16 = (ref14 = ps != null ? (ref15 = ps.hits) != null ? ref15.hits : void 0 : void 0) != null ? ref14 : [];
+    for (r = 0, len6 = ref16.length; r < len6; r++) {
+      p = ref16[r];
+      rp = (await _prep(p._source));
+      rp.score = (await _score(rp));
+      perms.all_permissions.push(rp);
     }
   }
-  if (perms.all_permissions.length === 0 && meta.publisher && !meta.doi && !issns.length) {
-    //if meta.publisher
+  if (meta.publisher) {
+    qr = 'issuer.id:"' + meta.publisher + '"'; // how exact/fuzzy can this be
+    ps = (await this.svc.oaworks.permissions.publishers(qr));
+    ref19 = (ref17 = ps != null ? (ref18 = ps.hits) != null ? ref18.hits : void 0 : void 0) != null ? ref17 : [];
+    for (t = 0, len7 = ref19.length; t < len7; t++) {
+      p = ref19[t];
+      rp = (await _prep(p._source));
+      rp.score = (await _score(rp));
+      perms.all_permissions.push(rp);
+    }
+  }
+  //if perms.all_permissions.length is 0 and meta.publisher and not meta.doi and not issns.length
+  if (meta.publisher) {
     af = (await this.svc.oaworks.journal('publisher:"' + meta.publisher + '"'));
     if (af == null) {
       fz = (await this.svc.oaworks.journal('publisher:"' + meta.publisher.split(' ').join('" AND publisher:"') + '"'));
-      if (fz.publisher === meta.publisher) {
+      if ((fz != null ? fz.publisher : void 0) === meta.publisher) {
         af = fz;
-      } else {
+      } else if (fz != null ? fz.publisher : void 0) {
         lvs = (await this.tdm.levenshtein(fz.publisher, meta.publisher));
         longest = lvs.length.a > lvs.length.b ? lvs.length.a : lvs.length.b;
         if (lvs.distance < 5 || longest / lvs.distance > 10) {
@@ -10158,7 +9986,7 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
       }
     }
     if (af != null ? af.publisher : void 0) {
-      pisoa = (await this.svc.oaworks.oapublisher(af.publisher));
+      pisoa = (await this.svc.oaworks.publisher.oa(af.publisher));
     }
   }
   if (typeof af === 'object' && (af.indoaj || pisoa)) {
@@ -10183,7 +10011,7 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
       }
     };
     try {
-      altoa.licence = (ref16 = af.doaj.bibjson.license[0].type) != null ? ref16 : af.license[0].type; // could have doaj licence info
+      altoa.licence = (ref20 = af.doaj.bibjson.license[0].type) != null ? ref20 : af.license[0].type; // could have doaj licence info
     } catch (error) {}
     if (af.indoaj) {
       altoa.embargo_months = 0;
@@ -10221,7 +10049,7 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
     perms.all_permissions.push(altoa);
   }
   if (meta.doi && (oadoi = (await this.src.oadoi(meta.doi)))) {
-    if (haddoi && (oadoi != null ? (ref17 = oadoi.best_oa_location) != null ? ref17.license : void 0 : void 0) && oadoi.best_oa_location.license.indexOf('cc') !== -1) { // (haddoi or oadoi?.journal_is_oa)
+    if (haddoi && (oadoi != null ? (ref21 = oadoi.best_oa_location) != null ? ref21.license : void 0 : void 0) && oadoi.best_oa_location.license.indexOf('cc') !== -1) { //  (haddoi or oadoi?.journal_is_oa)
       doa = {
         can_archive: true,
         version: oadoi.best_oa_location.version,
@@ -10254,7 +10082,7 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
         ];
       }
       if (doa.version) {
-        doa.versions = (ref18 = doa.version) === 'submittedVersion' || ref18 === 'preprint' ? ['submittedVersion'] : (ref19 = doa.version) === 'acceptedVersion' || ref19 === 'postprint' ? ['submittedVersion', 'acceptedVersion'] : ['submittedVersion', 'acceptedVersion', 'publishedVersion'];
+        doa.versions = (ref22 = doa.version) === 'submittedVersion' || ref22 === 'preprint' ? ['submittedVersion'] : (ref23 = doa.version) === 'acceptedVersion' || ref23 === 'postprint' ? ['submittedVersion', 'acceptedVersion'] : ['submittedVersion', 'acceptedVersion', 'publishedVersion'];
       }
       doa.score = (await _score(doa));
       perms.all_permissions.push(doa);
@@ -10269,11 +10097,11 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
         return -1;
       }
     });
-    ref20 = perms.all_permissions;
+    ref24 = perms.all_permissions;
     // note if enforcement_from is after published date, don't apply the permission. If no date, the permission applies to everything
-    for (t = 0, len7 = ref20.length; t < len7; t++) {
-      wp = ref20[t];
-      if (!((ref21 = wp.provenance) != null ? ref21.enforcement_from : void 0)) {
+    for (u = 0, len8 = ref24.length; u < len8; u++) {
+      wp = ref24[u];
+      if (!((ref25 = wp.provenance) != null ? ref25.enforcement_from : void 0)) {
         perms.best_permission = this.copy(wp);
         break;
       } else if (!meta.published || Date.parse(meta.published) > Date.parse(wp.provenance.enforcement_from.split('/').reverse().join('-'))) {
@@ -10292,19 +10120,19 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
         }
       });
 // check this gives the order in the direction we want, else reverse it
-      for (u = 0, len8 = rors.length; u < len8; u++) {
-        ro = rors[u];
+      for (v = 0, len9 = rors.length; v < len9; v++) {
+        ro = rors[v];
         perms.all_permissions.push(ro);
-        if (((ref22 = perms.best_permission) != null ? ref22.author_affiliation_requirement : void 0) == null) {
+        if (((ref26 = perms.best_permission) != null ? ref26.author_affiliation_requirement : void 0) == null) {
           if (perms.best_permission != null) {
-            if (!((ref23 = ro.provenance) != null ? ref23.enforcement_from : void 0) || !meta.published || Date.parse(meta.published) > Date.parse(ro.provenance.enforcement_from.split('/').reverse().join('-'))) {
+            if (!((ref27 = ro.provenance) != null ? ref27.enforcement_from : void 0) || !meta.published || Date.parse(meta.published) > Date.parse(ro.provenance.enforcement_from.split('/').reverse().join('-'))) {
               pb = this.copy(perms.best_permission);
-              ref24 = ['licences', 'versions', 'locations'];
-              for (v = 0, len9 = ref24.length; v < len9; v++) {
-                key = ref24[v];
-                ref25 = ro[key];
-                for (w = 0, len10 = ref25.length; w < len10; w++) {
-                  vl = ref25[w];
+              ref28 = ['licences', 'versions', 'locations'];
+              for (w = 0, len10 = ref28.length; w < len10; w++) {
+                key = ref28[w];
+                ref29 = ro[key];
+                for (x = 0, len11 = ref29.length; x < len11; x++) {
+                  vl = ref29[x];
                   if (pb[key] == null) {
                     pb[key] = [];
                   }
@@ -10313,9 +10141,9 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
                   }
                 }
               }
-              ref27 = (ref26 = pb.licences) != null ? ref26 : [];
-              for (x = 0, len11 = ref27.length; x < len11; x++) {
-                l = ref27[x];
+              ref31 = (ref30 = pb.licences) != null ? ref30 : [];
+              for (y = 0, len12 = ref31.length; y < len12; y++) {
+                l = ref31[y];
                 if ((pb.licence == null) || l.type.length < pb.licence.length) {
                   pb.licence = l.type;
                 }
@@ -10361,17 +10189,44 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
       'not publisher': 'Please find another DOI for this article as this is provided as this doesn’t allow us to find required information like who published it'
     };
     return {
-      body: typeof overall_policy_restriction !== 'string' ? overall_policy_restriction : (ref28 = msgs[overall_policy_restriction.toLowerCase()]) != null ? ref28 : overall_policy_restriction,
+      body: typeof overall_policy_restriction !== 'string' ? overall_policy_restriction : (ref32 = msgs[overall_policy_restriction.toLowerCase()]) != null ? ref32 : overall_policy_restriction,
       status: 501
     };
   } else {
-    //perms.meta = meta if @S.dev
+    if (this.params.metadata === true || getmeta === true) {
+      perms.metadata = meta;
+    }
     return perms;
   }
 };
 
+// the original sheet, now split into three separate ones, but keep a note in case of use for testing: 
 // https://docs.google.com/spreadsheets/d/1qBb0RV1XgO3xOQMdHJBAf3HCJlUgsXqDVauWAtxde4A/edit
-P.svc.oaworks.permission = async function(recs = []) {
+P.svc.oaworks.permissions.journals = function(recs = []) {
+  return this.svc.oaworks.permissions._format(recs);
+};
+
+P.svc.oaworks.permissions.journals._sheet = '19pDvOY5pge-C0yDSObnkMqqlMJgct3iIjPI2rMPLQEc';
+
+P.svc.oaworks.permissions.journals._prefix = false;
+
+P.svc.oaworks.permissions.publishers = function(recs = []) {
+  return this.svc.oaworks.permissions._format(recs);
+};
+
+P.svc.oaworks.permissions.publishers._sheet = '1tmEfeJ6RCTCQjcCht-FI7FH-04z7MPSKdUnm0UpAxWM';
+
+P.svc.oaworks.permissions.publishers._prefix = false;
+
+P.svc.oaworks.permissions.affiliations = function(recs = []) {
+  return this.svc.oaworks.permissions._format(recs);
+};
+
+P.svc.oaworks.permissions.affiliations._sheet = '1J4WhZjPsAjpoogsj7wSTQGJPguo7TiSe0uNcrvyd_OM';
+
+P.svc.oaworks.permissions.affiliations._prefix = false;
+
+P.svc.oaworks.permissions._format = async function(recs = []) {
   var af, an, cids, dt, i, j, k, keys, kn, l, lc, len, len1, len2, len3, len4, len5, m, n, name, nd, nid, nk, nps, nr, nv, o, q, rcs, ready, rec, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, s, st;
   if (typeof recs === 'object' && !Array.isArray(recs)) {
     recs = [recs];
@@ -10482,7 +10337,6 @@ P.svc.oaworks.permission = async function(recs = []) {
       }
       nr.issuer.id = cids;
     } else if (nr.issuer.id.startsWith('10.') && nr.issuer.id.indexOf('/') !== -1 && nr.issuer.id.indexOf(' ') === -1) {
-      console.log(nr.issuer.id);
       nr.DOI = nr.issuer.id;
     }
     nr.permission_required = (rec.has_policy != null) && rec.has_policy.toLowerCase().indexOf('permission required') !== -1;
@@ -10595,12 +10449,6 @@ P.svc.oaworks.permission = async function(recs = []) {
     return ready;
   }
 };
-
-P.svc.oaworks.permission._sheet = '1qBb0RV1XgO3xOQMdHJBAf3HCJlUgsXqDVauWAtxde4A';
-
-P.svc.oaworks.permission._prefix = false;
-
-//P.svc.oaworks.permission._bg = true
 
 `API.add 'service/oab/request/:rid',
   post:
@@ -11099,8 +10947,16 @@ P.svc.oaworks.scrape = async function(content, doi) {
 };
 
 
-S.built = "Mon Apr 26 2021 09:45:17 GMT+0100";
-S.system = "8370eb3851a6bb9255ba15cc6810434b540ea72f599efb5191afdca13c9fb5f3";
+S.built = "Thu May 06 2021 11:43:22 GMT+0100";
+S.system = "9fb50d4c3c347ecee940f9ae51d236dbd6a24b616a03d02623d79bd6795c30b1";
+P.convert._gz2txt = {_bg: true}// added by constructor
+
+P.convert._excel2 = {}// added by constructor
+
+P.convert.file2txt = {}// added by constructor
+
 P.puppet = {_bg: true}// added by constructor
 
 P.scripts.testoab = {_bg: true}// added by constructor
+
+P.src.crossref._load = {_bg: true}// added by constructor

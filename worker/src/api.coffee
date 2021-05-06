@@ -315,7 +315,8 @@ P = (scheduled) ->
         # if it's an index function with a sheet setting, or a sheet param has been provided, what to do by default?
         if not res? and f._sheet and (@refresh or not exists = await @index rt) # this will happen on background where possible, because above will have routed to bg if it was available
           res = await @src.google.sheets f._sheet
-          res = await f(res) if typeof f is 'function' # process the sheet with the parent if it is a function
+          if typeof f is 'function' # process the sheet with the parent if it is a function
+            res = await f.apply @, [res]
           await @index rt, ''
           @waitUntil _save rt, @copy(res), f
           res = res.length
@@ -394,7 +395,7 @@ P = (scheduled) ->
             pk = prs.shift()
             @fn += (if @fn is '' then '' else '.') + pk
             fn = a[k] if typeof a[k] is 'function' and n.indexOf('._') is -1 # URL routes can't call _abc functions or ones under them
-          if typeof a[k] is 'function' and not a[k]._hidden and n.indexOf('scripts.') is -1
+          if typeof a[k] is 'function' and not p[k]._hidden and n.indexOf('scripts') isnt 0 and n.indexOf('.scripts') is -1
             @routes.push (n + (if n then '.' else '') + k).replace(/\./g, '/') # TODO this could check the auth method, and only show things the current user can access, and also search for description / comment?
         _lp(p[k], a[k], n + (if n then '.' else '') + k) if not Array.isArray(p[k]) and (not k.startsWith('_') or typeof a[k] is 'function')
   _lp P, @, ''

@@ -18,18 +18,17 @@
   <link rel="stylesheet" href="https://leviathanindustries.com/static/style.css">
 
   <script type="text/javascript" src="https://leviathanindustries.com/static/jquery-1.10.2.min.js"></script>
-  <script type="text/javascript" src="https://leviathanindustries.com/static/bootstrap.min.js"></script>
   <script type="text/javascript" src="https://leviathanindustries.com/static/noddy.js"></script>
   <script type="text/javascript" src="https://leviathanindustries.com/static/noddy.writer.js"></script>
 
   <style>
     .embossed{
-      margin-top:80px;
-      margin-bottom:70px;
+      margin-top: 60px;
+      margin-bottom: 50px;
     }
     #content{
-      max-width:800px;
-      margin:0 10% 200px auto;
+      max-width: 800px;
+      margin: 0 10% 200px auto;
     }
     
     #csidecontents {
@@ -37,7 +36,7 @@
     }
     #sidecontents {
       font-size: 0.9em !important;
-      padding-top:60px;
+      padding-top: 60px;
     }
 
     pre {
@@ -71,11 +70,22 @@
 jQuery(document).ready(function() {
   if ( $(window).width() > 1100 ) {
     $('#content').before('<div id="csidecontents" class="hidden-print" style="position:fixed;top:52px;left:0;bottom:0;right:0;width:400px;border-right:2px solid #ccc;padding:5px;background-color:#eee;z-index:1000000;"><div id="sidecontents" style="font-size:0.7em;overflow-y:auto;height:100%;"></div></div>');
-    $('#content').toc({'prependto':'#sidecontents', depth:4});
+    $('#content').toc({'prependto':'#sidecontents', depth:3});
   } else {
-    $('#content').toc();
+    $('#content').toc({depth: 3});
     $('#maincontents').show();
   }
+  
+  $('body').on('click', '.installing', function(e) {
+    e.preventDefault();
+    $('.install').hide();
+    $('.' + $(this).attr('href')).show();
+  });
+  $('body').on('click', '.requesting', function(e) {
+    e.preventDefault();
+    $('.request').hide();
+    $('.' + $(this).attr('href')).show();
+  });
 });
 </script>
 
@@ -95,11 +105,14 @@ jQuery(document).ready(function() {
   
 <!--<div class="black shadow well">-->
 
-<h1 style="text-align:center;" class="ignore">Paradigm API</h1>
+<a name="quickstart"></a>
+<h1 style="text-align:center;margin-top:30px;" class="ignore">Paradigm API</h1>
 <p style="text-align:center;color:#999;">
   A "radically distributed, powerfully simple" API framework<br>
-  Brought to you by OA.Works, CL, and our supporters
+  Brought to you by <a href="https://oa.works">OA.Works</a>, <a href="https://cottagelabs.com">CL</a>, and our <a class="tocontent" href="#Ourfundersandsupporters">supporters</a>
 </p>
+
+<p><small style="color:red;">WARNING: our new API and framework are not yet publicly released, and these docs are still being written up - INACCURACIES ARE PRESENT.</small></p>
 
 <div id="maincontents" style="display:none;">
 <hr class="embossed"></hr>
@@ -109,17 +122,25 @@ jQuery(document).ready(function() {
 
 <hr class="embossed"></hr>
 
-<h2>Quickstart</h2>
-
-<p>The quickest way is to use our API! <a class="shadow" target="_blank" href="https://paradigm.oa.works">https://paradigm.oa.works</a></p>
+<p>Get straight to the OA.Works API at <a class="shadow" target="_blank" href="https://api.oa.works">https://api.oa.works</a></p>
 
 <pre class="shadow">
-<code class="install linux">curl -X GET 'https://paradigm.oa.works'
-</code><code style="display:none;" class="install apple">TODO</code><code style="display:none;" class="install windows">TODO</code>
-<a href="#">Node</a> | <a href="">Python</a> | <a href="">API docs</a>
+<code class="request curl">curl https://api.oa.works
+</code><code style="display:none;" class="request node"># you may first need to install node-fetch using npm or your preferred package manager
+import fetch from 'node-fetch'
+res = await fetch('https://api.oa.works')
+console.log(res)
+</code><code style="display:none;" class="request python"># you may first need to install requests using pip or your preferred package manager
+import requests
+res = requests.get('https://api.oa.works')
+print(res.json())
+</code>
+<a class="requesting" href="node">Node</a> | <a class="requesting" href="python">Python</a> | <a class="tocontent" href="#UsingOA.WorksAPI">OA.Works API docs</a> | <a class="tocontent" href="#UsingParadigmAPI">Paradigm API docs</a>
 </pre>
 
-<p>Or get the code for yourself: <a class="shadow" target="_blank" href="https://github.com/oaworks/paradigm">https://github.com/oaworks/paradigm</a></p>
+<p>Or access our Paradigm API at <a class="shadow" target="_blank" href="https://paradigm.oa.works">https://paradigm.oa.works</a></p>
+<p>Or run your own for free with <a class="shadow tocontent" target="_blank" href="#Deployment">Cloudflare Workers</a></p>
+<p>Or get the code for yourself: <a name="install" class="shadow" target="_blank" href="https://github.com/oaworks/paradigm">https://github.com/oaworks/paradigm</a></p>
 
 <pre class="shadow">
 <code class="install linux">sudo apt install nodejs
@@ -128,33 +149,186 @@ git clone https://github.com/oaworks/paradigm.git
 cd paradigm
 coffee construct.coffee
 node server/dist/server.min.js
-</code><code style="display:none;" class="install apple">TODO</code><code style="display:none;" class="install windows">TODO</code>
-<a href="#">Apple</a> | <a href="">Windows</a> | <a href="">Deployment docs</a> | <a href="">Software docs</a>
+# now use curl or a browser to find it running at localhost:4000
+</code><code style="display:none;" class="install apple"># you'll need homebrew installed
+# https://treehouse.github.io/installation-guides/mac/homebrew
+ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+brew update
+brew install git
+brew install nodejs
+npm install -g coffeescript
+git clone https://github.com/oaworks/paradigm.git
+cd paradigm
+coffee construct.coffee
+node server/dist/server.min.js
+# you may get a warning about an app trying to use port 4000 - if so, allow it
+# now use curl or a browser to find it running at localhost:4000
+</code><code style="display:none;" class="install windows"># Not too sure about this one...
+# install git for windows: https://gitforwindows.org
+# install node.js and npm for windows...
+# use npm to install coffeescript
+# clone the repo: https://github.com/oaworks/paradigm.git
+# in the "paradigm" directory, run "coffee construct.coffee"
+# then run "node server/dist/server.min.js"
+# now use your web browser to find it running at localhost:4000
+</code>
+<a class="installing" href="apple">Apple</a> | <a class="installing" href="windows">Windows</a> | <a class="tocontent" href="#Deployment">Deployment docs</a> | <a class="tocontent" href="#Development">Development docs</a>
 </pre>
 
-<p>Or <a class="shadow" href="#">run it for free on cloudflare</a></p>
 
 
-<h2>Using the API</h2>
 
-<p>Send requests from a web browser or any command line or programming language. Responses are JSON by 
-default, unless otherwise documented. Some routes require authorisation, so 
-<a href="#"></a>sign up for an account</a> to use those.</p>
+<hr class="embossed"></hr>
 
-<p>We provide free access to our API, but we will restrict users who place too much 
-load on our system, to keep it accessible for all.</p>
+<h2>Using OA.Works API</h2>
 
-<p>Please apply a 2r/s rate limit, and include an email address in a User-Agent 
-header on your requests. We'd love to talk with you to work out a suitable 
-arrangement if you have greater requirements.</p>
+<p>NOTE: OA.Works started as Open Access Button, and 
+<a href="https://openaccessbutton.org/api">our old API</a> still provides our full functionality. 
+Since early 2021 we've been moving things to our new system; we're about half done, and we'll 
+update here whenever we move more across. We should finish in June 2021.</p>
 
-<p>Have a look at the <a target="_blank" href="https://paradigm.oa.works/status">status</a> page for the routes that are 
-available.</p>
+<p>OA.Works is an API for accessing papers (through <a href="#find">Open Access</a>, <a href="#subscriptions">subscriptions</a>, 
+<a href="#ill">Interlibrary Loans</a>, and <a href="#request">emails to authors</a>), <a href="#metadata">finding metadata</a>, 
+and <a href="#deposit">depositing papers</a>. It's built on our Paradigm API framework, so it's also an example of 
+<a class="tocontent" href="#Buildyourownservice">how to build a Paradigm service</a>.</p>
+
+<!--
+<p id="apikey"><a href="/auth.html?next=/docs">Logging in</a> 
+isn't required, but it gets you an API key, helps us tell funders how we're doing, 
+and lets us contact you with issues and updates.</p>
+-->
+
+<p>Please limit your requests to two per second, and include an email address in a <b>User-Agent</b> 
+header on your requests. Or if you've signed up for an account, 
+include your API key in an <b>x-apikey</b> header. We don't enforce rate limits, but if we 
+notice prolonged high usage we may have to limit to keep the API accessible for all, and
+we'd love to be able to contact you about your greater requirements.</p>
+
+<p>If you're looking to integrate OA.Works with your tools but aren't able to code, our 
+<a href="https://openaccessbutton.org/libraries">tools for librarians</a>, 
+especially <a href="https://openaccessbutton.org/integrations">integration guides</a>, 
+may be a better fit.</p>
+
+<h3>/find</h3>
+
+<p>Returns a URL to any Open Access paper, along with all the metadata we can find about it.</p>
+
+<p>Accepts a DOI appended to the URL, or a parameter called <b>id</b>, which should contain (in order of preference) a URL-encoded DOI, PMC ID, PMID, url, title, or citation.</p>
+
+<p><b>/metadata</b> is a convenient alternative that only returns the <b>metadata</b> section of the response.</p>
 
 <pre class="shadow">
-<code class="install linux">curl -X GET 'https://paradigm.oa.works/status' -H 'User-Agent: youremail@yourdomain.com'
-</code><code style="display:none;" class="install apple">TODO</code><code style="display:none;" class="install windows">TODO</code>
-<a href="#">Node</a> | <a href="">Python</a>
+<code>curl -X GET 'https://api.oa.works' -H 'User-Agent: youremail@yourdomain.com'
+curl -X GET 'https://api.oa.works/find/10.1126/science.196.4287.293' -H 'x-apikey: APIKEY'
+</code>
+<a target="_blank" href="https://api.oa.works/find?id=10.1126/science.196.4287.293">View a /find response</a> | <a target="_blank" href="https://api.oa.works/metadata/10.1126/science.196.4287.293">View a /metadata response</a>
+</pre>
+
+<h3>/permissions</h3>
+
+<p>Returns permissions information specific to a particular paper, together with relevant policies so 
+that you can arrive at your own answers.</p>
+
+<pre class="shadow">
+<code>curl https://api.oa.works/permissions/10.1126/science.196.4287.293
+curl https://api.oa.works/permissions/2514-1775
+curl https://api.oa.works/permissions/journals
+</code>
+<a target="_blank" href="https://api.oa.works/permissions/10.1126/science.196.4287.293">View a typical response</a>
+</pre>
+
+<h4>/permissions/:doi</h4>
+
+<p>Append a DOI to the URL to return permissions relevant to that article. Optionally 
+add an <b>affiliation</b> parameter containing a <a target="_blank" href="https://ror.org">ROR ID</a> to 
+include any relevant institutional policies in the response.</p>
+
+<h4>/permissions/:issn</h4>
+
+<p>Returns a particular journal policy if present in our records.</p>
+
+<h4>/permissions/:crossref-name</h4>
+
+<p>Returns a particular publisher policy if present in our records.</p>
+
+<h4>/permissions/:ror</h4>
+
+<p>Returns any policies in our records affiliated with the institution identified by the provided ROR ID.</p>
+
+<h4>/permissions/:type</h4>
+
+<p>Returns all policies of a particular <b>type</b> available in our records. 
+<b>Type</b> can be one of <b>journals</b>, <b>publishers</b>, or <b>affiliations</b>.</p>
+
+
+<h3>/ill</h3>
+
+<p>Starts an ILL request by returning a link to a completed ILL form or sending an email (requires pre-configuration).</p>
+
+<pre class="shadow">
+<code>curl -X POST 'https://api.oa.works/ill/10.1234/567890'</code>
+</pre>
+
+<p>Provide an ID for a paper either as a DOI appended on the URL, or as URL parameters, or in a JSON body. Suitable IDs are the same 
+as those for <a class="tocontent" href="#/find">/find</a>. If you have any additional metadata for the article, 
+such as title, journal title, etc, include those as parameters on the URL or in the JSON body. The metadata key 
+names we typically use can be viewed in one of our <a class="tocontent" href="#/find">/metadata</a> responses. 
+We'll add what we can to whatever metadata you give us.</p>
+
+We will then attempt to start an ILL according to your InstantILL configuration. By default, we will send an email to your account email, and you’ll need to pass the requestor’s email in the "email" parameter. If InstantILL is configured to do so, we can pass you a link to your completed ILL form.
+
+
+<h4>/ills</h4>
+
+<p>Search ILLs made at your institution.</p>
+
+<pre class="shadow">
+<code>curl -X GET 'https://api.oa.works/ills' -H 'x-apikey: APIKEY'
+</code>
+<a target="_blank" href="https://api.oa.works/ills">View an /ills response</a>
+</pre>
+
+<p>This is useful for developing your own custom integrations with <a target="_blank" href="https://instantill.org">InstantILL</a>. 
+This route can be used to retrieve all activity from your embed(s) then you can process them as you wish.</p>
+
+<p>The response is an Elasticsearch v7.10.0 search endpoint. Simple searches can be created by adding a search query in a <b>q</b> 
+URL parameter. See the above for an example query, and view the response to see field names you can use to customise the query. 
+Note, responses will not necessarily have all fields - it depends what we can find in each case. Check out the 
+<a target="_blank" href="https://www.elastic.co/guide/en/elasticsearch/reference/7.10/query-dsl.html">Elasticsearch docs</a> to learn more about search queries.</p>
+
+
+<!--
+<h4>Coming soon:</h4>
+
+<p><b>/request</b>, <b>/subscription</b>, <b>/deposit</b></p>
+-->
+
+
+
+<hr class="embossed"></hr>
+
+<h2>Using Paradigm API</h2>
+
+<p>Send requests from a web browser or any command line or programming language. Responses are JSON by 
+default, unless otherwise documented. Many routes can also return a simple HTML layout or table if 
+<b>.html</b> is appended to the route, or will provide a CSV at <b>.csv</b>. Some routes require 
+authorisation, so <a href="#"></a>sign up for an account</a> to use those.</p>
+
+<p>Please limit your requests to two per second, and include an email address in a <b>User-Agent</b> 
+header on your requests. Or if you've <a class="tocontent" href="#Auth">signed up for an account</a>, 
+include your API key in an <b>x-apikey</b> header. We don't enforce rate limits, but if we 
+notice prolonged high usage we may have to limit to keep the API accessible for all, and
+we'd love to be able to contact you about your greater requirements.</p>
+
+<p>The <a target="_blank" href="https://paradigm.oa.works/status">status</a> 
+page lists the routes that are available. Include your API key if you have one, as some routes may 
+only be visible to authorised requests.</p>
+
+<pre class="shadow">
+<code>curl -X GET 'https://paradigm.oa.works/status' -H 'User-Agent: youremail@yourdomain.com'
+curl -X GET 'https://paradigm.oa.works/status' -H 'x-apikey: APIKEY'
+</code>
+<a target="_blank" href="https://paradigm.oa.works/status">View the status response</a></a>
 </pre>
 
 <h3>Auth</h3>
@@ -165,23 +339,7 @@ available.</p>
 
 <p>Then use credentials where necessary in requests by...</p>
 
-
-<h3>Using OA.Works</h3>
-
-<p>Explain the transition from old to new API, link to old docs, presumably old OAB domain will stick around for a while too.</p>
-
-<p>So more parts will be added here as we complete and announce them (to begin with maybe just find, or find and permissions... to decide.)</p>
-
-<p>Explain OA.Works as part of Paradigm, but also directly routed at (presumably) api.oa.works. So OA.Works is also an exmaple of 
-how to build a service in the Paradigm API framework.</p>
-
-<h4>/find</h4>
-
-<h4>/permissions</h4>
-
-<h4>/ill</h4>
-
-<h3>General usage</h3>
+<h3>Routes</h3>
 
 <p><b>/index</b> and <b>/kv</b> provide access to the data storage layers - the elasticsearch index, and the cloudflare key-value store.</p>
 
@@ -198,19 +356,19 @@ how to build a service in the Paradigm API framework.</p>
 <p><b>/svc</b> routes are for particular services that have been built to run in Paradigm - for example OA.Works.</p>
 
 
+
+<hr class="embossed"></hr>
+
 <h2>Deployment</h2>
 
-<p>We recommend using <a href="">Cloudflare Workers</a> for quick, easy, reliable, fast deployment. 
-However we are very aware of not wanting to be tied in to one provider, or ourselves providing open 
-source software that can only be run with one provider. So we make sure to build our code in ways 
-that means it can be run anywhere, and that doesn't tie it to any provider or to their ecosystem. 
-NOTE, there are still a couple of features that are impossible to implement without using that 
-provider, but there's no way to avoid that. There are also still a couple of features we haven't 
-implemented ourselves yet, but we know how we could, and it won't be hard - so, if it becomes 
-necessary for any reason, we still don't feel tied. The main example of this is that we rely 
-on Workers KV and Scheduling - if we had to move from cloudflare we would start our own Redis 
-and update our kv code to connect to that instead. Redis is also free and open source, and 
-easy to use for what we need it for.</p>
+<p>We recommend using <a href="">Cloudflare Workers</a> however we don't want to tie ourselves or 
+our software to one provider, so we build code that can deploy and run anywhere that node.js can run. 
+There are still a couple of features we haven't implemented ourselves yet, but we make sure to know 
+our "escape route". For example we rely on Workers KV, but if we had to move from cloudflare 
+we would start our own Redis server and update our KV code to connect to that instead.</p>
+
+<p>If you want to know more about why we chose Cloudflare, and the other choices we made, 
+read our <a class="tocontent" href="#Development">Development</a> section.</p>
 
 <h3>Worker (Cloudflare)</h3>
 
@@ -220,98 +378,150 @@ in the free tier.</p>
 
 <p><a class="shadow" href="https://workers.cloudflare.com">https://workers.cloudflare.com</a></p>
 
-<p>Once signed up, copy your account ID and API token from the cloudflare dashboard main page.</p>
+<p>Once signed up, copy your account ID and API token from the cloudflare dashboard main page. 
+You'll find it displayed near the bottom right. Optionally, go to the <b>Workers</b> tab and 
+create a KV namespace, and note down the name you gave it (you can call it Paradigm).</p>
 
-<p>Next, create a folder called "secrets" in the 
-project folder (the one you cloned from github in the quickstart), and in there 
-create a file called construct.json. In that file, write a JSON object with the 
-keys ACCOUNT_ID, API_TOKEN, and SCRIPT_ID. Use the values you coped from cloudflare 
-for the first two, and the script ID can be whatever you want to call your worker.</p>
+<p>(Workers KV is also available free on cloudflare. There are limits on free usage, but they're plenty to start with. 
+Raising the limits is also pretty cheap - we pay about $5 a month.)</p>
+
+<p>Next, <a class="tocontent" href="#install">clone our git repo</a> (if you haven't already) and create a folder 
+called <b>secrets</b> in the main Paradigm folder, and in there create a file called 
+<b>construct.json</b>.</p>
 
 <pre class="shadow">
-<code class="install linux">cd paradigm
+<code>cd paradigm
 mkdir secrets && touch secrets/construct.json
-vim secrets/construct.json
-</code>
+vim secrets/construct.json</code>
 </pre>
 
-<p>Once you've written and saved your secrets/construct.json file, run the constructor! 
-(You didn't have to do this for the demo because our repo already contains a default 
-copy.)</p>
+<p>In that file, write a JSON object with the keys <b>ACCOUNT_ID</b>, <b>API_TOKEN</b>, 
+and <b>SCRIPT_ID</b>. Use the values you copied from cloudflare for the first two, and the 
+script ID can be whatever you want to call your worker. Once you've saved your construct file, 
+run the constructor!</p>
 
 <pre class="shadow">
-<code class="install linux">coffee construct.coffee</code>
+<code>coffee construct.coffee</code>
 </pre>
 
-<p>Cloudflare provide a great tool called <a href="">wrangler</a> which you can also learn about, 
-and if you want to you can use that to control your worker and deploy the code file. 
-However, since we're being careful not to be tied in to any vendor, we don't use 
-wrangler - we just interact directly with the cloudflare API.</p>
+<p>Cloudflare provide a great tool called 
+<a target="_blank" href="https://developers.cloudflare.com/workers/cli-wrangler">wrangler</a> 
+which can be used to deploy and configure your worker. We don't use wrangler because we want to remain 
+independent of any one platform, but if you don't have such concerns, it may be worth 
+looking into.</p>
 
-<p>So now you should have your own Paradigm API up and running in a cloudflare worker!</p>
-
-<p>But before you start playing with it, you should continue to read about Settings & 
-Secrets, to get access to even more great features.</p>
-
-<p>Why Cloudflare?</p>
-
-Radical deployment - cloudflare workers by default
-Push every process out to a cloudflare worker wherever possible, but maintain the 
-ability to run on a backend server where necessary, or for any situations where 
-it may be necessary to deploy without using cloudflare. We will always need at 
-least one backend server anyway to handle co-ordination and long term storage / 
-backup management, and certain processes that have to appear to run from one place such as Proxies.
-* NOTE: We prefer Cloudflare to services such as Docker or Heroku because cloudflare 
-are offering workers as secondary to the USP of cloudflare (which is network caching). 
-So workers are free / extremely cheap. Also, we never really had much to gain from 
-Docker or Heroku sorts of service because we could already do deployments to 
-clusters of Linux machines easily because we had the skills, and it was much cheaper. 
-If we ever needed extreme scalability, we could move to Amazon AWS. For backups/failover, 
-Digital Ocean provides snapshots which are just as useful as Docker for our use case. 
-But with cloudflare workers we could gain the benefit of reducing dependence on our 
-cluster for no extra cost, and also if we built it in such a way to be able to 
-optionally run on a normal server OR run on cloudflare workers, we can increase 
-robustness whilst decreasing deployment complexity. It also adds even better 
-performance gains to the main reason for using cloudflare, because it allows us 
-greater control of what cloudflare caches under different circumstances.
+<p>Now you should have your own Paradigm API up and running in a cloudflare worker! Note it won't 
+be able to save anything yet though. So, continue on to read about Settings & 
+Secrets, and Elasticsearch.</p>
 
 
-<h3>Background server</h3>
-
-<p>How and why to run a bg server (the demo already is one)</p>
-
-
-<h3>Settings (&secrets)</h3>
+<h3>Settings & secrets</h3>
 
 <p>The standard demo makes a few assumptions about the environment, and limits what 
-can be done with it. The major limitation of the defaults are that it does not know 
-where Elasticsearch is. So you'll want to configure some settings asap.</p>
+can be done with it. The major limitation is that it does not know 
+where Elasticsearch is so it can't save any data - so you'll want to configure some 
+settings.</p>
 
-<p>We differentiate between settings and secrets - secrets are things that you must keep private, 
-that you can't put in a repo, that you wouldn't want to share to frontend code, that sort 
-of thing. However, settings and secrets are handled together, unless you choose to write them 
-in places that inherently make them public, in which case of course they're not secrets. Also, 
-because the whole codebase can be altered and deployed very quickly and easily, some settings 
-are just set directly in the code. The main use for actual settings is for things that may 
-need to change between deployment environments (like which index to connect to), or things 
-that different teams may want to have different secrets for (like which mail service API keys 
-to use).</p>
+<p>We differentiate between settings and secrets. Settings are anything that you want 
+to be able to easily configure, and perhaps have different values for development vs 
+production versions, where as secrets are settings like API keys for other services - 
+you wouldn't want to share them in your repo or in a web browser.</p>
 
-<p>We don't publish any of our own secrets (of course), and we have the git repo configured to 
-ignore any file inside any folder called "secrets" anywhere in the repo. You've probably already 
-created a "secrets" folder, if you deployed your own worker already. You can also make a 
-secrets folder inside the "worker" and "server" folders.</p>
+<p>We have the git repo configured to ignore any file in any folder called <b>secrets</b> 
+anywhere in the repo. Create a <b>secrets</b> folder in the <b>worker</b> and <b>server</b> 
+folders as well, and in those you can put settings/secrets relevant to each. So you can write 
+any settings or secrets in the <b>secrets</b> folders you create. 
+But you can also put settings in any file in the code, or create new files and put settings 
+in them. We have one in our worker code called <b>settings.json</b>, for example, and it can 
+be seen in the repo because it's not inside a secrets folder (and we don't put secrets in it).</p>
+
+<p>There's also a hierarchy to the secrets and settings.</p>
+
+<ul>
+  <li>At the top level there's the main secrets folder where you would have created 
+  your <b>construct</b> file - it's secret because your cloudflare API keys are in there. 
+  Nothing from that file gets included in the main code, it's only used by the constructor 
+  for deployments. Note, you can also provide a list of objects in that file if you want 
+  to deploy identical workers to different cloudflare accounts.
+  </li>
+  <li>Anything set in the worker folder will be 
+  available in the worker and also in the server, if you do run and build your own server, 
+  because the server runs a local copy of the worker.</li>
+  <li>Any setting in the server folder will only be available if you run your own server, 
+  they won't be copied into a worker deployed to cloudflare.</li>
+</ul>
+
+<p>Here are the most useful secrets to put in your first settings file so your API can save data - 
+we put ours in <b>worker/secrets/settings.json</b>:</p>
+
+<pre class="shadow">
+<code>{
+  "index": {
+    "url": "https://username:password@your.index.com" # A URL to your elasticsearch
+  },
+  "kv": "your_kv" # Your cloudflare KV store name for your worker to use, if any
+}</code>
+</pre>
+
+<p>Of course you'll need some real values to put in it. If you did the optional step
+of creating a KV store above, insert the name of the store you created for your worker. 
+Otherwise, remove the <b>kv</b> key from your settings file. For managing data, KV is 
+optional but Elasticsearch is necessary, so read on to find out how to 
+set up your own Elasticsearch instance to save data to.</p>
 
 
 <h3>Elasticsearch</h3>
 
-<p>Add or link to ES open distro install instructions. And our own notes.</p>
+<p>We use Elasticsearch 7.10.0, and we use the Amazon Open Distro version. You can 
+use any version you like, as long as it's new enough to be compatible with 7.x index 
+structures. We run our own cluster on virtual <a href="https://ubuntu.com">Ubuntu Linux</a> machines from 
+<a href="https://digitalocean.com">Digital Ocean</a>, 
+but you can use any provider you prefer, or even run it locally on your own machine to 
+try out.</p>
 
-<p>Also the AWS free tier has small ES available, probably best for starters.</p>
+<p>There are providers who will run Elasticsearch for you. We've found them 
+all to be pretty expensive for production scaling, so it's cheaper for us to run our own. 
+If you'rejust getting started and aren't comfortable with sysadmin, Amazon Web Services 
+provide a small free tier that you can sign up to - this is surely the easiest way to 
+run a cluster, and you can just pay to scale it up later if you want.</p>
 
-<p><a href="https://aws.amazon.com/elasticsearch-service/pricing/">https://aws.amazon.com/elasticsearch-service/pricing/</a></p>
+<p><a class="shadow" target="_blank" href="https://aws.amazon.com/elasticsearch-service/pricing/">Amazon AWS Elasticsearch pricing</a></p>
 
-<p>https://aws.amazon.com/free/?all-free-tier.sort-by=item.additionalFields.SortRank&all-free-tier.sort-order=asc&all-free-tier.q=elasticsearch&all-free-tier.q_operator=AND</p>
+<p><a class="shadow" target="_blank" href="https://aws.amazon.com/free/?all-free-tier.sort-by=item.additionalFields.SortRank&all-free-tier.sort-order=asc&all-free-tier.q=elasticsearch&all-free-tier.q_operator=AND">
+AWS Elasticsearch Free tier details</a></p>
+
+<p>Once you sign up and start an Elasticsearch service, you'll get a URL to your own cluster, and probably a 
+<b>username:password</b> combination. Put those in your settings file as described above.</p>
+
+<p>Installing Elasticsearch to try out is pretty easy on Linux, we're not sure about Apple 
+or Windows though - their documentation does explain how, but we've never tried it. Managing 
+a large production cluster can get complicated, but it does give you more power and control 
+in comparison to paying a service provider for it. Also, whilst Elasticsearch itself is free 
+and open source, and you can run it on your own laptop to start with, you'll need to pay for 
+a machine or cluster of machines to run it in production, so keep that in mind. We pay around 
+$900 a month just for our cluster virtual machines, and we think we're getting a pretty good deal.</p>
+
+<p>Rather than us writing instructions that will get out of date, it's best to go straight to the source - 
+check out the installation docs below to get your own cluster up and running:</p>
+
+<p><a class="shadow" target="_blank" href="https://www.elastic.co/elastic-stack">Elasticsearch website download and install links</a></p>
+<p><a class="shadow" target="_blank" href="https://opendistro.github.io/for-elasticsearch-docs/docs/install">Elasticsearch Open Distro download and install docs</a></p>
+<p><a class="shadow" target="_blank" href="https://github.com/oaworks/paradigm/docs/elasticsearch.html">Helpful notes from our own experience</a></p>
+
+
+<h3>Run your own server</h3>
+
+<p>How and why to run a bg server (the demo already is one)</p>
+
+
+<h3>Logging & monitoring</h3>
+
+<p>Logs, monitors, alerts</p>
+
+Built-in logging
+
+Uptimerobot, Updown, Ghost inspector, Kibana (which has alerts and scheduling too), pm2, Digital Ocean alerts, etc
+
 
 <h3>Task scheduling</h3>
 
@@ -325,20 +535,60 @@ uptimerobot hitting a certain URL, so not a big deal. For peace of mind, just ma
 deal-breaker for anyone worried about vendor lock-in.</p>
 
 
-<h3>Production monitoring</h3>
 
-<p>Logs, monitors, alerts</p>
-
-Built-in logging
-
-Uptimerobot, Updown, Ghost inspector, Kibana, pm2, Digital Ocean alerts, etc
-
+<hr class="embossed"></hr>
 
 <h2>Development</h2>
 
-<h3>Code overview</h3>
+<h3>Background</h3>
 
-<p>Link to code explorer vis</p>
+<p>OA.Works - initially as Open Access Button - has been building things that help 
+researchers share their work. We're not aiming to build specific 
+products/services for our own benefit, or to generate sales of a particular tool.
+If we make useful things, or we encourage or help others to do so, either outcome 
+is great. But there's definitely some stuff that someone needs to build, to make 
+it easier for those in the middle to move forward. So our aims have evolved.</p>
+
+<p>We first wanted to find out how much research is not open and make a lot of noise 
+about it to raise awareness and to map the openness of research. Next we decided to 
+help people find open access versions of articles they can't access, and 
+to request from authors if it's not already openly available. Then, with the help of 
+librarians, we started encouraging authors to deposit anything they have the right 
+to deposit, and make it really simple for an author to know that they can, and to do so.</p>
+
+<p>None of these are <b>technical</b> goals - we didn't start out intending to build 
+any particular app or technical solution. Instead, a focus on making things powerfully 
+simple, so that it becomes really easy and clear why someone should use some new tool 
+in their typical, traditional workflow, drives our technical decisions. We use 
+whatever we can to make something relevant to the average user, to help change 
+attitudes towards new approaches.</p>
+
+<p>So how can we make things powerfully simple and yet also have a system that is 
+able to deal with very complex situations? As we don't know in advance what 
+tools we end up needing to build, or how much time and budget we have 
+to do so, we needed a way to be able to do fairly complex developments even if 
+they don't seem critical to the project at the time. We achieved this because 
+our software has never been just one thing - it is part of a larger stack that 
+has grown over the years across various projects and personal interests - and it's 
+open source, so we can choose from literally millions of other open source projects 
+to build upon. So we try to generalise a lot of potentially complex problems and 
+then implement them into project deliverables when they became useful.</p>
+
+<p>There have also been downsides to this approach. Complex "backend" development is 
+often not seen as high priority from a project perspective, and time to document, 
+test, sysadmin, or refactor is often a big delay to more visible project deliverables. 
+Users and funders understand things that they can actually "see", like a new UI widget, 
+so the more successful we were at making the frontend look powerfully simple, the less 
+time we put into hard, invisible (but critical) things. Now, with more time and resources, 
+we have an opportunity to take more advantage of the hidden part of the iceberg of work 
+we've been doing over the years. By making that work more visible, and by making it a 
+goal of our project in itself to make this available to other people, we also hold 
+ourselves accountable for keeping up with these "things"hidden" aspects of our work.</p>
+
+<p>The stack has gone through four major versions already, and now in version five 
+it has become the API framework that we're now releasing as Paradigm.</p>
+
+
 
 <h3>Principles</h3>
 
@@ -388,8 +638,43 @@ Platform agnostic - outsource to great services when we can, like commercial clo
 caching, servers, etc - but avoid vendor lock-in as much as possible, or even 
 the need for a vendor at all.
 
+Why cloudflare? Radical deployment - cloudflare workers by default
+Push every process out to a cloudflare worker wherever possible, but maintain the 
+ability to run on a backend server where necessary, or for any situations where 
+it may be necessary to deploy without using cloudflare. We will always need at 
+least one backend server anyway to handle co-ordination and long term storage / 
+backup management, and certain processes that have to appear to run from one place such as Proxies.
+* NOTE: We prefer Cloudflare to services such as Docker or Heroku because cloudflare 
+are offering workers as secondary to the USP of cloudflare (which is network caching). 
+So workers are free / extremely cheap. Also, we never really had much to gain from 
+Docker or Heroku sorts of service because we could already do deployments to 
+clusters of Linux machines easily because we had the skills, and it was much cheaper. 
+If we ever needed extreme scalability, we could move to Amazon AWS. For backups/failover, 
+Digital Ocean provides snapshots which are just as useful as Docker for our use case. 
+But with cloudflare workers we could gain the benefit of reducing dependence on our 
+cluster for no extra cost, and also if we built it in such a way to be able to 
+optionally run on a normal server OR run on cloudflare workers, we can increase 
+robustness whilst decreasing deployment complexity. It also adds even better 
+performance gains to the main reason for using cloudflare, because it allows us 
+greater control of what cloudflare caches under different circumstances.
 
-<h3>Design</h3>
+Why elasticsearch / Amazon Elastic?
+
+
+<h4>Document orientation</h4>
+
+
+<h4>Eventual consistency</h4>
+
+
+<h4>No tests! Just diffs!</h4>
+
+<p>Why difftest... why not normal tests</p>
+
+
+<h3>Code structure</h3>
+
+<p>Link to code explorer vis</p>
 
 <p>The main API wrapper</p>
 
@@ -412,7 +697,7 @@ the need for a vendor at all.
 # _kv - if true store the result in CF workers KV, and check for it on new requests - like a cache, but global, with 1s eventual consistency whereas cache is regional
 # _index - if true send the result to an index. Or can be an object of index initialisation settings, mappings, aliases
 # _key - optional which key, if not default _id, to use from a result object to save it as - along with the function route which will be derived if not provided
-# _sheet - if true get a sheet ID from settings for the given endpoint, if string then it is the sheet ID. If present it implies _index:true if _index is not set
+# _sheet - if true get a sheet ID from settings for the given route, if string then it is the sheet ID. If present it implies _index:true if _index is not set
 
 # _kv gets checked prior to _index UNLESS there are args that appear to be a query
 # for _kv, args[0] has to be a string for a key, with no args[1] - otherwise pass through
@@ -444,179 +729,10 @@ the need for a vendor at all.
 # (compared against a previously stored one). If it doesn't it should log something that then gets 
 # picked up by the alert mechanism
 
-# _hidden can be set to stop ane endpoint showing up on the list of available endpoints
+# _hidden can be set to stop a route showing up on the list of available routes
 
 
-<p>Why we did it this way</p>
-
-Radical caching - cache is log is history (is test) is status is alerts is data
-This approach needs some kind of name...
-
-Cache everything - cache UI pages and static content of course, but also the result 
-of every process that runs. We already do this to a high degree, but it was not 
-foreseen as a core feature. And use remote workers to run cached processes where 
-possible (e.g. with cloudflare workers)
-
-If we cache everything, then it also makes sense to merge the concept of logging 
-into caching - any process can log steps it takes, and the final cache result is 
-the end of the log of that process. Again, we do this a lot, but it is not a core 
-feature that is just available on every process as easily as a config option.
-In some cases we store change history for certain processes on certain objects in 
-certain collections. This is available as a config option of a collection, but we 
-should make this a possible config of any process as well. So the cache is the log 
-and it is also the change history.
-If cache and log and history are combined, then that is all the data required for 
-any status/alert system, so combine status/alerts into the core as well. Cache is 
-the log and the history, which tells us the status and drives alerts.
-
-For example 
-at the moment we sometimes consider using Wikidata, which we had to locally cache 
-because it does not offer a fast and powerful query language itself, but it also 
-doesn’t offer an easy way to keep up to date with changes. So if we choose to 
-continue using Wikidata, we need to develop a process to track changes and keep 
-up to date with them. Similarly we also used a dump of Microsoft Academic Graph 
-data, but have not yet developed a mechanism to keep track of changes in their 
-dataset - although, in that case, we probably would decide not to keep using it 
-once we do further analysis, because it is likely other sources give better coverage 
-for less effort. OADOI on the other hand, is very useful, but performs fast enough 
-that we probably wouldn’t gain much by caching it ourselves - however they do 
-also offer a data dump we could use and track, if we wanted to do more complex 
-queries than they offer on their API. These are the sorts of decisions we need 
-to spend some time properly investigating though.
-
-There's always a core of useful bits that are necessary for any system - auth (plus 
-accounts and roles), it needs to be accessible somehow (via the API), to receive input and give output, it needs to store 
-and retrieve data, conceptualise data in ways people want to use it, and it needs to log stuff 
-that happens for later debugging, and also receive alerts from remote parts such 
-as embeds on other websites, and show us status pages and send us alerts when necessary.
-
-Then there are secondary parts. Some of what we used to consider secondary ended 
-up being used a lot, so it became a hassle to use it repeatedly in ways that had 
-not been considered core.
-
-Then we have other things that we use remotely - systems 
-run by other people that we want to query and get data from, or send data to. 
-
-And finally we have the services - things we write that use the rest of Paradigm, 
-and they provide a specific service over a defined set of API endpoints, such 
-as Open Access Button. Technically there is also the "frontend" layer, but that 
-is mostly outside Paradigm itself. There are also various third party services we use 
-as part of our infrastructure, so I’ll list them for completeness as well.
-
-Written in node.js, using coffeescript or javascript, and able to run other 
-languages
-
-Why coffeescript? We use coffeescript because it gave us advantages in simplicity of 
-writing that were not present in js/node at the time. Since then, js/node have 
-incorporated quite a few of the things that made coffeescript famous, so it is 
-less beneficial now. From this year, the coffeescript developers have decided 
-not to keep updating it, so over time it is going to become obsolete compared 
-to advancing node features. I considered getting rid of coffeescript altogether 
-because of this, but coffeescript is still a little bit nicer syntactically, 
-so I’ll keep using it. It was very popular seven years ago, and for a few years 
-since, but over the last year or two is definitely becoming less so because there 
-is not much reason for newer people to learn it now that node or js itself is 
-better for the sync/async stuff. Coffeescript is just a pseudo-language that 
-“compiles” down to javascript, so the code that eventually runs (either in our 
-current system or on CF workers) is already javascript anyway. Also, we can 
-already directly write EITHER coffeescript or javascript in the code repo itself, 
-and they work seamlessly side by side. I’ve also already tested if it complies and 
-deploys successfully into CF workers, and it does. So moving away from coffeescript 
-at any time in future is no harder than it is right now, and all it requires is that 
-we take the code we already generate for deployment, and start writing directly into 
-that in future, instead of the coffeescript. This is very easy - like, a few minutes 
-work. So I think for now it’s worth keeping coffeescript because of some nice little 
-benefits for me personally, because the trade-off is virtually no cost to the rest 
-of the project.
-
-What about Typescript? It doesn’t offer any benefits that we need, 
-but is similar conceptually to coffeescript. Someone could write typescript in our 
-API already, as it also ends up being javascript anyway. Some of the main benefits 
-of ts have also now become part of modern js, and really the only big remaining 
-benefit of ts, I think, is being able to set and control the “type” of a variable. 
-We don’t need that sort of control, 
-and actually I’d say it would be an unnecessary limitation for us to have it. Some 
-people who really like that would prefer it though. I would only use that when writing 
-code that really needed it, and in those cases I would most likely not be writing in 
-any kind of javascript anyway. The good thing about this though, as with coffeescript, 
-is that we don’t gain or lose by not using it now - it all ends up as js anyway, 
-so we’re open to it at any time.
-
-Paradigm places no constraints on what kind of UI it requires - it's just an API, 
-and anything can connect to it. There are some useful client-side javascript 
-libraries that are helpful on 
-browser UIs, such as one that interacts with the Paradigm login API 
-(login/auth is pretty complex so this is the most useful thing to provide to the frontend). 
-Paradigm is intentionally designed this way so that frontends can be kept simple, 
-and can be nothing more than some js libraries and static sites, which are very 
-easy to deploy and extremely stable. I am aware of many more complex frontend 
-frameworks and integrated frameworks, but none have ever provided sufficient 
-functionality to be worth the extra complexity they bring. So we keep it as 
-simple as possible, and provide as many useful features to connect to via the 
-API as we can. It also means it is easier to create a new frontend / UI, such 
-as a browser plugin or an android app, because it just has to connect to the 
-necessary endpoint to get the answer to the complicated parts. This sometimes 
-takes a bit of unorthodox thinking when it comes to how to develop a frontend / UI, 
-but it is worth it, and we are not doing something weird all on our own - 
-Google takes this approach too, and for example we’ve been well ahead of the 
-curve on things like passwordless login from static pages by a few years.
-
-
-<h3>History</h3>
-
-<p>Research starts with literature review - searching for relevant stuff to learn 
-from and add to. It ends with publication - contributing new material for others 
-to find and build upon. But the <b>start</b> can't actually happen unless the <b>end</b>
-happens, and unfortunately the end is intrinsically less fulfilling.</p>
-
-<p>OA.Works - initially as Open Access Button - has been building things that help 
-researchers share their work. We're not aiming to build specific 
-products/services for our own benefit, or to generate sales of a particular tool.
-If we make useful things, or we encourage or help others to do so, either outcome 
-is great. But there's definitely some stuff that someone needs to build, to make 
-it easier for those in the middle to move forward. So our aims have evolved.</p>
-
-<p>We first wanted to find out how much research is not open and make a lot of noise 
-about it to raise awareness and to map the openness of research. Next we decided to 
-help people find open access versions of articles they can't access, and 
-to request from authors if it's not already openly available. Then, with the help of 
-librarians, we started encouraging authors to deposit anything they have the right 
-to deposit, and make it really simple for an author to know that they can, and to do so.</p>
-
-<p>None of these are <b>technical</b> goals - we didn't start out intending to build 
-any particular app or technical solution. Instead, a focus on making things powerfully 
-simple, so that it becomes really easy and clear why someone should use some new tool 
-in their typical, traditional workflow, drives our technical decisions. We use 
-whatever we can to make something relevant to the average user, to help change 
-attitudes towards new approaches.</p>
-
-<p>So how can we make things powerfully simple and yet also have a system that is 
-able to deal with very complex situations? As we don't know in advance what 
-tools we end up needing to build, or how much time and budget we have 
-to do so, we needed a way to be able to do fairly complex developments even if 
-they don't seem critical to the project at the time. We achieved this because 
-our software has never been just one thing - it is part of a larger stack that 
-has grown over the years across various projects and personal interests - and it's 
-open source, so we can choose from literally millions of other open source projects 
-to build upon. So we try to generalise a lot of potentially complex problems and 
-then implement them into project deliverables when they became useful.</p>
-
-<p>There have also been downsides to this approach. Complex "backend" development is 
-often not seen as high priority from a project perspective, and time to document, 
-test, sysadmin, or refactor is often a big delay to more visible project deliverables. 
-Users and funders understand things that they can actually "see", like a new UI widget, 
-so the more successful we were at making the frontend look powerfully simple, the less 
-time we put into hard, invisible (but critical) things. Now, with more time and resources, 
-we have an opportunity to take more advantage of the hidden part of the iceberg of work 
-we've been doing over the years. By making that work more visible, and by making it a 
-goal of our project in itself to make this available to other people, we also hold 
-ourselves accountable for keeping up with these "things"hidden" aspects of our work.</p>
-
-<p>The stack has gone through four major versions already, and now in version five 
-it has become the API framework that we're now releasing as Paradigm.</p>
-
-
-<h3>Use in your projects</h3>
+<h3>Build your own service</h3>
 
 <p>Write your own service standalone, and talk to ours over the API where necessary.</p>
 
@@ -628,6 +744,8 @@ it has become the API framework that we're now releasing as Paradigm.</p>
 <h3>Our future plans</h3>
 
 <p>See the code repo and explore the issues, tags, project board etc.</p>
+
+<p>Also our other relevant projects, UI repo, and so on.</p>
 
 <p>Suggest stuff you need / would like to see added.</p>
 
@@ -646,16 +764,13 @@ could host relevant services, so contact us if you need that.</p>
 The process is usually fork, change, request a merge. Long term contributors 
 will be given access to develop feature branches and request PRs directly on our repo.</p>
 
-<h2>Support us</h2>
 
-<h3>Our funders</h3>
 
-<h3>Related work</h3>
+<h2>Our funders and supporters</h2>
 
-<p>Our UI, embed repos etc</p>
+
 
 </div>
-
 
 </body>
 </html>

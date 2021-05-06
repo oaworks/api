@@ -13,8 +13,16 @@ P.svc.oaworks.journal = (q) ->
   catch
     return undefined
 
-P.svc.oaworks.oapublisher = (publisher) ->
-  try publisher ?= @params.publisher
+P.svc.oaworks.journal.oa = (issn) ->
+  # NOTE it is still to be decided what licence is acceptable to be counted as OA on the crossref index. For now it's anything CC, including NC
+  try issn ?= @params.journal ? @params.issn ? @params.oa
+  tc = await @fetch 'https://dev.api.cottagelabs.com/use/crossref/works?q=ISSN.exact:"' + issn + '"'
+  oac = await @fetch 'https://dev.api.cottagelabs.com/use/crossref/works?q=ISSN.exact:"' + issn + '" AND is_oa:true' # could add AND NOT licence:nc
+  return tc.hits.total is oac.hits.total and (tc.hits.total isnt 0 or oac.hits.total isnt 0)
+
+P.svc.oaworks.publisher = {}
+P.svc.oaworks.publisher.oa = (publisher) ->
+  try publisher ?= @params.publisher ? @params.oa
   tc = await @fetch 'https://dev.api.cottagelabs.com/service/jct/journal?q=publisher:"' + publisher + '" AND NOT discontinued:true'
-  oac = await @fetch 'https://dev.api.cottagelabs.com/service/jct/journal?q=publisher:"' + publisher + '" AND NOT discontinued:true AND isdoaj:true'
-  return tc.hits.total is oac.hits.total
+  oac = await @fetch 'https://dev.api.cottagelabs.com/service/jct/journal?q=publisher:"' + publisher + '" AND NOT discontinued:true AND indoaj:true'
+  return tc.hits.total is oac.hits.total and (tc.hits.total isnt 0 or oac.hits.total isnt 0)

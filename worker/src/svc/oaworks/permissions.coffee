@@ -130,7 +130,7 @@ P.svc.oaworks.permissions = (meta, ror, getmeta) ->
     if not haddoi and meta.doi
       await _getmeta()
       try
-        meta.publisher ?= af.publisher
+        meta.publisher ?= af?.publisher
         if af?.issn
           for an in (if typeof af.issn is 'string' then [af.issn] else af.issn)
             issns.push(an) if an not in issns # check again
@@ -160,7 +160,7 @@ P.svc.oaworks.permissions = (meta, ror, getmeta) ->
   rors = []
   if meta.ror?
     meta.ror = [meta.ror] if typeof meta.ror is 'string'
-    rs = await @svc.oaworks.permission 'issuer.id:"' + meta.ror.join('" OR issuer.id:"') + '"'
+    rs = await @svc.oaworks.permissions.affiliations 'issuer.id:"' + meta.ror.join('" OR issuer.id:"') + '"'
     if not rs?.hits?.total
       # look up the ROR in wikidata - if found, get the qid from the P17 country snak, look up that country qid
       # get the P297 ISO 3166-1 alpha-2 code, search affiliations for that
@@ -175,38 +175,42 @@ P.svc.oaworks.permissions = (meta, ror, getmeta) ->
               for sn in cwd.snaks
                 if sn.property is 'P297'
                   snkd = true
-                  rs = await @svc.oaworks.permission 'issuer.id:"' + sn.value + '"'
+                  rs = await @svc.oaworks.permissions.affiliations 'issuer.id:"' + sn.value + '"'
                   break
     for rr in rs?.hits?.hits ? []
       tr = await _prep rr._source
       tr.score = await _score tr
       rors.push tr
 
-  if issns.length or meta.publisher
+  if issns.length
     qr = if issns.length then 'issuer.id:"' + issns.join('" OR issuer.id:"') + '"' else ''
-    if meta.publisher
-      qr += ' OR ' if qr isnt ''
-      qr += 'issuer.id:"' + meta.publisher + '"' # how exact/fuzzy can this be
-    ps = await @svc.oaworks.permission qr
-    if ps?.hits?.hits? and ps.hits.hits.length
-      for p in ps.hits.hits
-        rp = await _prep p._source
-        rp.score = await _score rp
-        perms.all_permissions.push rp
+    ps = await @svc.oaworks.permissions.journals qr
+    for p in ps?.hits?.hits ? []
+      rp = await _prep p._source
+      rp.score = await _score rp
+      perms.all_permissions.push rp
 
-  if perms.all_permissions.length is 0 and meta.publisher and not meta.doi and not issns.length
-  #if meta.publisher
+  if meta.publisher
+    qr = 'issuer.id:"' + meta.publisher + '"' # how exact/fuzzy can this be
+    ps = await @svc.oaworks.permissions.publishers qr
+    for p in ps?.hits?.hits ? []
+      rp = await _prep p._source
+      rp.score = await _score rp
+      perms.all_permissions.push rp
+
+  #if perms.all_permissions.length is 0 and meta.publisher and not meta.doi and not issns.length
+  if meta.publisher
     af = await @svc.oaworks.journal 'publisher:"' + meta.publisher + '"'
     if not af?
       fz = await @svc.oaworks.journal 'publisher:"' + meta.publisher.split(' ').join('" AND publisher:"') + '"'
-      if fz.publisher is meta.publisher
+      if fz?.publisher is meta.publisher
         af = fz
-      else
+      else if fz?.publisher
         lvs = await @tdm.levenshtein fz.publisher, meta.publisher
         longest = if lvs.length.a > lvs.length.b then lvs.length.a else lvs.length.b
         af = fz if lvs.distance < 5 or longest/lvs.distance > 10
     if af?.publisher
-      pisoa = await @svc.oaworks.oapublisher af.publisher
+      pisoa = await @svc.oaworks.publisher.oa af.publisher
 
   if typeof af is 'object' and (af.indoaj or pisoa)
     altoa =
@@ -251,7 +255,7 @@ P.svc.oaworks.permissions = (meta, ror, getmeta) ->
     perms.all_permissions.push altoa
 
   if meta.doi and oadoi = await @src.oadoi meta.doi
-    if haddoi and oadoi?.best_oa_location?.license and oadoi.best_oa_location.license.indexOf('cc') isnt -1 # (haddoi or oadoi?.journal_is_oa)
+    if haddoi and oadoi?.best_oa_location?.license and oadoi.best_oa_location.license.indexOf('cc') isnt -1 #  (haddoi or oadoi?.journal_is_oa)
       doa =
         can_archive: true
         version: oadoi.best_oa_location.version
@@ -332,13 +336,28 @@ P.svc.oaworks.permissions = (meta, ror, getmeta) ->
       body: if typeof overall_policy_restriction isnt 'string' then overall_policy_restriction else msgs[overall_policy_restriction.toLowerCase()] ? overall_policy_restriction
       status: 501
   else
-    #perms.meta = meta if @S.dev
+    perms.metadata = meta if @params.metadata is true or getmeta is true
     return perms
 
 
 
+# the original sheet, now split into three separate ones, but keep a note in case of use for testing: 
 # https://docs.google.com/spreadsheets/d/1qBb0RV1XgO3xOQMdHJBAf3HCJlUgsXqDVauWAtxde4A/edit
-P.svc.oaworks.permission = (recs=[]) ->
+P.svc.oaworks.permissions.journals = (recs=[]) -> return @svc.oaworks.permissions._format recs
+P.svc.oaworks.permissions.journals._sheet = '19pDvOY5pge-C0yDSObnkMqqlMJgct3iIjPI2rMPLQEc'
+P.svc.oaworks.permissions.journals._prefix = false
+
+P.svc.oaworks.permissions.publishers = (recs=[]) -> return @svc.oaworks.permissions._format recs
+P.svc.oaworks.permissions.publishers._sheet = '1tmEfeJ6RCTCQjcCht-FI7FH-04z7MPSKdUnm0UpAxWM'
+P.svc.oaworks.permissions.publishers._prefix = false
+
+P.svc.oaworks.permissions.affiliations = (recs=[]) -> return @svc.oaworks.permissions._format recs
+P.svc.oaworks.permissions.affiliations._sheet = '1J4WhZjPsAjpoogsj7wSTQGJPguo7TiSe0uNcrvyd_OM'
+P.svc.oaworks.permissions.affiliations._prefix = false
+
+
+
+P.svc.oaworks.permissions._format = (recs=[]) ->
   recs = [recs] if typeof recs is 'object' and not Array.isArray recs
   
   keys = 
@@ -424,7 +443,6 @@ P.svc.oaworks.permission = (recs=[]) ->
         cids.push(nid) if nid not in cids
       nr.issuer.id = cids
     else if nr.issuer.id.startsWith('10.') and nr.issuer.id.indexOf('/') isnt -1 and nr.issuer.id.indexOf(' ') is -1
-      console.log nr.issuer.id
       nr.DOI = nr.issuer.id
     nr.permission_required = rec.has_policy? and rec.has_policy.toLowerCase().indexOf('permission required') isnt -1
 
@@ -481,8 +499,3 @@ P.svc.oaworks.permission = (recs=[]) ->
     ready.push(nr) if not JSON.stringify(nr) isnt '{}'
 
   return if ready.length is 1 then ready[0] else ready
-
-P.svc.oaworks.permission._sheet = '1qBb0RV1XgO3xOQMdHJBAf3HCJlUgsXqDVauWAtxde4A'
-P.svc.oaworks.permission._prefix = false
-#P.svc.oaworks.permission._bg = true
-

@@ -25,7 +25,7 @@ P.src.base.title = (title) ->
 
 P.src.base.get = (qry) ->
 	res = await @src.base.search qry
-	return if res?.docs?.length then res.docs[0] else undefined
+	return if res?.data?.length then res.data[0] else undefined
 
 P.src.base.search = (qry='*', from, size) ->
   # it uses offset and hits (default 10) for from and size, and accepts solr query syntax

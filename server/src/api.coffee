@@ -6,6 +6,7 @@ import https from 'https' # allows fetch to control https security for local con
 import Busboy from 'busboy'
 import fs from 'fs'
 import tar from 'tar' # for DOAJ data dumps, possibly others
+import zlib from 'zlib' # for reading/converting gz files
 
 
 server = http.createServer (req, res) ->
@@ -73,4 +74,4 @@ if S.demo
   console.log 'NOTE: withhout any settings, this is only running locally for you, and should NOT be relied upon to store data'
   console.log 'Read more in the docs about settings and secrets, storing data in elasticsearch, and deployment options.'
   console.log 'You\'ll get this msg on each startup until you make some settings :)'
-  console.log 'Thanks for trying Paradigm! Learn more, and support us, at ' + S.docs
+  console.log 'Thanks for trying Paradigm!' + (if S.docs then ' Learn more, and support us, at ' + S.docs else '')

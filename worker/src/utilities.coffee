@@ -188,8 +188,14 @@ P.template = (content, vars) ->
 
 P._templates = _index: true # an index to store templates in - although generally should be handled at the individual function/service level
 
-P.date = (rt) ->
+P.date = (rt, timed) ->
   rt ?= @params.date
+  timed ?= @params.time
+  if typeof rt is 'number' or (typeof rt is 'string' and rt.indexOf(' ') is -1 and rt.length > 10 and rt.indexOf('T') is -1)
+    try
+      ret = new Date parseInt rt
+      ret = ret.toISOString()
+      return if timed then ret else ret.split('T')[0]
   try
     rt = rt.toString() if typeof rt is 'number'
     rt = rt[0] if Array.isArray(rt) and rt.length is 1 and Array.isArray rt[0]
@@ -211,6 +217,25 @@ P.date = (rt) ->
     return rt
   catch
     return undefined
+
+P.datetime = () -> return @date @params.datetime, @params.time ? true
+P.epoch = (epoch) ->
+  epoch ?= @params.epoch
+  try
+    if epoch.length > 10 and parseInt epoch
+      return @date @params.epoch, @params.time ? true
+  epoch = epoch.toString() if typeof epoch is 'number'
+  epoch += '-01' if epoch.length is 4
+  epoch += '-01' if epoch.split('-').length < 3
+  epoch += 'T' if epoch.indexOf('T') is -1
+  epoch += '00:00' if epoch.indexOf(':') is -1
+  epoch += ':00' if epoch.split(':').length < 3
+  epoch += '.' if epoch.indexOf('.') is -1
+  [start, end] = epoch.split('.')
+  end = end.replace('Z','').replace('z','')
+  end += '0' while end.length < 3
+  end += 'Z' if end.indexOf('Z') is -1
+  return new Date(start + '.' + end).valueOf()
 
 '''
 P.retry = (fn, params=[], opts={}) ->

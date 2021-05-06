@@ -11,7 +11,7 @@ P.src.grist = (qrystr, from) ->
   qrystr ?= @params.grist
   if qrystr.indexOf('gid:') isnt 0 and qrystr.indexOf(' ') is -1 and parseInt qrystr
     qrystr = 'gid:' + qrystr # check the qrystr to decide if this should be added or not
-  url = 'https://www.ebi.ac.uk/europepmc/GristAPI/rest/get/query=' + qrystr + '&resultType=core&format=json'
+  url = 'https://www.ebi.ac.uk/europepmc/GristAPI/rest/get/query=' + encodeURIComponent(qrystr) + '&resultType=core&format=json'
   url += '&page=' + (Math.floor(from/25)+1) if from?
   res = await @fetch url
-  return total: res.data.HitCount, data: (res.data.RecordList?.Record ? {})
+  return total: res.HitCount, data: (res.RecordList?.Record ? {})

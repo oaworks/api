@@ -1,5 +1,5 @@
 
-P.convert = {}
+P.convert ?= {}
 
 P.convert.json2csv = (recs, params) ->
   recs ?= @body ? @params
@@ -367,3 +367,9 @@ P.convert.mime = (fn) ->
   mime = P.convert._mimes['.'+tp]
   return if typeof mime is 'string' then mime else false
 
+P.convert.stream2txt = (stream) ->
+  chunks = []
+  return new Promise (resolve, reject) =>
+    stream.on 'data', (chunk) => chunks.push Buffer.from chunk
+    stream.on 'error', (err) => reject err
+    stream.on 'end', () => resolve Buffer.concat(chunks).toString 'utf8'

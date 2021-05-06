@@ -46,11 +46,20 @@ P.mail = (opts) ->
   return await f url, {method: 'POST', form: fo, auth:'api:'+ms.apikey}
 
 P.mail.validate = (e, apikey) ->
-  apikey ?= S.mail?.pubkey
+  #apikey ?= @S.mail?.pubkey
   e ?= this?.params?.email
-  if typeof e is 'string' and typeof apikey is 'string'
-    # also add a simple regex validator if mailgun validation is not available - and cache the validations
-    f = this?.fetch ? P.fetch
-    return await f 'https://api.mailgun.net/v3/address/validate?syntax_only=false&address=' + encodeURIComponent(e) + '&api_key=' + apikey
+  if typeof e is 'string' and e.length and (e.indexOf(' ') is -1 or (e.startsWith('"') and e.split('"@').length is 2))
+    try
+      if typeof apikey is 'string'
+        v = await @fetch 'https://api.mailgun.net/v3/address/validate?syntax_only=false&address=' + encodeURIComponent(e) + '&api_key=' + apikey
+        return v.did_you_mean ? v.is_valid
 
+    #(?:[a-z0-9!#$%&amp;'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&amp;'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])
+    ns = e.split '@'
+    if ns.length is 2 and ns[0].length and ns[0].length < 65 and ((ns[0].startsWith('"') and ns[0].endsWith('"')) or (ns[0].indexOf(' ') is -1 and ns[0].indexOf(',') is -1 and ns[0].indexOf(':') is -1 and ns[0].indexOf(';') is -1))
+      if ns[1].length and ns[1].indexOf(',') is -1 and ns[1].indexOf(' ') is -1
+        nsp = ns[1].split '.'
+        if nsp.length > 1 and (nsp.length isnt 2 or nsp[0] isnt 'example')
+          return true
 
+  return false
