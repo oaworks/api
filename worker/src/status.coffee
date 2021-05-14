@@ -1,7 +1,27 @@
 
+P.status = ->
+  res = name: S.name, version: S.version, built: S.built
+  for k in ['uid', 'rid', 'params', 'base', 'parts', 'opts', 'routes']
+    try res[k] ?= @[k]
+  res.bg = true if @S.bg is true
+  res.kv = if typeof @S.kv is 'string' and global[@S.kv] then @S.kv else if typeof @S.kv is 'string' then @S.kv else false
+  res.index = true if await @index ''
+  if S.dev
+    if @S.bg isnt true
+      try res.request = @request
+    for k in ['headers', 'cookie', 'user']
+      try res[k] ?= @[k]
+      
+  # maybe useful things like how many accounts, how many queued jobs etc - prob just get those from status endpoints on the stack
+  # maybe some useful info from the recent logs too
+  return res
+
+
+'''
+
 import fs from 'fs'
 
-P.structure = (src='/home/cloo/paradigm/server/dist/server.min.js') ->
+P.structure = (src) ->
   collections = []
   methods = {}
   settings = {}
@@ -38,10 +58,11 @@ P.structure = (src='/home/cloo/paradigm/server/dist/server.min.js') ->
       TODO[method.name ? 'GENERAL'] ?= []
       TODO[method.name ? 'GENERAL'].push line.split(if line.indexOf('todo') isnt -1 then 'todo' else 'TODO')[1].trim()
     if incomment or not line.length
-      if line.indexOf("'''") isnt -1
+      # TODO these line index and trims should have three single quotes inside the doubles, which breaks parsing while commented out, so removing for now
+      if line.indexOf("") isnt -1
         incomment = false
-    else if line.trim().startsWith('#') or line.trim().startsWith("'''")
-      if line.trim().startsWith("'''")
+    else if line.trim().startsWith('#') or line.trim().startsWith("")
+      if line.trim().startsWith("")
         incomment = true
     else if line.indexOf('P.') is 0 or (not line.startsWith(' ') and line.indexOf('=') isnt -1)
       inroute = false
@@ -160,3 +181,5 @@ P.structure.nodeslinks = (sr, group) ->
   sr.groups ?= groups.sort()
 
   return sr
+'''
+

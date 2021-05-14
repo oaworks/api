@@ -67,6 +67,11 @@ P.index = (route, data, qopts) ->
       route += '/' + @parts.join('_').replace(route + '_', '') if @parts.join('.') isnt @fn
 
   return undefined if typeof route isnt 'string'
+  if route.includes '?'
+    [route, rqp] = route.split '?'
+    rqp = '?' + rqp
+  else
+    rqp = ''
   route = route.replace(/\/$/,'') if route.endsWith '/'
   if typeof data is 'object' and not Array.isArray(data) and data._id
     dni = data._id.replace /\//g, '_'
@@ -79,7 +84,7 @@ P.index = (route, data, qopts) ->
   if (this?.parts? and @parts[0] is 'index' and (@request.method is 'DELETE' or @params._delete)) or data is ''
     # DELETE can happen on index or index/key, needs no additional route parts for index but index/key has to happen on _doc
     # TODO for @params._delete allow a passthrough of data in case it is a delete by query, once _submit is updated to handle that if still possible
-    ret = await cidx._submit route.replace('/', '/_doc/'), ''
+    ret = await cidx._submit route.replace('/', '/_doc/') + rqp, ''
     return undefined #ret.acknowledged is true or ret.result is 'deleted'
   else if rpl is 1
     # CREATE can happen on index if index params are provided or empty object is provided
@@ -87,33 +92,36 @@ P.index = (route, data, qopts) ->
     # simplest create would be {} or settings={number_of_shards:1} where 1 is default anyway
     if (typeof data is 'string' and (data is '' or data.indexOf('\n') isnt -1)) or Array.isArray data
       if data is ''
-        return cidx._submit route, data
+        return cidx._submit route + rqp, data
       else
-        return cidx._bulk route, data # bulk create (TODO what about if wanting other bulk actions?)
-    else if typeof data is 'object'
-      if cidx._q data
-        return cidx._submit route + '/_search', await cidx.translate data, qopts
-      else
+        return cidx._bulk route + rqp, data # bulk create (TODO what about if wanting other bulk actions?)
+    else if typeof data in ['object', 'string']
+      if typeof data is 'string' or cidx._q data
+        return cidx._submit route + '/_search' + rqp, await cidx.translate data, qopts
+      else if typeof data is 'object'
         chk = if this?.copy? then @copy(data) else P.copy data
         delete chk[c] for c in ['settings', 'aliases', 'mappings']
         if JSON.stringify(chk) is '{}'
-          if not await cidx._submit route
+          if not await cidx._submit route + rqp
             ind = if not cidx._q(data) then {settings: data.settings, aliases: data.aliases, mappings: data.mappings} else {}
-            await cidx._submit route, ind # create the index
-          return cidx._submit route + '/_search' # just do a search
+            await cidx._submit route + rqp, ind # create the index
+          return cidx._submit route + '/_search' + rqp # just do a search
         else
-          return cidx._submit route + '/_doc', data # create a single record without ID (if it came with ID it would have been caught above and converted to route with multiple parts)
+          return cidx._submit route + '/_doc' + rqp, data # create a single record without ID (if it came with ID it would have been caught above and converted to route with multiple parts)
     else
-      return cidx._submit route + '/_search'
+      return cidx._submit route + '/_search' + rqp
   else if rpl is 2 and (not data? or typeof data is 'object' and not Array.isArray data)
     # CREATE or overwrite on index/key if data is provided - otherwise just GET the _doc
     # Should @params be able to default to write data on index/key?
     # TODO check how ES7.x accepts update with script in them
+    route = route.replace('/', '/_doc/') if not route.startsWith('_') and not route.includes '/_'
     if data? and JSON.stringify(data) isnt '{}'
-      route = if data is '' then route else if data.script? then route + '/_update?retry_on_conflict=2' else route.replace '/', '/_doc/' # does PUT create work if it already exists? or PUT _doc? or POST _create?
-      return cidx._submit route, data
+      if typeof data is 'object' and data.script?
+        route += '_update'
+        rqp += (if rqp.length then '&' else '?') + 'retry_on_conflict=2'
+      return cidx._submit route + rqp, data
     else # or just get the record
-      ret = await cidx._submit route.replace '/', '/_doc/'
+      ret = await cidx._submit route + rqp
       if typeof ret is 'object' and (ret._source or ret.fields)
         rex = ret._source ? ret.fields
         rex._id ?= ret._id # if _id can no longer be stored in the _source in ES7.x
@@ -126,10 +134,15 @@ P.index = (route, data, qopts) ->
 # calling this should be given a correct URL route for ES7.x, domain part of the URL is optional though.
 # call the above to have the route constructed. method is optional and will be inferred if possible (may be removed)
 P.index._submit = (route, data, method, deletes=true) -> # deletes is true in dev, but remove or add auth control for live
+  if route.includes '?'
+    [route, rqp] = route.split '?'
+    rqp = '?' + rqp
+  else
+    rqp = ''
   route = route.toLowerCase() # force lowercase on all IDs so that can deal with users giving incorrectly cased IDs for things like DOIs which are defined as case insensitive
-  route = route.replace('/','') if route.indexOf('/') is 0 # gets added back in when combined with the url
+  route = route.replace('/','') if route.startsWith '/' # gets added back in when combined with the url
   route = route.replace(/\/$/,'') if route.endsWith '/'
-  method ?= if route is '_pit' or data is '' then 'DELETE' else if data? and (route.indexOf('/') is -1 or route.indexOf('/_create') isnt -1 or (route.indexOf('/_doc') isnt -1 and not route.endsWith('/_doc'))) then 'PUT' else if data? or route.split('/').pop().split('?')[0] in ['_refresh', '_pit', '_aliases'] then 'POST' else 'GET'
+  method ?= if data is '' then 'DELETE' else if data? and (route.indexOf('/') is -1 or route.indexOf('/_create') isnt -1 or (route.indexOf('/_doc') isnt -1 and not route.endsWith('/_doc'))) then 'PUT' else if data? or route.split('/').pop().split('?')[0] in ['_refresh', '_aliases'] then 'POST' else 'GET'
   # TODO if data is a query that also has a _delete key in it, remove that key and do a delete by query? and should that be bulked? is dbq still allowed in ES7.x?
   return false if method is 'DELETE' and (deletes isnt true or route.indexOf('/_all') isnt -1) # nobody can delete all via the API
   if not route.startsWith 'http' # which it probably doesn't
@@ -147,6 +160,7 @@ P.index._submit = (route, data, method, deletes=true) -> # deletes is true in de
     console.log 'NO INDEX URL AVAILABLE'
     return undefined
 
+  route = route += rqp
   opts = if route.indexOf('/_bulk') isnt -1 or typeof data?.headers is 'object' then data else body: data # fetch requires data to be body
   if route.indexOf('/_search') isnt -1
     # avoid hits.total coming back as object in new ES, because it also becomes vague
@@ -183,12 +197,13 @@ P.index._mapping = (route) ->
 
 P.index.keys = (route) ->
   try
+    route ?= @params.index ? @params.keys
     route ?= @fn.replace /\./g, '/'
     route = route.replace('index/', '').replace '/keys', ''
   keys = []
   _keys = (mapping, depth='') =>
     mapping ?= if typeof route is 'object' then route else await @index._mapping route
-    mapping.properties = mapping[route]?.mappings?.properties ? mapping.properties
+    mapping.properties = mapping[route]?.mappings?.properties ? mapping[@S.index.name + '_' + route]?.mappings?.properties ? mapping.properties
     if mapping.properties?
       depth += '.' if depth.length
       for k of mapping.properties
@@ -200,6 +215,7 @@ P.index.keys = (route) ->
 
 P.index.terms = (route, key, qry, size=1000, counts=true, order="count") ->
   try
+    route ?= @params.index ? @params.terms
     route ?= @fn.replace /\./g, '/'
     route = route.replace('index/', '').replace '/terms', ''
     if not key? and route.indexOf('/') isnt -1
@@ -238,6 +254,9 @@ P.index.terms = (route, key, qry, size=1000, counts=true, order="count") ->
   return res
 
 P.index.suggest = (route, key, qry, size=100, counts=false, order="term") ->
+  route ?= @params.index ? @params.suggest
+  route ?= @fn.replace /\./g, '/'
+  route = route.replace('index/', '') #.replace '/suggest', ''
   if not route.endsWith 'suggest'
     [route, q] = route.split '/suggest/'
     key ?= route.split('/').pop()
@@ -254,7 +273,7 @@ P.index.suggest = (route, key, qry, size=100, counts=false, order="term") ->
   return res
 
 P.index.count = (route, key, qry) ->
-  try route ?= @params.index ? @params.route ? @fn.replace /\./g, '_'
+  try route ?= @params.index ? @params.count ? @fn.replace /\./g, '_'
   if route.indexOf('/') isnt -1
     [route, key] = route.split '/'
   try key ?= @params.count ? @params.key
@@ -279,6 +298,7 @@ P.index.count = (route, key, qry) ->
 
 P.index.min = (route, key, qry) ->
   try
+    route ?= @params.index ? @params.min
     route ?= @fn.replace /\./g, '/'
     route = route.replace('index/', '').replace '/min', ''
     if not key? and route.indexOf('/') isnt -1
@@ -294,6 +314,7 @@ P.index.min = (route, key, qry) ->
 
 P.index.max = (route, key, qry) ->
   try
+    route ?= @params.index ? @params.max
     route ?= @fn.replace /\./g, '/'
     route = route.replace('index/', '').replace '/max', ''
     if not key? and route.indexOf('/') isnt -1
@@ -309,6 +330,7 @@ P.index.max = (route, key, qry) ->
 
 P.index.range = (route, key, qry) ->
   try
+    route ?= @params.index ? @params.range
     route ?= @fn.replace /\./g, '/'
     route = route.replace('index/', '').replace '/range', ''
     if not key? and route.indexOf('/') isnt -1
@@ -322,7 +344,6 @@ P.index.range = (route, key, qry) ->
   ret = await @index._submit '/' + route + '/_search', query, 'POST'
   return {min: ret.aggregations.min.value, max: ret.aggregations.max.value}
 
-# previously used scan/scroll for each, but now use pit and search_after
 # can still manually make scan/scroll calls if desired, see:
 #  scan, scroll='10m'
 #  if scan is true
@@ -333,7 +354,7 @@ P.index.range = (route, key, qry) ->
 #  else if scan?
 #    route = '/_search/scroll?scroll_id=' + scan + (if action isnt 'DELETE' then '&scroll=' + scroll else '')
 P.index._each = (route, q, opts, fn) ->
-  # use search_after for each
+  # use scan/scroll for each, because _pit is only available in "default" ES, which ES means is NOT the open one, so our OSS distro does not include it!
   # https://www.elastic.co/guide/en/elasticsearch/reference/7.10/paginate-search-results.html#search-after
   # each executes the function for each record. If the function makes changes to a record and saves those changes, 
   # this can cause many writes to the collection. So, instead, that sort of function could return something
@@ -347,11 +368,11 @@ P.index._each = (route, q, opts, fn) ->
     fn = opts
     opts = undefined
   opts ?= {}
-  if opts.keep_alive?
-    ka = opts.keep_alive
-    delete opts.keep_alive
+  if opts.scroll?
+    scroll = opts.scroll
+    delete opts.scroll
   else
-    ka = '5m'
+    scroll = '10m'
   if opts.action
     action = opts.action
     delete opts.action
@@ -360,31 +381,40 @@ P.index._each = (route, q, opts, fn) ->
   qy = await @index.translate q, opts
   qy.from = 0 # from has to be 0 for search_after
   qy.size ?= 1000 # 10000 is max and would be fine for small records...
-  pit = await @index(route + '/_pit?keep_alive=' + ka).id # here route should be index name
-  qy.pit = id: pit, keep_alive: ka # this gives a point in time ID that will be kept alive for given time, so changes don't ruin the result order
-  # note sort should contain a tie-breaker on a record unique value, so check even if there is a sort
-  # also what if there is no createdAt field? what to sort on?
-  qy.sort ?= [{createdAt: 'asc'}]
+  sz = qy.size ? 800
+  qy.size = 1
+  chk = await @index route, qy
+  if chk?.hits?.total? and chk.hits.total isnt 0
+    # make sure that query result size does not take up more than about 1gb
+    # NOTE also that in a scroll-scan size is per shard, not per result set
+    max_size = Math.floor(1000000000 / (Buffer.byteLength(JSON.stringify(chk.hits.hits[0])) * chk._shards.total))
+    sz = max_size if max_size < sz
+  qy.size = sz
+  res = await @index route + '?scroll=' + scroll, qy
+  delete res._scroll_id if res?.hits?.total? and res.hits.total is res.hits.hits.length
   processed = 0
   updates = []
-  total = false
-  while res?.hits?.hits? and (total is false or processed < total)
-    res = await @index route, qy
-    total = res.hits.total if total is false
+  while res?.hits?.hits? and res.hits.hits.length
     for h in res.hits.hits
-      processed += 1
       fn = fn.bind this
-      fr = fn h._source ? h.fields ? {_id: h._id}
+      rf = h._source ? h.fields ? {}
+      if not h.fields
+        rf._id ?= h._id
+      fr = fn rf
+      processed += 1
       updates.push(fr) if fr? and (typeof fr is 'object' or typeof fr is 'string')
-      qy.search_after = h.sort
-    qy.pit.id = res.pit_id
+    if res._scroll_id?
+      res = await @index '/_search/scroll?scroll_id=' + res._scroll_id + '&scroll=' + scroll
+    else
+      res.hits.hits = []
+  console.log('_each processed ' + processed) if @S.dev and @S.bg is true
   if action and updates.length # TODO should prob do this during the while loop above, once updates reaches some number
     @index._bulk route, updates, action
-  @index._submit '/_pit', id: pit # delete the pit
 
 P.index._bulk = (route, data, action='index', bulk=50000) ->
   # https://www.elastic.co/guide/en/elasticsearch/reference/1.4/docs-bulk.html
   # https://www.elastic.co/guide/en/elasticsearch/reference/1.4/docs-update.html
+  action = 'index' if action is true
   prefix = await @dot P, (route.split('/')[0]).replace(/_/g, '.') + '._prefix'
   route = @S.index.name + '_' + route if prefix isnt false # need to do this here as well as in _submit so it can be set below in each object of the bulk
   cidx = if this?.index? then @index else P.index
@@ -598,7 +628,7 @@ P.index.translate = (q, opts={}) ->
   if opts?
     if opts.newest is true
       delete opts.newest
-      opts.sort = {createdAt:{order:'desc'}} # TODO check this for new ES7.x, and see that createdAt field still exists for new system
+      opts.sort = {createdAt:{order:'desc'}}
     else if opts.newest is false
       delete opts.newest
       opts.sort = {createdAt:{order:'asc'}}

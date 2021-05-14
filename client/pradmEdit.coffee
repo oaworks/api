@@ -5,15 +5,15 @@
 pradm._editStyle = '<style>\
   .pradmChanged {
     border-color: yellow;
-    box-shadow: 2px 2px 2px 2px yellow;
+    box-shadow: 1px 1px 1px 1px yellow;
   }
   .pradmSaved {
     border-color: green;
-    box-shadow: 2px 2px 2px 2px green;
+    box-shadow: 1px 1px 1px 1px green;
   }
   .pradmError {
     border-color: red;
-    box-shadow: 2px 2px 2px 2px red;
+    box-shadow: 1px 1px 1px 1px red;
   }
 </style>'
 pradm._editTimeout
@@ -39,7 +39,7 @@ pradm.edit = (obj) ->
     pradm.listen 'click', '#pradmSave', (el) -> pradm.save(); return false;
 
 pradm.save = (obj, send) ->
-  console.log 'saving'
+  console.log 'saving', send
   if not obj?
     pradm._editObject ?= {}
     pradm.each '.pradmSaved', (el) ->
@@ -51,12 +51,20 @@ pradm.save = (obj, send) ->
         pradm._editObject[key] ?= []
         pradm._editObject[key].push pradm.get el
       else
-        pradm._editObject[key] = pradm.get el
+        pv = pradm.get el
+        if pv is null
+          try delete pradm._editObject[key]
+        else
+          pradm._editObject[key] = pv
     obj = pradm._editObject
   if send isnt false
+    obj._id ?= pradm._newid
     pradm.ajax window.location.pathname.replace('.html', ''), 
       data: obj
       success: (data) ->
+        if not pradm._newid and window.location.search.indexOf('?new') isnt -1 or window.location.search.indexOf('&new') isnt -1
+          pradm._newid = data._id
+          try window.history.replaceState "","", window.location.pathname.replace '.html', '/' + data._id + '.html?edit'
         pradm.each '.pradmChanged', (el) -> 
           pradm.class el, 'pradmChanged', false
           pradm.class el, 'pradmSaved'

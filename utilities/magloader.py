@@ -16,8 +16,8 @@ keys = {
 
 howmany = -1 # max number of lines to process. set to -1 to keep going
 
-infolder = '/home/cloo/mag/' # where the lines should be read from
-lastfile = '/home/cloo/mag/last' # prefix of where to record the ID of the last item read from the kind of file
+infolder = '~/mag/' # where the lines should be read from
+lastfile = '~/mag/last' # prefix of where to record the ID of the last item read from the kind of file
 
 def rebuild(idx):
     ind = json.load(idx)

@@ -14,9 +14,9 @@ P.fetch = (url, params) ->
   if not url and params.url
     url = params.url
     delete params.url
-  if params.bg is true and typeof @S.bg is 'string'
+  if params.bg is true and typeof S.bg is 'string'
     params.url = url # send to bg (e.g. for proxying)
-    url = @S.bg + '/fetch'
+    url = S.bg + '/fetch'
     delete params.bg
   # if params is provided, and headers is in it, may want to merge with some default headers
   # see below for other things that can be set
@@ -46,7 +46,10 @@ P.fetch = (url, params) ->
     params.headers ?= {}
     if not params.headers['Content-Type']? and not params.headers['content-type']?
       params.headers['Content-Type'] = 'application/x-www-form-urlencoded'
-    params.body = if typeof params.form is 'string' then params.form else await @params params.form
+    if typeof params.form is 'string'
+      params.body = params.form
+    else
+      try params.form = await @params params.form
     delete params.form
     params.method ?= 'POST'
   if typeof url isnt 'string'
@@ -75,25 +78,36 @@ P.fetch = (url, params) ->
           # allow local https connections on backend server without check cert
           params.agent ?= new https.Agent rejectUnauthorized: false
       response = await fetch url, params
-      console.log(response.status + ' ' + url) if S.dev #and @S.bg is true # status code can be found here
-      if verbose
-        return response
-      else
-        # content type could be read from: response.headers.get('content-type')
-        # and await response.json() can get json direct, but it will error if the wrong sort of data is provided.
-        # So just do it manually from text here if appropriate
-        # TODO what if the response is a stream?
-        r = await response.text()
-        try r = JSON.parse(r) if typeof r is 'string' and (r.indexOf('{') is 0 or r.indexOf('[') is 0)
-        if response.status is 404
-          return undefined
-        else if response.status >= 400
-          if S.dev
-            console.log JSON.stringify r
-            console.log 'ERROR ' + response.status
-          return status: response.status
+      console.log(response.status + ' ' + url) if S.dev #and S.bg is true # status code can be found here
+      # content type could be read from: response.headers.get('content-type')
+      # and await response.json() can get json direct, but it will error if the wrong sort of data is provided.
+      # So just do it manually from text here if appropriate
+      # TODO what if the response is a stream (buffer)?
+      r = await response.text()
+      try r = JSON.parse(r) if typeof r is 'string' and (r.indexOf('{') is 0 or r.indexOf('[') is 0)
+      resp = {}
+      if response.status is 404
+        resp = undefined
+      else if response.status >= 400
+        if S.dev
+          console.log JSON.stringify r
+          console.log 'ERROR ' + response.status
+        resp.status = response.status
+      else if verbose
+        if typeof r is 'object'
+          resp.json = r
         else
-          return r
+          resp.text = r
+      else
+        resp = r
+      if verbose and typeof resp is 'object'
+        resp.headers = {}
+        resp.headers[hd[0]] = hd[1] for hd in [...response.headers]
+        resp[rk] = response[rk] for rk in ['status', 'ok', 'redirected', 'bodyUsed'] # size, timeout url, statusText, clone, body, arrayBuffer, blob, json, text, buffer, textConverted
+      if verbose and resp? and this?.fn? and @fn is 'fetch' and @parts.length is 1 and @parts[0] is 'fetch'
+        return status: 200, body: resp
+      else
+        return resp
     '''
     if params.retry
       params.retry = 3 if params.retry is true
@@ -105,7 +119,7 @@ P.fetch = (url, params) ->
           delete params[rk]
       res = @retry.call this, _f, [url, params], opts
     else'''
-    if params.timeout
+    if params.timeout and this?._timeout?
       pt = if params.timeout is true then 30000 else params.timeout
       delete params.timeout
       res = await @_timeout pt, _f()

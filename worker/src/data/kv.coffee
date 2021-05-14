@@ -3,23 +3,23 @@
 # Keys are always returned in lexicographically sorted order according to their UTF-8 bytes.
 # NOTE these need to be awaited when necessary, as the val will be a Promise
 
-# TODO test and enable these alternates for when kv is remotely accessed, or wrapped over the index
-'''if typeof S.kv is 'string' and S.kv.startsWith 'http' and not global[S.kv]
+# this could move to server, if never going to be used from worker - would want to run a worker connecting to a somehow remote kv?
+if typeof S.kv is 'string' and S.kv.startsWith('http') and not global[S.kv]
   # kv is a URL back to the worker to access cloudflare kv
   global[S.kv] = {}
   global[S.kv].get = (key) ->
-    return await P.fetch S.kv + '/' + key
+    return P.fetch S.kv + '/' + key
   global[S.kv].getWithMetadata = (key) ->
     ret = await P.fetch S.kv + '/' + key
     return value: ret, metadata: {} # can't get the metadata remotely
   global[S.kv].put = (key, data) ->
-    return await P.fetch S.kv + '/' + key, body: data
+    return P.fetch S.kv + '/' + key, body: data
   global[S.kv].delete = (key) ->
-    return await P.fetch S.kv + '/' + key, body: ''
+    return P.fetch S.kv + '/' + key, method: 'DELETE'
   global[S.kv].list = (prefix, cursor) ->
-    return await P.fetch S.kv + '/list' + (if prefix then '/' + prefix else '') + (if cursor then '?cursor=' + cursor else '')
+    return P.fetch S.kv + '/list' + (if prefix then '/' + prefix else '') + (if cursor then '?cursor=' + cursor else '')
 
-if typeof S.kv isnt 'string' and S.kv isnt false
+'''if typeof S.kv isnt 'string' and S.kv isnt false
   global[S.kv] = {}
   global[S.kv].get = (key) ->
     ret = await P.index 'kv/' + key.replace /\//g, '_'
@@ -59,7 +59,7 @@ P.kv = (key, val, ttle, metadata, type) ->
     if not val?
       if @request.method is 'DELETE' or @params._delete # TODO this is for easy dev, take out or auth restrict later
         val = ''
-      else if @body?
+      else if @body
         val = @body
       else if @params.val
         val = @params.val
@@ -69,7 +69,7 @@ P.kv = (key, val, ttle, metadata, type) ->
         delete val[k] for k in @parts
       val = JSON.parse(val) if typeof val is 'string' and (val.indexOf('[') is 0 or val.indexOf('{') is 0)
       val = undefined if JSON.stringify(val) in ['{}', '[]']
-  val = '' if typeof val is 'object' and JSON.stringify(val) in ['{}', '[]']
+  val = undefined if typeof val is 'object' and JSON.stringify(val) in ['{}', '[]']
   if typeof key is 'object' and not val?
     val = key
     key = val._id ? await @uid()
@@ -96,14 +96,14 @@ P.kv = (key, val, ttle, metadata, type) ->
       #  return await @fetch @S.kv + '/' + key # any way or need to get metadata here too?
       #else
       {value, metadata} = await global[@S.kv].getWithMetadata key, type
-      try value = JSON.parse value
-      try metadata = JSON.parse metadata
-      if val is ''
-        #if @S.kv.indexOf('http') is 0
-        #  @fetch @S.kv + '/' + key, body: ''
-        #else
-        @waitUntil global[@S.kv].delete key # remove a key after retrieval
-      return if metadata is true then {value: value, metadata: metadata} else value
+      if value?
+        try value = JSON.parse value
+        try metadata = JSON.parse metadata
+        if val is ''
+          @waitUntil global[@S.kv].delete key # remove a key after retrieval
+        return if metadata is true then {value: value, metadata: metadata} else value
+      else
+        return undefined
   else
     return undefined
 

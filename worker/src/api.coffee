@@ -20,7 +20,7 @@ S.headers ?=
   'Access-Control-Allow-Origin': '*'
   'Access-Control-Allow-Headers': 'X-apikey, X-id, Origin, X-Requested-With, Content-Type, Content-Disposition, Accept, DNT, Keep-Alive, User-Agent, If-Modified-Since, Cache-Control'
   'Permissions-Policy': 'interest-cohort=()'
-S.formats ?= ['html', 'csv'] # allow formatted responses in this list
+S.formats ?= ['html', 'csv', 'json'] # allow formatted responses in this list
 S.svc ?= {}
 S.src ?= {}
 
@@ -45,6 +45,7 @@ S.src ?= {}
 # _index - if true send the result to an index. Or can be an object of index initialisation settings, mappings, aliases
 # _key - optional which key, if not default _id, to use from a result object to save it as - along with the function route which will be derived if not provided
 # _search - if false, the wrapper won't run a search on incoming potential queries before calling the function. If a string, will be used as the key to search within, unless the incoming content is obviously already a complex query
+# _qopts - an optional object defining query options, see P.index.translate and elasticsearch docs to learn more about what can be provided
 # _prefix - if false, the index is not prefixed with the app/index name, so can be accessed by any running version. Otherwise, an index is only accessible to the app version with the matching prefix. TODO this may be updated with abilityt o list prefix names to match multiple app versions but not all
 # _sheet - if true get a sheet ID from settings for the given endpoint, if string then it is the sheet ID. If present it implies _index:true if _index is not set
 
@@ -124,16 +125,36 @@ P = (scheduled) ->
         try @params[kp[0]] = JSON.parse @params[kp[0]]
       else if typeof @params[kp[0]] is 'string' and @params[kp[0]].indexOf('%') isnt -1
         try @params[kp[0]] = decodeURIComponent @params[kp[0]]
+  @headers = {}
   try
-    @body = JSON.parse(@request.body) if @request.body.startsWith('{') or @request.body.startsWith('[')
+    @headers[hd[0].toLowerCase()] = hd[1] for hd in [...@request.headers] # request headers is an immutable Headers instance, not a normal object, so would appear empty unless using get/set, so parse it out here
+  catch
+    try
+      @headers[hk.toLowerCase()] = @request.headers[hk] for hk of @request.headers # backend server passes a normal object, so just use that if not set above
+
+  try
+    ct = @headers['content-type']
+    ct ?= ''
+    if ct.includes '/json'
+      @body = await @request.json()
+    else if ct.includes 'form'
+      fd = await @request.formData()
+      for entry of fd.entries()
+        if @body[entry[0]]?
+          @body[entry[0]] = [@body[entry[0]]] if not Array.isArray @body[entry[0]]
+          @body[entry[0]].push entry[1]
+        else
+          @body[entry[0]] = entry[1]
+    else
+      @body = await @request.text()
+    # and what if blob? Accept blobs or not?
+    # @body = URL.createObjectURL await request.blob()
+  try @body ?= @request.body # if nothing else, just get the body which may be directly provided by the server
+  try @body = JSON.parse(@body) if @body.startsWith('{') or @body.startsWith('[')
+  try
     if typeof @body is 'object' and not Array.isArray @body
       @params[qp] ?= @body[qp] for qp of @body
-  try @body ?= @request.body
-  try
-    @headers = {}
-    @headers[hd[0]] = hd[1] for hd in [...@request.headers] # request headers is an immutable Headers instance, not a normal object, so would appear empty unless using get/set, so parse it out here
-  catch
-    @headers = @request.headers # backend server passes a normal object, so just use that if not set above
+
   if typeof @waitUntil isnt 'function' # it will be on worker, but not on backend
     @S.bg = true if not @S.bg? or typeof @S.bg is 'string' # or could there be other places there is no waitUntil, but we want to deploy there without it being in bg mode?
     @S.cache ?= false
@@ -142,7 +163,7 @@ P = (scheduled) ->
     # where will backend overwrite this to true? can this be set on the global S, and overwritten on backend?
     @S.kv = @S.name.replace /\s/g, ''
     delete @S.kv if not global[@S.kv]
-  try @cookie = @headers.cookie
+  try @cookie = @headers.Cookie ? @headers.cookie
   
   # set some request and user IDs / keys in @rid, @id, @apikey, and @refresh
   try @rid = @headers['cf-ray'].slice 0, -4
@@ -190,7 +211,7 @@ P = (scheduled) ->
   @route = @parts.join '/'
   @routes = []
   @fn = '' # the function name that was mapped to by the URL routes in the request will be stored here
-  @scheduled = true if scheduled or @route is 'log/_schedule' # and restrict this to root, or disable URL route to it
+  @scheduled = true if scheduled or @route is '_schedule' # and restrict this to root, or disable URL route to it
   #@nolog = true if ... # don't log if nolog is present and its value matches a secret key? Or if @S.log is false?
   @_logs = [] # place for a running request to dump multiple logs, which will combine and save at the end of the overall request
 
@@ -217,17 +238,19 @@ P = (scheduled) ->
   # _auth and _cache are handled before _return is used to wrap, because they only operate on the function defined by the URL route
   # whereas any other functon called later also gets wrapped and handled here
   _return = (f, n) =>
-    if f._sheet is true
-      f._sheet = P.dot @S, n # try to read the sheet ID from the settings
-      delete f._sheet if typeof f._sheet isnt 'string'
+    try
+      fs = P.dot @S, n
+      for uf of fs
+        f[uf] = fs[uf] if uf.startsWith '_' # try to find anything in settings and treat it as an override
+    f._auth = n.split('.') if Array.isArray(f._auth) and f._auth.length is 0 # an empty auth array defaults to group names corresponding to the function subroutes
     f._index ?= true if f._sheet
-    if f._index
-      f._search ?= true # if false, no pre-search gets done by the wrapper. If a string, searches will be done within the key provided
-      f._schedule ?= n
-    f._schedule = n if f._schedule is true and typeof f isnt 'function'
+    f._cache ?= false if n.startsWith 'auth'
+    if f._index and f._kv isnt false
+      f._schedule ?= (if f._sheet then '0001' else true) # reload sheets at 0600 every day by default?
     if typeof f is 'function' and (n.indexOf('.') is -1 or n.split('.').pop().indexOf('_') is 0)
       return f.bind @ # don't wrap top-level or underscored methods
     else if typeof f is 'object' and not f._index and not f._kv and not f._bg and typeof f[@request.method] isnt 'function'
+      f._fn = n
       return JSON.parse JSON.stringify f
     else
       _wrapped = () ->
@@ -287,17 +310,34 @@ P = (scheduled) ->
               delete rec[c] for c in @parts
               rec = undefined if JSON.stringify(rec) is '{}'
             lg.key = @route
+            
+        if f._sheet and @parts.indexOf('sheet') is @parts.length-1
+          # serve the sheet url. TODO could make this a redirect too - als make it handle sheet and sheet ID in cases where both are provided
+          res = status: 302
+          if @format is 'json'
+            res.body = 'https://spreadsheets.google.com/feeds/list/' + f._sheet + '/' + 'default' + '/public/values?alt=json'
+          else
+            res.body = 'https://docs.google.com/spreadsheets/d/' + f._sheet
+          res.headers = Location: res.body
 
         lg.key = rt + '/' + lg.key.replace(/\//g, '_').replace(rt, '').replace(/^_/, '') if lg.key
-        if not res? and (f._index or f._kv) and (not @refresh or (f._sheet and @fn isnt n) or (@fn is n and rec)) # and not rec? and not fn.qry))
+        if not res? and (f._index or f._kv) and (not @refresh or (f._sheet and @fn isnt n and not @scheduled) or (@fn is n and rec)) # and not rec? and not fn.qry))
           if f._kv and lg.key.indexOf('/') isnt -1 and not lg.qry # check kv first if there is an ID present
             res = await @kv lg.key, rec
             lg.cached = 'kv' if res? and not rec?
-          if not res? and f._index and (rec? or f._search) # otherwise try the index
+          if not res? and f._index and (rec? or f._search isnt false) # otherwise try the index
             # TODO if lg.qry is a string like a title, with no other search qualifiers in it, and f._search is a string, treat f._search as the key name to search in
             # BUT if there are no spaces in lg.qry, it's probably supposed to be part of the key - that should be handled above anyway
-            res = await @index lg.key, rec ? (if lg.qry then await @index.translate(lg.qry) else undefined)
-            if @fn isnt n and typeof lg.qry is 'string' and lg.qry.indexOf(' ') is -1 and not rec and res?.hits?.total is 1 and lg.qry.indexOf(res.hits.hits[0]._id isnt -1)
+            if rec?
+              if typeof rec is 'object' and not Array.isArray(rec) and not rec._id and JSON.stringify(rec) not in ['{}', '[]']
+                rec._id = @uid()
+              res = await @index lg.key, rec
+            else
+              if not lg.key.includes '/'
+                qopts = f['_' + @format]?._qopts ? f._json?._qopts ? f._qopts
+                lg.qry = '*' if not lg.qry? and qopts?
+              res = await @index lg.key, (if lg.qry then await @index.translate(lg.qry, qopts) else undefined)
+            if @fn isnt n and typeof lg.qry is 'string' and lg.qry.indexOf(' ') is -1 and not rec and res?.hits?.total is 1 and lg.qry.indexOf(res.hits.hits[0]._id) isnt -1
               try res = res.hits.hits[0]._source
             lg.cached = 'index' if res? and not rec?
         @cached = lg.cached if lg.cached and @fn.startsWith n # record whether or not the main function result was cached in index or kv
@@ -317,7 +357,7 @@ P = (scheduled) ->
           res = await @src.google.sheets f._sheet
           if typeof f is 'function' # process the sheet with the parent if it is a function
             res = await f.apply @, [res]
-          await @index rt, ''
+          await @index(rt, '') if Array.isArray(res) and res.length
           @waitUntil _save rt, @copy(res), f
           res = res.length
         if not res?
@@ -356,7 +396,12 @@ P = (scheduled) ->
         try lg.took = Date.now() - st
         @log lg
         return res
-      return _wrapped.bind @
+      wb = _wrapped.bind @
+      for uk of f
+        if uk.startsWith '_'
+          wb._fn ?= n # set the function name if there are other underscored wraper settings to work with
+          wb[uk] = f[uk] 
+      return wb
 
   # TODO add a way to identify and iterate multiple functions either parallel or serial, adding to results
   # e.g. split url at // for multi functions. Params parallel gives on obj of named results
@@ -388,60 +433,91 @@ P = (scheduled) ->
         catch
           a[k] = p[k]
       else
-        a[k] = _return p[k], n + (if n then '.' else '') + k
+        nd = n + (if n then '.' else '') + k
+        a[k] = _return p[k], nd
         schedule.push(a[k]) if @scheduled and a[k]._schedule
-        if not k.startsWith '_'
+        if not k.startsWith '_' # underscored methods cannot be accessed from URLs, and are never wrapped
           if prs.length and prs[0] is k and @fn.indexOf(n) is 0
             pk = prs.shift()
             @fn += (if @fn is '' then '' else '.') + pk
             fn = a[k] if typeof a[k] is 'function' and n.indexOf('._') is -1 # URL routes can't call _abc functions or ones under them
-          if typeof a[k] is 'function' and not p[k]._hidden and n.indexOf('scripts') isnt 0 and n.indexOf('.scripts') is -1
-            @routes.push (n + (if n then '.' else '') + k).replace(/\./g, '/') # TODO this could check the auth method, and only show things the current user can access, and also search for description / comment?
-        _lp(p[k], a[k], n + (if n then '.' else '') + k) if not Array.isArray(p[k]) and (not k.startsWith('_') or typeof a[k] is 'function')
+          if typeof a[k] is 'function' and not a[k]._hidden and not nd.startsWith('scripts') and nd.indexOf('.scripts') is -1 and not nd.startsWith('kv') and not nd.startsWith('index') and ((not nd.startsWith('svc') and not nd.startsWith('src')) or nd.split('.').length < 3)
+            @routes.push (nd).replace(/\./g, '/') # TODO this could check the auth method, and only show things the current user can access, and also search for description / comment? NOTE this is just about visibility, they're still accessible if given right auth (if any)
+        _lp(p[k], a[k], nd) if not Array.isArray(p[k]) and (not k.startsWith('_') or typeof a[k] is 'function')
   _lp P, @, ''
   if pk and prs.length # catch any remaining url params beyond the max depth of P
     @params[pk] = if @params[pk] then @params[pk] + '/' + prs.join('/') else prs.join('/')
   # TODO should url params get some auto-processing like query params do above? Could be numbers, lists, bools...
 
   if @scheduled
-    res = [] # no auth for scheduled events, just run any that were found
+    res = {}
+    klogs = [] # move any logs first so that schedule can be aware of any recently run scheduled events
+    await @kv._each 'log', (lk) ->
+      if lk.indexOf('/') isnt -1 and lk isnt 'log'
+        l = await @kv lk, ''
+        l._id ?= lk.split('/').pop()
+        klogs.push l
+    res.log = klogs.length
+    if klogs.length
+      @waitUntil @index 'log', klogs
+
+    requested_refresh = true if @refresh is true # track if the main request included a refresh from the start, to force all scheduled events to happen regardless of timing (mainly for dev/test)
     for fs in schedule
-      if typeof fs._schedule is 'function'
-        res.push await fs._schedule()
-      else if fs._schedule is true
-        res.push await fs()
-      else if typeof fs._schedule is 'string' # dot notation name of the parent function
-        recs = []
-        if fs._sheet # reload the sheet, at some interval?
-          recs = await @src.google.sheets fs._sheet
-          recs = await fs(res) if typeof fs is 'function'
-        await @kv._each fs._schedule, (kn) ->
-          if kn.indexOf('/') isnt -1 and kn isnt fs._schedule
-            # if kv not explicitly set, delete when moving to index
-            # this could also be used as a way to replicate changes back into a sheet after reload
-            # but would need at least a way to properly uniquely identify records between sheet and index
-            rec = await @kv kn, if fs._kv then undefined else ''
-            rec._id ?= kn.split('/').pop()
-            recs.push rec
-        if recs.length
-          @waitUntil @index fs._schedule, recs
-        res.push indexed: recs.length
-    #@log()
-    return @_response res # use this or just fall through to final return?
+      if fs._fn #and fs._fn in ['svc.oaworks.permissions.journals']
+        console.log('scheduled', fs._fn) if @S.dev #and @S.bg is true
+        if typeof fs._schedule is 'function'
+          res[fs._fn] = true
+          @waitUntil fs._schedule()
+        else
+          fun = fs._fn.replace /\./g, '_'
+          recs = []
+          hhmm = true
+          if typeof fs._schedule is 'number' or (typeof fs._schedule is 'string' and fs._schedule.length is 4 and fs._schedule.replace(/[0-9]/g, '').length is 0)
+            # TODO consider changing this to accept cron style strings of space-separated numbers. For now can be time like "0900" or number of minutes like 240
+            if requested_refresh
+              last = false
+            else
+              lasts = await @index 'log', 'logs.fn:"' + fs._fn + '" AND scheduled:true', true
+              last = if lasts?.hits?.hits? and lasts.hits.hits.length then lasts.hits.hits[0]._source else false
+            if typeof last is 'object' and ((typeof fs._schedule is 'number' and last.started and (last.started + (fs._schedule*60000)) > @started) or (last.createdAt and (last.createdAt.split('T')[0].split('-').pop().replace(/^0/, '') is (new Date()).getDate().toString() or @started < (new Date()).setHours(parseInt(fs._schedule.substring(0,2)), parseInt(fs._schedule.substring(2)), 0, 0))))
+              hhmm = false
+              res[fs._fn] = false
+            else
+              hhmm = fs._schedule
+          if hhmm isnt false
+            res[fs._fn] = true
+            if fs._sheet
+              if typeof fs is 'function'
+                @refresh ?= true
+                await fs() # await this one so that the kv import runs after
+              else # will it ever not be a (wrapped) function?
+                recs = await @src.google.sheets fs._sheet
+                await @index(fun, '') if Array.isArray(recs) and recs.length
+            else if typeof fs is 'function' and hhmm isnt true
+              @waitUntil fs()
+          await @kv._each fun, (kn) ->
+            if kn.indexOf('/') isnt -1 and kn isnt fun
+              # this could also be used as a way to replicate changes back into a sheet after reload, if there was a unique identifier for records
+              rec = await @kv kn, if fs._kv then undefined else '' # if kv not explicitly set, delete when moving to index
+              rec._id ?= kn.split('/').pop()
+              recs.push rec
+          recs = [recs] if typeof recs is 'object' and JSON.stringify(recs) isnt '{}' and not Array.isArray recs
+          if Array.isArray(recs) and recs.length
+            res[fs._fn] = recs.length
+            @waitUntil @index fun, recs
 
   else if typeof fn is 'function'
     if @S.name and @S.system and @headers['x-' + @S.name + '-system'] is @S.system
       @system = true
       authd = true # would this be sufficient or could original user be required too
     else
-      authd = @auth()
+      authd = await @auth()
       @user = authd if typeof authd is 'object' and authd._id and authd.email
       if typeof fn._auth is 'function'
         authd = await fn._auth()
       else if fn._auth is true and @user? # just need a logged in user if true
         authd = true
       else if fn._auth # which should be a string... comma-separated, or a list
-        # how to default to a list of the role groups corresponding to the URL route? empty list?
         authd = await @auth.role fn._auth # _auth should be true or name of required group.role
       else
         authd = true
@@ -465,12 +541,13 @@ P = (scheduled) ->
       # Random delay for https://en.wikipedia.org/wiki/Timing_attack https://www.owasp.org/index.php/Blocking_Brute_Force_Attacks#Finding_Other_Countermeasures
       @unauthorised = true
       await @sleep 200 * (1 + Math.random())
-      res = status: 401 # not authorised - if @format is html, provide a login box?
+      res = status: 401 # not authorised
+      @format = 'html' if @fn is 'svc.rscvd.supply' # quick workaround for demo
       if @format is 'html'
         res.body = await @auth()
 
   res = '' if (not res? or (typeof res is 'object' and res.status is 404)) and @url.replace('.ico','').replace('.gif','').replace('.png','').endsWith 'favicon'
-  resp = if typeof res is 'object' and not Array.isArray(res) and typeof res.headers?.append is 'function' then res else await @_response res
+  resp = if typeof res is 'object' and not Array.isArray(res) and typeof res.headers?.append is 'function' then res else await @_response res, fn
   if @scheduled or (@parts.length and @parts[0] not in ['log','status'] and @request.method not in ['HEAD', 'OPTIONS'] and res? and res isnt '')
     if @completed and fn._cache isnt false and resp.status is 200 and (typeof res isnt 'object' or Array.isArray(res) or res.hits?.total isnt 0) and (not fn._sheet or typeof res isnt 'number' or not @refresh)
       @_cache undefined, resp, fn._cache # fn._cache can be a number of seconds for cache to live, so pass it to cache to use if suitable
@@ -481,7 +558,7 @@ P = (scheduled) ->
   else
     return resp
 
-P._response = (res) -> # this provides a Response object. It's outside the main P.call so that it can be used elsewhere if convenient
+P._response = (res, fn) -> # this provides a Response object. It's outside the main P.call so that it can be used elsewhere if convenient
   @S.headers ?= {}
   if not res?
     res = 404
@@ -500,11 +577,11 @@ P._response = (res) -> # this provides a Response object. It's outside the main 
   else
     status = 200
   
-  if not @S.headers['Content-Type']?
+  if not @S.headers['Content-Type'] and not @S.headers['content-type']
     if @format and @format in ['html', 'csv']
       if typeof res isnt 'string'
         try
-          res = await @convert['json2' + @format] res
+          res = await @convert['json2' + @format] res, keys: fn?['_' + @format]?._qopts?.include ? fn?._qopts?.include
       @S.headers['Content-Type'] = if @format is 'html' then 'text/html; charset=UTF-8' else 'text/csv; charset=UTF-8'
     if typeof res isnt 'string'
       try res = JSON.stringify res, '', 2

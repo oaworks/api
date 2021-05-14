@@ -9,13 +9,13 @@ P.uid = (r) ->
   # have to use only lowercase for IDs, because other IDs we receive from users such as DOIs
   # are often provided in upper OR lowercase forms, and they are case-insensitive, so all IDs
   # will be normalised to lowercase. This increases the chance of an ID collision, but still, 
-  # without uppercases it's only a 1% chance if generating 100) IDs per second for 131000 years.
+  # without uppercases it's only a 1% chance if generating 1000 IDs per second for 131000 years.
   nanoid = customAlphabet (this?.params?.alphabet ? '0123456789abcdefghijklmnopqrstuvwxyz'), r
   return nanoid()
 P.uid._cache = false
 
 P.hash = (content) ->
-  try content ?= @params.hash ? @params.content ? @body ? @params.q ? @params
+  content ?= @params.hash ? @params.content ? @params.q ? @params ? @body
   try
     content = await @fetch(@params.url) if @params.url
   content = JSON.stringify(content) if typeof content isnt 'string'
@@ -31,6 +31,40 @@ P.hash = (content) ->
     # the above works on CF worker, but crypto.subtle needs to be replaced with standard crypto module on backend
     # crypto is imported by the server-side main api file
     return crypto.createHash('sha256').update(content, 'utf8').digest 'hex' # md5 would be preferable but web crypto /subtle doesn't support md5
+
+P.hashcode = (content) -> # java hash code style
+  content ?= @params.shorthash ? @params.content ? @params.q ? @params ? @body
+  content = JSON.stringify(content) if typeof content isnt 'string'
+  hash = 0
+  i = 0
+  while i < content.length
+    hash = ((hash<<5)-hash) + content.charCodeAt i
+    hash &= hash
+    i++
+  return hash
+
+P.hashhex = (content) ->
+  n = @hashcode content
+  n = 0xFFFFFFFF + n + 1 if n < 0
+  return n.toString 16
+
+P.shorthash = (content, alphabet) -> # as learnt from something I once googled, but can't remember what
+  content ?= @params.shorthash ? @params.content ? @params.q ? @params ? @body
+  content = JSON.stringify(content) if typeof content isnt 'string'
+  hash = @hashcode content
+  if not alphabet
+    alphabet = '0123456789abcdefghijklmnoqrstuvwxyz' # keep one char from the usable range to replace negative signs on hashcodes
+    spare = 'p'
+  else
+    spare = alphabet.substring 0, 1
+    alphabet = alphabet.replace spare, ''
+  al = alphabet.length
+  result = if hash < 0 then spare else ''
+  hash = Math.abs hash
+  while hash >= al
+    result += alphabet[hash % al]
+    hash = Math.floor hash / al
+  return result + (if hash > 0 then alphabet[hash] else '')
 
 P.sleep = (ms) -> # await this when calling it to actually wait
   try ms ?= @params.ms
@@ -186,7 +220,7 @@ P.template = (content, vars) ->
   # TODO consider if worth putting markdown formatting back in here, and how big a markdown parser is
   return ret # an obj of the content plus any vars found within the template
 
-P._templates = _index: true # an index to store templates in - although generally should be handled at the individual function/service level
+#P._templates = _index: true # an index to store templates in - although generally should be handled at the individual function/service level
 
 P.date = (rt, timed) ->
   rt ?= @params.date

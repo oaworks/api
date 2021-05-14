@@ -107,8 +107,8 @@ P.svc.oaworks.deposit = (params, files, dev) ->
     dep.type = 'zenodo'
   else if dep.error? and dep.error.toLowerCase().indexOf('zenodo') isnt -1
     dep.type = 'review'
-  else if options.from and (not dep.embedded or (dep.embedded.indexOf('oa.works') is -1 and dep.embedded.indexOf('openaccessbutton.org') is -1 and dep.embedded.indexOf('shareyourpaper.org') is -1))
-    dep.type = if options.redeposit then 'redeposit' else if files? and files.length then 'forward' else 'dark'
+  else if params.from and (not dep.embedded or (dep.embedded.indexOf('oa.works') is -1 and dep.embedded.indexOf('openaccessbutton.org') is -1 and dep.embedded.indexOf('shareyourpaper.org') is -1))
+    dep.type = if params.redeposit then 'redeposit' else if files? and files.length then 'forward' else 'dark'
   else
     dep.type = 'review'
 
@@ -122,7 +122,7 @@ P.svc.oaworks.deposit = (params, files, dev) ->
     tos = @copy bcc
     bcc = []
 
-  dep.url = if typeof options.redeposit is 'string' then options.redeposit else if options.url then options.url else undefined
+  dep.url = if typeof params.redeposit is 'string' then params.redeposit else if params.url then params.url else undefined
 
   ed = @copy dep
   if ed.metadata?.author?

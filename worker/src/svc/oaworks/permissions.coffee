@@ -74,6 +74,7 @@ P.svc.oaworks.permissions = (meta, ror, getmeta) ->
     meta = if meta.indexOf('10.') is 0 then {doi: meta} else {issn: meta}
 
   meta ?= @copy @params
+  delete meta.metadata if meta?.metadata is true # just a pass-through for us to show metadata for debug
   if meta?.permissions?
     if meta.permissions.startsWith 'journal/'
       meta.issn = meta.permissions.replace 'journal/', ''
@@ -292,7 +293,7 @@ P.svc.oaworks.permissions = (meta, ror, getmeta) ->
         perms.best_permission = @copy wp
         break
       else if not meta.published or Date.parse(meta.published) > Date.parse wp.provenance.enforcement_from.split('/').reverse().join '-'
-        # NOTE Date.parse would try to work on format 31/01/2020 but reads it in American, so would thing 31 is a month and is too big
+        # NOTE Date.parse would try to work on format 31/01/2020 but reads it in American, so would think 31 is a month and is too big
         # but 2020-01-31 is treated in ISO so the 31 will be the day. So, given that we use DD/MM/YYYY, split on / then reverse then join on - to get a better parse
         perms.best_permission = @copy wp
         break
@@ -343,15 +344,15 @@ P.svc.oaworks.permissions = (meta, ror, getmeta) ->
 
 # the original sheet, now split into three separate ones, but keep a note in case of use for testing: 
 # https://docs.google.com/spreadsheets/d/1qBb0RV1XgO3xOQMdHJBAf3HCJlUgsXqDVauWAtxde4A/edit
-P.svc.oaworks.permissions.journals = (recs=[]) -> return @svc.oaworks.permissions._format recs
+P.svc.oaworks.permissions.journals = (recs) -> return @svc.oaworks.permissions._format recs
 P.svc.oaworks.permissions.journals._sheet = '19pDvOY5pge-C0yDSObnkMqqlMJgct3iIjPI2rMPLQEc'
 P.svc.oaworks.permissions.journals._prefix = false
 
-P.svc.oaworks.permissions.publishers = (recs=[]) -> return @svc.oaworks.permissions._format recs
+P.svc.oaworks.permissions.publishers = (recs) -> return @svc.oaworks.permissions._format recs
 P.svc.oaworks.permissions.publishers._sheet = '1tmEfeJ6RCTCQjcCht-FI7FH-04z7MPSKdUnm0UpAxWM'
 P.svc.oaworks.permissions.publishers._prefix = false
 
-P.svc.oaworks.permissions.affiliations = (recs=[]) -> return @svc.oaworks.permissions._format recs
+P.svc.oaworks.permissions.affiliations = (recs) -> return @svc.oaworks.permissions._format recs
 P.svc.oaworks.permissions.affiliations._sheet = '1J4WhZjPsAjpoogsj7wSTQGJPguo7TiSe0uNcrvyd_OM'
 P.svc.oaworks.permissions.affiliations._prefix = false
 
@@ -359,7 +360,7 @@ P.svc.oaworks.permissions.affiliations._prefix = false
 
 P.svc.oaworks.permissions._format = (recs=[]) ->
   recs = [recs] if typeof recs is 'object' and not Array.isArray recs
-  
+
   keys = 
     versionsarchivable: 'versions'
     permissionsrequestcontactemail: 'permissions_contact'
@@ -430,21 +431,22 @@ P.svc.oaworks.permissions._format = (recs=[]) ->
     nr.meta.updatedAt = Date.parse(nr.meta.updated.split('/').reverse().join('-')) if nr.meta.updated?
 
     # the google feed import will lowercase these key names and remove whitespace, question marks, brackets too, but not dashes
-    nr.issuer.id = if rec.id.indexOf(',') isnt -1 then rec.id.split(',') else rec.id
-    if typeof nr.issuer.id isnt 'string'
-      cids = []
-      for nid in nr.issuer.id
-        nid = nid.trim()
-        if nr.issuer.type is 'journal' and nid.indexOf('-') isnt -1 and nid.indexOf(' ') is -1
-          nid = nid.toUpperCase()
-          if af = await @svc.oaworks.journal 'issn.exact:"' + nid + '"'
-            for an in af.issn
-              cids.push(an) if an not in cids
-        cids.push(nid) if nid not in cids
-      nr.issuer.id = cids
-    else if nr.issuer.id.startsWith('10.') and nr.issuer.id.indexOf('/') isnt -1 and nr.issuer.id.indexOf(' ') is -1
-      nr.DOI = nr.issuer.id
-    nr.permission_required = rec.has_policy? and rec.has_policy.toLowerCase().indexOf('permission required') isnt -1
+    nr.issuer.id = if typeof rec.id is 'string' and rec.id.indexOf(',') isnt -1 then rec.id.split(',') else rec.id
+    if nr.issuer.id?
+      if typeof nr.issuer.id isnt 'string'
+        cids = []
+        for nid in nr.issuer.id
+          nid = nid.trim()
+          if nr.issuer.type is 'journal' and nid.indexOf('-') isnt -1 and nid.indexOf(' ') is -1
+            nid = nid.toUpperCase()
+            if af = await @svc.oaworks.journal 'issn.exact:"' + nid + '"'
+              for an in af.issn
+                cids.push(an) if an not in cids
+          cids.push(nid) if nid not in cids
+        nr.issuer.id = cids
+      else if nr.issuer.id.startsWith('10.') and nr.issuer.id.indexOf('/') isnt -1 and nr.issuer.id.indexOf(' ') is -1
+        nr.DOI = nr.issuer.id
+    nr.permission_required = typeof rec.has_policy is 'string' and rec.has_policy.toLowerCase().indexOf('permission required') isnt -1
 
     for k of rec
       if keys[k] and rec[k]? and rec[k].length isnt 0

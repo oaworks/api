@@ -26,18 +26,16 @@ pradm.gebn = function(n) {
   }
 };
 
+pradm._gany = function(str) {
+  return pradm[str.startsWith('#') ? 'gebi' : str.startsWith('.') ? 'gebc' : 'gebn'](str);
+};
+
 pradm.each = function(elems, key, val) {
-  var elem, i, len, results;
+  var elem, i, isid, len, results;
   if (typeof elems === 'string') {
-    if (elems.startsWith('#')) {
-      elems = [pradm.gebi(elems)];
-    } else if (elems.startsWith('.')) {
-      elems = pradm.gebc(elems);
-    } else {
-      elems = pradm.gebn(elems);
-    }
-  } else if (typeof elems === 'object') {
-    if (!Array.isArray(elems)) {
+    isid = elems.startsWith('#');
+    elems = pradm._gany(elems);
+    if (isid) {
       elems = [elems];
     }
   }
@@ -49,7 +47,7 @@ pradm.each = function(elems, key, val) {
         if (typeof key === 'function') {
           results.push(key(elem));
         } else {
-          results.push(pradm.set(elem(key, val)));
+          results.push(pradm.set(elem, key, val));
         }
       } else {
         results.push(void 0);
@@ -105,8 +103,26 @@ pradm.hide = function(els) {
   });
 };
 
+pradm.focus = function(els) {
+  return pradm.each(els, function(el) {
+    return el.focus();
+  });
+};
+
+pradm.blur = function(els) {
+  return pradm.each(els, function(el) {
+    return el.blur();
+  });
+};
+
 pradm.get = function(el, attr) {
   var ref, res;
+  if (typeof el === 'string') {
+    el = pradm._gany(el);
+  }
+  if (Array.isArray(el)) {
+    el = el[0];
+  }
   if (attr == null) {
     try {
       res = pradm.checked(el);
@@ -129,6 +145,12 @@ pradm.get = function(el, attr) {
 };
 
 pradm.set = function(el, attr, val) {
+  if (typeof el === 'string') {
+    el = pradm._gany(el);
+  }
+  if (Array.isArray(el)) {
+    el = el[0];
+  }
   try {
     return el.setAttribute(attr, val);
   } catch (error) {}
@@ -343,8 +365,8 @@ pradm.ajax = function(url, opts) {
         base['Content-type'] = 'application/json';
       }
     }
-    url += (url.indexOf('?') === -1 ? '?' : '&') + '_=' + Date.now(); // set a random header to break caching
   }
+  //url += (if url.indexOf('?') is -1 then '?' else '&') + '_=' + Date.now() # set a random header to break caching?
   xhr = new XMLHttpRequest();
   console.log(url);
   xhr.open((ref1 = opts.method) != null ? ref1 : 'GET', url);
@@ -359,7 +381,9 @@ pradm.ajax = function(url, opts) {
       try {
         x = JSON.parse(x);
       } catch (error) {}
-      return opts.success(x, xhr);
+      try {
+        return opts.success(x, xhr);
+      } catch (error) {}
     } catch (error) {
       err = error;
       try {

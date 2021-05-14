@@ -17,6 +17,7 @@ P.svc.oaworks.ill = (opts) -> # only worked on POST with optional auth
     config = await @fetch 'https://api.cottagelabs.com/service/oab/ill/config?uid=' + (opts.from ? config)
     if not config? or JSON.stringify(config) is '{}'
       config = await @fetch 'https://dev.api.cottagelabs.com/service/oab/ill/config?uid=' + (opts.from ? config)
+  config ?= {}
       
   vars = name: 'librarian', details: '' # anywhere to get the user name from config?
   ordered = ['title','author','volume','issue','date','pages']

@@ -3,7 +3,7 @@ if (this.pradm == null) {
   this.pradm = {};
 }
 
-pradm._editStyle = '<style>.pradmChanged { border-color: yellow; box-shadow: 2px 2px 2px 2px yellow; } .pradmSaved { border-color: green; box-shadow: 2px 2px 2px 2px green; } .pradmError { border-color: red; box-shadow: 2px 2px 2px 2px red; } </style>';
+pradm._editStyle = '<style>.pradmChanged { border-color: yellow; box-shadow: 1px 1px 1px 1px yellow; } .pradmSaved { border-color: green; box-shadow: 1px 1px 1px 1px green; } .pradmError { border-color: red; box-shadow: 1px 1px 1px 1px red; } </style>';
 
 pradm._editTimeout;
 
@@ -42,7 +42,7 @@ pradm.edit = function(obj) {
 };
 
 pradm.save = function(obj, send) {
-  console.log('saving');
+  console.log('saving', send);
   if (obj == null) {
     if (pradm._editObject == null) {
       pradm._editObject = {};
@@ -51,7 +51,7 @@ pradm.save = function(obj, send) {
       return pradm.class(el, 'pradmSaved', false);
     });
     pradm.each((send === false ? '.pradmForm' : '.pradmChanged'), function(el) {
-      var base, key;
+      var base, key, pv;
       key = pradm.get(el, 'pradmKey');
       if (key == null) {
         key = pradm.get(el, 'id');
@@ -62,15 +62,31 @@ pradm.save = function(obj, send) {
         }
         return pradm._editObject[key].push(pradm.get(el));
       } else {
-        return pradm._editObject[key] = pradm.get(el);
+        pv = pradm.get(el);
+        if (pv === null) {
+          try {
+            return delete pradm._editObject[key];
+          } catch (error) {}
+        } else {
+          return pradm._editObject[key] = pv;
+        }
       }
     });
     obj = pradm._editObject;
   }
   if (send !== false) {
+    if (obj._id == null) {
+      obj._id = pradm._newid;
+    }
     return pradm.ajax(window.location.pathname.replace('.html', ''), {
       data: obj,
       success: function(data) {
+        if (!pradm._newid && window.location.search.indexOf('?new') !== -1 || window.location.search.indexOf('&new') !== -1) {
+          pradm._newid = data._id;
+          try {
+            window.history.replaceState("", "", window.location.pathname.replace('.html', '/' + data._id + '.html?edit'));
+          } catch (error) {}
+        }
         return pradm.each('.pradmChanged', function(el) {
           pradm.class(el, 'pradmChanged', false);
           return pradm.class(el, 'pradmSaved');

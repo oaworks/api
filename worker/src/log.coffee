@@ -4,9 +4,9 @@ S.log ?= {}
 # it would also be good to log every fetch, and what was sent with it too, although if it was a big file or something like that, then not that
 # what about a param to pass to avoid logging?
 
-P.log = (msg) ->
+P.log = (msg, store) ->
   if @S.log isnt false
-    store = not msg? # an empty call to log stores everything in the _logs list
+    store = not msg? if store isnt true # an empty call to log stores everything in the _logs list
     
     if typeof msg is 'string'
       if msg.indexOf('/') isnt -1 and msg.indexOf(' ') is -1
@@ -61,13 +61,14 @@ P.log = (msg) ->
         # if msg.diff, send an email alert? Or have schedule pick up on those later?
 
     if store
-      msg.logs ?= []
-      if Array.isArray(this?._logs) and @_logs.length
-        for l in @_logs
-          #msg.msg ?= l.msg
-          msg.alert ?= l.alert if l.alert
-          msg.notify ?= l.notify if l.notify
-          msg.logs.push l
+      if not msg.logs
+        msg.logs = []
+        if Array.isArray(this?._logs) and @_logs.length
+          for l in @_logs
+            #msg.msg ?= l.msg
+            msg.alert ?= l.alert if l.alert
+            msg.notify ?= l.notify if l.notify
+            msg.logs.push l
       msg.createdAt = new Date() #Date.now()
       msg.name ?= S.name
       msg.version ?= S.version
@@ -91,15 +92,69 @@ P.log = (msg) ->
   else if @S.dev and @S.bg is true
     console.log msg
 
-P.log._schedule = 'log'
+P.log.clear = () ->
+  # this is just for manual log removal on dev
+  if @S.dev
+    @kv._each 'log', ''
+P.log.clear._hidden = true
 
-P.log.schedule = () ->
-  # this should become _schedule but for now is not so I can manually trigger it for testing
-  # define what to do on a scheduled trigger
-  # grab every log in the kv store and throw them to the index
-  # but for now, just delete them
-  @kv._each 'log', ''
 
+# a user should be able to set a list of endpoints they want to receive notifications for
+# could also wildcard* match
+# note if there are lots of notifications, may need to group them
+# user won't need auth for the endpoint because it won't give any info about the result - just that it happened?
+# or if results are wanted, auth for the endpoint would be necessary
+# notifications from this will go to a google chat bot webhook
+# notifications will be triggered by log analysis, a scheduled job will need to check through them
+
+'''
+P.log.monitor = (opts) ->
+  opts ?= @params
+  if (opts.email or opts.chat) and opts.q
+    opts.q = JSON.stringify(opts.q) if typeof opts.q isnt 'string'
+    opts.frequency ?= 60
+    # also can provide an opts.name as a nice name for the monitor instead if just the query
+    return opts
+  return undefined
+P.log.monitor = _index: true
+P.log.monitor._schedule = () ->
+  notify = {}
+  chat = []
+  counter = 0
+  await @index._each 'log_monitor', '*', (rec) ->
+    if not rec.notified or rec.notified + (rec.frequency * 60000) < @started
+      rec.notified = @started
+      @waitUntil @index 'log_monitor/' + rec._id, @copy rec
+      q = if typeof rec.q is 'string' and rec.q.startsWith('{') then JSON.parse(rec.q) else rec.q
+      q = await @index.translate q, { newest: true, restrict: [{query_string: {query: 'createdAt:>' + (@started - (rec.frequency * 60000))}}]}
+      count = await @index.count 'log', undefined, q
+      if count
+        counter += count
+        rec.dq = q
+        rec.count = count
+        if rec.email
+          notify.email ?= []
+          notify.email.push rec
+        if rec.chat
+          chat.push rec
+
+  for e of notify
+    txt = ''
+    for n in notify[e]
+      txt += 'https://bg' + (if @S.dev then 'b' else '') + '.lvatn.com/log?q=' + JSON.stringify(n.dq) + '\n\n'
+    @waitUntil @mail.send
+      to: notify[e].email
+      subject: notify[e].length + ' of your monitors have ' + rec.count + ' new alerts'
+      text: txt
+  
+  if chat.length
+    txt = chat.length + ' monitor notifications:'
+    for c in chat
+      txt += '\nhttps://bg' + (if @S.dev then 'b' else '') + '.lvatn.com/log?q=' + JSON.stringify(c.dq)
+    @waitUntil @src.google.chat txt
+  
+  return counter
+'''
 
 '''
 P.add 'mail/feedback/:token',

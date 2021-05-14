@@ -459,12 +459,12 @@ we put ours in <b>worker/secrets/settings.json</b>:</p>
   "index": {
     "url": "https://username:password@your.index.com" # A URL to your elasticsearch
   },
-  "kv": "your_kv" # Your cloudflare KV store name for your worker to use, if any
+  "kv": "your_kv" # Your cloudflare KV namespace for your worker to use, if any
 }</code>
 </pre>
 
 <p>Of course you'll need some real values to put in it. If you did the optional step
-of creating a KV store above, insert the name of the store you created for your worker. 
+of creating a KV namespace, insert the namespace you created for your worker. 
 Otherwise, remove the <b>kv</b> key from your settings file. For managing data, KV is 
 optional but Elasticsearch is necessary, so read on to find out how to 
 set up your own Elasticsearch instance to save data to.</p>
@@ -481,7 +481,7 @@ try out.</p>
 
 <p>There are providers who will run Elasticsearch for you. We've found them 
 all to be pretty expensive for production scaling, so it's cheaper for us to run our own. 
-If you'rejust getting started and aren't comfortable with sysadmin, Amazon Web Services 
+If you're just getting started and aren't comfortable with sysadmin, Amazon Web Services 
 provide a small free tier that you can sign up to - this is surely the easiest way to 
 run a cluster, and you can just pay to scale it up later if you want.</p>
 
@@ -512,6 +512,8 @@ check out the installation docs below to get your own cluster up and running:</p
 <h3>Run your own server</h3>
 
 <p>How and why to run a bg server (the demo already is one)</p>
+
+<p>Note cloudflare workers unbound may also be enough for some: https://blog.cloudflare.com/workers-unbound-ga/</p>
 
 
 <h3>Logging & monitoring</h3>
@@ -741,16 +743,7 @@ Why elasticsearch / Amazon Elastic?
 <p>Fork and run your own paradigm, AND write your own service, and deploy that separately.</p>
 
 
-<h3>Our future plans</h3>
-
-<p>See the code repo and explore the issues, tags, project board etc.</p>
-
-<p>Also our other relevant projects, UI repo, and so on.</p>
-
-<p>Suggest stuff you need / would like to see added.</p>
-
-
-<h3>Contributing</h3>
+<h3>Future developments</h3>
 
 <p>We make Paradigm open source as a commitment to our wider academic community and 
 to ensure that the things we make can be run whether we are around or not. It 
@@ -763,6 +756,13 @@ could host relevant services, so contact us if you need that.</p>
 <p>If you want to contribute directly to the core of Paradigm, have a look at our github repo. 
 The process is usually fork, change, request a merge. Long term contributors 
 will be given access to develop feature branches and request PRs directly on our repo.</p>
+
+<p>See the code repo and explore the issues, tags, project board etc.</p>
+
+<p>Also our other relevant projects, UI repo, and so on.</p>
+
+<p>Suggest stuff you need / would like to see added.</p>
+
 
 
 

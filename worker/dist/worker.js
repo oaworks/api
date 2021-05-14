@@ -54,7 +54,8 @@ if (S.headers == null) {
 if (S.formats == null) {
   S.formats = [
     'html',
-    'csv' // allow formatted responses in this list
+    'csv',
+    'json' // allow formatted responses in this list
   ];
 }
 
@@ -87,6 +88,7 @@ try {
   // _index - if true send the result to an index. Or can be an object of index initialisation settings, mappings, aliases
   // _key - optional which key, if not default _id, to use from a result object to save it as - along with the function route which will be derived if not provided
   // _search - if false, the wrapper won't run a search on incoming potential queries before calling the function. If a string, will be used as the key to search within, unless the incoming content is obviously already a complex query
+  // _qopts - an optional object defining query options, see P.index.translate and elasticsearch docs to learn more about what can be provided
   // _prefix - if false, the index is not prefixed with the app/index name, so can be accessed by any running version. Otherwise, an index is only accessible to the app version with the matching prefix. TODO this may be updated with abilityt o list prefix names to match multiple app versions but not all
   // _sheet - if true get a sheet ID from settings for the given endpoint, if string then it is the sheet ID. If present it implies _index:true if _index is not set
 
@@ -145,7 +147,7 @@ try {
 } catch (error) {}
 
 P = async function(scheduled) {
-  var _lp, _return, _save, authd, base, base1, base2, d, fn, fs, hd, i, j, kp, kpn, l, len, len1, len2, name, pf, pk, prs, qp, recs, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, resp, schedule;
+  var _lp, _return, _save, authd, base, base1, base2, ct, d, entry, fd, fn, fs, fun, hd, hhmm, hk, i, j, klogs, kp, kpn, last, lasts, len, len1, len2, m, name, pf, pk, prs, qp, recs, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, requested_refresh, res, resp, schedule;
   // the context here is the fetch event
   this.started = Date.now(); // not strictly accurate in a workers environment, but handy nevertheless, used for comparison when logs are finally written
   try {
@@ -186,10 +188,58 @@ P = async function(scheduled) {
       }
     }
   }
+  this.headers = {};
   try {
-    if (this.request.body.startsWith('{') || this.request.body.startsWith('[')) {
-      this.body = JSON.parse(this.request.body);
+    ref1 = [...this.request.headers];
+    // request headers is an immutable Headers instance, not a normal object, so would appear empty unless using get/set, so parse it out here
+    for (j = 0, len1 = ref1.length; j < len1; j++) {
+      hd = ref1[j];
+      this.headers[hd[0].toLowerCase()] = hd[1];
     }
+  } catch (error) {
+    try {
+    // backend server passes a normal object, so just use that if not set above
+      for (hk in this.request.headers) {
+        this.headers[hk.toLowerCase()] = this.request.headers[hk];
+      }
+    } catch (error) {}
+  }
+  try {
+    ct = this.headers['content-type'];
+    if (ct == null) {
+      ct = '';
+    }
+    if (ct.includes('/json')) {
+      this.body = (await this.request.json());
+    } else if (ct.includes('form')) {
+      fd = (await this.request.formData());
+      for (entry in fd.entries()) {
+        if (this.body[entry[0]] != null) {
+          if (!Array.isArray(this.body[entry[0]])) {
+            this.body[entry[0]] = [this.body[entry[0]]];
+          }
+          this.body[entry[0]].push(entry[1]);
+        } else {
+          this.body[entry[0]] = entry[1];
+        }
+      }
+    } else {
+      this.body = (await this.request.text());
+    }
+  } catch (error) {}
+  try {
+    // and what if blob? Accept blobs or not?
+    // @body = URL.createObjectURL await request.blob()
+    if (this.body == null) {
+      this.body = this.request.body; // if nothing else, just get the body which may be directly provided by the server
+    }
+  } catch (error) {}
+  try {
+    if (this.body.startsWith('{') || this.body.startsWith('[')) {
+      this.body = JSON.parse(this.body);
+    }
+  } catch (error) {}
+  try {
     if (typeof this.body === 'object' && !Array.isArray(this.body)) {
       for (qp in this.body) {
         if ((base1 = this.params)[qp] == null) {
@@ -198,22 +248,6 @@ P = async function(scheduled) {
       }
     }
   } catch (error) {}
-  try {
-    if (this.body == null) {
-      this.body = this.request.body;
-    }
-  } catch (error) {}
-  try {
-    this.headers = {};
-    ref1 = [...this.request.headers];
-    // request headers is an immutable Headers instance, not a normal object, so would appear empty unless using get/set, so parse it out here
-    for (j = 0, len1 = ref1.length; j < len1; j++) {
-      hd = ref1[j];
-      this.headers[hd[0]] = hd[1];
-    }
-  } catch (error) {
-    this.headers = this.request.headers; // backend server passes a normal object, so just use that if not set above
-  }
   if (typeof this.waitUntil !== 'function') { // it will be on worker, but not on backend
     if ((this.S.bg == null) || typeof this.S.bg === 'string') { // or could there be other places there is no waitUntil, but we want to deploy there without it being in bg mode?
       this.S.bg = true;
@@ -232,7 +266,7 @@ P = async function(scheduled) {
     }
   }
   try {
-    this.cookie = this.headers.cookie;
+    this.cookie = (ref2 = this.headers.Cookie) != null ? ref2 : this.headers.cookie;
   } catch (error) {}
   try {
     
@@ -247,10 +281,10 @@ P = async function(scheduled) {
   try {
     // how / when to remove various auth headers before logging / matching cache?
     // e.g apikey, id, resume, token, access_token, email?
-    this.uid = (ref2 = (ref3 = this.headers['x-uid']) != null ? ref3 : this.headers.uid) != null ? ref2 : this.params.uid;
+    this.uid = (ref3 = (ref4 = this.headers['x-uid']) != null ? ref4 : this.headers.uid) != null ? ref3 : this.params.uid;
   } catch (error) {}
   try {
-    this.apikey = (ref4 = (ref5 = this.headers['x-apikey']) != null ? ref5 : this.headers.apikey) != null ? ref4 : this.params.apikey;
+    this.apikey = (ref5 = (ref6 = this.headers['x-apikey']) != null ? ref6 : this.headers.apikey) != null ? ref5 : this.params.apikey;
   } catch (error) {}
   if (this.headers['x-apikey']) {
     delete this.headers['x-apikey'];
@@ -295,10 +329,10 @@ P = async function(scheduled) {
       this.parts[this.parts.length - 1] = this.parts[this.parts.length - 1].replace('.' + pf, '');
     }
   }
-  if (this.parts.length === 1 && ((ref6 = this.parts[0]) === 'docs' || ref6 === 'client') && typeof this.S.bg === 'string' && this.S.pass) {
+  if (this.parts.length === 1 && ((ref7 = this.parts[0]) === 'docs' || ref7 === 'client') && typeof this.S.bg === 'string' && this.S.pass) {
     throw new Error(); // send to backend to handle requests for anything that should be served from folders on disk
   }
-  for (d in (ref7 = this.S.domains) != null ? ref7 : {}) {
+  for (d in (ref8 = this.S.domains) != null ? ref8 : {}) {
     if (this.base.indexOf(d) !== -1) {
       this.domain = d;
       this.parts = [...this.S.domains[d], ...this.parts];
@@ -311,13 +345,13 @@ P = async function(scheduled) {
   this.route = this.parts.join('/');
   this.routes = [];
   this.fn = ''; // the function name that was mapped to by the URL routes in the request will be stored here
-  if (scheduled || this.route === 'log/_schedule') { // and restrict this to root, or disable URL route to it
+  if (scheduled || this.route === '_schedule') { // and restrict this to root, or disable URL route to it
     this.scheduled = true;
   }
   //@nolog = true if ... # don't log if nolog is present and its value matches a secret key? Or if @S.log is false?
   this._logs = []; // place for a running request to dump multiple logs, which will combine and save at the end of the overall request
   if (this.route === '') { //don't bother doing anything, just serve a direct P._response with the API details
-    return P._response.call(this, (ref8 = this.request.method) === 'HEAD' || ref8 === 'OPTIONS' ? '' : {
+    return P._response.call(this, (ref9 = this.request.method) === 'HEAD' || ref9 === 'OPTIONS' ? '' : {
       name: this.S.name,
       version: this.S.version,
       base: (this.S.dev ? this.base : void 0),
@@ -326,16 +360,16 @@ P = async function(scheduled) {
   }
   // a save method called by the following _return when necessary
   _save = async(k, r, f) => {
-    var c, exists, id, l, len2, ref10, ref9;
-    if ((r != null) && (typeof r !== 'object' || Array.isArray(r) || (((ref9 = r.headers) != null ? ref9.append : void 0) !== 'function' && (typeof r.status !== 'number' || r.status < 200 || r.status > 600)))) {
+    var c, exists, id, len2, m, ref10, ref11;
+    if ((r != null) && (typeof r !== 'object' || Array.isArray(r) || (((ref10 = r.headers) != null ? ref10.append : void 0) !== 'function' && (typeof r.status !== 'number' || r.status < 200 || r.status > 600)))) {
       // if the function returned a Response object, or something with an error status, don't save it
       if (f._key && Array.isArray(r) && r.length && (r[0]._id == null) && (r[0][f._key] != null)) {
-        for (l = 0, len2 = r.length; l < len2; l++) {
-          c = r[l];
+        for (m = 0, len2 = r.length; m < len2; m++) {
+          c = r[m];
           c._id = (Array.isArray(c[f._key]) ? c[f._key][0] : c[f._key]);
         }
       }
-      id = Array.isArray(r) ? '' : '/' + (f._key && r[f._key] ? r[f._key] : (ref10 = r._id) != null ? ref10 : this.uid()).replace(/\//g, '_').replace(k + '_', '').toLowerCase();
+      id = Array.isArray(r) ? '' : '/' + (f._key && r[f._key] ? r[f._key] : (ref11 = r._id) != null ? ref11 : this.uid()).replace(/\//g, '_').replace(k + '_', '').toLowerCase();
       if (f._kv && !Array.isArray(r)) { //_kv should be set for things that MUST be in the kv - they won't be removed, but will be copied to index if _index is also true
         this.kv(k + id, r, f._kv);
       }
@@ -359,36 +393,41 @@ P = async function(scheduled) {
   // _auth and _cache are handled before _return is used to wrap, because they only operate on the function defined by the URL route
   // whereas any other functon called later also gets wrapped and handled here
   _return = (f, n) => {
-    var _wrapped;
-    if (f._sheet === true) {
-      f._sheet = P.dot(this.S, n); // try to read the sheet ID from the settings
-      if (typeof f._sheet !== 'string') {
-        delete f._sheet;
+    var _wrapped, fs, uf, uk, wb;
+    try {
+      fs = P.dot(this.S, n);
+      for (uf in fs) {
+        if (uf.startsWith('_')) { // try to find anything in settings and treat it as an override
+          f[uf] = fs[uf];
+        }
       }
+    } catch (error) {}
+    if (Array.isArray(f._auth) && f._auth.length === 0) { // an empty auth array defaults to group names corresponding to the function subroutes
+      f._auth = n.split('.');
     }
     if (f._sheet) {
       if (f._index == null) {
         f._index = true;
       }
     }
-    if (f._index) {
-      if (f._search == null) {
-        f._search = true; // if false, no pre-search gets done by the wrapper. If a string, searches will be done within the key provided
-      }
-      if (f._schedule == null) {
-        f._schedule = n;
+    if (n.startsWith('auth')) {
+      if (f._cache == null) {
+        f._cache = false;
       }
     }
-    if (f._schedule === true && typeof f !== 'function') {
-      f._schedule = n;
+    if (f._index && f._kv !== false) {
+      if (f._schedule == null) {
+        f._schedule = (f._sheet ? '0001' : true); // reload sheets at 0600 every day by default?
+      }
     }
     if (typeof f === 'function' && (n.indexOf('.') === -1 || n.split('.').pop().indexOf('_') === 0)) {
       return f.bind(this); // don't wrap top-level or underscored methods
     } else if (typeof f === 'object' && !f._index && !f._kv && !f._bg && typeof f[this.request.method] !== 'function') {
+      f._fn = n;
       return JSON.parse(JSON.stringify(f));
     } else {
       _wrapped = async function() {
-        var _async, adone, bup, c, di, dr, exists, isq, l, len2, len3, len4, lg, m, o, qopts, rec, ref10, ref11, ref12, ref13, ref14, ref9, res, rt, st;
+        var _async, adone, bup, c, di, dr, exists, isq, len2, len3, len4, lg, m, o, q, qopts, rec, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref20, res, rt, st;
         st = Date.now(); // again, not necessarily going to be accurate in a workers environment
         rt = n.replace(/\./g, '_');
         lg = {
@@ -454,9 +493,9 @@ P = async function(scheduled) {
               lg.qry = this.params;
             } else if (this.parts.indexOf('create') === this.parts.length - 1 || this.parts.indexOf('save') === this.parts.length - 1) {
               rec = this.copy(this.params);
-              ref9 = this.parts;
-              for (l = 0, len2 = ref9.length; l < len2; l++) {
-                c = ref9[l];
+              ref10 = this.parts;
+              for (m = 0, len2 = ref10.length; m < len2; m++) {
+                c = ref10[m];
                 delete rec[c];
               }
               if (JSON.stringify(rec) === '{}') {
@@ -466,21 +505,48 @@ P = async function(scheduled) {
             lg.key = this.route;
           }
         }
+        if (f._sheet && this.parts.indexOf('sheet') === this.parts.length - 1) {
+          // serve the sheet url. TODO could make this a redirect too - als make it handle sheet and sheet ID in cases where both are provided
+          res = {
+            status: 302
+          };
+          if (this.format === 'json') {
+            res.body = 'https://spreadsheets.google.com/feeds/list/' + f._sheet + '/' + 'default' + '/public/values?alt=json';
+          } else {
+            res.body = 'https://docs.google.com/spreadsheets/d/' + f._sheet;
+          }
+          res.headers = {
+            Location: res.body
+          };
+        }
         if (lg.key) {
           lg.key = rt + '/' + lg.key.replace(/\//g, '_').replace(rt, '').replace(/^_/, '');
         }
-        if ((res == null) && (f._index || f._kv) && (!this.refresh || (f._sheet && this.fn !== n) || (this.fn === n && rec))) { // and not rec? and not fn.qry))
+        if ((res == null) && (f._index || f._kv) && (!this.refresh || (f._sheet && this.fn !== n && !this.scheduled) || (this.fn === n && rec))) { // and not rec? and not fn.qry))
           if (f._kv && lg.key.indexOf('/') !== -1 && !lg.qry) { // check kv first if there is an ID present
             res = (await this.kv(lg.key, rec));
             if ((res != null) && (rec == null)) {
               lg.cached = 'kv';
             }
           }
-          if ((res == null) && f._index && ((rec != null) || f._search)) { // otherwise try the index
+          if ((res == null) && f._index && ((rec != null) || f._search !== false)) { // otherwise try the index
             // TODO if lg.qry is a string like a title, with no other search qualifiers in it, and f._search is a string, treat f._search as the key name to search in
             // BUT if there are no spaces in lg.qry, it's probably supposed to be part of the key - that should be handled above anyway
-            res = (await this.index(lg.key, rec != null ? rec : (lg.qry ? (await this.index.translate(lg.qry)) : void 0)));
-            if (this.fn !== n && typeof lg.qry === 'string' && lg.qry.indexOf(' ') === -1 && !rec && (res != null ? (ref10 = res.hits) != null ? ref10.total : void 0 : void 0) === 1 && lg.qry.indexOf(res.hits.hits[0]._id !== -1)) {
+            if (rec != null) {
+              if (typeof rec === 'object' && !Array.isArray(rec) && !rec._id && ((ref11 = JSON.stringify(rec)) !== '{}' && ref11 !== '[]')) {
+                rec._id = this.uid();
+              }
+              res = (await this.index(lg.key, rec));
+            } else {
+              if (!lg.key.includes('/')) {
+                qopts = (ref12 = (ref13 = (ref14 = f['_' + this.format]) != null ? ref14._qopts : void 0) != null ? ref13 : (ref15 = f._json) != null ? ref15._qopts : void 0) != null ? ref12 : f._qopts;
+                if ((lg.qry == null) && (qopts != null)) {
+                  lg.qry = '*';
+                }
+              }
+              res = (await this.index(lg.key, (lg.qry ? (await this.index.translate(lg.qry, qopts)) : void 0)));
+            }
+            if (this.fn !== n && typeof lg.qry === 'string' && lg.qry.indexOf(' ') === -1 && !rec && (res != null ? (ref16 = res.hits) != null ? ref16.total : void 0 : void 0) === 1 && lg.qry.indexOf(res.hits.hits[0]._id) !== -1) {
               try {
                 res = res.hits.hits[0]._source;
               } catch (error) {}
@@ -514,26 +580,28 @@ P = async function(scheduled) {
           if (typeof f === 'function') { // process the sheet with the parent if it is a function
             res = (await f.apply(this, [res]));
           }
-          await this.index(rt, '');
+          if (Array.isArray(res) && res.length) {
+            await this.index(rt, '');
+          }
           this.waitUntil(_save(rt, this.copy(res), f));
           res = res.length;
         }
         if (res == null) {
-          if (typeof ((ref11 = f[this.request.method]) != null ? ref11 : f) === 'function') { // it could also be an index or kv config object with no default function
+          if (typeof ((ref17 = f[this.request.method]) != null ? ref17 : f) === 'function') { // it could also be an index or kv config object with no default function
             if (f._async) {
               lg.async = true;
               res = {
                 _async: this.rid
               };
               _async = async(rt, f) => {
-                var ares, ref12;
-                if (ares = (await ((ref12 = f[this.request.method]) != null ? ref12 : f).apply(this, arguments))) {
+                var ares, ref18;
+                if (ares = (await ((ref18 = f[this.request.method]) != null ? ref18 : f).apply(this, arguments))) {
                   return _save(rt, this.copy(ares), f);
                 }
               };
               this.waitUntil(_async(rt, f));
             } else {
-              res = (await ((ref12 = f[this.request.method]) != null ? ref12 : f).apply(this, arguments));
+              res = (await ((ref18 = f[this.request.method]) != null ? ref18 : f).apply(this, arguments));
               if ((res != null) && (f._kv || f._index)) {
                 this.waitUntil(_save(rt, this.copy(res), f));
               }
@@ -552,17 +620,17 @@ P = async function(scheduled) {
             if (Array.isArray(f._diff) && typeof f._diff[0] === 'string') {
               if (f._diff[0].startsWith('-')) { // it's a list of keys to ignore
                 dr = this.copy(res);
-                ref13 = f._diff;
+                ref19 = f._diff;
                 // it's a list of keys to include
-                for (m = 0, len3 = ref13.length; m < len3; m++) {
-                  d = ref13[m];
+                for (o = 0, len3 = ref19.length; o < len3; o++) {
+                  d = ref19[o];
                   delete dr[d.replace('-', '')];
                 }
               } else {
                 dr = {};
-                ref14 = f._diff;
-                for (o = 0, len4 = ref14.length; o < len4; o++) {
-                  di = ref14[o];
+                ref20 = f._diff;
+                for (q = 0, len4 = ref20.length; q < len4; q++) {
+                  di = ref20[q];
                   dr[di] = res[di];
                 }
               }
@@ -586,7 +654,16 @@ P = async function(scheduled) {
         this.log(lg);
         return res;
       };
-      return _wrapped.bind(this);
+      wb = _wrapped.bind(this);
+      for (uk in f) {
+        if (uk.startsWith('_')) {
+          if (wb._fn == null) {
+            wb._fn = n; // set the function name if there are other underscored wraper settings to work with
+          }
+          wb[uk] = f[uk];
+        }
+      }
+      return wb;
     }
   };
   // TODO add a way to identify and iterate multiple functions either parallel or serial, adding to results
@@ -604,7 +681,7 @@ P = async function(scheduled) {
   prs = [...this.parts];
   pk = void 0;
   _lp = (p, a, n) => {
-    var ref9, results;
+    var nd, ref10, results;
     // TODO consider if it would be useful to have the construct script build a default of this
     // NOTE that may reduce the configurability of it per call, or at least may require some additional config at call time anyway, 
     // which may limit the value of having it pre-configured in the first place
@@ -617,18 +694,19 @@ P = async function(scheduled) {
     }
     results = [];
     for (k in p) {
-      if ((ref9 = typeof p[k]) !== 'function' && ref9 !== 'object') {
+      if ((ref10 = typeof p[k]) !== 'function' && ref10 !== 'object') {
         try {
           results.push(a[k] = JSON.parse(JSON.stringify(p[k])));
         } catch (error) {
           results.push(a[k] = p[k]);
         }
       } else {
-        a[k] = _return(p[k], n + (n ? '.' : '') + k);
+        nd = n + (n ? '.' : '') + k;
+        a[k] = _return(p[k], nd);
         if (this.scheduled && a[k]._schedule) {
           schedule.push(a[k]);
         }
-        if (!k.startsWith('_')) {
+        if (!k.startsWith('_')) { // underscored methods cannot be accessed from URLs, and are never wrapped
           if (prs.length && prs[0] === k && this.fn.indexOf(n) === 0) {
             pk = prs.shift();
             this.fn += (this.fn === '' ? '' : '.') + pk;
@@ -636,12 +714,12 @@ P = async function(scheduled) {
               fn = a[k];
             }
           }
-          if (typeof a[k] === 'function' && !p[k]._hidden && n.indexOf('scripts') !== 0 && n.indexOf('.scripts') === -1) {
-            this.routes.push((n + (n ? '.' : '') + k).replace(/\./g, '/')); // TODO this could check the auth method, and only show things the current user can access, and also search for description / comment?
+          if (typeof a[k] === 'function' && !a[k]._hidden && !nd.startsWith('scripts') && nd.indexOf('.scripts') === -1 && !nd.startsWith('kv') && !nd.startsWith('index') && ((!nd.startsWith('svc') && !nd.startsWith('src')) || nd.split('.').length < 3)) {
+            this.routes.push(nd.replace(/\./g, '/')); // TODO this could check the auth method, and only show things the current user can access, and also search for description / comment? NOTE this is just about visibility, they're still accessible if given right auth (if any)
           }
         }
         if (!Array.isArray(p[k]) && (!k.startsWith('_') || typeof a[k] === 'function')) {
-          results.push(_lp(p[k], a[k], n + (n ? '.' : '') + k));
+          results.push(_lp(p[k], a[k], nd));
         } else {
           results.push(void 0);
         }
@@ -655,50 +733,99 @@ P = async function(scheduled) {
   }
   // TODO should url params get some auto-processing like query params do above? Could be numbers, lists, bools...
   if (this.scheduled) {
-    res = []; // no auth for scheduled events, just run any that were found
-    for (l = 0, len2 = schedule.length; l < len2; l++) {
-      fs = schedule[l];
-      if (typeof fs._schedule === 'function') {
-        res.push((await fs._schedule()));
-      } else if (fs._schedule === true) {
-        res.push((await fs()));
-      } else if (typeof fs._schedule === 'string') { // dot notation name of the parent function
-        recs = [];
-        if (fs._sheet) { // reload the sheet, at some interval?
-          recs = (await this.src.google.sheets(fs._sheet));
-          if (typeof fs === 'function') {
-            recs = (await fs(res));
-          }
+    res = {};
+    klogs = []; // move any logs first so that schedule can be aware of any recently run scheduled events
+    await this.kv._each('log', async function(lk) {
+      var l;
+      if (lk.indexOf('/') !== -1 && lk !== 'log') {
+        l = (await this.kv(lk, ''));
+        if (l._id == null) {
+          l._id = lk.split('/').pop();
         }
-        await this.kv._each(fs._schedule, async function(kn) {
-          var rec;
-          if (kn.indexOf('/') !== -1 && kn !== fs._schedule) {
-            // if kv not explicitly set, delete when moving to index
-            // this could also be used as a way to replicate changes back into a sheet after reload
-            // but would need at least a way to properly uniquely identify records between sheet and index
-            rec = (await this.kv(kn, fs._kv ? void 0 : ''));
-            if (rec._id == null) {
-              rec._id = kn.split('/').pop();
+        return klogs.push(l);
+      }
+    });
+    res.log = klogs.length;
+    if (klogs.length) {
+      this.waitUntil(this.index('log', klogs));
+    }
+    if (this.refresh === true) { // track if the main request included a refresh from the start, to force all scheduled events to happen regardless of timing (mainly for dev/test)
+      requested_refresh = true;
+    }
+    for (m = 0, len2 = schedule.length; m < len2; m++) {
+      fs = schedule[m];
+      if (fs._fn) { //and fs._fn in ['svc.oaworks.permissions.journals']
+        if (this.S.dev) { //and @S.bg is true
+          console.log('scheduled', fs._fn);
+        }
+        if (typeof fs._schedule === 'function') {
+          res[fs._fn] = true;
+          this.waitUntil(fs._schedule());
+        } else {
+          fun = fs._fn.replace(/\./g, '_');
+          recs = [];
+          hhmm = true;
+          if (typeof fs._schedule === 'number' || (typeof fs._schedule === 'string' && fs._schedule.length === 4 && fs._schedule.replace(/[0-9]/g, '').length === 0)) {
+            // TODO consider changing this to accept cron style strings of space-separated numbers. For now can be time like "0900" or number of minutes like 240
+            if (requested_refresh) {
+              last = false;
+            } else {
+              lasts = (await this.index('log', 'logs.fn:"' + fs._fn + '" AND scheduled:true', true));
+              last = ((lasts != null ? (ref10 = lasts.hits) != null ? ref10.hits : void 0 : void 0) != null) && lasts.hits.hits.length ? lasts.hits.hits[0]._source : false;
             }
-            return recs.push(rec);
+            if (typeof last === 'object' && ((typeof fs._schedule === 'number' && last.started && (last.started + (fs._schedule * 60000)) > this.started) || (last.createdAt && (last.createdAt.split('T')[0].split('-').pop().replace(/^0/, '') === (new Date()).getDate().toString() || this.started < (new Date()).setHours(parseInt(fs._schedule.substring(0, 2)), parseInt(fs._schedule.substring(2)), 0, 0))))) {
+              hhmm = false;
+              res[fs._fn] = false;
+            } else {
+              hhmm = fs._schedule;
+            }
           }
-        });
-        if (recs.length) {
-          this.waitUntil(this.index(fs._schedule, recs));
+          if (hhmm !== false) {
+            res[fs._fn] = true;
+            if (fs._sheet) {
+              if (typeof fs === 'function') {
+                if (this.refresh == null) {
+                  this.refresh = true;
+                }
+                await fs(); // await this one so that the kv import runs after
+// will it ever not be a (wrapped) function?
+              } else {
+                recs = (await this.src.google.sheets(fs._sheet));
+                if (Array.isArray(recs) && recs.length) {
+                  await this.index(fun, '');
+                }
+              }
+            } else if (typeof fs === 'function' && hhmm !== true) {
+              this.waitUntil(fs());
+            }
+          }
+          await this.kv._each(fun, async function(kn) {
+            var rec;
+            if (kn.indexOf('/') !== -1 && kn !== fun) {
+              // this could also be used as a way to replicate changes back into a sheet after reload, if there was a unique identifier for records
+              rec = (await this.kv(kn, fs._kv ? void 0 : '')); // if kv not explicitly set, delete when moving to index
+              if (rec._id == null) {
+                rec._id = kn.split('/').pop();
+              }
+              return recs.push(rec);
+            }
+          });
+          if (typeof recs === 'object' && JSON.stringify(recs) !== '{}' && !Array.isArray(recs)) {
+            recs = [recs];
+          }
+          if (Array.isArray(recs) && recs.length) {
+            res[fs._fn] = recs.length;
+            this.waitUntil(this.index(fun, recs));
+          }
         }
-        res.push({
-          indexed: recs.length
-        });
       }
     }
-    //@log()
-    return this._response(res); // use this or just fall through to final return?
   } else if (typeof fn === 'function') {
     if (this.S.name && this.S.system && this.headers['x-' + this.S.name + '-system'] === this.S.system) {
       this.system = true;
       authd = true; // would this be sufficient or could original user be required too
     } else {
-      authd = this.auth();
+      authd = (await this.auth());
       if (typeof authd === 'object' && authd._id && authd.email) {
         this.user = authd;
       }
@@ -707,7 +834,6 @@ P = async function(scheduled) {
       } else if (fn._auth === true && (this.user != null)) { // just need a logged in user if true
         authd = true;
       } else if (fn._auth) { // which should be a string... comma-separated, or a list
-        // how to default to a list of the role groups corresponding to the URL route? empty list?
         authd = (await this.auth.role(fn._auth)); // _auth should be true or name of required group.role
       } else {
         authd = true;
@@ -715,12 +841,12 @@ P = async function(scheduled) {
     }
     // TODO check the blacklist
     if (authd) {
-      if (typeof fn._format === 'string' && (ref9 = fn._format, indexOf.call(this.S.formats, ref9) >= 0)) {
+      if (typeof fn._format === 'string' && (ref11 = fn._format, indexOf.call(this.S.formats, ref11) >= 0)) {
         if (this.format == null) {
           this.format = fn._format;
         }
       }
-      if ((ref10 = this.request.method) === 'HEAD' || ref10 === 'OPTIONS') {
+      if ((ref12 = this.request.method) === 'HEAD' || ref12 === 'OPTIONS') {
         res = '';
       } else if (fn._cache !== false && !this.refresh && (this.request.method === 'GET' || (this.request.method === 'POST' && this.index._q(this.params))) && (res = (await this._cache()))) { // this will return empty if nothing relevant was ever put in there anyway
         // how about caching of responses to logged in users, by param or header?
@@ -737,8 +863,11 @@ P = async function(scheduled) {
       this.unauthorised = true;
       await this.sleep(200 * (1 + Math.random()));
       res = {
-        status: 401 // not authorised - if @format is html, provide a login box?
+        status: 401 // not authorised
       };
+      if (this.fn === 'svc.rscvd.supply') { // quick workaround for demo
+        this.format = 'html';
+      }
       if (this.format === 'html') {
         res.body = (await this.auth());
       }
@@ -747,14 +876,14 @@ P = async function(scheduled) {
   if (((res == null) || (typeof res === 'object' && res.status === 404)) && this.url.replace('.ico', '').replace('.gif', '').replace('.png', '').endsWith('favicon')) {
     res = '';
   }
-  resp = typeof res === 'object' && !Array.isArray(res) && typeof ((ref11 = res.headers) != null ? ref11.append : void 0) === 'function' ? res : (await this._response(res));
-  if (this.scheduled || (this.parts.length && ((ref12 = this.parts[0]) !== 'log' && ref12 !== 'status') && ((ref13 = this.request.method) !== 'HEAD' && ref13 !== 'OPTIONS') && (res != null) && res !== '')) {
-    if (this.completed && fn._cache !== false && resp.status === 200 && (typeof res !== 'object' || Array.isArray(res) || ((ref14 = res.hits) != null ? ref14.total : void 0) !== 0) && (!fn._sheet || typeof res !== 'number' || !this.refresh)) {
+  resp = typeof res === 'object' && !Array.isArray(res) && typeof ((ref13 = res.headers) != null ? ref13.append : void 0) === 'function' ? res : (await this._response(res, fn));
+  if (this.scheduled || (this.parts.length && ((ref14 = this.parts[0]) !== 'log' && ref14 !== 'status') && ((ref15 = this.request.method) !== 'HEAD' && ref15 !== 'OPTIONS') && (res != null) && res !== '')) {
+    if (this.completed && fn._cache !== false && resp.status === 200 && (typeof res !== 'object' || Array.isArray(res) || ((ref16 = res.hits) != null ? ref16.total : void 0) !== 0) && (!fn._sheet || typeof res !== 'number' || !this.refresh)) {
       this._cache(void 0, resp, fn._cache); // fn._cache can be a number of seconds for cache to live, so pass it to cache to use if suitable
     }
     this.log();
   }
-  if (!this.completed && !this.cached && !this.unauthorised && !this.scheduled && this.S.pass && typeof this.S.bg === 'string' && ((ref15 = this.request.method) !== 'HEAD' && ref15 !== 'OPTIONS')) {
+  if (!this.completed && !this.cached && !this.unauthorised && !this.scheduled && this.S.pass && typeof this.S.bg === 'string' && ((ref17 = this.request.method) !== 'HEAD' && ref17 !== 'OPTIONS')) {
     // TODO add a regular schedule to check logs for things that didn't complete, and set them to _bg by default so they don't keep timing out
     throw new Error();
   } else {
@@ -762,8 +891,8 @@ P = async function(scheduled) {
   }
 };
 
-P._response = async function(res) { // this provides a Response object. It's outside the main P.call so that it can be used elsewhere if convenient
-  var base, base1, base2, h, keys, ref, ref1, status;
+P._response = async function(res, fn) { // this provides a Response object. It's outside the main P.call so that it can be used elsewhere if convenient
+  var base, base1, base2, h, keys, ref, ref1, ref2, ref3, ref4, ref5, status;
   if ((base = this.S).headers == null) {
     base.headers = {};
   }
@@ -788,11 +917,13 @@ P._response = async function(res) { // this provides a Response object. It's out
   } else {
     status = 200;
   }
-  if (this.S.headers['Content-Type'] == null) {
+  if (!this.S.headers['Content-Type'] && !this.S.headers['content-type']) {
     if (this.format && ((ref1 = this.format) === 'html' || ref1 === 'csv')) {
       if (typeof res !== 'string') {
         try {
-          res = (await this.convert['json2' + this.format](res));
+          res = (await this.convert['json2' + this.format](res, {
+            keys: (ref2 = fn != null ? (ref3 = fn['_' + this.format]) != null ? (ref4 = ref3._qopts) != null ? ref4.include : void 0 : void 0 : void 0) != null ? ref2 : fn != null ? (ref5 = fn._qopts) != null ? ref5.include : void 0 : void 0
+          }));
         } catch (error) {}
       }
       this.S.headers['Content-Type'] = this.format === 'html' ? 'text/html; charset=UTF-8' : 'text/csv; charset=UTF-8';
@@ -844,59 +975,50 @@ P.scripts = {};
 
 // NOTE all emails will be lowercased
 // store user record object in kv as user/:UID (value is stringified json object)
-// store a map of email(s) to UID user/email/:EMAIL (or email hash) (value is a UID)
 // and store a map of API keys as well, user/apikey/:KEY (value is user ID) (could have more than one, and have ones that give different permissions)
-// store a login token at auth/token/:TOKEN (value is email, or maybe email hash) (autoexpire login tokens at 15mins 900s)
-// and store a resume token at auth/resume/:UID/:RESUMETOKEN (value is a timestamp) (autoexpire resume tokens at about six months 15768000s, but rotate them on non-cookie use)
+// store a login token at auth/token/:TOKEN (value is email) (autoexpire login tokens at 10mins 600s)
+// and store a resume token at auth/resume/:UID/:RESUMETOKEN (value is a timestamp) (autoexpire resume tokens at about three months 7890000s, but rotate them on non-cookie use)
 
 // TODO check how system header auth should affect checks on auth and group/role activities further down the stack
 // ideally should be ok to run anything after system hand-off that already got auth'd at top level, but check
 var indexOf = [].indexOf;
 
-P.auth = async function(key, val) {
-  var cookie, eml, ref, ref1, ref2, ref3, ref4, ref5, restok, resume, uid, upd, user;
+P.auth = async function(key) {
+  var cookie, email, oauth, ref, ref1, ref2, ref3, ref4, ref5, ref6, restok, resume, ret, uid, upd, user;
   try {
     if (this.S.name && this.S.system && this.headers['x-' + S.name + '-system'] === this.S.system) {
       return true;
     }
   } catch (error) {}
-  
-  //if key? and val?
-  // if at least key provided directly, just look up the user
   // if params.auth, someone looking up the URL route for this acc. Who would have the right to see that?
   if (typeof key === 'string') {
-    return (await this.kv('user/' + key));
+    return (await this.kv('user/' + (key.includes('@') ? this.hashhex(key) : key)));
   }
-  if ((this.params.access_token == null) || !(user = (await this.oauth()))) {
-    if (this.params.token && (eml = (await this.kv('auth/token/' + this.params.token, '')))) { // true causes delete after found
-      if (uid = (await this.kv('user/email/' + eml.toLowerCase()))) {
-        user = (await this.kv('user/' + uid)); // get the user record if it already exists
-      }
-      if (user == null) {
-        user = (await this.auth._insert(eml)); // create the user record if not existing, as this is the first token login attempt for this email address
-      }
+  if ((this.params.access_token && (oauth = (await this.oauth(this.params.access_token)))) || ((this.params.token || this.params.auth) && (email = (await this.kv('auth/token/' + ((ref = this.params.token) != null ? ref : this.params.auth), ''))))) { // true causes delete after found
+    if (!(user = (await this.kv('user/' + this.hashhex((ref1 = oauth != null ? oauth.email : void 0) != null ? ref1 : email))))) { // get the user record if it already exists
+      user = (await this.auth._insert(oauth != null ? oauth : email)); // create the user record if not existing, as this is the first token login attempt for this email address
     }
-    if (!user && this.apikey) {
-      if (uid = (await this.kv('user/apikey/' + this.apikey))) {
-        user = (await this.kv('user/' + uid)); // no user creation if apikey doesn't match here - only create on login token above 
-      }
+  }
+  if (!user && this.apikey && (uid = (await this.kv('user/apikey/' + this.apikey)))) {
+    user = (await this.kv('user/' + uid)); // no user creation if apikey doesn't match here - only create on login token above 
+  }
+  if (!user && (this.params.resume || this.cookie)) { // accept resume on a header too?
+    if (!(resume = this.params.resume)) { // login by resume token if provided in param or cookie
+      try {
+        cookie = JSON.parse(decodeURIComponent(this.cookie).split(((ref2 = (ref3 = S.auth) != null ? (ref4 = ref3.cookie) != null ? ref4.name : void 0 : void 0) != null ? ref2 : 'pradm') + "=")[1].split(';')[0]);
+        resume = cookie.resume;
+        uid = cookie._id;
+      } catch (error) {}
     }
-    if (!user && ((this.params.resume != null) || this.cookie)) { // accept resume on a header too?
-      uid = this.id;
-      if (!uid && (this.params.email != null)) { // accept resume with email instead of id?
-        uid = (await this.kv('user/email/' + this.params.email.toLowerCase()));
-      }
-      if (!(resume = this.params.resume)) { // login by resume token if provided in param or cookie
-        // check where is cookie?
-        try {
-          cookie = JSON.parse(decodeURIComponent(this.cookie).split(((ref = (ref1 = (ref2 = S.auth) != null ? (ref3 = ref2.cookie) != null ? ref3.name : void 0 : void 0) != null ? ref1 : S.name) != null ? ref : 'n2') + "=")[1].split(';')[0]);
-          resume = cookie.resume;
-          uid = cookie.id;
-        } catch (error) {}
-      }
-      if ((resume != null) && (uid != null) && (restok = (await this.kv('auth/resume/' + uid + '/' + resume, (this.params.resume ? '' : void 0))))) { // delete if not a cookie resume
-        user = (await this.kv('user/' + uid));
-      }
+    if (uid == null) {
+      uid = this.id; // if picked up from incoming params
+    }
+    if (this.params.email && !uid) {
+      uid = this.hashhex(this.params.email); // accept resume with email instead of id?
+    }
+    if (resume && uid && (restok = (await this.kv('auth/resume/' + uid + '/' + resume, (this.params.resume ? '' : void 0))))) { // delete if not a cookie resume
+      user = (await this.kv('user/' + uid));
+      user.resume = resume;
     }
   }
   if (typeof user === 'object' && user._id) {
@@ -904,16 +1026,16 @@ P.auth = async function(key, val) {
 
     // record the user login timestamp, and if login came from a service the user does not yet have a role in, add the service user role
     // who can add the service param?
-    if (this.params.service && (((ref4 = user.roles) != null ? ref4[this.params.service] : void 0) == null)) {
+    if (this.params.service && (((ref5 = user.roles) != null ? ref5[this.params.service] : void 0) == null)) {
       upd = {};
-      upd.roles = (ref5 = user.roles) != null ? ref5 : {};
+      upd.roles = (ref6 = user.roles) != null ? ref6 : {};
       upd.roles[this.params.service] = 'user';
       this.kv('user/' + user._id, upd, user); // record the user login time?
     }
-    if ((this.params.resume != null) || (this.params.token != null)) {
+    if (this.params.resume || this.params.token || this.params.auth) {
       // if a fresh login or resume token was used explicitly, provide a new resume token
       user.resume = this.uid();
-      this.kv('auth/resume/' + user._id + '/' + user.resume, Date.now(), 7890000); //15768000 # resume token lasts three months
+      this.kv('auth/resume/' + user._id + '/' + user.resume, Date.now(), 7890000); // resume token lasts three months (could make six at 15768000)
     }
   }
   
@@ -924,62 +1046,72 @@ P.auth = async function(key, val) {
 
   // if this is called with no variables, and no defaults, provide a count of users?
   // but then if logged in and on this route, what does it provide? the user account?
-  if ((key == null) && (val == null) && (user == null) && this.format === 'html') {
-    return '<input style="min-width:250px;" type="text" name="email" placeholder="Enter your email address to sign in"><input style="display:none;min-width:250px;" type="text" name="token" placeholder="Enter the login token once you receive it">';
+  if ((key == null) && (user == null) && this.format === 'html') {
+    ret = '<input id="pradmEmail" class="pradmEmail" style="min-width:250px;" type="text" name="email" placeholder="Enter your email address to sign in"><input id="pradmToken" class="pradmToken" style="display:none;min-width:250px;" type="text" name="token" placeholder="Enter the login token once you receive it">';
+    ret += '<script type="text/javascript" src="/client/pradm.js"></script><script type="text/javascript" src="/client/pradmLogin.js"></script>';
+    ret += '<script>pradm.next = true;</script>';
+    return ret;
   } else {
     return user;
   }
 };
 
-P.auth.token = async function(email, from, subject, text, html, template, url) {
-  var ref, ref1, ref2, ref3, ref4, ref5, ref6, sent, token;
+P.auth.token = function(email, from, subject, text, html, template, url) {
+  var ref, ref1, ref2, ref3, token;
   if (email == null) {
-    email = (ref = this.params.email) != null ? ref : '';
+    email = this.params.email;
   }
-  email = email.toLowerCase();
-  if (from == null) {
-    from = (ref1 = (ref2 = S.auth) != null ? ref2.from : void 0) != null ? ref1 : 'nobody@example.com';
-  }
-  if (subject == null) {
-    subject = (ref3 = (ref4 = S.auth) != null ? ref4.subject : void 0) != null ? ref3 : 'Please complete your login';
-  }
-  token = this.uid(8);
-  if (url == null) {
-    url = ((ref5 = (ref6 = this.params.url) != null ? ref6 : this.request.url) != null ? ref5 : 'https://example.com').split('?')[0].replace('/token', '') + '?token=' + token;
-  }
-  this.kv('auth/token/' + token, email, 900); // create a token that expires in 15 minutes
-  if (from && email) {
-    // see old code for an attempt to add a gmail login button - if that has simplified since then, add it now
-    sent = (await this.mail.send({
+  if (email) {
+    email = email.trim().toLowerCase();
+    if (from == null) {
+      from = (ref = (ref1 = S.auth) != null ? ref1.from : void 0) != null ? ref : 'login@example.com';
+    }
+    if (subject == null) {
+      subject = (ref2 = (ref3 = S.auth) != null ? ref3.subject : void 0) != null ? ref2 : 'Please complete your login';
+    }
+    token = this.uid(8);
+    if (this.S.dev && this.S.bg === true) {
+      console.log(email, token);
+    }
+    if (url == null) {
+      url = this.params.url;
+    }
+    if (url) {
+      url += '#' + token;
+    } else {
+      url = this.base + '/' + this.route.replace('/token', '/' + token);
+    }
+    this.kv('auth/token/' + token, email, 600); // create a token that expires in 10 minutes
+    this.waitUntil(this.mail({
       from: from,
       to: email,
       subject: subject,
-      text: text != null ? text : 'Your login code is:\r\n\r\n{{TOKEN}}\r\n\r\nor use this link:\r\n\r\n{{URL}}\r\n\r\nnote: this single-use code is only valid for 15 minutes.',
-      html: html != null ? html : '<html><body><p>Your login code is:</p><p><b>{{TOKEN}}</b></p><p>or click on this link</p><p><a href=\"{{URL}}\">{{URL}}</a></p><p>note: this single-use code is only valid for 15 minutes.</p></body></html>',
+      text: text != null ? text : 'Your login code is:\r\n\r\n' + token + '\r\n\r\nor use this link:\r\n\r\n' + url + '\r\n\r\nnote: this single-use code is only valid for 10 minutes.',
+      html: html != null ? html : '<html><body><p>Your login code is:</p><p><b>' + token + '</b></p><p>or click on this link</p><p><a href=\"' + url + '\">' + url + '</a></p><p>note: this single-use code is only valid for 10 minutes.</p></body></html>',
       //template: template
       params: {
         token: token,
         url: url
       }
     }));
-    return sent; //sent?.data?.id ? sent?.id ? email
+    return {
+      email: email
+    };
   } else {
-    return token;
+    return this.uid(8); // is there a case where this would somehow be useful? It's not getting saved anywhere for later confirmation...
   }
 };
 
+
 // auth/role/:grl/:uid
 // any logged in user can find out if any other user is in a role
-P.auth.role = function(grl, uid) {
-  var cascade, g, group, i, j, len, len1, ref, ref1, ref2, ref3, ref4, ri, rl, role, user;
+P.auth.role = async function(grl, uid) {
+  var cascade, g, group, i, j, len, len1, ref, ref1, ref2, ref3, ri, rl, role, user;
   if (grl == null) {
     grl = this.params.role;
   }
-  if ((grl == null) && typeof ((ref = this.opts) != null ? ref.auth : void 0) === 'string') {
-    grl = this.opts.auth;
-  }
-  if (uid == null) {
-    uid = this.user;
+  if ((grl == null) && typeof ((ref = this.params) != null ? ref.auth : void 0) === 'string') {
+    grl = this.params.auth;
   }
   if (typeof grl === 'string' && grl.indexOf('/') !== -1) {
     if (uid == null) {
@@ -987,7 +1119,7 @@ P.auth.role = function(grl, uid) {
       grl = grl.replace('/' + uid, '');
     }
   }
-  user = (uid != null) && uid !== ((ref1 = this.user) != null ? ref1._id : void 0) ? this.user(uid) : this.user;
+  user = typeof uid === 'object' ? uid : typeof uid === 'string' ? (await this.kv(uid.includes('@') ? this.hashhex(uid) : uid)) : this.user;
   if ((user != null ? user.roles : void 0) == null) {
     return false;
   }
@@ -1005,18 +1137,18 @@ P.auth.role = function(grl, uid) {
     if (group === user.id) { // user is owner on their own group
       return 'owner';
     }
-    if (indexOf.call((ref2 = user.roles.__global__) != null ? ref2 : [], 'root') >= 0) {
+    if (indexOf.call((ref1 = user.roles.__global__) != null ? ref1 : [], 'root') >= 0) {
       return 'root';
     }
-    if (indexOf.call((ref3 = user.roles[group]) != null ? ref3 : [], role) >= 0) {
+    if (indexOf.call((ref2 = user.roles[group]) != null ? ref2 : [], role) >= 0) {
       return role;
     }
     if (user.roles[group] != null) {
       cascade = ['root', 'service', 'owner', 'super', 'admin', 'auth', 'bulk', 'delete', 'remove', 'create', 'insert', 'publish', 'put', 'draft', 'post', 'edit', 'update', 'user', 'get', 'read', 'info', 'public'];
       if (0 < (ri = cascade.indexOf(role))) {
-        ref4 = cascade.splice(0, ri);
-        for (j = 0, len1 = ref4.length; j < len1; j++) {
-          rl = ref4[j];
+        ref3 = cascade.splice(0, ri);
+        for (j = 0, len1 = ref3.length; j < len1; j++) {
+          rl = ref3[j];
           if (indexOf.call(user.roles[group], rl) >= 0) {
             return rl;
           }
@@ -1033,7 +1165,7 @@ P.auth.roles = async function(user, grl, keep) {
     user = (ref = this.user) != null ? ref : this.params.roles;
   }
   if (typeof user === 'string') {
-    user = (await this.kv('user/' + user));
+    user = (await this.kv('user/' + (user.includes('@') ? this.hashhex(user) : user)));
   }
   // what about one logged in user acting on the roles route of another?
   [group, role] = grl.split('.');
@@ -1056,11 +1188,23 @@ P.auth.roles = async function(user, grl, keep) {
 };
 
 P.auth.logout = function(user) { // how about triggering a logout on a different user account
+  var ret;
   if (user == null) {
     user = this.user;
   }
-  if (user != null) {
-    return this.kv('auth/resume/' + (typeof user === 'string' ? user : user._id), '');
+  if (user) {
+    this.kv('auth/resume/' + (typeof user === 'string' ? (user.includes('@') ? this.hashhex(user) : user) : user._id), '');
+  }
+  if (this.format === 'html') {
+    ret = '<p id="logout">Logging out...</p>';
+    ret += '<script type="text/javascript" src="/client/pradm.js"></script><script type="text/javascript" src="/client/pradmLogin.js"></script>';
+    ret += `<script>
+setTimeout(function() {
+  pradm.logout();
+  pradm.html('#logout', "You're logged out");
+}, 2000);
+</script>`;
+    return ret;
   }
 };
 
@@ -1076,51 +1220,33 @@ P.auth.logout = function(user) { // how about triggering a logout on a different
 
 // device fingerprinting was available in the old code but no explicit requirement for it so not added here yet
 // old code also had xsrf tokens for FORM POSTs, add that back in if relevant
-P.oauth = async function(token, cid) {
-  var ref, ref1, ref10, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, ret, sets, uid, user, validate;
+P._oauth = async function(token, cid) {
+  var ref, ref1, ref10, ref11, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, ret, sets, validate;
   // https://developers.google.com/identity/protocols/OAuth2UserAgent#validatetoken
   sets = {};
-  if (token != null ? token : token = this.params.access_token) {
+  if (token) { //?= @params.access_token
     try {
       // we did also have facebook oauth in here, still in old code, but decided to drop it unless explicitly required again
       validate = (await this.fetch('https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=' + token, {
         method: 'POST' // has to be a POST even though it sends nothing
       }));
       if (cid == null) {
-        cid = (ref = (ref1 = S.svc[(ref2 = this.params.service) != null ? ref2 : 'z']) != null ? (ref3 = ref1.google) != null ? (ref4 = ref3.oauth) != null ? (ref5 = ref4.client) != null ? ref5.id : void 0 : void 0 : void 0 : void 0) != null ? ref : (ref6 = S.use) != null ? (ref7 = ref6.google) != null ? (ref8 = ref7.oauth) != null ? (ref9 = ref8.client) != null ? ref9.id : void 0 : void 0 : void 0 : void 0;
+        cid = (ref = (ref1 = this.S.svc[(ref2 = this.params.service) != null ? ref2 : 'z']) != null ? (ref3 = ref1.google) != null ? (ref4 = ref3.oauth) != null ? (ref5 = ref4.client) != null ? ref5.id : void 0 : void 0 : void 0 : void 0) != null ? ref : (ref6 = S.use) != null ? (ref7 = ref6.google) != null ? (ref8 = ref7.oauth) != null ? (ref9 = ref8.client) != null ? ref9.id : void 0 : void 0 : void 0 : void 0;
       }
       if ((cid != null) && ((ref10 = validate.data) != null ? ref10.aud : void 0) === cid) {
         ret = (await this.fetch('https://www.googleapis.com/oauth2/v2/userinfo?access_token=' + token));
-        if (uid = (await this.kv('user/email/' + ret.data.email.toLowerCase()))) {
-          if (!(user = (await this.kv('user/' + uid)))) {
-            user = (await this.auth._insert(ret.data.email.toLowerCase()));
-          }
-        }
-        if (user.google == null) {
-          sets.google = {
+        return {
+          email: ret.data.email.toLowerCase(),
+          google: {
             id: ret.data.id
-          };
-        }
-        if (ret.data.name) {
-          if (!user.name) {
-            sets.name = ret.data.name;
-          }
-        } else if (ret.data.given_name && !user.name) {
-          sets.name = ret.data.given_name;
-          if (ret.data.family_name) {
-            sets.name += ' ' + ret.data.family_name;
-          }
-        }
-        if (!user.avatar && ret.data.picture) {
-          sets.avatar = ret.data.picture;
-        }
+          },
+          name: (ref11 = ret.data.name) != null ? ref11 : ret.data.given_name + (ret.data.family_name ? ' ' + ret.data.family_name : ''),
+          avatar: ret.data.picture
+        };
       }
     } catch (error) {}
   }
-  if ((user != null) && JSON.stringify(sets) !== '{}') {
-    user = (await this.user.update(user.id, sets));
-  }
-  return user;
+  return void 0;
 };
 
 // an oauth client-side would require the google oauth client token. It's not a secret, but must be got in advance from google account provider
@@ -1133,65 +1259,31 @@ P.oauth = async function(token, cid) {
 // the response from oauth login page would go back to current page and have a # with access_token= and state=
 // NOTE as it is after a # these would only be available on a browser, as servers don't get the # part of a URL
 // if the states match, send the access_token into the above method and if it validates then we can login the user
-P.auth._insert = async function(key, val) {
-  var em, first, ref, ref1, res, u, user;
-  if (typeof key === 'string' && (val != null)) {
-    if (val === '') {
-      if (key.startsWith('user/')) {
-        key = key.replace('user/', '');
-      }
-      user = ((ref = this.user) != null ? ref._id : void 0) === key ? this.user : (await this.kv('user/' + key));
-      try {
-        this.auth.logout(key);
-      } catch (error) {}
-      try {
-        if (user.apikey != null) {
-          this.kv('user/apikey/' + user.apikey, '-');
-        }
-      } catch (error) {}
-      try {
-        if (user.email != null) {
-          this.kv('user/email/' + user.email.toLowerCase(), '-');
-        }
-      } catch (error) {}
-      return this.kv('user/' + key, '');
-    }
-  } else {
-    if (typeof key === 'string' && key.indexOf('@') !== -1 && key.indexOf('.') !== -1) { // put this through a validator, either/both a regex and a service
-      //else # update the user with the provided val
-      em = key.toLowerCase();
-    }
-    if ((key == null) && (this != null ? (ref1 = this.user) != null ? ref1._id : void 0 : void 0)) {
-      key = 'user/' + this.user._id;
-    }
-    if (key.indexOf('@') !== -1) {
-      key = (await this.kv('user/email/' + key.toLowerCase()));
-    }
-    res = (await this.kv('user/' + key));
-    if (res == null) {
-      if (em) {
-        u = {
-          email: em.trim().toLowerCase(), //store email here or not?
-          apikey: this.uid(), // store the apikey here or not?
-          profile: {}
-        };
-        first = false; // if no other user accounts yet
-        u.roles = first ? {
-          __global__: ['root']
-        } : {};
-        u.createdAt = Date.now();
-        u._id = this.uid();
-        this.kv('user/apikey/' + apikey, u._id);
-        this.kv('user/email/' + email.toLowerCase(), u._id); // or hash of email
-        this.kv('user/' + u._id, u);
-        return u;
-      } else {
-        return void 0;
-      }
-    } else {
-      return void 0;
-    }
+P.auth._insert = function(obj) {
+  var first, u;
+  if (typeof obj === 'string') {
+    obj = {
+      email: obj
+    };
   }
+  if (typeof obj.email !== 'string' || !obj.email.includes('@')) {
+    return false;
+  }
+  u = {
+    _id: this.hashhex(obj.email.trim().toLowerCase()),
+    email: obj.email, //store email here or not?
+    apikey: this.uid() // store the apikey here or not?
+  };
+  delete obj.email;
+  u.profile = obj; // could use obj as profile input data? better for services to store this where necessary though
+  first = false; // if no other user accounts yet
+  u.roles = first ? {
+    __global__: ['root']
+  } : {};
+  u.createdAt = new Date();
+  this.kv('user/apikey/' + u.apikey, u._id);
+  this.kv('user/' + u._id, u);
+  return u;
 };
 
 P.auth._update = async function(r, user) {
@@ -1217,6 +1309,26 @@ P.auth._update = async function(r, user) {
   }
 };
 
+P.auth._remove = async function(key) {
+  var ref, user;
+  if (key.startsWith('user/')) {
+    key = key.replace('user/', '');
+  }
+  if (key.includes('@')) {
+    key = this.hashhex(key);
+  }
+  user = ((ref = this.user) != null ? ref._id : void 0) === key ? this.user : (await this.kv('user/' + key));
+  try {
+    this.auth.logout(key);
+  } catch (error) {}
+  try {
+    this.kv('user/apikey/' + user.apikey, '');
+  } catch (error) {}
+  try {
+    return this.kv('user/' + key, '');
+  } catch (error) {}
+};
+
 var indexOf = [].indexOf;
 
 if (P.convert == null) {
@@ -1224,7 +1336,7 @@ if (P.convert == null) {
 }
 
 P.convert.json2csv = async function(recs, params) {
-  var h, headers, i, j, k, len, len1, newline, nk, quote, rc, rec, records, ref, ref1, ref2, ref3, ref4, ref5, rs, separator;
+  var h, headers, i, idlink, j, k, len, len1, newline, nk, quote, rc, rec, records, ref, ref1, ref2, ref3, ref4, ref5, ref6, rs, separator;
   if (recs == null) {
     recs = (ref = this.body) != null ? ref : this.params;
   }
@@ -1249,7 +1361,7 @@ P.convert.json2csv = async function(recs, params) {
   if (!recs.length) {
     return '';
   } else {
-    headers = [];
+    headers = (ref5 = params.keys) != null ? ref5 : [];
     records = '';
     for (i = 0, len = recs.length; i < len; i++) {
       rec = recs[i];
@@ -1257,13 +1369,24 @@ P.convert.json2csv = async function(recs, params) {
         records += newline;
       }
       if (params.es !== false && (rec._source || rec.fields)) {
-        rc = {
-          _id: '<a onclick="this.setAttribute(\'href\', window.location.href.split(\'.html\')[0].split(\'/\').pop() + \'/\' + this.getAttribute(\'href\') )" href="' + rec._id + '.html">' + rec._id + '</a>'
-        };
-        rs = (ref5 = rec._source) != null ? ref5 : rec.fields;
+        rs = (ref6 = rec._source) != null ? ref6 : rec.fields;
+        rc = {};
+        idlink = true;
+        if (!params.keys || indexOf.call(params.keys, '_id') >= 0) {
+          rc._id = '<a onclick="this.setAttribute(\'href\', window.location.href.split(\'.html\')[0].split(\'/\').pop() + \'/\' + this.getAttribute(\'href\') )" href="' + rec._id + '.html">' + rec._id + '</a>';
+          idlink = false;
+        }
 // could add controls to alter the order here, or customise key names
         for (nk in rs) {
-          rc[nk] = rs[nk];
+          if (rc[nk] == null) {
+            rc[nk] = rs[nk];
+          }
+          if (idlink && nk === params.keys[0]) {
+            try {
+              rc[nk] = '<a onclick="this.setAttribute(\'href\', window.location.href.split(\'.html\')[0].split(\'/\').pop() + \'/\' + this.getAttribute(\'href\') )" href="' + rec._id + '.html">' + rs[nk] + '</a>';
+            } catch (error) {}
+            idlink = false;
+          }
         }
         rec = rc;
       }
@@ -1273,9 +1396,11 @@ P.convert.json2csv = async function(recs, params) {
       if (params.subset) {
         rec = (await this.dot(rec, params.subset));
       }
-      for (k in rec) {
-        if ((rec[k] != null) && indexOf.call(headers, k) < 0) {
-          headers.push(k);
+      if (!params.keys) {
+        for (k in rec) {
+          if ((rec[k] != null) && indexOf.call(headers, k) < 0) {
+            headers.push(k);
+          }
         }
       }
       for (j = 0, len1 = headers.length; j < len1; j++) {
@@ -1386,8 +1511,8 @@ P.convert.csv2html = async function(csv) {
   separator = ',';
   newline = '\n';
   csv = csv.replace(/,,/g, separator + quote + quote + separator); // TODO change this for a regex of the separator
-  res = '<style>table.paradigm tr:nth-child(even) {background: #eee}table.paradigm tr:nth-child(odd) {background: #fff}</style>';
-  res += '<table class="paradigm" style="border-collapse: collapse;">';
+  res = '<style>table.paradigm tr:nth-child(even) {background: #eee}table.paradigm tr:nth-child(odd) {background: #fff}</style>\n';
+  res += '<table class="paradigm" style="border-collapse: collapse;">\n';
   if (typeof csv === 'string' && csv.length) {
     lines = csv.split(newline);
     if (lines.length) {
@@ -1400,7 +1525,7 @@ P.convert.csv2html = async function(csv) {
         res += '<th style="padding:2px; border:1px solid #ccc;">' + header.replace(/"/g, '') + '</th>';
         ln += 1;
       }
-      res += '</tr></thead><tbody>';
+      res += '</tr></thead>\n<tbody>\n';
       for (j = 0, len1 = lines.length; j < len1; j++) {
         line = lines[j];
         res += '<tr>';
@@ -1436,16 +1561,16 @@ P.convert.csv2html = async function(csv) {
           res += '<td style="padding:2px; border:1px solid #ccc;vertical-align:text-top;"></td>';
           vn += 1;
         }
-        res += '</tr>';
+        res += '</tr>\n';
       }
-      res += '</tbody>';
+      res += '</tbody>\n';
     }
   }
   return res + '</table>';
 };
 
 P.convert.json2html = async function(recs, params) {
-  var _draw, i, j, len, len1, part, parts, pt, ref, ref1, ref2, res, st, tbl;
+  var _draw, i, j, key, len, len1, len2, m, part, parts, pt, ref, ref1, ref2, ref3, res, st, tbl;
   if (recs == null) {
     recs = (ref = this.body) != null ? ref : this.params;
   }
@@ -1454,6 +1579,17 @@ P.convert.json2html = async function(recs, params) {
   }
   if (params.url) {
     recs = (await this.fetch(url));
+  }
+  if (params.new) {
+    if (params.edit == null) {
+      params.edit = true;
+    }
+    recs = {};
+    ref1 = (await this.index.keys(this.route.replace(/\//g, '_')));
+    for (i = 0, len = ref1.length; i < len; i++) {
+      key = ref1[i];
+      recs[key] = ''; // could also get mapping types from here, and need to handle nesting eventually
+    }
   }
   if (params.subset && !Array.isArray(recs)) {
     parts = params.subset.split('.');
@@ -1465,7 +1601,7 @@ P.convert.json2html = async function(recs, params) {
       }
     }
   }
-  if (Array.isArray(recs) || ((recs != null ? (ref1 = recs.hits) != null ? ref1.hits : void 0 : void 0) && params.es !== false)) {
+  if (Array.isArray(recs) || ((recs != null ? (ref2 = recs.hits) != null ? ref2.hits : void 0 : void 0) && params.es !== false)) {
     if (parts != null) {
       params.subset = parts.join('.');
     }
@@ -1476,9 +1612,9 @@ P.convert.json2html = async function(recs, params) {
     if (params.edit) { // extras only for rscvd for now but should be any management fields to add and not yet present
       res += '<div style="clear:both; margin:-1px 0px;"><div style="float:left;width: 150px; overflow: scroll;"><b><p>status</p></b></div>';
       res += '<div style="float:left;"><select class="pradmForm" id="status" style="margin-top:15px;margin-bottom:0px;min-width:180px;">';
-      ref2 = ['', 'Verified', 'Denied', 'Progressing', 'Overdue', 'Provided', 'Cancelled', 'Done'];
-      for (i = 0, len = ref2.length; i < len; i++) {
-        st = ref2[i];
+      ref3 = ['', 'Verified', 'Denied', 'Progressing', 'Overdue', 'Provided', 'Cancelled', 'Done'];
+      for (j = 0, len1 = ref3.length; j < len1; j++) {
+        st = ref3[j];
         res += '<option' + (recs.status === st ? ' selected="selected"' : '') + '>' + st + '</option>';
       }
       delete recs.status;
@@ -1490,8 +1626,8 @@ P.convert.json2html = async function(recs, params) {
     }
     if (params.subset) {
       if (parts.length) {
-        for (j = 0, len1 = parts.length; j < len1; j++) {
-          pt = parts[j];
+        for (m = 0, len2 = parts.length; m < len2; m++) {
+          pt = parts[m];
           recs = recs[pt];
         }
       }
@@ -1499,10 +1635,19 @@ P.convert.json2html = async function(recs, params) {
       res += '<input type="hidden" id="options_subset" value="' + params.subset + '">';
     }
     _draw = (rec) => {
-      var k, len2, m, ok, ref3, results, rks;
+      var k, len3, len4, n, o, ok, pk, ref4, ref5, results, rks;
       if (params.edit) { // just for rscvd demo for now
         if (rec.comments == null) {
           rec.comments = '';
+        }
+      }
+      if (params.keys) {
+        ref4 = params.keys;
+        for (n = 0, len3 = ref4.length; n < len3; n++) {
+          pk = ref4[n];
+          if (rec[pk] == null) {
+            rec[pk] = '';
+          }
         }
       }
       results = [];
@@ -1513,15 +1658,15 @@ P.convert.json2html = async function(recs, params) {
             rec[k] = rec[k][0];
           }
         } catch (error) {}
-        if ((rec[k] != null) && (!Array.isArray(rec[k]) || rec[k].length)) { // and rec[k] isnt ''
+        if ((rec[k] != null) && (!Array.isArray(rec[k]) || rec[k].length) && (!params.keys || indexOf.call(params.keys, k) >= 0)) {
           res += '<div style="clear:both; ' + (!params.edit ? 'border:1px solid #ccc; ' : '') + 'margin:-1px 0px;"><div style="float:left;width: 150px; overflow: scroll;"><b><p>' + k + '</p></b></div>';
           res += '<div style="float:left;">';
           res += params.edit ? '<textarea class="pradmForm" id="' + k + '" style="min-height:80px;width:100%;margin-bottom:5px;">' : '';
           if (Array.isArray(rec[k])) {
             if (typeof rec[k][0] === 'object') {
-              ref3 = rec[k];
-              for (m = 0, len2 = ref3.length; m < len2; m++) {
-                ok = ref3[m];
+              ref5 = rec[k];
+              for (o = 0, len4 = ref5.length; o < len4; o++) {
+                ok = ref5[o];
                 _draw(ok);
               }
             } else {
@@ -1928,9 +2073,9 @@ P.fetch = async function(url, params) {
     url = params.url;
     delete params.url;
   }
-  if (params.bg === true && typeof this.S.bg === 'string') {
+  if (params.bg === true && typeof S.bg === 'string') {
     params.url = url; // send to bg (e.g. for proxying)
-    url = this.S.bg + '/fetch';
+    url = S.bg + '/fetch';
     delete params.bg;
   }
   // if params is provided, and headers is in it, may want to merge with some default headers
@@ -1982,7 +2127,13 @@ P.fetch = async function(url, params) {
     if ((params.headers['Content-Type'] == null) && (params.headers['content-type'] == null)) {
       params.headers['Content-Type'] = 'application/x-www-form-urlencoded';
     }
-    params.body = typeof params.form === 'string' ? params.form : (await this.params(params.form));
+    if (typeof params.form === 'string') {
+      params.body = params.form;
+    } else {
+      try {
+        params.form = (await this.params(params.form));
+      } catch (error) {}
+    }
     delete params.form;
     if (params.method == null) {
       params.method = 'POST';
@@ -2018,7 +2169,7 @@ P.fetch = async function(url, params) {
       }
     }
     _f = async() => {
-      var r, response, verbose;
+      var hd, l, len2, len3, m, r, ref3, ref4, resp, response, rk, verbose;
       if (params.verbose) {
         verbose = true;
         delete params.verbose;
@@ -2036,35 +2187,58 @@ P.fetch = async function(url, params) {
         }
       } catch (error) {}
       response = (await fetch(url, params));
-      if (S.dev) { //and @S.bg is true # status code can be found here
+      if (S.dev) { //and S.bg is true # status code can be found here
         console.log(response.status + ' ' + url);
       }
-      if (verbose) {
-        return response;
-      } else {
-        // content type could be read from: response.headers.get('content-type')
-        // and await response.json() can get json direct, but it will error if the wrong sort of data is provided.
-        // So just do it manually from text here if appropriate
-        // TODO what if the response is a stream?
-        r = (await response.text());
-        try {
-          if (typeof r === 'string' && (r.indexOf('{') === 0 || r.indexOf('[') === 0)) {
-            r = JSON.parse(r);
-          }
-        } catch (error) {}
-        if (response.status === 404) {
-          return void 0;
-        } else if (response.status >= 400) {
-          if (S.dev) {
-            console.log(JSON.stringify(r));
-            console.log('ERROR ' + response.status);
-          }
-          return {
-            status: response.status
-          };
-        } else {
-          return r;
+      // content type could be read from: response.headers.get('content-type')
+      // and await response.json() can get json direct, but it will error if the wrong sort of data is provided.
+      // So just do it manually from text here if appropriate
+      // TODO what if the response is a stream (buffer)?
+      r = (await response.text());
+      try {
+        if (typeof r === 'string' && (r.indexOf('{') === 0 || r.indexOf('[') === 0)) {
+          r = JSON.parse(r);
         }
+      } catch (error) {}
+      resp = {};
+      if (response.status === 404) {
+        resp = void 0;
+      } else if (response.status >= 400) {
+        if (S.dev) {
+          console.log(JSON.stringify(r));
+          console.log('ERROR ' + response.status);
+        }
+        resp.status = response.status;
+      } else if (verbose) {
+        if (typeof r === 'object') {
+          resp.json = r;
+        } else {
+          resp.text = r;
+        }
+      } else {
+        resp = r;
+      }
+      if (verbose && typeof resp === 'object') {
+        resp.headers = {};
+        ref3 = [...response.headers];
+        for (l = 0, len2 = ref3.length; l < len2; l++) {
+          hd = ref3[l];
+          resp.headers[hd[0]] = hd[1];
+        }
+        ref4 = ['status', 'ok', 'redirected', 'bodyUsed'];
+        // size, timeout url, statusText, clone, body, arrayBuffer, blob, json, text, buffer, textConverted
+        for (m = 0, len3 = ref4.length; m < len3; m++) {
+          rk = ref4[m];
+          resp[rk] = response[rk];
+        }
+      }
+      if (verbose && (resp != null) && ((this != null ? this.fn : void 0) != null) && this.fn === 'fetch' && this.parts.length === 1 && this.parts[0] === 'fetch') {
+        return {
+          status: 200,
+          body: resp
+        };
+      } else {
+        return resp;
       }
     };
     `if params.retry
@@ -2077,7 +2251,7 @@ P.fetch = async function(url, params) {
       delete params[rk]
   res = @retry.call this, _f, [url, params], opts
 else`;
-    if (params.timeout) {
+    if (params.timeout && ((this != null ? this._timeout : void 0) != null)) {
       pt = params.timeout === true ? 30000 : params.timeout;
       delete params.timeout;
       res = (await this._timeout(pt, _f()));
@@ -2100,10 +2274,12 @@ if (S.log == null) {
 
 // it would also be good to log every fetch, and what was sent with it too, although if it was a big file or something like that, then not that
 // what about a param to pass to avoid logging?
-P.log = async function(msg) {
-  var i, indexed, j, l, len, len1, mid, p, prev, ref, ref1, ref2, store;
+P.log = async function(msg, store) {
+  var i, indexed, j, l, len, len1, mid, p, prev, ref, ref1, ref2;
   if (this.S.log !== false) {
-    store = msg == null; // an empty call to log stores everything in the _logs list
+    if (store !== true) { // an empty call to log stores everything in the _logs list
+      store = msg == null;
+    }
     if (typeof msg === 'string') {
       if (msg.indexOf('/') !== -1 && msg.indexOf(' ') === -1) {
         msg = {
@@ -2200,25 +2376,25 @@ P.log = async function(msg) {
     }
     // if msg.diff, send an email alert? Or have schedule pick up on those later?
     if (store) {
-      if (msg.logs == null) {
+      if (!msg.logs) {
         msg.logs = [];
-      }
-      if (Array.isArray(this != null ? this._logs : void 0) && this._logs.length) {
-        ref1 = this._logs;
-        for (j = 0, len1 = ref1.length; j < len1; j++) {
-          l = ref1[j];
-          if (l.alert) {
-            //msg.msg ?= l.msg
-            if (msg.alert == null) {
-              msg.alert = l.alert;
+        if (Array.isArray(this != null ? this._logs : void 0) && this._logs.length) {
+          ref1 = this._logs;
+          for (j = 0, len1 = ref1.length; j < len1; j++) {
+            l = ref1[j];
+            if (l.alert) {
+              //msg.msg ?= l.msg
+              if (msg.alert == null) {
+                msg.alert = l.alert;
+              }
             }
-          }
-          if (l.notify) {
-            if (msg.notify == null) {
-              msg.notify = l.notify;
+            if (l.notify) {
+              if (msg.notify == null) {
+                msg.notify = l.notify;
+              }
             }
+            msg.logs.push(l);
           }
-          msg.logs.push(l);
         }
       }
       msg.createdAt = new Date(); //Date.now()
@@ -2262,15 +2438,68 @@ P.log = async function(msg) {
   }
 };
 
-P.log._schedule = 'log';
-
-P.log.schedule = function() {
-  // this should become _schedule but for now is not so I can manually trigger it for testing
-  // define what to do on a scheduled trigger
-  // grab every log in the kv store and throw them to the index
-  // but for now, just delete them
-  return this.kv._each('log', '');
+P.log.clear = function() {
+  // this is just for manual log removal on dev
+  if (this.S.dev) {
+    return this.kv._each('log', '');
+  }
 };
+
+P.log.clear._hidden = true;
+
+// a user should be able to set a list of endpoints they want to receive notifications for
+// could also wildcard* match
+// note if there are lots of notifications, may need to group them
+// user won't need auth for the endpoint because it won't give any info about the result - just that it happened?
+// or if results are wanted, auth for the endpoint would be necessary
+// notifications from this will go to a google chat bot webhook
+// notifications will be triggered by log analysis, a scheduled job will need to check through them
+`P.log.monitor = (opts) ->
+  opts ?= @params
+  if (opts.email or opts.chat) and opts.q
+    opts.q = JSON.stringify(opts.q) if typeof opts.q isnt 'string'
+    opts.frequency ?= 60
+    # also can provide an opts.name as a nice name for the monitor instead if just the query
+    return opts
+  return undefined
+P.log.monitor = _index: true
+P.log.monitor._schedule = () ->
+  notify = {}
+  chat = []
+  counter = 0
+  await @index._each 'log_monitor', '*', (rec) ->
+    if not rec.notified or rec.notified + (rec.frequency * 60000) < @started
+      rec.notified = @started
+      @waitUntil @index 'log_monitor/' + rec._id, @copy rec
+      q = if typeof rec.q is 'string' and rec.q.startsWith('{') then JSON.parse(rec.q) else rec.q
+      q = await @index.translate q, { newest: true, restrict: [{query_string: {query: 'createdAt:>' + (@started - (rec.frequency * 60000))}}]}
+      count = await @index.count 'log', undefined, q
+      if count
+        counter += count
+        rec.dq = q
+        rec.count = count
+        if rec.email
+          notify.email ?= []
+          notify.email.push rec
+        if rec.chat
+          chat.push rec
+
+  for e of notify
+    txt = ''
+    for n in notify[e]
+      txt += 'https://bg' + (if @S.dev then 'b' else '') + '.lvatn.com/log?q=' + JSON.stringify(n.dq) + '\n\n'
+    @waitUntil @mail.send
+      to: notify[e].email
+      subject: notify[e].length + ' of your monitors have ' + rec.count + ' new alerts'
+      text: txt
+  
+  if chat.length
+    txt = chat.length + ' monitor notifications:'
+    for c in chat
+      txt += '\nhttps://bg' + (if @S.dev then 'b' else '') + '.lvatn.com/log?q=' + JSON.stringify(c.dq)
+    @waitUntil @src.google.chat txt
+  
+  return counter`;
 
 `P.add 'mail/feedback/:token',
   get: () ->
@@ -2531,6 +2760,215 @@ if ((base2 = S.src).google == null) {
 try {
   S.src.google.secrets = JSON.parse(SECRETS_GOOGLE);
 } catch (error) {}
+
+P.status = async function() {
+  var i, j, k, len, len1, ref, ref1, res;
+  res = {
+    name: S.name,
+    version: S.version,
+    built: S.built
+  };
+  ref = ['uid', 'rid', 'params', 'base', 'parts', 'opts', 'routes'];
+  for (i = 0, len = ref.length; i < len; i++) {
+    k = ref[i];
+    try {
+      if (res[k] == null) {
+        res[k] = this[k];
+      }
+    } catch (error) {}
+  }
+  if (this.S.bg === true) {
+    res.bg = true;
+  }
+  res.kv = typeof this.S.kv === 'string' && global[this.S.kv] ? this.S.kv : typeof this.S.kv === 'string' ? this.S.kv : false;
+  if ((await this.index(''))) {
+    res.index = true;
+  }
+  if (S.dev) {
+    if (this.S.bg !== true) {
+      try {
+        res.request = this.request;
+      } catch (error) {}
+    }
+    ref1 = ['headers', 'cookie', 'user'];
+    for (j = 0, len1 = ref1.length; j < len1; j++) {
+      k = ref1[j];
+      try {
+        if (res[k] == null) {
+          res[k] = this[k];
+        }
+      } catch (error) {}
+    }
+  }
+  
+  // maybe useful things like how many accounts, how many queued jobs etc - prob just get those from status endpoints on the stack
+  // maybe some useful info from the recent logs too
+  return res;
+};
+
+`
+import fs from 'fs'
+
+P.structure = (src) ->
+  collections = []
+  methods = {}
+  settings = {}
+  called = {}
+  TODO = {}
+
+  method = {}
+  incomment = false
+  inroute = false
+  for l of lns = fs.readFileSync(src).toString().replace(/\r\n/g,'\n').split '\n'
+    line = lns[l].replace /\t/g, '  '
+    if JSON.stringify(method) isnt '{}' and (l is '0' or parseInt(l) is lns.length-1 or (line.indexOf('P.') is 0 and line.indexOf('>') isnt -1))
+      method.code = method.code.trim()
+      if method.name.indexOf('P.') is 0
+        methods[method.name] = method
+      method = {}
+
+    if line.indexOf('S.') isnt -1
+      stng = (if line.indexOf('@S.') isnt -1 then '@S.' else 'S.') + line.split('S.')[1].split(' ')[0].split(')')[0].split('}')[0].split(',')[0].split('.indexOf')[0].replace(/[^a-zA-Z0-9\.\[\]]/g,'').replace /\.$/, ''
+      if stng.split('.').length > 1
+        if method.name
+          method.settings ?= []
+          method.settings.push(stng) if stng not in method.settings
+        settings.push(stng) if stng not in settings
+
+    if line.indexOf('P.') is 0
+      inroute = line.split(' ')[1].split(',')[0].replace(/'/g,'').replace(/"/g,'')
+      if inroute.split('/').pop() is 'test'
+        inroute = false
+      else
+        routes[inroute] ?= {methods: [], code: ''}
+
+    if line.toLowerCase().indexOf('todo') isnt -1
+      TODO[method.name ? 'GENERAL'] ?= []
+      TODO[method.name ? 'GENERAL'].push line.split(if line.indexOf('todo') isnt -1 then 'todo' else 'TODO')[1].trim()
+    if incomment or not line.length
+      # TODO these line index and trims should have three single quotes inside the doubles, which breaks parsing while commented out, so removing for now
+      if line.indexOf("") isnt -1
+        incomment = false
+    else if line.trim().startsWith('#') or line.trim().startsWith("")
+      if line.trim().startsWith("")
+        incomment = true
+    else if line.indexOf('P.') is 0 or (not line.startsWith(' ') and line.indexOf('=') isnt -1)
+      inroute = false
+      method = {}
+      method.code = line
+      method.name = line.split(' ')[0]
+      method.group = if method.name.indexOf('svc.') isnt -1 then method.name.split('svc.')[1].split('.')[0] else if method.name.indexOf('src.') isnt -1 then method.name.split('src.')[1].split('.')[0] else if method.name.indexOf('P.') is 0 then method.name.replace('P.','').split('.')[0] else undefined
+      method.args = if line.indexOf('(') is -1 then [] else line.split('(')[1].split(')')[0].split(',')
+      for a of method.args
+        method.args[a] = method.args[a].trim()
+      method.calls = []
+      method.remotes = []
+    else if inroute
+      routes[inroute].code += (if routes[inroute].code then '\n' else '') + line
+      if line.indexOf('P.') isnt -1
+        rtm = line.replace('P.','')
+        if rtm.indexOf('P.') isnt -1
+          rtmc = 'P.' + rtm.split('P.')[1].split(' ')[0].split('(')[0].replace(/[^a-zA-Z0-9\.\[\]]/g,'').replace(/\.$/,'')
+          routes[inroute].methods.push(rtmc) if rtmc.length and rtmc.split('.').length > 1 and rtmc not in routes[inroute].methods
+    else if method.name?
+      method.code += '\n' + line
+      li = line.indexOf 'P.'
+      if li isnt -1
+        parts = line.split 'P.'
+        parts.shift()
+        for p in parts
+          p = if tp is 'P.' then tp + p.split(' ')[0].split('(')[0].split(')')[0].trim() else p.trim().replace('call ','').replace('call(','')
+          if tp is 'P.' and p not in method.calls
+            if p.indexOf('?') is -1
+              pt = p.replace(/[^a-zA-Z0-9\.\[\]]/g,'').replace(/\.$/,'')
+              if pt.length and pt.split('.').length > 1 and pt not in method.calls
+                method.calls.push pt
+                called[pt] ?= []
+                called[pt].push method.name
+
+  for rk in @keys(routes).sort()
+    for mt in routes[rk].methods
+      if methods[mt]? and (not methods[mt].routes? or rk not in methods[mt].routes)
+        methods[mt].routes ?= []
+        methods[mt].routes.push rk
+  for cl of called
+    methods[cl].called = called[cl].sort() if methods[cl]? # where are the missing ones? in collections?
+  
+  res = count: @keys(methods).length, collections: collections.sort(), methods: methods, routes: routes, TODO: TODO
+  res = P.structure.nodeslinks res
+  return res
+
+P.structure.groups = () ->
+  sr = API.structure.read()
+  return sr.groups ? API.structure.nodeslinks().groups
+
+P.structure.nodeslinks = (sr, group) ->
+  sr ?= P.structure()
+  positions = {}
+  counters = {}
+  nds = []
+  groups = []
+  colls = {}
+  for m of sr.methods
+    method = sr.methods[m]
+    rec = {}
+    rec.key = method.name
+    counters[rec.key] = 1
+    rec.group = method.group
+    groups.push(rec.group) if rec.group not in groups
+    rec.calls = method.calls
+    rec.collections = method.collections
+    nds.push rec
+    positions[rec.key] = nds.length-1
+    for c of method.collections
+      colls[c] ?= []
+      for pc in method.collections[c]
+        apc = 'API.collection.prototype.' + pc
+        colls[c].push(apc) if apc not in colls[c]
+
+  lns = []
+  extras = []
+  esp = {}
+  nl = nds.length
+  for n of nds
+    node = nds[n]
+    for c in node.calls ? []
+      if not counters[c]
+        counters[c] = 1
+      else if not group or c.indexOf('.'+group) isnt -1
+        counters[c] += 1
+      pos = positions[c]
+      if not pos?
+        pos = esp[c]
+      if not pos?
+        extras.push {key: c, group: 'MISSING'}
+        esp[c] = extras.length-1
+        pos = nl + extras.length - 2
+      if (not group or c.indexOf('.'+group) isnt -1 or node.group is group)
+        lns.push {source: parseInt(n), target: pos}
+    for co of node.collections ? {}
+      if not counters[co]
+        counters[co] = 1
+      else if not group or c.indexOf('.'+group) isnt -1
+        counters[co] += 1
+      if not group or co.indexOf('.'+group) isnt -1 or node.group is group or group in ['collection','collections','es']
+        lns.push {source: parseInt(n), target: positions[co]}
+
+  for e of extras
+    nds.push extras[e]
+
+  for nd of nds
+    cv = counters[nds[nd].key] ? 1
+    nds[nd].value = cv
+    nds[nd].size = cv
+
+  sr.nodecount ?= nds.length
+  sr.linkcount ?= lns.length
+  sr.nodes ?= nds
+  sr.links ?= lns
+  sr.groups ?= groups.sort()
+
+  return sr`;
 
 var indexOf = [].indexOf;
 
@@ -2831,7 +3269,7 @@ P.uid = function(r) {
   // have to use only lowercase for IDs, because other IDs we receive from users such as DOIs
   // are often provided in upper OR lowercase forms, and they are case-insensitive, so all IDs
   // will be normalised to lowercase. This increases the chance of an ID collision, but still, 
-  // without uppercases it's only a 1% chance if generating 100) IDs per second for 131000 years.
+  // without uppercases it's only a 1% chance if generating 1000 IDs per second for 131000 years.
   nanoid = customAlphabet((ref8 = this != null ? (ref9 = this.params) != null ? ref9.alphabet : void 0 : void 0) != null ? ref8 : '0123456789abcdefghijklmnopqrstuvwxyz', r);
   return nanoid();
 };
@@ -2839,12 +3277,10 @@ P.uid = function(r) {
 P.uid._cache = false;
 
 P.hash = async function(content) {
-  var arr, b, buf, i, len, parts, ref, ref1, ref2, ref3;
-  try {
-    if (content == null) {
-      content = (ref = (ref1 = (ref2 = (ref3 = this.params.hash) != null ? ref3 : this.params.content) != null ? ref2 : this.body) != null ? ref1 : this.params.q) != null ? ref : this.params;
-    }
-  } catch (error) {}
+  var arr, b, buf, j, len, parts, ref, ref1, ref2, ref3;
+  if (content == null) {
+    content = (ref = (ref1 = (ref2 = (ref3 = this.params.hash) != null ? ref3 : this.params.content) != null ? ref2 : this.params.q) != null ? ref1 : this.params) != null ? ref : this.body;
+  }
   try {
     if (this.params.url) {
       content = (await this.fetch(this.params.url));
@@ -2858,8 +3294,8 @@ P.hash = async function(content) {
     buf = (await crypto.subtle.digest("SHA-256", content));
     arr = new Uint8Array(buf);
     parts = [];
-    for (i = 0, len = arr.length; i < len; i++) {
-      b = arr[i];
+    for (j = 0, len = arr.length; j < len; j++) {
+      b = arr[j];
       parts.push(('00' + b.toString(16)).slice(-2));
     }
     return parts.join('');
@@ -2868,6 +3304,59 @@ P.hash = async function(content) {
     // crypto is imported by the server-side main api file
     return crypto.createHash('sha256').update(content, 'utf8').digest('hex'); // md5 would be preferable but web crypto /subtle doesn't support md5
   }
+};
+
+P.hashcode = function(content) { // java hash code style
+  var hash, i, ref, ref1, ref2, ref3;
+  if (content == null) {
+    content = (ref = (ref1 = (ref2 = (ref3 = this.params.shorthash) != null ? ref3 : this.params.content) != null ? ref2 : this.params.q) != null ? ref1 : this.params) != null ? ref : this.body;
+  }
+  if (typeof content !== 'string') {
+    content = JSON.stringify(content);
+  }
+  hash = 0;
+  i = 0;
+  while (i < content.length) {
+    hash = ((hash << 5) - hash) + content.charCodeAt(i);
+    hash &= hash;
+    i++;
+  }
+  return hash;
+};
+
+P.hashhex = function(content) {
+  var n;
+  n = this.hashcode(content);
+  if (n < 0) {
+    n = 0xFFFFFFFF + n + 1;
+  }
+  return n.toString(16);
+};
+
+P.shorthash = function(content, alphabet) { // as learnt from something I once googled, but can't remember what
+  var al, hash, ref, ref1, ref2, ref3, result, spare;
+  if (content == null) {
+    content = (ref = (ref1 = (ref2 = (ref3 = this.params.shorthash) != null ? ref3 : this.params.content) != null ? ref2 : this.params.q) != null ? ref1 : this.params) != null ? ref : this.body;
+  }
+  if (typeof content !== 'string') {
+    content = JSON.stringify(content);
+  }
+  hash = this.hashcode(content);
+  if (!alphabet) {
+    alphabet = '0123456789abcdefghijklmnoqrstuvwxyz'; // keep one char from the usable range to replace negative signs on hashcodes
+    spare = 'p';
+  } else {
+    spare = alphabet.substring(0, 1);
+    alphabet = alphabet.replace(spare, '');
+  }
+  al = alphabet.length;
+  result = hash < 0 ? spare : '';
+  hash = Math.abs(hash);
+  while (hash >= al) {
+    result += alphabet[hash % al];
+    hash = Math.floor(hash / al);
+  }
+  return result + (hash > 0 ? alphabet[hash] : '');
 };
 
 P.sleep = function(ms) { // await this when calling it to actually wait
@@ -2899,7 +3388,7 @@ P._timeout = function(ms, fn) { // where fn is a promise-able function that has 
 };
 
 P.form = function(params) {
-  var i, len, p, po, ppt, ref;
+  var j, len, p, po, ppt, ref;
   // return params object x-www-form-urlencoded
   if (params == null) {
     params = this.params;
@@ -2910,8 +3399,8 @@ P.form = function(params) {
       po += '&';
     }
     ref = (Array.isArray(params[p]) ? params[p] : [params[p]]);
-    for (i = 0, len = ref.length; i < len; i++) {
-      ppt = ref[i];
+    for (j = 0, len = ref.length; j < len; j++) {
+      ppt = ref[j];
       if (ppt != null) {
         if (!po.endsWith('&')) {
           po += '&';
@@ -2924,7 +3413,7 @@ P.form = function(params) {
 };
 
 P.decode = async function(content) {
-  var _decode, c, i, len, re, ref, ref1, ref2, ref3, text;
+  var _decode, c, j, len, re, ref, ref1, ref2, ref3, text;
   if (content == null) {
     content = (ref = (ref1 = (ref2 = this.params.decode) != null ? ref2 : this.params.content) != null ? ref1 : this.params.text) != null ? ref : this.body;
   }
@@ -2979,8 +3468,8 @@ P.decode = async function(content) {
       good: '-'
     }
   ];
-  for (i = 0, len = ref3.length; i < len; i++) {
-    c = ref3[i];
+  for (j = 0, len = ref3.length; j < len; j++) {
+    c = ref3[j];
     re = new RegExp(c.bad, 'g');
     text = text.replace(re, c.good);
   }
@@ -3019,7 +3508,7 @@ P.keys = function(obj) {
 };
 
 P.dot = function(obj, key) {
-  var i, k, len, ref, res, st;
+  var j, k, len, ref, res, st;
   // TODO can add back in a way to pass in values or deletions if necessary, and traversing lists too
   if (typeof obj === 'string' && typeof key === 'object') {
     st = obj;
@@ -3035,8 +3524,8 @@ P.dot = function(obj, key) {
   }
   try {
     res = obj;
-    for (i = 0, len = key.length; i < len; i++) {
-      k = key[i];
+    for (j = 0, len = key.length; j < len; j++) {
+      k = key[j];
       res = res[k];
     }
     return res;
@@ -3046,7 +3535,7 @@ P.dot = function(obj, key) {
 };
 
 P.flatten = async function(obj) {
-  var _flatten, d, i, len, res, results;
+  var _flatten, d, j, len, res, results;
   if (obj == null) {
     obj = this.params;
   }
@@ -3080,8 +3569,8 @@ P.flatten = async function(obj) {
   };
   if (Array.isArray(obj)) {
     results = [];
-    for (i = 0, len = data.length; i < len; i++) {
-      d = data[i];
+    for (j = 0, len = data.length; j < len; j++) {
+      d = data[j];
       res = {};
       results.push((await _flatten(d)));
     }
@@ -3093,7 +3582,7 @@ P.flatten = async function(obj) {
 };
 
 P.template = async function(content, vars) {
-  var _rv, cp, cs, i, j, k, key, keyu, kg, kkg, len, len1, pcp, ref, ref1, ref2, ref3, ret, val, vs;
+  var _rv, cp, cs, j, k, key, keyu, kg, kkg, l, len, len1, pcp, ref, ref1, ref2, ref3, ret, val, vs;
   if (content == null) {
     content = (ref = (ref1 = this.params.content) != null ? ref1 : this.params.template) != null ? ref : this.body;
   }
@@ -3133,15 +3622,15 @@ P.template = async function(content, vars) {
     ref3 = content.toLowerCase().split('{{');
     // the could be vars in content that themselves contain vars, e.g {{subject I am the subject about {{id}} yes I am}}
     // and some of those vars may fail to get filled in. So define the list of possible vars names THEN go through the content with them
-    for (i = 0, len = ref3.length; i < len; i++) {
-      cp = ref3[i];
+    for (j = 0, len = ref3.length; j < len; j++) {
+      cp = ref3[j];
       pcp = cp.split('{{')[0].split('}}')[0].split(' ')[0];
       if (indexOf.call(vs, pcp) < 0) {
         vs.push(pcp);
       }
     }
-    for (j = 0, len1 = vs.length; j < len1; j++) {
-      k = vs[j];
+    for (l = 0, len1 = vs.length; l < len1; l++) {
+      k = vs[l];
       key = content.toLowerCase().indexOf('{{' + k) !== -1 ? k : void 0;
       if (key) {
         keyu = content.indexOf('{{' + key.toUpperCase()) !== -1 ? key.toUpperCase() : key;
@@ -3166,10 +3655,8 @@ P.template = async function(content, vars) {
   return ret; // an obj of the content plus any vars found within the template
 };
 
-P._templates = {
-  _index: true // an index to store templates in - although generally should be handled at the individual function/service level
-};
 
+//P._templates = _index: true # an index to store templates in - although generally should be handled at the individual function/service level
 P.date = function(rt, timed) {
   var k, pts, ref, ret;
   if (rt == null) {
@@ -3475,7 +3962,7 @@ if (typeof S.bg === 'string') {
 }
 
 P.index = async function(route, data, qopts) {
-  var c, chk, cidx, dni, ind, j, len, ref1, ref2, ref3, ref4, ret, rex, rpl;
+  var c, chk, cidx, dni, ind, j, len, ref1, ref2, ref3, ref4, ref5, ret, rex, rpl, rqp;
   if (typeof route === 'object') {
     data = route;
     route = void 0;
@@ -3539,6 +4026,12 @@ else`;
   if (typeof route !== 'string') {
     return void 0;
   }
+  if (route.includes('?')) {
+    [route, rqp] = route.split('?');
+    rqp = '?' + rqp;
+  } else {
+    rqp = '';
+  }
   if (route.endsWith('/')) {
     route = route.replace(/\/$/, '');
   }
@@ -3555,7 +4048,7 @@ else`;
   if ((((this != null ? this.parts : void 0) != null) && this.parts[0] === 'index' && (this.request.method === 'DELETE' || this.params._delete)) || data === '') {
     // DELETE can happen on index or index/key, needs no additional route parts for index but index/key has to happen on _doc
     // TODO for @params._delete allow a passthrough of data in case it is a delete by query, once _submit is updated to handle that if still possible
-    ret = (await cidx._submit(route.replace('/', '/_doc/'), ''));
+    ret = (await cidx._submit(route.replace('/', '/_doc/') + rqp, ''));
     return void 0; //ret.acknowledged is true or ret.result is 'deleted'
   } else if (rpl === 1) {
     // CREATE can happen on index if index params are provided or empty object is provided
@@ -3563,48 +4056,54 @@ else`;
     // simplest create would be {} or settings={number_of_shards:1} where 1 is default anyway
     if ((typeof data === 'string' && (data === '' || data.indexOf('\n') !== -1)) || Array.isArray(data)) {
       if (data === '') {
-        return cidx._submit(route, data);
+        return cidx._submit(route + rqp, data);
       } else {
-        return cidx._bulk(route, data); // bulk create (TODO what about if wanting other bulk actions?)
+        return cidx._bulk(route + rqp, data); // bulk create (TODO what about if wanting other bulk actions?)
       }
-    } else if (typeof data === 'object') {
-      if (cidx._q(data)) {
-        return cidx._submit(route + '/_search', (await cidx.translate(data, qopts)));
-      } else {
+    } else if ((ref3 = typeof data) === 'object' || ref3 === 'string') {
+      if (typeof data === 'string' || cidx._q(data)) {
+        return cidx._submit(route + '/_search' + rqp, (await cidx.translate(data, qopts)));
+      } else if (typeof data === 'object') {
         chk = (this != null ? this.copy : void 0) != null ? this.copy(data) : P.copy(data);
-        ref3 = ['settings', 'aliases', 'mappings'];
-        for (j = 0, len = ref3.length; j < len; j++) {
-          c = ref3[j];
+        ref4 = ['settings', 'aliases', 'mappings'];
+        for (j = 0, len = ref4.length; j < len; j++) {
+          c = ref4[j];
           delete chk[c];
         }
         if (JSON.stringify(chk) === '{}') {
-          if (!(await cidx._submit(route))) {
+          if (!(await cidx._submit(route + rqp))) {
             ind = !cidx._q(data) ? {
               settings: data.settings,
               aliases: data.aliases,
               mappings: data.mappings
             } : {};
-            await cidx._submit(route, ind); // create the index
+            await cidx._submit(route + rqp, ind); // create the index
           }
-          return cidx._submit(route + '/_search'); // just do a search
+          return cidx._submit(route + '/_search' + rqp); // just do a search
         } else {
-          return cidx._submit(route + '/_doc', data); // create a single record without ID (if it came with ID it would have been caught above and converted to route with multiple parts)
+          return cidx._submit(route + '/_doc' + rqp, data); // create a single record without ID (if it came with ID it would have been caught above and converted to route with multiple parts)
         }
       }
     } else {
-      return cidx._submit(route + '/_search');
+      return cidx._submit(route + '/_search' + rqp);
     }
   } else if (rpl === 2 && ((data == null) || typeof data === 'object' && !Array.isArray(data))) {
-    // CREATE or overwrite on index/key if data is provided - otherwise just GET the _doc
-    // Should @params be able to default to write data on index/key?
-    // TODO check how ES7.x accepts update with script in them
+    if (!route.startsWith('_') && !route.includes('/_')) {
+      // CREATE or overwrite on index/key if data is provided - otherwise just GET the _doc
+      // Should @params be able to default to write data on index/key?
+      // TODO check how ES7.x accepts update with script in them
+      route = route.replace('/', '/_doc/');
+    }
     if ((data != null) && JSON.stringify(data) !== '{}') {
-      route = data === '' ? route : data.script != null ? route + '/_update?retry_on_conflict=2' : route.replace('/', '/_doc/'); // does PUT create work if it already exists? or PUT _doc? or POST _create?
-      return cidx._submit(route, data); // or just get the record
+      if (typeof data === 'object' && (data.script != null)) {
+        route += '_update';
+        rqp += (rqp.length ? '&' : '?') + 'retry_on_conflict=2';
+      }
+      return cidx._submit(route + rqp, data); // or just get the record
     } else {
-      ret = (await cidx._submit(route.replace('/', '/_doc/')));
+      ret = (await cidx._submit(route + rqp));
       if (typeof ret === 'object' && (ret._source || ret.fields)) {
-        rex = (ref4 = ret._source) != null ? ref4 : ret.fields;
+        rex = (ref5 = ret._source) != null ? ref5 : ret.fields;
         if (rex._id == null) {
           rex._id = ret._id; // if _id can no longer be stored in the _source in ES7.x
         }
@@ -3619,16 +4118,22 @@ else`;
 // calling this should be given a correct URL route for ES7.x, domain part of the URL is optional though.
 // call the above to have the route constructed. method is optional and will be inferred if possible (may be removed)
 P.index._submit = async function(route, data, method, deletes = true) { // deletes is true in dev, but remove or add auth control for live
-  var opts, prefix, ref1, ref2, ref3, ref4, res, url;
+  var opts, prefix, ref1, ref2, ref3, ref4, res, rqp, url;
+  if (route.includes('?')) {
+    [route, rqp] = route.split('?');
+    rqp = '?' + rqp;
+  } else {
+    rqp = '';
+  }
   route = route.toLowerCase(); // force lowercase on all IDs so that can deal with users giving incorrectly cased IDs for things like DOIs which are defined as case insensitive
-  if (route.indexOf('/') === 0) { // gets added back in when combined with the url
+  if (route.startsWith('/')) { // gets added back in when combined with the url
     route = route.replace('/', '');
   }
   if (route.endsWith('/')) {
     route = route.replace(/\/$/, '');
   }
   if (method == null) {
-    method = route === '_pit' || data === '' ? 'DELETE' : (data != null) && (route.indexOf('/') === -1 || route.indexOf('/_create') !== -1 || (route.indexOf('/_doc') !== -1 && !route.endsWith('/_doc'))) ? 'PUT' : (data != null) || ((ref1 = route.split('/').pop().split('?')[0]) === '_refresh' || ref1 === '_pit' || ref1 === '_aliases') ? 'POST' : 'GET';
+    method = data === '' ? 'DELETE' : (data != null) && (route.indexOf('/') === -1 || route.indexOf('/_create') !== -1 || (route.indexOf('/_doc') !== -1 && !route.endsWith('/_doc'))) ? 'PUT' : (data != null) || ((ref1 = route.split('/').pop().split('?')[0]) === '_refresh' || ref1 === '_aliases') ? 'POST' : 'GET';
   }
   if (method === 'DELETE' && (deletes !== true || route.indexOf('/_all') !== -1)) { // nobody can delete all via the API
     // TODO if data is a query that also has a _delete key in it, remove that key and do a delete by query? and should that be bulked? is dbq still allowed in ES7.x?
@@ -3655,6 +4160,7 @@ P.index._submit = async function(route, data, method, deletes = true) { // delet
     console.log('NO INDEX URL AVAILABLE');
     return void 0;
   }
+  route = route += rqp;
   opts = route.indexOf('/_bulk') !== -1 || typeof (data != null ? data.headers : void 0) === 'object' ? data : {
     body: data // fetch requires data to be body
   };
@@ -3707,8 +4213,11 @@ P.index._mapping = async function(route) {
 };
 
 P.index.keys = async function(route) {
-  var _keys, keys;
+  var _keys, keys, ref1;
   try {
+    if (route == null) {
+      route = (ref1 = this.params.index) != null ? ref1 : this.params.keys;
+    }
     if (route == null) {
       route = this.fn.replace(/\./g, '/');
     }
@@ -3716,18 +4225,18 @@ P.index.keys = async function(route) {
   } catch (error) {}
   keys = [];
   _keys = async(mapping, depth = '') => {
-    var k, ref1, ref2, ref3, ref4, results;
+    var k, ref2, ref3, ref4, ref5, ref6, ref7, ref8, results;
     if (mapping == null) {
       mapping = typeof route === 'object' ? route : (await this.index._mapping(route));
     }
-    mapping.properties = (ref1 = (ref2 = mapping[route]) != null ? (ref3 = ref2.mappings) != null ? ref3.properties : void 0 : void 0) != null ? ref1 : mapping.properties;
+    mapping.properties = (ref2 = (ref3 = (ref4 = mapping[route]) != null ? (ref5 = ref4.mappings) != null ? ref5.properties : void 0 : void 0) != null ? ref3 : (ref6 = mapping[this.S.index.name + '_' + route]) != null ? (ref7 = ref6.mappings) != null ? ref7.properties : void 0 : void 0) != null ? ref2 : mapping.properties;
     if (mapping.properties != null) {
       if (depth.length) {
         depth += '.';
       }
       results = [];
       for (k in mapping.properties) {
-        if (ref4 = depth + k, indexOf.call(keys, ref4) < 0) {
+        if (ref8 = depth + k, indexOf.call(keys, ref8) < 0) {
           keys.push(depth + k);
         }
         if (mapping.properties[k].properties != null) {
@@ -3744,8 +4253,11 @@ P.index.keys = async function(route) {
 };
 
 P.index.terms = async function(route, key, qry, size = 1000, counts = true, order = "count") {
-  var j, len, p, query, ref1, ref2, ref3, ref4, res, ret;
+  var j, len, p, query, ref1, ref2, ref3, ref4, ref5, res, ret;
   try {
+    if (route == null) {
+      route = (ref1 = this.params.index) != null ? ref1 : this.params.terms;
+    }
     if (route == null) {
       route = this.fn.replace(/\./g, '/');
     }
@@ -3826,9 +4338,9 @@ P.index.terms = async function(route, key, qry, size = 1000, counts = true, orde
   };
   ret = (await this.index._submit('/' + route + '/_search', query, 'POST'));
   res = [];
-  ref4 = (ref1 = ret != null ? (ref2 = ret.aggregations) != null ? (ref3 = ref2[key]) != null ? ref3.buckets : void 0 : void 0 : void 0) != null ? ref1 : [];
-  for (j = 0, len = ref4.length; j < len; j++) {
-    p = ref4[j];
+  ref5 = (ref2 = ret != null ? (ref3 = ret.aggregations) != null ? (ref4 = ref3[key]) != null ? ref4.buckets : void 0 : void 0 : void 0) != null ? ref2 : [];
+  for (j = 0, len = ref5.length; j < len; j++) {
+    p = ref5[j];
     res.push(counts ? {
       term: p.key,
       count: p.doc_count
@@ -3838,7 +4350,14 @@ P.index.terms = async function(route, key, qry, size = 1000, counts = true, orde
 };
 
 P.index.suggest = async function(route, key, qry, size = 100, counts = false, order = "term") {
-  var j, k, l, len, len1, q, ref1, ref2, res;
+  var j, k, l, len, len1, q, ref1, ref2, ref3, res;
+  if (route == null) {
+    route = (ref1 = this.params.index) != null ? ref1 : this.params.suggest;
+  }
+  if (route == null) {
+    route = this.fn.replace(/\./g, '/');
+  }
+  route = route.replace('index/', ''); //.replace '/suggest', ''
   if (!route.endsWith('suggest')) {
     [route, q] = route.split('/suggest/');
     if (key == null) {
@@ -3850,18 +4369,18 @@ P.index.suggest = async function(route, key, qry, size = 100, counts = false, or
     }
   }
   res = [];
-  ref1 = (await this.index.terms(route, key, qry, size, counts, order));
-  for (j = 0, len = ref1.length; j < len; j++) {
-    k = ref1[j];
+  ref2 = (await this.index.terms(route, key, qry, size, counts, order));
+  for (j = 0, len = ref2.length; j < len; j++) {
+    k = ref2[j];
     if (!q || k.toLowerCase().indexOf(q.toLowerCase()) === 0) { // or match at start?
       res.push(k);
     }
   }
   if (res.length === 0 && q && typeof qry === 'string') {
     qry = qry.replace(':', ':*');
-    ref2 = (await this.index.terms(route, key, qry, size, counts, order));
-    for (l = 0, len1 = ref2.length; l < len1; l++) {
-      k = ref2[l];
+    ref3 = (await this.index.terms(route, key, qry, size, counts, order));
+    for (l = 0, len1 = ref3.length; l < len1; l++) {
+      k = ref3[l];
       if (!q || k.toLowerCase().indexOf(q.toLowerCase()) !== -1) { // or match at start?
         res.push(k);
       }
@@ -3874,7 +4393,7 @@ P.index.count = async function(route, key, qry) {
   var cq, j, k, len, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ret;
   try {
     if (route == null) {
-      route = (ref1 = (ref2 = this.params.index) != null ? ref2 : this.params.route) != null ? ref1 : this.fn.replace(/\./g, '_');
+      route = (ref1 = (ref2 = this.params.index) != null ? ref2 : this.params.count) != null ? ref1 : this.fn.replace(/\./g, '_');
     }
   } catch (error) {}
   if (route.indexOf('/') !== -1) {
@@ -3928,8 +4447,11 @@ P.index.count = async function(route, key, qry) {
 };
 
 P.index.min = async function(route, key, qry) {
-  var query, ret;
+  var query, ref1, ret;
   try {
+    if (route == null) {
+      route = (ref1 = this.params.index) != null ? ref1 : this.params.min;
+    }
     if (route == null) {
       route = this.fn.replace(/\./g, '/');
     }
@@ -3971,8 +4493,11 @@ P.index.min = async function(route, key, qry) {
 };
 
 P.index.max = async function(route, key, qry) {
-  var query, ret;
+  var query, ref1, ret;
   try {
+    if (route == null) {
+      route = (ref1 = this.params.index) != null ? ref1 : this.params.max;
+    }
     if (route == null) {
       route = this.fn.replace(/\./g, '/');
     }
@@ -4014,8 +4539,11 @@ P.index.max = async function(route, key, qry) {
 };
 
 P.index.range = async function(route, key, qry) {
-  var query, ret;
+  var query, ref1, ret;
   try {
+    if (route == null) {
+      route = (ref1 = this.params.index) != null ? ref1 : this.params.range;
+    }
     if (route == null) {
       route = this.fn.replace(/\./g, '/');
     }
@@ -4064,7 +4592,6 @@ P.index.range = async function(route, key, qry) {
   };
 };
 
-// previously used scan/scroll for each, but now use pit and search_after
 // can still manually make scan/scroll calls if desired, see:
 //  scan, scroll='10m'
 //  if scan is true
@@ -4075,8 +4602,8 @@ P.index.range = async function(route, key, qry) {
 //  else if scan?
 //    route = '/_search/scroll?scroll_id=' + scan + (if action isnt 'DELETE' then '&scroll=' + scroll else '')
 P.index._each = async function(route, q, opts, fn) {
-  var action, fr, h, j, ka, len, pit, processed, qy, ref1, ref2, ref3, ref4, res, total, updates;
-  // use search_after for each
+  var action, chk, fr, h, j, len, max_size, processed, qy, ref1, ref2, ref3, ref4, ref5, ref6, ref7, res, rf, scroll, sz, updates;
+  // use scan/scroll for each, because _pit is only available in "default" ES, which ES means is NOT the open one, so our OSS distro does not include it!
   // https://www.elastic.co/guide/en/elasticsearch/reference/7.10/paginate-search-results.html#search-after
   // each executes the function for each record. If the function makes changes to a record and saves those changes, 
   // this can cause many writes to the collection. So, instead, that sort of function could return something
@@ -4094,11 +4621,11 @@ P.index._each = async function(route, q, opts, fn) {
   if (opts == null) {
     opts = {};
   }
-  if (opts.keep_alive != null) {
-    ka = opts.keep_alive;
-    delete opts.keep_alive;
+  if (opts.scroll != null) {
+    scroll = opts.scroll;
+    delete opts.scroll;
   } else {
-    ka = '5m';
+    scroll = '10m';
   }
   if (opts.action) {
     action = opts.action;
@@ -4111,55 +4638,62 @@ P.index._each = async function(route, q, opts, fn) {
   if (qy.size == null) {
     qy.size = 1000; // 10000 is max and would be fine for small records...
   }
-  pit = (await this.index(route + '/_pit?keep_alive=' + ka).id); // here route should be index name
-  qy.pit = {
-    id: pit,
-    keep_alive: ka // this gives a point in time ID that will be kept alive for given time, so changes don't ruin the result order
-  };
-  // note sort should contain a tie-breaker on a record unique value, so check even if there is a sort
-  // also what if there is no createdAt field? what to sort on?
-  if (qy.sort == null) {
-    qy.sort = [
-      {
-        createdAt: 'asc'
-      }
-    ];
+  sz = (ref1 = qy.size) != null ? ref1 : 800;
+  qy.size = 1;
+  chk = (await this.index(route, qy));
+  if (((chk != null ? (ref2 = chk.hits) != null ? ref2.total : void 0 : void 0) != null) && chk.hits.total !== 0) {
+    // make sure that query result size does not take up more than about 1gb
+    // NOTE also that in a scroll-scan size is per shard, not per result set
+    max_size = Math.floor(1000000000 / (Buffer.byteLength(JSON.stringify(chk.hits.hits[0])) * chk._shards.total));
+    if (max_size < sz) {
+      sz = max_size;
+    }
+  }
+  qy.size = sz;
+  res = (await this.index(route + '?scroll=' + scroll, qy));
+  if (((res != null ? (ref3 = res.hits) != null ? ref3.total : void 0 : void 0) != null) && res.hits.total === res.hits.hits.length) {
+    delete res._scroll_id;
   }
   processed = 0;
   updates = [];
-  total = false;
-  while (((res != null ? (ref4 = res.hits) != null ? ref4.hits : void 0 : void 0) != null) && (total === false || processed < total)) {
-    res = (await this.index(route, qy));
-    if (total === false) {
-      total = res.hits.total;
-    }
-    ref1 = res.hits.hits;
-    for (j = 0, len = ref1.length; j < len; j++) {
-      h = ref1[j];
-      processed += 1;
+  while (((res != null ? (ref7 = res.hits) != null ? ref7.hits : void 0 : void 0) != null) && res.hits.hits.length) {
+    ref4 = res.hits.hits;
+    for (j = 0, len = ref4.length; j < len; j++) {
+      h = ref4[j];
       fn = fn.bind(this);
-      fr = fn((ref2 = (ref3 = h._source) != null ? ref3 : h.fields) != null ? ref2 : {
-        _id: h._id
-      });
+      rf = (ref5 = (ref6 = h._source) != null ? ref6 : h.fields) != null ? ref5 : {};
+      if (!h.fields) {
+        if (rf._id == null) {
+          rf._id = h._id;
+        }
+      }
+      fr = fn(rf);
+      processed += 1;
       if ((fr != null) && (typeof fr === 'object' || typeof fr === 'string')) {
         updates.push(fr);
       }
-      qy.search_after = h.sort;
     }
-    qy.pit.id = res.pit_id;
+    if (res._scroll_id != null) {
+      res = (await this.index('/_search/scroll?scroll_id=' + res._scroll_id + '&scroll=' + scroll));
+    } else {
+      res.hits.hits = [];
+    }
+  }
+  if (this.S.dev && this.S.bg === true) {
+    console.log('_each processed ' + processed);
   }
   if (action && updates.length) { // TODO should prob do this during the while loop above, once updates reaches some number
-    this.index._bulk(route, updates, action);
+    return this.index._bulk(route, updates, action);
   }
-  return this.index._submit('/_pit', {
-    id: pit // delete the pit
-  });
 };
 
 P.index._bulk = async function(route, data, action = 'index', bulk = 50000) {
   var cidx, counter, errs, i, j, k, len, meta, pkg, prefix, r, ref1, ref2, ref3, rid, row, rows, rs;
-  // https://www.elastic.co/guide/en/elasticsearch/reference/1.4/docs-bulk.html
-  // https://www.elastic.co/guide/en/elasticsearch/reference/1.4/docs-update.html
+  if (action === true) {
+    // https://www.elastic.co/guide/en/elasticsearch/reference/1.4/docs-bulk.html
+    // https://www.elastic.co/guide/en/elasticsearch/reference/1.4/docs-update.html
+    action = 'index';
+  }
   prefix = (await this.dot(P, (route.split('/')[0]).replace(/_/g, '.') + '._prefix'));
   if (prefix !== false) { // need to do this here as well as in _submit so it can be set below in each object of the bulk
     route = this.S.index.name + '_' + route;
@@ -4573,7 +5107,7 @@ P.index.translate = function(q, opts = {}) {
       delete opts.newest;
       opts.sort = {
         createdAt: {
-          order: 'desc' // TODO check this for new ES7.x, and see that createdAt field still exists for new system
+          order: 'desc'
         }
       };
     } else if (opts.newest === false) {
@@ -4766,27 +5300,41 @@ P.index.translate = function(q, opts = {}) {
   return qry;
 };
 
-  // https://developers.cloudflare.com/workers/runtime-apis/kv
-  // Keys are always returned in lexicographically sorted order according to their UTF-8 bytes.
-  // NOTE these need to be awaited when necessary, as the val will be a Promise
+// https://developers.cloudflare.com/workers/runtime-apis/kv
+// Keys are always returned in lexicographically sorted order according to their UTF-8 bytes.
+// NOTE these need to be awaited when necessary, as the val will be a Promise
 
-// TODO test and enable these alternates for when kv is remotely accessed, or wrapped over the index
-`if typeof S.kv is 'string' and S.kv.startsWith 'http' and not global[S.kv]
-# kv is a URL back to the worker to access cloudflare kv
-global[S.kv] = {}
-global[S.kv].get = (key) ->
-  return await P.fetch S.kv + '/' + key
-global[S.kv].getWithMetadata = (key) ->
-  ret = await P.fetch S.kv + '/' + key
-  return value: ret, metadata: {} # can't get the metadata remotely
-global[S.kv].put = (key, data) ->
-  return await P.fetch S.kv + '/' + key, body: data
-global[S.kv].delete = (key) ->
-  return await P.fetch S.kv + '/' + key, body: ''
-global[S.kv].list = (prefix, cursor) ->
-  return await P.fetch S.kv + '/list' + (if prefix then '/' + prefix else '') + (if cursor then '?cursor=' + cursor else '')
+// this could move to server, if never going to be used from worker - would want to run a worker connecting to a somehow remote kv?
+if (typeof S.kv === 'string' && S.kv.startsWith('http') && !global[S.kv]) {
+  // kv is a URL back to the worker to access cloudflare kv
+  global[S.kv] = {};
+  global[S.kv].get = function(key) {
+    return P.fetch(S.kv + '/' + key);
+  };
+  global[S.kv].getWithMetadata = async function(key) {
+    var ret;
+    ret = (await P.fetch(S.kv + '/' + key));
+    return {
+      value: ret,
+      metadata: {} // can't get the metadata remotely
+    };
+  };
+  global[S.kv].put = function(key, data) {
+    return P.fetch(S.kv + '/' + key, {
+      body: data
+    });
+  };
+  global[S.kv].delete = function(key) {
+    return P.fetch(S.kv + '/' + key, {
+      method: 'DELETE'
+    });
+  };
+  global[S.kv].list = function(prefix, cursor) {
+    return P.fetch(S.kv + '/list' + (prefix ? '/' + prefix : '') + (cursor ? '?cursor=' + cursor : ''));
+  };
+}
 
-if typeof S.kv isnt 'string' and S.kv isnt false
+`if typeof S.kv isnt 'string' and S.kv isnt false
 global[S.kv] = {}
 global[S.kv].get = (key) ->
   ret = await P.index 'kv/' + key.replace /\//g, '_'
@@ -4811,6 +5359,7 @@ global[S.kv].list = (prefix, cursor) ->
     for k in ret.hits.hits
       res.keys.push k._source.key
   return res`;
+
 P.kv = async function(key, val, ttle, metadata, type) {
   var i, j, k, len, len1, m, ref, ref1, ref2, ref3, ref4, ref5, ref6, value;
   // val can be string, stream, buffer. The type gets inferred.
@@ -4825,7 +5374,7 @@ P.kv = async function(key, val, ttle, metadata, type) {
     if (val == null) {
       if (this.request.method === 'DELETE' || this.params._delete) { // TODO this is for easy dev, take out or auth restrict later
         val = '';
-      } else if (this.body != null) {
+      } else if (this.body) {
         val = this.body;
       } else if (this.params.val) {
         val = this.params.val;
@@ -4851,7 +5400,7 @@ P.kv = async function(key, val, ttle, metadata, type) {
     }
   }
   if (typeof val === 'object' && ((ref5 = JSON.stringify(val)) === '{}' || ref5 === '[]')) {
-    val = '';
+    val = void 0;
   }
   if (typeof key === 'object' && (val == null)) {
     val = key;
@@ -4892,25 +5441,26 @@ P.kv = async function(key, val, ttle, metadata, type) {
       //  return await @fetch @S.kv + '/' + key # any way or need to get metadata here too?
       //else
       ({value, metadata} = (await global[this.S.kv].getWithMetadata(key, type)));
-      try {
-        value = JSON.parse(value);
-      } catch (error) {}
-      try {
-        metadata = JSON.parse(metadata);
-      } catch (error) {}
-      if (val === '') {
-        //if @S.kv.indexOf('http') is 0
-        //  @fetch @S.kv + '/' + key, body: ''
-        //else
-        this.waitUntil(global[this.S.kv].delete(key)); // remove a key after retrieval
-      }
-      if (metadata === true) {
-        return {
-          value: value,
-          metadata: metadata
-        };
+      if (value != null) {
+        try {
+          value = JSON.parse(value);
+        } catch (error) {}
+        try {
+          metadata = JSON.parse(metadata);
+        } catch (error) {}
+        if (val === '') {
+          this.waitUntil(global[this.S.kv].delete(key)); // remove a key after retrieval
+        }
+        if (metadata === true) {
+          return {
+            value: value,
+            metadata: metadata
+          };
+        } else {
+          return value;
+        }
       } else {
-        return value;
+        return void 0;
       }
     }
   } else {
@@ -5700,7 +6250,7 @@ P.src.google = async function(q, id, key) {
 };
 
 P.src.google.sheets = async function(opts) {
-  var g, k, l, ref, ref1, url, val, values;
+  var g, k, keys, l, ref, ref1, ref2, url, val, values;
   // expects a google sheet ID or a URL to a google sheets feed in json format
   // NOTE the sheet must be published for this to work, should have the data in sheet 1, and should have columns of data with key names in row 1
   if (opts == null) {
@@ -5732,7 +6282,11 @@ P.src.google.sheets = async function(opts) {
     }
     url = 'https://spreadsheets.google.com/feeds/list/' + opts.sheetid + '/' + opts.sheet + '/public/values?alt=json';
   }
-  g = (await this.fetch(url));
+  g = (await this.fetch(url, {
+    headers: {
+      'Cache-Control': 'no-cache'
+    }
+  }));
   for (l in g.feed.entry) {
     val = {};
     for (k in g.feed.entry[l]) {
@@ -5742,7 +6296,10 @@ P.src.google.sheets = async function(opts) {
         }
       } catch (error) {}
     }
-    values.push(val);
+    keys = this.keys(val);
+    if (keys.length > 1 || (keys.length && ((ref2 = val[keys[0]]) !== 'Loading...' && ref2 !== '#REF!'))) {
+      values.push(val);
+    }
   }
   g = void 0;
   return values;
@@ -5758,6 +6315,11 @@ P.src.google.sheets._bg = true;
 // pradm dev "pradm alert" google chat webhook
 P.src.google.chat = function(params, url) {
   var data, headers, ref, ref1, ref2, ref3, ref4;
+  if (typeof params === 'string') {
+    params = {
+      text: params
+    };
+  }
   if (params == null) {
     params = this.params;
   }
@@ -6032,7 +6594,11 @@ P.src.microsoft.bing = async function(q, key) {
 };
 
 // https://docs.microsoft.com/en-us/academic-services/graph/reference-data-schema
-// We get files via MS Azure dump and run an import script. Fields we get are:
+// We get files via MS Azure dump and run an import script. Have to manually go to 
+// Azure, use storage explorer to find the most recent blob container, select the file(s)
+// to download, right click and select shared access signature, create it, copy it, and download that.
+// THEN DELETE THE BLOB BECAUSE THEY CHARGE US FOR EVERY CREATION, EVERY DOWNLOAD, AND STORAGE TIME FOR AS LONG AS IT EXISTS
+// Fields we get are:
 // 'journal': ['JournalId', 'Rank', 'NormalizedName', 'DisplayName', 'Issn', 'Publisher', 'Webpage', 'PaperCount', 'PaperFamilyCount', 'CitationCount', 'CreatedDate'],
 // 'author': ['AuthorId', 'Rank', 'NormalizedName', 'DisplayName', 'LastKnownAffiliationId', 'PaperCount', 'PaperFamilyCount', 'CitationCount', 'CreatedDate'],
 // 'paper': ['PaperId', 'Rank', 'Doi', 'DocType', 'PaperTitle', 'OriginalTitle', 'BookTitle', 'Year', 'Date', 'OnlineDate', 'Publisher', 'JournalId', 'ConferenceSeriesId', 'ConferenceInstanceId', 'Volume', 'Issue', 'FirstPage', 'LastPage', 'ReferenceCount', 'CitationCount', 'EstimatedCitation', 'OriginalVenue', 'FamilyId', 'FamilyRank', 'CreatedDate'],
@@ -7016,52 +7582,6 @@ P.src.zenodo.deposition.delete = async function(id, token, dev) {
     method: 'DELETE'
   });
   return true;
-};
-
-P.status = async function() {
-  var i, j, k, len, len1, ref, ref1, res;
-  res = {
-    name: S.name,
-    version: S.version,
-    built: S.built
-  };
-  ref = ['uid', 'rid', 'params', 'base', 'parts', 'opts', 'routes'];
-  for (i = 0, len = ref.length; i < len; i++) {
-    k = ref[i];
-    try {
-      if (res[k] == null) {
-        res[k] = this[k];
-      }
-    } catch (error) {}
-  }
-  if (this.S.bg === true) {
-    res.bg = true;
-  }
-  res.kv = typeof this.S.kv === 'string' && global[this.S.kv] ? this.S.kv : typeof this.S.kv === 'string' ? this.S.kv : false;
-  if ((await this.index(''))) {
-    res.index = true;
-  }
-  if (S.dev) {
-    if (this.S.bg !== true) {
-      try {
-        res.request = this.request;
-      } catch (error) {}
-    }
-    ref1 = ['headers', 'cookie', 'user'];
-    for (j = 0, len1 = ref1.length; j < len1; j++) {
-      k = ref1[j];
-      try {
-        if (res[k] == null) {
-          res[k] = this[k];
-        }
-      } catch (error) {}
-    }
-  }
-  
-  // TODO if there are status endpoints further down the stack, call them all too if a certain param is passed
-  // maybe useful things like how many accounts, how many queued jobs etc - prob just get those from status endpoints on the stack
-  // maybe some useful info from the recent logs too
-  return res;
 };
 
 `P.svc.lantern = (jid) ->
@@ -8057,8 +8577,8 @@ P.svc.oaworks.deposit = async function(params, files, dev) {
     dep.type = 'zenodo';
   } else if ((dep.error != null) && dep.error.toLowerCase().indexOf('zenodo') !== -1) {
     dep.type = 'review';
-  } else if (options.from && (!dep.embedded || (dep.embedded.indexOf('oa.works') === -1 && dep.embedded.indexOf('openaccessbutton.org') === -1 && dep.embedded.indexOf('shareyourpaper.org') === -1))) {
-    dep.type = options.redeposit ? 'redeposit' : (files != null) && files.length ? 'forward' : 'dark';
+  } else if (params.from && (!dep.embedded || (dep.embedded.indexOf('oa.works') === -1 && dep.embedded.indexOf('openaccessbutton.org') === -1 && dep.embedded.indexOf('shareyourpaper.org') === -1))) {
+    dep.type = params.redeposit ? 'redeposit' : (files != null) && files.length ? 'forward' : 'dark';
   } else {
     dep.type = 'review';
   }
@@ -8073,7 +8593,7 @@ P.svc.oaworks.deposit = async function(params, files, dev) {
     tos = this.copy(bcc);
     bcc = [];
   }
-  dep.url = typeof options.redeposit === 'string' ? options.redeposit : options.url ? options.url : void 0;
+  dep.url = typeof params.redeposit === 'string' ? params.redeposit : params.url ? params.url : void 0;
   ed = this.copy(dep);
   if (((ref30 = ed.metadata) != null ? ref30.author : void 0) != null) {
     as = [];
@@ -9149,6 +9669,9 @@ P.svc.oaworks.ill = async function(opts) { // only worked on POST with optional 
       config = (await this.fetch('https://dev.api.cottagelabs.com/service/oab/ill/config?uid=' + ((ref1 = opts.from) != null ? ref1 : config)));
     }
   }
+  if (config == null) {
+    config = {};
+  }
   vars = {
     name: 'librarian',
     details: '' // anywhere to get the user name from config?
@@ -9756,6 +10279,9 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
   if (meta == null) {
     meta = this.copy(this.params);
   }
+  if ((meta != null ? meta.metadata : void 0) === true) { // just a pass-through for us to show metadata for debug
+    delete meta.metadata;
+  }
   if ((meta != null ? meta.permissions : void 0) != null) {
     if (meta.permissions.startsWith('journal/')) {
       meta.issn = meta.permissions.replace('journal/', '');
@@ -10105,7 +10631,7 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
         perms.best_permission = this.copy(wp);
         break;
       } else if (!meta.published || Date.parse(meta.published) > Date.parse(wp.provenance.enforcement_from.split('/').reverse().join('-'))) {
-        // NOTE Date.parse would try to work on format 31/01/2020 but reads it in American, so would thing 31 is a month and is too big
+        // NOTE Date.parse would try to work on format 31/01/2020 but reads it in American, so would think 31 is a month and is too big
         // but 2020-01-31 is treated in ISO so the 31 will be the day. So, given that we use DD/MM/YYYY, split on / then reverse then join on - to get a better parse
         perms.best_permission = this.copy(wp);
         break;
@@ -10202,7 +10728,7 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
 
 // the original sheet, now split into three separate ones, but keep a note in case of use for testing: 
 // https://docs.google.com/spreadsheets/d/1qBb0RV1XgO3xOQMdHJBAf3HCJlUgsXqDVauWAtxde4A/edit
-P.svc.oaworks.permissions.journals = function(recs = []) {
+P.svc.oaworks.permissions.journals = function(recs) {
   return this.svc.oaworks.permissions._format(recs);
 };
 
@@ -10210,7 +10736,7 @@ P.svc.oaworks.permissions.journals._sheet = '19pDvOY5pge-C0yDSObnkMqqlMJgct3iIjP
 
 P.svc.oaworks.permissions.journals._prefix = false;
 
-P.svc.oaworks.permissions.publishers = function(recs = []) {
+P.svc.oaworks.permissions.publishers = function(recs) {
   return this.svc.oaworks.permissions._format(recs);
 };
 
@@ -10218,7 +10744,7 @@ P.svc.oaworks.permissions.publishers._sheet = '1tmEfeJ6RCTCQjcCht-FI7FH-04z7MPSK
 
 P.svc.oaworks.permissions.publishers._prefix = false;
 
-P.svc.oaworks.permissions.affiliations = function(recs = []) {
+P.svc.oaworks.permissions.affiliations = function(recs) {
   return this.svc.oaworks.permissions._format(recs);
 };
 
@@ -10312,34 +10838,36 @@ P.svc.oaworks.permissions._format = async function(recs = []) {
       nr.meta.updatedAt = Date.parse(nr.meta.updated.split('/').reverse().join('-'));
     }
     // the google feed import will lowercase these key names and remove whitespace, question marks, brackets too, but not dashes
-    nr.issuer.id = rec.id.indexOf(',') !== -1 ? rec.id.split(',') : rec.id;
-    if (typeof nr.issuer.id !== 'string') {
-      cids = [];
-      ref1 = nr.issuer.id;
-      for (m = 0, len2 = ref1.length; m < len2; m++) {
-        nid = ref1[m];
-        nid = nid.trim();
-        if (nr.issuer.type === 'journal' && nid.indexOf('-') !== -1 && nid.indexOf(' ') === -1) {
-          nid = nid.toUpperCase();
-          if (af = (await this.svc.oaworks.journal('issn.exact:"' + nid + '"'))) {
-            ref2 = af.issn;
-            for (n = 0, len3 = ref2.length; n < len3; n++) {
-              an = ref2[n];
-              if (indexOf.call(cids, an) < 0) {
-                cids.push(an);
+    nr.issuer.id = typeof rec.id === 'string' && rec.id.indexOf(',') !== -1 ? rec.id.split(',') : rec.id;
+    if (nr.issuer.id != null) {
+      if (typeof nr.issuer.id !== 'string') {
+        cids = [];
+        ref1 = nr.issuer.id;
+        for (m = 0, len2 = ref1.length; m < len2; m++) {
+          nid = ref1[m];
+          nid = nid.trim();
+          if (nr.issuer.type === 'journal' && nid.indexOf('-') !== -1 && nid.indexOf(' ') === -1) {
+            nid = nid.toUpperCase();
+            if (af = (await this.svc.oaworks.journal('issn.exact:"' + nid + '"'))) {
+              ref2 = af.issn;
+              for (n = 0, len3 = ref2.length; n < len3; n++) {
+                an = ref2[n];
+                if (indexOf.call(cids, an) < 0) {
+                  cids.push(an);
+                }
               }
             }
           }
+          if (indexOf.call(cids, nid) < 0) {
+            cids.push(nid);
+          }
         }
-        if (indexOf.call(cids, nid) < 0) {
-          cids.push(nid);
-        }
+        nr.issuer.id = cids;
+      } else if (nr.issuer.id.startsWith('10.') && nr.issuer.id.indexOf('/') !== -1 && nr.issuer.id.indexOf(' ') === -1) {
+        nr.DOI = nr.issuer.id;
       }
-      nr.issuer.id = cids;
-    } else if (nr.issuer.id.startsWith('10.') && nr.issuer.id.indexOf('/') !== -1 && nr.issuer.id.indexOf(' ') === -1) {
-      nr.DOI = nr.issuer.id;
     }
-    nr.permission_required = (rec.has_policy != null) && rec.has_policy.toLowerCase().indexOf('permission required') !== -1;
+    nr.permission_required = typeof rec.has_policy === 'string' && rec.has_policy.toLowerCase().indexOf('permission required') !== -1;
     for (k in rec) {
       if (keys[k] && (rec[k] != null) && rec[k].length !== 0) {
         nk = keys[k];
@@ -10707,6 +11235,7 @@ P.svc.rscvd = function() {
 
 P.svc.rscvd._index = true;
 
+//P.svc.rscvd._html = _qopts: {include: ['title', 'status', 'publisher', 'year', 'doi', 'issn', 'isbn']}
 P.svc.rscvd.retrieve = async function() {
   var ak, i, j, key, kv, len, len1, params, r, rec, recs, ref, ref1, ref2, res, sid, size, u, val;
   ak = this.apikey; //? ''
@@ -10723,8 +11252,13 @@ P.svc.rscvd.retrieve = async function() {
         [sid, params] = u.replace('/api/service/oab/ill/collect/', '').split('?');
         if (typeof sid === 'string' && typeof params === 'string') {
           rec = {
-            sid: sid
+            sid: sid,
+            status: 'Awaiting verification'
           };
+          rec.type = r._source.sid === 'AKfycbwFA_R-0gjzVS9029ByVpduCYJbHLH0ujstNng1aNnRogw1htU' ? 'Paper' : r._source.sid === 'AKfycbwPq7xWoTLwnqZHv7gJAwtsHRkreJ1hMJVeeplxDG_MipdIamU6' ? 'Book' : '';
+          try {
+            rec.createdAt = new Date(parseInt(r._source.createdAt));
+          } catch (error) {}
           ref2 = params.split('&');
           for (j = 0, len1 = ref2.length; j < len1; j++) {
             kv = ref2[j];
@@ -10740,11 +11274,259 @@ P.svc.rscvd.retrieve = async function() {
         }
       }
     }
-    await this.svc.rscvd('');
-    this.waitUntil(this.svc.rscvd(recs));
+    if (recs.length) {
+      await this.svc.rscvd('');
+      this.waitUntil(this.svc.rscvd(recs));
+    }
     return res.hits.total + ', ' + recs.length;
   }
 };
+
+P.svc.rscvd.verify = async function(verify = true) {
+  if (!this.params.verify) {
+    return void 0;
+  }
+  await this.index._each('svc_rscvd', 'email:"' + this.params.verify + '"', {
+    action: 'index'
+  }, function(rec) {
+    rec.verified = verify;
+    if (!rec.status || rec.status === 'Awaiting verification') {
+      rec.status = verify ? 'Verified' : 'Denied';
+    }
+    return rec;
+  });
+  return true;
+};
+
+P.svc.rscvd.deny = function() {
+  return this.svc.rscvd.verify(false);
+};
+
+P.svc.rscvd.status = async function() {
+  var rec, rid, status;
+  if (!this.params.status) {
+    return void 0;
+  }
+  [rid, status] = this.params.status.split('/');
+  rec = (await this.svc.rscvd(rid));
+  rec.status = status;
+  this.svc.rscvd(rec);
+  return rec;
+};
+
+P.svc.rscvd.supply = async function() {
+  var body, c, columns, email_filter, h, headers, i, j, k, l, len, len1, len2, len3, len4, len5, m, n, o, opts, pager, qr, r, ref, ref1, ref10, ref11, ref12, ref13, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, size, sopts, st, status_filter, val;
+  body = '<html><head>';
+  body += '<style>table.paradigm tr:nth-child(even) {background: #eee}table.paradigm tr:nth-child(odd) {background: #fff}</style>\n';
+  body += '</head>';
+  body += '\n<body><h1>RSCVD Supply prototype <small id="welcome"></small></h1>';
+  opts = {
+    sort: {
+      createdAt: 'desc'
+    },
+    terms: ['email', 'status']
+  };
+  size = 500;
+  if (!this.params.size) {
+    opts.size = size;
+  }
+  qr = (await this.index.translate((JSON.stringify(this.params) !== '{}' ? this.params : 'email:* AND (title:* OR atitle:*)'), opts));
+  res = (await this.svc.rscvd(qr));
+  status_filter = '<select class="filter" id="status"><option value="">' + (this.params.q && this.params.q.includes('status:') ? 'clear status filter' : 'Filter by status') + '</option>';
+  ref = res.aggregations.status.buckets;
+  for (i = 0, len = ref.length; i < len; i++) {
+    st = ref[i];
+    if (st.key) {
+      status_filter += '<option value="' + st.key + '"' + (this.params.q && this.params.q.includes(st.key) ? ' selected="selected"' : '') + '>' + st.key + ' (' + st.doc_count + ')' + '</option>';
+    }
+  }
+  status_filter += '</select>';
+  email_filter = '<select class="filter" id="email"><option value="">' + (this.params.q && this.params.q.includes('email:') ? 'clear requestee filter' : 'Filter by requestee') + '</option>';
+  ref1 = res.aggregations.email.buckets;
+  for (j = 0, len1 = ref1.length; j < len1; j++) {
+    st = ref1[j];
+    if (st.key) {
+      email_filter += '<option value="' + st.key + '"' + (this.params.q && this.params.q.includes(st.key) ? ' selected="selected"' : '') + '>' + st.key + ' (' + st.doc_count + ')' + '</option>';
+    }
+  }
+  email_filter += '</select>';
+  body += '<table class="paradigm" style="border-collapse: collapse;">\n';
+  body += '<thead><tr>';
+  headers = [
+    'Item',
+    'Requestee',
+    'Status' //, 'Publisher', 'Year', 'DOI', 'ISSN', 'ISBN']
+  ];
+  for (l = 0, len2 = headers.length; l < len2; l++) {
+    h = headers[l];
+    body += '<th style="padding:2px; border:1px solid #ccc;">';
+    if (h === 'Item') {
+      pager = qr.from ? '<a class="pager ' + (qr.from - ((ref2 = qr.size) != null ? ref2 : size)) + '" href="#">&lt; back</a> items ' : 'Items ';
+      if (res.hits.total > res.hits.hits.length) {
+        pager += ((ref3 = qr.from) != null ? ref3 : 1) + ' to ' + (((ref4 = qr.from) != null ? ref4 : 0) + ((ref5 = qr.size) != null ? ref5 : size));
+        pager += '. <a class="pager ' + (((ref6 = qr.from) != null ? ref6 : 0) + ((ref7 = qr.size) != null ? ref7 : size)) + '" href="#">next &gt;</a>';
+      }
+      body += pager;
+    } else {
+      body += h;
+      if (h === 'Requestee') {
+        body += '<br>' + email_filter;
+      }
+      if (h === 'Status') {
+        body += '<br>' + status_filter;
+      }
+    }
+    body += '</th>';
+  }
+  body += '</tr></thead>';
+  body += '<tbody>';
+  columns = [
+    'title',
+    'email',
+    'status' //, 'publisher', 'year', 'doi', 'issn', 'isbn']
+  ];
+  ref8 = res.hits.hits;
+  for (m = 0, len3 = ref8.length; m < len3; m++) {
+    r = ref8[m];
+    for (k in r._source) {
+      if (typeof r._source[k] === 'string' && r._source[k].includes('%')) {
+        try {
+          r._source[k] = decodeURIComponent(r._source[k]);
+        } catch (error) {}
+      }
+    }
+    body += '\n<tr>';
+    for (n = 0, len4 = columns.length; n < len4; n++) {
+      c = columns[n];
+      val = (ref9 = r._source[c]) != null ? ref9 : '';
+      if (c === 'title') {
+        if ((ref10 = r._source.sid) === 'AKfycbwFA_R-0gjzVS9029ByVpduCYJbHLH0ujstNng1aNnRogw1htU' || ref10 === 'AKfycbwPq7xWoTLwnqZHv7gJAwtsHRkreJ1hMJVeeplxDG_MipdIamU6') {
+          val = '<a class="types" href="#">';
+          val += r._source.sid === 'AKfycbwFA_R-0gjzVS9029ByVpduCYJbHLH0ujstNng1aNnRogw1htU' ? 'Paper' : 'Book';
+          val += '</a><br>';
+        } else {
+          val = '';
+        }
+        val += (r._source.doi && r._source.doi.startsWith('10.') ? '<a target="_blank" href="https://doi.org/' + r._source.doi + '">' : '') + '<b>' + ((ref11 = r._source.atitle) != null ? ref11 : r._source.title) + '</b>' + (r._source.doi && r._source.doi.startsWith('10.') ? '</a>' : '');
+        if (r._source.year || r._source.publisher || (r._source.title && r._source.atitle)) {
+          val += '<br>' + (r._source.year ? r._source.year + ' ' : '') + (r._source.title && r._source.atitle ? '<i><a class="title" href="#">' + r._source.title + '</a></i>' + (r._source.publisher ? ', ' : '') : '') + ((ref12 = r._source.publisher) != null ? ref12 : '');
+        }
+        if (r._source.doi || r._source.issn || r._source.isbn) {
+          val += '<br>' + (r._source.doi && r._source.doi.startsWith('10.') ? '<a target="_blank" href="https://doi.org/' + r._source.doi + '">' + r._source.doi + '</a> ' : '') + (r._source.issn ? ' ISSN ' + r._source.issn : '') + (r._source.isbn ? ' ISBN ' + r._source.isbn : '');
+        }
+      } else if (c === 'email') {
+        if (r._source.verified != null) {
+          val = '<b style="color:' + (r._source.verified ? 'green' : 'red') + ';">' + r._source.email + '</b>';
+          if (r._source.verified) {
+            if (r._source['needed-by']) {
+              val += '<br>Required by ' + r._source['needed-by'].split('-').reverse().join('/');
+              if (r._source.reference) {
+                val += '<br>Ref: ' + r._source.reference;
+              }
+            }
+          }
+        } else {
+          val = r._source.email;
+          val += '<br>' + ((ref13 = r._source.name) != null ? ref13 : '') + (r._source.organization ? (r._source.name ? ', ' : '') + r._source.organization : '');
+        }
+      } else if (c === 'status') {
+        if (r._source.verified != null) {
+          if (r._source.verified) {
+            val = '<select class="status ' + r._id + '" style="margin-top:5px; margin-bottom:0px; min-width:180px;">';
+            sopts = ['Verified', 'Denied', 'Progressing', 'Overdue', 'Provided', 'Cancelled', 'Done'];
+            if (!r._source.status) {
+              sopts.unshift('');
+            }
+            for (o = 0, len5 = sopts.length; o < len5; o++) {
+              st = sopts[o];
+              val += '<option' + (r._source.status === st ? ' selected="selected"' : '') + '>' + st + '</option>';
+            }
+            val += '</select>';
+          } else {
+            val = 'Requestee denied';
+          }
+        } else {
+          val = '<a class="verify ' + r._source.email + '" style="color:green" href="#">Verify</a> or <a class="verify deny ' + r._source.email + '" style="color:red" href="#">Deny</a><br>the requestee';
+        }
+      }
+      body += '<td style="padding:2px; border:1px solid #ccc; vertical-align:text-top;' + (c === 'title' ? ' width:60%;' : '') + '">' + val + '</td>';
+    }
+    body += '</tr>';
+  }
+  body += '\n</tbody></table>';
+  body += '</body>';
+  body += '\n<script src="/client/pradm.js"></script>';
+  body += '\n<script src="/client/pradmLogin.js"></script>';
+  body += `<script>
+pradm.listen("click", ".verify", function(e) {
+  e.preventDefault();
+  var el = e.target;
+  var cls = pradm.classes(el);
+  cls.pop();
+  pradm.html(el, (cls.indexOf("deny") !== -1 ? "Deny" : "Verify") + 'ing...');
+  var url = "/svc/rscvd/" + (cls.indexOf("deny") !== -1 ? "deny" : "verify") + "/" + cls.pop();
+  pradm.ajax(url);
+  setTimeout(function() { location.reload(); }, 3000);
+});
+pradm.listen("change", ".status", function(e) {
+  var el = e.target;
+  var cls = pradm.classes(el);
+  cls.pop();
+  var url = "/svc/rscvd/status/" + cls.pop() + "/" + el.value;
+  pradm.html(el, 'Updating...');
+  pradm.ajax(url);
+  setTimeout(function() { location.reload(); }, 3000);
+});
+pradm.listen("change", ".filter", function(e) {
+  var status = pradm.get('#status');
+  var email = pradm.get('#email');
+  var q = '';
+  if (status) q += 'status:"' + status + '"';
+  if (email) {
+    if (q.length) q += ' AND ';
+    q += 'email:"' + email + '"';
+  }
+  window.history.pushState("", "", window.location.pathname + (q !== '' ? "?q=" + q : ''));
+  location.reload();
+});
+pradm.listen("click", ".pager", function(e) {
+  e.preventDefault();
+  var el = e.target;
+  var cls = pradm.classes(el);
+  cls.pop();
+  window.history.pushState("", "", window.location.pathname + "?from=" + cls.pop());
+  location.reload();
+});
+pradm.listen("click", ".title", function(e) {
+  e.preventDefault();
+  var el = e.target;
+  window.history.pushState("", "", window.location.pathname + '?q=title:"' + el.innerHTML + '"');
+  location.reload();
+});
+pradm.listen("click", ".types", function(e) {
+  e.preventDefault();
+  var el = e.target;
+  var type = el.innerHTML;
+  window.history.pushState("", "", window.location.pathname + '?q=sid:"' + (type === 'Paper' ? 'AKfycbwFA_R-0gjzVS9029ByVpduCYJbHLH0ujstNng1aNnRogw1htU' : 'AKfycbwPq7xWoTLwnqZHv7gJAwtsHRkreJ1hMJVeeplxDG_MipdIamU6') + '"');
+  location.reload();
+});
+try {
+  var name = pradm.account.email.split('@')[0];
+  name = name.substring(0,1).toUpperCase() + name.substring(1);
+  pradm.html('#welcome', ' for <a id="logout" href="#">' + name + '</a>');
+  pradm.listen("click", "#logout", function(e) {
+    e.preventDefault();
+    pradm.next = true;
+    pradm.logout();
+  });
+} catch (err) {}
+</script>`;
+  body += '</html>';
+  this.format = 'html';
+  return body; //headers: {'Content-Type': 'text/html; charset=UTF-8'}, body: body
+};
+
+P.svc.rscvd.supply._auth = true;
 
 // https://jcheminf.springeropen.com/articles/10.1186/1758-2946-3-47
 P.svc.oaworks.scrape = async function(content, doi) {
@@ -10947,8 +11729,8 @@ P.svc.oaworks.scrape = async function(content, doi) {
 };
 
 
-S.built = "Thu May 06 2021 11:43:22 GMT+0100";
-S.system = "9fb50d4c3c347ecee940f9ae51d236dbd6a24b616a03d02623d79bd6795c30b1";
+S.built = "Fri May 14 2021 13:21:20 GMT+0100";
+S.system = "eeb98ca9cdfdad899c74e9f492c3c85cb185b58e8f2b42e0adebb35b8d847045";
 P.convert._gz2txt = {_bg: true}// added by constructor
 
 P.convert._excel2 = {}// added by constructor

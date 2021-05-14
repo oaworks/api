@@ -4,42 +4,36 @@
 
 # NOTE all emails will be lowercased
 # store user record object in kv as user/:UID (value is stringified json object)
-# store a map of email(s) to UID user/email/:EMAIL (or email hash) (value is a UID)
 # and store a map of API keys as well, user/apikey/:KEY (value is user ID) (could have more than one, and have ones that give different permissions)
-# store a login token at auth/token/:TOKEN (value is email, or maybe email hash) (autoexpire login tokens at 15mins 900s)
-# and store a resume token at auth/resume/:UID/:RESUMETOKEN (value is a timestamp) (autoexpire resume tokens at about six months 15768000s, but rotate them on non-cookie use)
+# store a login token at auth/token/:TOKEN (value is email) (autoexpire login tokens at 10mins 600s)
+# and store a resume token at auth/resume/:UID/:RESUMETOKEN (value is a timestamp) (autoexpire resume tokens at about three months 7890000s, but rotate them on non-cookie use)
 
 # TODO check how system header auth should affect checks on auth and group/role activities further down the stack
 # ideally should be ok to run anything after system hand-off that already got auth'd at top level, but check
 
-P.auth = (key, val) ->
+P.auth = (key) ->
   try return true if @S.name and @S.system and @headers['x-' + S.name + '-system'] is @S.system
-  
-  #if key? and val?
-  # if at least key provided directly, just look up the user
   # if params.auth, someone looking up the URL route for this acc. Who would have the right to see that?
   if typeof key is 'string'
-    return await @kv 'user/' + key
-  
-  if not @params.access_token? or not user = await @oauth()
-    if @params.token and eml = await @kv 'auth/token/' + @params.token, '' # true causes delete after found
-      if uid = await @kv 'user/email/' + eml.toLowerCase()
-        user = await @kv 'user/' + uid # get the user record if it already exists
-      user ?= await @auth._insert eml # create the user record if not existing, as this is the first token login attempt for this email address
-    if not user and @apikey
-      if uid = await @kv 'user/apikey/' + @apikey
-        user = await @kv 'user/' + uid # no user creation if apikey doesn't match here - only create on login token above 
-    if not user and (@params.resume? or @cookie) # accept resume on a header too?
-      uid = @id
-      if not uid and @params.email? # accept resume with email instead of id?
-        uid = await @kv 'user/email/' + @params.email.toLowerCase()
-      if not resume = @params.resume # login by resume token if provided in param or cookie
-        try # check where is cookie?
-          cookie = JSON.parse decodeURIComponent(@cookie).split((S.auth?.cookie?.name ? S.name ? 'n2') + "=")[1].split(';')[0]
-          resume = cookie.resume
-          uid = cookie.id
-      if resume? and uid? and restok = await @kv 'auth/resume/' + uid + '/' + resume, (if @params.resume then '' else undefined) # delete if not a cookie resume
-        user = await @kv 'user/' + uid
+    return await @kv 'user/' + (if key.includes('@') then @hashhex(key) else key)
+
+  if (@params.access_token and oauth = await @oauth @params.access_token) or ((@params.token or @params.auth) and email = await @kv 'auth/token/' + (@params.token ? @params.auth), '') # true causes delete after found
+    if not user = await @kv 'user/' + @hashhex(oauth?.email ? email) # get the user record if it already exists
+      user = await @auth._insert oauth ? email # create the user record if not existing, as this is the first token login attempt for this email address
+  if not user and @apikey and uid = await @kv 'user/apikey/' + @apikey
+      user = await @kv 'user/' + uid # no user creation if apikey doesn't match here - only create on login token above 
+  if not user and (@params.resume or @cookie) # accept resume on a header too?
+    if not resume = @params.resume # login by resume token if provided in param or cookie
+      try
+        cookie = JSON.parse decodeURIComponent(@cookie).split((S.auth?.cookie?.name ? 'pradm') + "=")[1].split(';')[0]
+        resume = cookie.resume
+        uid = cookie._id
+    uid ?= @id # if picked up from incoming params
+    if @params.email and not uid
+      uid = @hashhex @params.email # accept resume with email instead of id?
+    if resume and uid and restok = await @kv 'auth/resume/' + uid + '/' + resume, (if @params.resume then '' else undefined) # delete if not a cookie resume
+      user = await @kv 'user/' + uid
+      user.resume = resume
 
   if typeof user is 'object' and user._id
     # if 2fa is enabled, request a second form of ID (see below about implementing 2fa)
@@ -52,10 +46,10 @@ P.auth = (key, val) ->
       upd.roles[@params.service] = 'user'
       @kv 'user/' + user._id, upd, user # record the user login time?
 
-    if @params.resume? or @params.token?
+    if @params.resume or @params.token or @params.auth
       # if a fresh login or resume token was used explicitly, provide a new resume token
       user.resume = @uid()
-      @kv 'auth/resume/' + user._id + '/' + user.resume, Date.now(), 7890000 #15768000 # resume token lasts three months
+      @kv 'auth/resume/' + user._id + '/' + user.resume, Date.now(), 7890000 # resume token lasts three months (could make six at 15768000)
 
     #if @auth.role 'root', @user
     #  lg = msg: 'Root login from ' + @request.headers['x-forwarded-for'] + ' ' + @request.headers['cf-connecting-ip'] + ' ' + @request.headers['x-real-ip']
@@ -64,48 +58,51 @@ P.auth = (key, val) ->
 
   # if this is called with no variables, and no defaults, provide a count of users?
   # but then if logged in and on this route, what does it provide? the user account?
-  if not key? and not val? and not user? and @format is 'html'
-    return '<input style="min-width:250px;" type="text" name="email" placeholder="Enter your email address to sign in"><input style="display:none;min-width:250px;" type="text" name="token" placeholder="Enter the login token once you receive it">'
+  if not key? and not user? and @format is 'html'
+    ret = '<input id="pradmEmail" class="pradmEmail" style="min-width:250px;" type="text" name="email" placeholder="Enter your email address to sign in"><input id="pradmToken" class="pradmToken" style="display:none;min-width:250px;" type="text" name="token" placeholder="Enter the login token once you receive it">'
+    ret += '<script type="text/javascript" src="/client/pradm.js"></script><script type="text/javascript" src="/client/pradmLogin.js"></script>'
+    ret += '<script>pradm.next = true;</script>'
+    return ret
   else
     return user
 
 
 P.auth.token = (email, from, subject, text, html, template, url) ->
-  email ?= @params.email ? ''
-  email = email.toLowerCase()
-  from ?= S.auth?.from ? 'nobody@example.com'
-  subject ?= S.auth?.subject ? 'Please complete your login'
-
-  token = @uid 8
-  url ?= (@params.url ? @request.url ? 'https://example.com').split('?')[0].replace('/token','') + '?token=' + token
-
-  @kv 'auth/token/' + token, email, 900 # create a token that expires in 15 minutes
-    
-  if from and email
-    # see old code for an attempt to add a gmail login button - if that has simplified since then, add it now
-    sent = await @mail.send
+  email ?= @params.email
+  if email
+    email = email.trim().toLowerCase()
+    from ?= S.auth?.from ? 'login@example.com'
+    subject ?= S.auth?.subject ? 'Please complete your login'
+    token = @uid 8
+    console.log(email, token) if @S.dev and @S.bg is true
+    url ?= @params.url
+    if url
+      url += '#' + token
+    else
+      url = @base + '/' + @route.replace '/token', '/' + token
+    @kv 'auth/token/' + token, email, 600 # create a token that expires in 10 minutes
+    @waitUntil @mail
       from: from
       to: email
       subject: subject
-      text: text ? 'Your login code is:\r\n\r\n{{TOKEN}}\r\n\r\nor use this link:\r\n\r\n{{URL}}\r\n\r\nnote: this single-use code is only valid for 15 minutes.'
-      html: html ? '<html><body><p>Your login code is:</p><p><b>{{TOKEN}}</b></p><p>or click on this link</p><p><a href=\"{{URL}}\">{{URL}}</a></p><p>note: this single-use code is only valid for 15 minutes.</p></body></html>'
+      text: text ? 'Your login code is:\r\n\r\n' + token + '\r\n\r\nor use this link:\r\n\r\n' + url + '\r\n\r\nnote: this single-use code is only valid for 10 minutes.'
+      html: html ? '<html><body><p>Your login code is:</p><p><b>' + token + '</b></p><p>or click on this link</p><p><a href=\"' + url + '\">' + url + '</a></p><p>note: this single-use code is only valid for 10 minutes.</p></body></html>'
       #template: template
       params: {token: token, url: url}
-    return sent #sent?.data?.id ? sent?.id ? email
+    return email: email
   else
-    return token
+    return @uid 8 # is there a case where this would somehow be useful? It's not getting saved anywhere for later confirmation...
 
 # auth/role/:grl/:uid
 # any logged in user can find out if any other user is in a role
 P.auth.role = (grl, uid) ->
   grl ?= @params.role
-  grl = @opts.auth if not grl? and typeof @opts?.auth is 'string'
-  uid ?= @user
+  grl = @params.auth if not grl? and typeof @params?.auth is 'string'
   if typeof grl is 'string' and grl.indexOf('/') isnt -1
     if not uid?
       uid = grl.split('/').pop()
-      grl = grl.replace('/'+uid,'')
-  user = if uid? and uid isnt @user?._id then @user(uid) else @user
+      grl = grl.replace '/' + uid, ''
+  user = if typeof uid is 'object' then uid else if typeof uid is 'string' then await @kv(if uid.includes('@') then @hashhex(uid) else uid) else @user
   return false if not user?.roles?
 
   grl = [grl] if typeof grl is 'string'
@@ -131,7 +128,7 @@ P.auth.role = (grl, uid) ->
 
 P.auth.roles = (user, grl, keep) ->
   user ?= @user ? @params.roles
-  user = await @kv('user/' + user) if typeof user is 'string'
+  user = await @kv('user/' + (if user.includes('@') then @hashhex(user) else user)) if typeof user is 'string'
 
   # what about one logged in user acting on the roles route of another?
   [group, role] = grl.split '.'
@@ -151,8 +148,18 @@ P.auth.roles = (user, grl, keep) ->
 
 P.auth.logout = (user) -> # how about triggering a logout on a different user account
   user ?= @user
-  if user?
-    @kv 'auth/resume/' + (if typeof user is 'string' then user else user._id), ''
+  if user
+    @kv 'auth/resume/' + (if typeof user is 'string' then (if user.includes('@') then @hashhex(user) else user) else user._id), ''
+  if @format is 'html'
+    ret = '<p id="logout">Logging out...</p>'
+    ret += '<script type="text/javascript" src="/client/pradm.js"></script><script type="text/javascript" src="/client/pradmLogin.js"></script>'
+    ret += '''<script>
+setTimeout(function() {
+  pradm.logout();
+  pradm.html('#logout', "You're logged out");
+}, 2000);
+</script>'''
+    return ret
 
 # add a 2FA mechanism to auth (authenticator, sms...)
 # https://stackoverflow.com/questions/8529265/google-authenticator-implementation-in-python/8549884#8549884
@@ -167,32 +174,22 @@ P.auth.logout = (user) -> # how about triggering a logout on a different user ac
 # device fingerprinting was available in the old code but no explicit requirement for it so not added here yet
 # old code also had xsrf tokens for FORM POSTs, add that back in if relevant
 
-
-
-
-P.oauth = (token, cid) ->
+P._oauth = (token, cid) ->
   # https://developers.google.com/identity/protocols/OAuth2UserAgent#validatetoken
   sets = {}
-  if token ?= @params.access_token
+  if token #?= @params.access_token
     try
       # we did also have facebook oauth in here, still in old code, but decided to drop it unless explicitly required again
       validate = await @fetch 'https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=' + token, method: 'POST' # has to be a POST even though it sends nothing
-      cid ?= S.svc[@params.service ? 'z']?.google?.oauth?.client?.id ? S.use?.google?.oauth?.client?.id
+      cid ?= @S.svc[@params.service ? 'z']?.google?.oauth?.client?.id ? S.use?.google?.oauth?.client?.id
       if cid? and validate.data?.aud is cid
         ret = await @fetch 'https://www.googleapis.com/oauth2/v2/userinfo?access_token=' + token
-        if uid = await @kv 'user/email/' + ret.data.email.toLowerCase()
-          if not user = await @kv 'user/' + uid
-            user = await @auth._insert ret.data.email.toLowerCase()
-        sets.google = {id:ret.data.id} if not user.google?
-        if ret.data.name
-          sets.name = ret.data.name if not user.name
-        else if ret.data.given_name and not user.name
-          sets.name = ret.data.given_name
-          sets.name += ' ' + ret.data.family_name if ret.data.family_name
-        sets.avatar = ret.data.picture if not user.avatar and ret.data.picture
-  if user? and JSON.stringify(sets) isnt '{}'
-    user = await @user.update user.id, sets
-  return user
+        return
+          email: ret.data.email.toLowerCase()
+          google: {id: ret.data.id}
+          name: ret.data.name ? (ret.data.given_name + (if ret.data.family_name then ' ' + ret.data.family_name else ''))
+          avatar: ret.data.picture
+  return undefined
 # an oauth client-side would require the google oauth client token. It's not a secret, but must be got in advance from google account provider
 # ours is '360291218230-r9lteuqaah0veseihnk7nc6obialug84.apps.googleusercontent.com' - but that's no use to anyone else, unless wanting to login with us
 # the Oauth URL that would trigger something like this would be like:
@@ -205,41 +202,22 @@ P.oauth = (token, cid) ->
 # if the states match, send the access_token into the above method and if it validates then we can login the user
 
 
-P.auth._insert = (key, val) ->
-  if typeof key is 'string' and val?
-    if val is ''
-      key = key.replace('user/','') if key.startsWith 'user/'
-      user = if @user?._id is key then @user else await @kv 'user/' + key
-      try @auth.logout key
-      try @kv('user/apikey/' + user.apikey, '-') if user.apikey?
-      try @kv('user/email/' + user.email.toLowerCase(), '-') if user.email?
-      @kv 'user/' + key, ''
-    #else # update the user with the provided val
-  else
-    em = key.toLowerCase() if typeof key is 'string' and key.indexOf('@') isnt -1 and key.indexOf('.') isnt -1 # put this through a validator, either/both a regex and a service
-    if not key? and this?.user?._id
-      key = 'user/' + @user._id
-    if key.indexOf('@') isnt -1
-      key = await @kv 'user/email/' + key.toLowerCase()
-    res = await @kv 'user/' + key
-    if not res?
-      if em
-        u =
-          email: em.trim().toLowerCase() #store email here or not?
-          apikey: @uid() # store the apikey here or not?
-          profile: {}
-        first = false # if no other user accounts yet
-        u.roles = if first then {__global__: ['root']} else {}
-        u.createdAt = Date.now()
-        u._id = @uid()
-        @kv 'user/apikey/' + apikey, u._id
-        @kv 'user/email/' + email.toLowerCase(), u._id # or hash of email
-        @kv 'user/' + u._id, u
-        return u
-      else
-        return undefined
-    else
-      return undefined
+P.auth._insert = (obj) ->
+  if typeof obj is 'string'
+    obj = email: obj
+  return false if typeof obj.email isnt 'string' or not obj.email.includes '@'
+  u =
+    _id: @hashhex obj.email.trim().toLowerCase()
+    email: obj.email #store email here or not?
+    apikey: @uid() # store the apikey here or not?
+  delete obj.email
+  u.profile = obj # could use obj as profile input data? better for services to store this where necessary though
+  first = false # if no other user accounts yet
+  u.roles = if first then {__global__: ['root']} else {}
+  u.createdAt = new Date()
+  @kv 'user/apikey/' + u.apikey, u._id
+  @kv 'user/' + u._id, u
+  return u
 
 P.auth._update = (r, user) ->
   user ?= r.auth # what about update a user other than the logged in one?
@@ -254,4 +232,10 @@ P.auth._update = (r, user) ->
   else
     return false
 
-
+P.auth._remove = (key) ->
+  key = key.replace('user/','') if key.startsWith 'user/'
+  key = @hashhex(key) if key.includes '@'
+  user = if @user?._id is key then @user else await @kv 'user/' + key
+  try @auth.logout key
+  try @kv 'user/apikey/' + user.apikey, ''
+  try @kv 'user/' + key, ''

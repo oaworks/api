@@ -17,21 +17,30 @@ P.convert.json2csv = (recs, params) ->
   if not recs.length
     return ''
   else
-    headers = []
+    headers = params.keys ? []
     records = ''
     for rec in recs
       records += newline if records.length
       if params.es isnt false and (rec._source or rec.fields)
-        rc = _id: '<a onclick="this.setAttribute(\'href\', window.location.href.split(\'.html\')[0].split(\'/\').pop() + \'/\' + this.getAttribute(\'href\') )" href="' + rec._id + '.html">' + rec._id + '</a>'
         rs = rec._source ? rec.fields
-        rc[nk] = rs[nk] for nk of rs # could add controls to alter the order here, or customise key names
+        rc = {}
+        idlink = true
+        if not params.keys or '_id' in params.keys
+          rc._id = '<a onclick="this.setAttribute(\'href\', window.location.href.split(\'.html\')[0].split(\'/\').pop() + \'/\' + this.getAttribute(\'href\') )" href="' + rec._id + '.html">' + rec._id + '</a>'
+          idlink = false
+        for nk of rs # could add controls to alter the order here, or customise key names
+          rc[nk] ?= rs[nk]
+          if idlink and nk is params.keys[0]
+            try rc[nk] = '<a onclick="this.setAttribute(\'href\', window.location.href.split(\'.html\')[0].split(\'/\').pop() + \'/\' + this.getAttribute(\'href\') )" href="' + rec._id + '.html">' + rs[nk] + '</a>'
+            idlink = false
         rec = rc
       if params.flatten
         rec = await @flatten rec
       if params.subset
         rec = await @dot rec, params.subset
-      for k of rec
-        headers.push(k) if rec[k]? and k not in headers
+      if not params.keys
+        for k of rec
+          headers.push(k) if rec[k]? and k not in headers
       for h in headers
         records += separator if records.length and not records.endsWith newline
         records += quote
@@ -86,8 +95,8 @@ P.convert.csv2html = (csv) ->
   newline = '\n'
   csv = csv.replace /,,/g, separator + quote + quote + separator # TODO change this for a regex of the separator
   res = '<style>table.paradigm tr:nth-child(even) {background: #eee}\
-table.paradigm tr:nth-child(odd) {background: #fff}</style>'
-  res += '<table class="paradigm" style="border-collapse: collapse;">'
+table.paradigm tr:nth-child(odd) {background: #fff}</style>\n'
+  res += '<table class="paradigm" style="border-collapse: collapse;">\n'
   if typeof csv is 'string' and csv.length
     lines = csv.split newline
     if lines.length
@@ -97,7 +106,7 @@ table.paradigm tr:nth-child(odd) {background: #fff}</style>'
       for header in headers.split quote + separator + quote
         res += '<th style="padding:2px; border:1px solid #ccc;">' + header.replace(/"/g, '') + '</th>'
         ln += 1
-      res += '</tr></thead><tbody>'
+      res += '</tr></thead>\n<tbody>\n'
       for line in lines
         res += '<tr>'
         line = line.replace(',"",', ',"XXX_EMPTY_XXX",') while line.indexOf(',"",') isnt -1
@@ -120,8 +129,8 @@ table.paradigm tr:nth-child(odd) {background: #fff}</style>'
         while vn < ln
           res += '<td style="padding:2px; border:1px solid #ccc;vertical-align:text-top;"></td>'
           vn += 1
-        res += '</tr>'
-      res += '</tbody>'
+        res += '</tr>\n'
+      res += '</tbody>\n'
   return res + '</table>'
 
 P.convert.json2html = (recs, params) ->
@@ -129,6 +138,11 @@ P.convert.json2html = (recs, params) ->
   params ?= @params
   if params.url
     recs = await @fetch url
+  if params.new
+    params.edit ?= true
+    recs = {}
+    for key in await @index.keys @route.replace /\//g, '_'
+      recs[key] = '' # could also get mapping types from here, and need to handle nesting eventually
   if params.subset and not Array.isArray recs
     parts = params.subset.split '.'
     while part = parts.shift()
@@ -160,10 +174,12 @@ P.convert.json2html = (recs, params) ->
     _draw = (rec) =>
       if params.edit # just for rscvd demo for now
         rec.comments ?= ''
+      if params.keys
+        rec[pk] ?= '' for pk in params.keys
       for k of rec
         # for example crossref date-parts are an array in an array, pretty useless, so dump the external array
         try rec[k] = rec[k][0] if Array.isArray(rec[k]) and rec[k].length is 1 and Array.isArray rec[k][0]
-        if rec[k]? and (not Array.isArray(rec[k]) or rec[k].length) # and rec[k] isnt ''
+        if rec[k]? and (not Array.isArray(rec[k]) or rec[k].length) and (not params.keys or k in params.keys)
           res += '<div style="clear:both; ' + (if not params.edit then 'border:1px solid #ccc; ' else '') + 'margin:-1px 0px;"><div style="float:left;width: 150px; overflow: scroll;"><b><p>' + k + '</p></b></div>'
           res += '<div style="float:left;">'
           res += if params.edit then '<textarea class="pradmForm" id="' + k + '" style="min-height:80px;width:100%;margin-bottom:5px;">' else ''

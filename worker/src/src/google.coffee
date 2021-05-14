@@ -35,12 +35,13 @@ P.src.google.sheets = (opts) ->
     opts.sheet ?= 'default' # or else a number, starting from 1, indicating which sheet in the overall sheet to access
     url = 'https://spreadsheets.google.com/feeds/list/' + opts.sheetid + '/' + opts.sheet + '/public/values?alt=json'
 
-  g = await @fetch url
+  g = await @fetch url, headers: 'Cache-Control': 'no-cache'
   for l of g.feed.entry
     val = {}
     for k of g.feed.entry[l]
       try val[k.replace('gsx$','')] = g.feed.entry[l][k].$t if k.indexOf('gsx$') is 0 and g.feed.entry[l][k].$t? and g.feed.entry[l][k].$t isnt ''
-    values.push val
+    keys = @keys val
+    values.push(val) if keys.length > 1 or (keys.length and val[keys[0]] not in ['Loading...','#REF!'])
 
   g = undefined
   return values
@@ -54,6 +55,7 @@ P.src.google.sheets._bg = true
 # https://developers.google.com/hangouts/chat/how-tos/webhooks	
 # pradm dev "pradm alert" google chat webhook
 P.src.google.chat = (params, url) ->
+  params = {text: params} if typeof params is 'string'
   params ?= @params
   headers = "Content-Type": 'application/json; charset=UTF-8' # any other possible headers?
   data = method: 'POST', headers: headers, body: text: decodeURIComponent params.text ? params.msg ? params.body ? ''

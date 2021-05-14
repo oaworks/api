@@ -2,8 +2,8 @@
 import json, requests, os, gzip, threading, re
 from datetime import datetime
 
-infolder = '/home/cloo/crossref/crossref/'
-lastfile = '/home/cloo/crossref/last' # where to record the ID of the last file processed
+infolder = '~/crossref/crossref/'
+lastfile = '~/crossref/last' # where to record the ID of the last file processed
 
 target = 'http://localhost:3002/api/use/crossref/works/import' # where to send the records for upload
 

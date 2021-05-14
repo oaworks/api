@@ -6,20 +6,17 @@ pradm.gebc = (cls) -> return document.getElementsByClassName cls.replace('.','')
 pradm.gebn = (n) -> 
   r = document.getElementsByTagName n.replace('<','').replace('>','') # e.g. by the element name, like "div"
   return if r? then r else  document.getElementsByName n # otherwise by the "name" attribute matching n
+pradm._gany = (str) ->
+  return pradm[if str.startsWith('#') then 'gebi' else if str.startsWith('.') then 'gebc' else 'gebn'] str
 pradm.each = (elems, key, val) ->
   if typeof elems is 'string'
-    if elems.startsWith '#'
-      elems = [pradm.gebi elems]
-    else if elems.startsWith '.'
-      elems = pradm.gebc elems
-    else
-      elems = pradm.gebn elems
-  else if typeof elems is 'object'
-    elems = [elems] if not Array.isArray elems
+    isid = elems.startsWith '#'
+    elems = pradm._gany elems
+    elems = [elems] if isid
   if elems?
     for elem in elems
       if elem?
-        if typeof key is 'function' then key(elem) else pradm.set elem key, val
+        if typeof key is 'function' then key(elem) else pradm.set elem, key, val
 pradm.listen = (action, els, fn) ->
   pradm.each els, (el) -> 
     if action is 'enter'
@@ -43,7 +40,13 @@ pradm.hide = (els) ->
     if el.style.display isnt 'none'
       pradm.set el, 'pradm_display', el.style.display
     el.style.display = 'none'
+pradm.focus = (els) ->
+  pradm.each els, (el) -> el.focus()
+pradm.blur = (els) ->
+  pradm.each els, (el) -> el.blur()
 pradm.get = (el, attr) ->
+  el = pradm._gany(el) if typeof el is 'string'
+  el = el[0] if Array.isArray el
   if not attr?
     try res = pradm.checked el
     try
@@ -52,7 +55,10 @@ pradm.get = (el, attr) ->
     res = undefined if typeof res is 'string' and not res.length
   try res ?= el.getAttribute attr
   return res
-pradm.set = (el, attr, val) -> try el.setAttribute attr, val
+pradm.set = (el, attr, val) -> 
+  el = pradm._gany(el) if typeof el is 'string'
+  el = el[0] if Array.isArray el
+  try el.setAttribute attr, val
 pradm.checked = (el) ->
   if el instanceof HTMLInputElement
     if el.getAttribute('type') is 'checkbox'
@@ -164,7 +170,7 @@ pradm.ajax = (url, opts) ->
     if typeof opts.data is 'object' and typeof opts.data.append isnt 'function' # a FormData object will have an append function, a normal json object will not. FormData should be POSTable by xhr as-is
       opts.data = JSON.stringify opts.data
       opts.headers['Content-type'] ?= 'application/json'
-    url += (if url.indexOf('?') is -1 then '?' else '&') + '_=' + Date.now() # set a random header to break caching
+    #url += (if url.indexOf('?') is -1 then '?' else '&') + '_=' + Date.now() # set a random header to break caching?
   xhr = new XMLHttpRequest()
   console.log url
   xhr.open (opts.method ? 'GET'), url
@@ -174,7 +180,7 @@ pradm.ajax = (url, opts) ->
     try # worth checking xhr.status is 200?
       x = xhr.response
       try x = JSON.parse x
-      opts.success x, xhr
+      try opts.success x, xhr
     catch err
       try console.log err
       try opts.error xhr

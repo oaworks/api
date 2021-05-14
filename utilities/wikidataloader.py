@@ -7,9 +7,9 @@ target = 'http://localhost:3002/api/use/wikidata/import' # where to send the rec
 
 howmany = -1 # max number of lines to process. set to -1 to keep going
 processsize = 200000 # how many lines to process per loop (so will generate up to this many files). set to -1 to keep going
-infile = '/home/cloo/wikidata/latest-all.json' # where the lines should be read from
-outfolder = '/home/cloo/wikidata/records/' # where the generated files will go, and where they should be read and deleted from for uploading
-lastfile = '/home/cloo/wikidata/last' # where to record the ID of the last item read from the file
+infile = '~/wikidata/latest-all.json' # where the lines should be read from
+outfolder = '~/wikidata/records/' # where the generated files will go, and where they should be read and deleted from for uploading
+lastfile = '~/wikidata/last' # where to record the ID of the last item read from the file
 snaks = True
 aliases = False
 amounts = False
