@@ -25,4 +25,4 @@ P.src.sherpa.opendoar.import = () ->
     await @src.sherpa.opendoar recs
   return counter
 
-P.src.sherpa.opendoar.import._hidden = true
+P.src.sherpa.opendoar.import._hide = true

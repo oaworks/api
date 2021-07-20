@@ -21,6 +21,7 @@ P.src.epmc = (qrystr, from, size) ->
   url += '&pageSize=' + size if size? #can handle 1000, have not tried more, docs do not say
   url += '&cursorMark=' + from if from? # used to be a from pager, but now uses a cursor
   ret = {}
+  await @sleep 300
   res = await @fetch url
   ret.total = res.hitCount
   ret.data = res.resultList?.result ? []
@@ -34,7 +35,7 @@ P.src.epmc.doi = (ident) ->
   ident ?= @params.doi
   res = await @src.epmc 'DOI:' + ident
   return if res.total then res.data[0] else undefined
-P.src.epmc.doi._hidden = true
+P.src.epmc.doi._hide = true
 
 P.src.epmc.pmid = (ident) ->
   ident ?= @params.pmid
@@ -78,8 +79,9 @@ P.src.epmc.licence = (pmcid, rec, fulltext) ->
       if fulltext.indexOf('<permissions>') isnt -1
         maybe_licence = licence: 'non-standard-licence', source: 'epmc_xml_permissions'
 
-    if false #pmcid and @svc?.lantern?.licence?
-      # TODO need a 3s rate limit
+    if pmcid and @svc.lantern?.licence?
+      # TODO need a 3s rate limit (but limited by IP? If so what happens when coming from different workers?)
+      await @sleep 1000
       url = 'https://europepmc.org/articles/PMC' + pmcid.toLowerCase().replace 'pmc', ''
       pg = await @puppet url
       if typeof pg is 'string'
@@ -95,6 +97,7 @@ P.src.epmc.licence = (pmcid, rec, fulltext) ->
 P.src.epmc.xml = (pmcid) ->
   pmcid ?= @params.xml ? @params.pmcid
   pmcid = pmcid.toLowerCase().replace('pmc','') if pmcid
+  await @sleep 900
   return @fetch 'https://www.ebi.ac.uk/europepmc/webservices/rest/PMC' + pmcid + '/fullTextXML'
 
 P.src.epmc.aam = (pmcid, rec, fulltext) ->
@@ -109,8 +112,8 @@ P.src.epmc.aam = (pmcid, rec, fulltext) ->
       fulltext = await @src.epmc.xml pmcid
       if typeof fulltext is 'string' and fulltext.indexOf('pub-id-type=\'manuscript\'') isnt -1 and fulltext.indexOf('pub-id-type="manuscript"') isnt -1
         return aam: true, info:'fulltext'
-      else if false
-        # NOTE to enable this it needs a 3s rate limit
+      else
+        await @sleep 1000 # TODO need a 3s rate limit
         pg = await @puppet 'https://europepmc.org/articles/PMC' + pmcid.toLowerCase().replace 'pmc', ''
         if not pg?
           return aam: false, info: 'not in EPMC (404)'

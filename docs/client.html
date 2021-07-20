@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html dir="ltr" lang="en">
+
+<head>
+  <meta charset="utf-8">
+
+  <title>Paradigm API client</title>
+  <meta name="description" content="">
+  <meta name="author" content="Mark MacGillivray">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
+  <link href="//fonts.googleapis.com/css?family=Lustria|Noto+Sans|Roboto+Slab|Nixie+One" rel="stylesheet" type="text/css">
+
+  <!--<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.css">-->
+  <!--<link rel="stylesheet" href="/client/mini.css">-->
+  <!--<link rel="stylesheet" href="/client/bootstrap.css">-->
+  <!--<link rel="stylesheet" href="/client/picnic.css">-->
+  <link rel="stylesheet" href="/client/pradm.min.css">
+
+  <script type="text/javascript" src="https://leviathanindustries.com/static/jquery-1.10.2.min.js"></script>
+  <script type="text/javascript" src="/client/pradm.min.js"></script>
+  <script type="text/javascript" src="/client/pradmWriter.min.js"></script>
+
+</head>
+
+<body>
+
+<div class="nav sticky shadow">
+  <label for="panel-toggle" class="button black transparent toggle right"></label>
+  <p style="line-height:0.9em;padding-top:10px;"><a href="https://oa.works">&nbsp;&nbsp;OA.<br>&nbsp;&nbsp;&nbsp;Works</a></p>
+</div>
+
+<input type="checkbox" id="panel-toggle" class="toggle"> <!-- this checkbox goes before the div it should control, and the label for it can be anywhere -->
+<div id="panel" class="screen">
+  <label for="panel-toggle" class="toggle close right"></label>
+  <div class="contents"></div>
+</div>
+
+<div class="container page">
+  
+<h1 class="centre">Paradigm API</h1>
+<p class="centre light">
+  Client css and js for interacting with Paradigm, <br>or even for other things!
+</p>
+
+<div class="contents print"></div>
+
+<hr></hr>
+
+<p>Code blocks are pretty handy, here's some CSS for code blocks :)</p>
+
+<pre class="shadow">
+<code>curl https://api.oa.works
+</code>
+<a href="#">More</a> | <a href="#">Links</a> | <a href="#">Here</a>
+</pre>
+
+<p>
+  <a class="button" href="#">button</a>
+  <a class="button bordered" href="#">bordered</a>
+  <a class="button bordered action" href="#">action</a>
+  <a class="button bordered alert" href="#">alert</a>
+  <a class="button bordered warning" href="#">warning</a>
+</p>
+<p>
+  <a class="button shadow black right" href="#">shadow black right</a>
+</p>
+
+<br><br><br><br>
+
+<div class="flex three">
+  <div class="off6 action">hello</div>
+  <div class="alert">hello</div>  
+  <div class="grey first">first on mobile</div>  
+  <div class="warning">hello</div>  
+  <div class="warning last">last on mobile</div>  
+  <div class="action">hello</div>
+</div>
+
+<br><br>
+
+<div class="flex">
+  <div class="grey c6 off2"><p>c6 (1-12 available)<br>off2 (1-12 available)</p></div>
+  <div class="grey c2 off2">c2 off2</div>
+  <div class="grey c2 p5">p5 (pad 5px)</div>
+  <div class="grey c2 off6">c2 off6</div>
+  <div class="c3 off2">
+    <div class="grey m10">
+      m10 (margin 10px)
+    </div>
+  </div>
+  <div class="grey c2 off1">c2 off1</div>
+  <div class="grey c2 off4">c2 off4</div>
+</div>
+
+<br><br>
+
+<div class="flex">
+  <div class="c3">
+    <input name="username" class="stack" type="text" placeholder="username">
+    <input class="stack" type="password" placeholder="password">
+    <input class="stack" type="date" placeholder="date">
+    <select class="stack">
+      <option>hi</option>
+      <option>ho</option>
+    </select>
+    <label class="stack">
+      <input type="checkbox">
+      <span class="checkable">check box</span>
+    </label>
+    <label class="stack">
+      <input type="radio">
+      <span class="checkable">radio button</span>
+    </label>
+    <textarea class="stack"></textarea>
+    <input class="stack dark" type="submit">
+  </div>
+  
+  <form class="c8 off1 bordered">
+    <fieldset>
+      <label for="username">Username:</label><input type="text" placeholder="username">
+      <label for="password">Password:</label><input type="text" placeholder="password">
+      <label for="">Hi or Ho:</label>
+      <select>
+        <option>hi</option>
+        <option>ho</option>
+      </select>
+      <label class="check"><input type="checkbox"><span class="checkable">check the box</span></label>
+      <label class="check"><input type="radio" name="checker" value="a"><span class="checkable">signal a</span></label>
+      <label class="check"><input type="radio" name="checker" value="b"><span class="checkable">signal b</span></label>
+      <label for="textarea">About you:</label><textarea></textarea>
+      <label></label><input type="submit">
+    </fieldset>
+  </form>
+</div>
+
+<br>
+<div class="flex">
+  <div class="c6 shadow">
+    <input class="stack big" type="text" placeholder="big username">
+    <input class="stack big" type="text" placeholder="big password">
+  </div>
+</div>
+
+<br>
+
+<p>
+  <a class="button action big" href="#">big button</a>
+</p>
+
+<div class="flex">
+  <table>
+    <thead>
+      <tr>
+        <th>Heading 1</th>
+        <th>Heading 2</th>
+        <th>Heading 3</th>
+        <th>Heading 4</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Some</td>
+        <td>Value</td>
+        <td>Goes</td>
+        <td>Here</td>
+      </tr>
+      <tr>
+        <td>Some</td>
+        <td>Value</td>
+        <td>Goes</td>
+        <td>Here</td>
+      </tr>
+      <tr>
+        <td>Some</td>
+        <td>Value</td>
+        <td>Goes</td>
+        <td>Here</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="flex">
+  <table class="striped bordered">
+    <thead>
+      <tr>
+        <th>Striped</th>
+        <th>And</th>
+        <th>Bordered</th>
+        <th>Table</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Some</td>
+        <td>Value</td>
+        <td>Goes</td>
+        <td>Here</td>
+      </tr>
+      <tr>
+        <td>Some</td>
+        <td>Value</td>
+        <td>Goes</td>
+        <td>Here</td>
+      </tr>
+      <tr>
+        <td>Some</td>
+        <td>Value</td>
+        <td>Goes</td>
+        <td>Here</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="flex">
+  <div>
+    <div class="loading black"></div> A loading spinner
+  </div>
+  <div>
+    <progress value="600" max="1000" class="alert"></progress> 60% progress example <!-- best to always use 1000 and use js to alter the value -->
+  </div>
+</div>
+
+<br>
+
+<div class="flex">
+  <div class="c6">
+    <div class="loading big"></div> A big loading spinner
+  </div>
+  <div class="c2">
+    <br><br>
+    <label class="file circle mini">
+      <input title="Drop image or click me" type="file">
+    </label>
+  </div>  
+  <div class="c3">
+    <br><br>
+    <p>Click left to upload a photo / file</p>
+  </div>
+</div>
+
+<br><br>
+
+<div class="tab flex">
+  <div class="loader PLoading"><div class="loading"></div></div>
+  <select>
+    <option>hi</option>
+    <option>ho</option>
+  </select>
+  <a class="button action" href="#">action</a>
+  <input class="c4" name="username" type="text" placeholder="username">
+  <input name="password" type="password" placeholder="password">
+  <a class="button warning" href="#">go</a>
+</div>
+
+</body>
+</html>

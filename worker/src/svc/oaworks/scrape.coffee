@@ -132,3 +132,4 @@ P.svc.oaworks.scrape = (content, doi) ->
 
   return meta
 
+P.svc.oaworks.scrape._hide = true

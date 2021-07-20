@@ -11,7 +11,7 @@ P.src.microsoft.bing = (q, key) ->
   q ?= this?.params?.bing ? this?.params?.q ? this?.params?.query
   key ?= S.src.microsoft?.secrets?.bing?.key
   url = 'https://api.cognitive.microsoft.com/bing/v7.0/search?mkt=en-GB&count=20&q=' + q
-  res = await @fetch url, {headers: {'Ocp-Apim-Subscription-Key': key}} # TODO set a long cache time on it
+  res = await @fetch url, {headers: {'Ocp-Apim-Subscription-Key': key}, cache: 259200} # cache for 3 days
   if res?.webPages?.value
     return {total: res.data.webPages.totalEstimatedMatches, data: res.data.webPages.value}
   else
@@ -83,7 +83,7 @@ P.src.microsoft.graph.journal = (q) ->
 
 
 '''
-P.src.microsoft.graph.paper = _index: true # TODO check how API init will pick up an index that has no main function
+P.src.microsoft.graph.paper = _index: true
 P.src.microsoft.graph.journal = _index: true
 P.src.microsoft.graph.author = _index: true
 P.src.microsoft.graph.affiliation = _index: true

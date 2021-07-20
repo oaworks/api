@@ -8,7 +8,7 @@ P.svc.oaworks.journal = (q) ->
   #crj = await @src.crossref.journals q
   #drj = await @src.doaj.journals q
   try
-    res = await @fetch 'https://dev.api.cottagelabs.com/service/jct/journal?q=' + q
+    res = await @fetch 'https://api.jct.cottagelabs.com/journal?q=' + q
     return res.hits.hits[0]._source
   catch
     return undefined
@@ -23,6 +23,6 @@ P.svc.oaworks.journal.oa = (issn) ->
 P.svc.oaworks.publisher = {}
 P.svc.oaworks.publisher.oa = (publisher) ->
   try publisher ?= @params.publisher ? @params.oa
-  tc = await @fetch 'https://dev.api.cottagelabs.com/service/jct/journal?q=publisher:"' + publisher + '" AND NOT discontinued:true'
-  oac = await @fetch 'https://dev.api.cottagelabs.com/service/jct/journal?q=publisher:"' + publisher + '" AND NOT discontinued:true AND indoaj:true'
-  return tc.hits.total is oac.hits.total and (tc.hits.total isnt 0 or oac.hits.total isnt 0)
+  tc = await @fetch 'https://api.jct.cottagelabs.com/journal?q=publisher:"' + publisher.replace(/&/g, '') + '" AND NOT discontinued:true'
+  oac = await @fetch 'https://api.jct.cottagelabs.com/journal?q=publisher:"' + publisher.replace(/&/g, '') + '" AND NOT discontinued:true AND indoaj:true'
+  return tc? and oac? and tc.hits?.total is oac.hits?.total and (tc.hits.total isnt 0 or oac.hits.total isnt 0)

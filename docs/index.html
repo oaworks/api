@@ -10,117 +10,40 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
 
-  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.4.0/css/font-awesome.min.css">
-
   <link href="//fonts.googleapis.com/css?family=Lustria|Noto+Sans|Roboto+Slab|Nixie+One" rel="stylesheet" type="text/css">
-
-  <link rel="stylesheet" href="https://leviathanindustries.com/static/bootstrap.min.css">
-  <link rel="stylesheet" href="https://leviathanindustries.com/static/style.css">
-
-  <script type="text/javascript" src="https://leviathanindustries.com/static/jquery-1.10.2.min.js"></script>
-  <script type="text/javascript" src="https://leviathanindustries.com/static/noddy.js"></script>
-  <script type="text/javascript" src="https://leviathanindustries.com/static/noddy.writer.js"></script>
-
-  <style>
-    .embossed{
-      margin-top: 60px;
-      margin-bottom: 50px;
-    }
-    #content{
-      max-width: 800px;
-      margin: 0 10% 200px auto;
-    }
-    
-    #csidecontents {
-      max-width: 350px !important;
-    }
-    #sidecontents {
-      font-size: 0.9em !important;
-      padding-top: 60px;
-    }
-
-    pre {
-      background-color: #333;
-      color: white;
-      margin-bottom: 35px;
-    }
-
-    .shadow {
-      box-shadow: 0px 2px 8px 1px #ccc; /*#cccccc;*/
-      -moz-box-shadow: 0px 2px 8px 1px #666;
-      -webkit-box-shadow: 0px 2px 8px 1px #666;
-    }
-    
-    a.shadow {
-      background-color: #f9f2f4 !important;
-      border-radius: 2px !important;
-      padding: 1px 3px 1px 3px;
-    }
-    
-    .navbar {
-      background-color: #24201e; /*#3877ff;*/
-    }
-  </style>
+  <link rel="stylesheet" href="/client/pradm.min.css">
+  <script type="text/javascript" src="/client/pradm.min.js"></script>
+  <script type="text/javascript" src="/client/pradmWriter.min.js"></script>
 
 </head>
 
 <body>
 
-<script>
-jQuery(document).ready(function() {
-  if ( $(window).width() > 1100 ) {
-    $('#content').before('<div id="csidecontents" class="hidden-print" style="position:fixed;top:52px;left:0;bottom:0;right:0;width:400px;border-right:2px solid #ccc;padding:5px;background-color:#eee;z-index:1000000;"><div id="sidecontents" style="font-size:0.7em;overflow-y:auto;height:100%;"></div></div>');
-    $('#content').toc({'prependto':'#sidecontents', depth:3});
-  } else {
-    $('#content').toc({depth: 3});
-    $('#maincontents').show();
-  }
-  
-  $('body').on('click', '.installing', function(e) {
-    e.preventDefault();
-    $('.install').hide();
-    $('.' + $(this).attr('href')).show();
-  });
-  $('body').on('click', '.requesting', function(e) {
-    e.preventDefault();
-    $('.request').hide();
-    $('.' + $(this).attr('href')).show();
-  });
-});
-</script>
-
-<div class="navbar navbar-fixed-top topstrap topshadow">
-	<div class="container">
-		<div class="row">
-			<div class="topnav col-xs-11">
-        <p style="line-height:0.9em;padding-top:10px;"><a href="https://oa.works">&nbsp;&nbsp;OA.<br>&nbsp;&nbsp;&nbsp;Works</a></p>
-      </div>
-		</div>
-	</div>
+<div class="nav sticky shadow">
+  <label for="panel-toggle" class="button black transparent toggle right"></label>
+  <p style="line-height:0.9em;padding-top:10px;"><a href="https://oa.works">&nbsp;&nbsp;OA.<br>&nbsp;&nbsp;&nbsp;Works</a></p>
 </div>
 
-<div id="navspacer" style="height:80px;"></div>
+<input type="checkbox" id="panel-toggle" class="toggle">
+<div id="panel" class="screen">
+  <!--<label for="panel-toggle" class="toggle close right"></label>-->
+  <div class="contents"></div>
+</div>
 
-<div class="container" id="content">
+<div class="container page">
   
-<!--<div class="black shadow well">-->
-
 <a name="quickstart"></a>
-<h1 style="text-align:center;margin-top:30px;" class="ignore">Paradigm API</h1>
-<p style="text-align:center;color:#999;">
+<h1 style="text-align:center;">Paradigm API</h1>
+<p style="text-align: center; color: #999;">
   A "radically distributed, powerfully simple" API framework<br>
-  Brought to you by <a href="https://oa.works">OA.Works</a>, <a href="https://cottagelabs.com">CL</a>, and our <a class="tocontent" href="#Ourfundersandsupporters">supporters</a>
+  Brought to you by <a href="https://oa.works">OA.Works</a>, <a href="https://cottagelabs.com">CL</a>, and our <a class="goto" href="#Ourfundersandsupporters">supporters</a>
 </p>
 
 <p><small style="color:red;">WARNING: our new API and framework are not yet publicly released, and these docs are still being written up - INACCURACIES ARE PRESENT.</small></p>
 
-<div id="maincontents" style="display:none;">
-<hr class="embossed"></hr>
-<h2 class="ignore">Contents</h2>
-<div id="contents"></div>
-</div>
+<div class="contents print"></div>
 
-<hr class="embossed"></hr>
+<hr></hr>
 
 <p>Get straight to the OA.Works API at <a class="shadow" target="_blank" href="https://api.oa.works">https://api.oa.works</a></p>
 
@@ -135,30 +58,30 @@ import requests
 res = requests.get('https://api.oa.works')
 print(res.json())
 </code>
-<a class="requesting" href="node">Node</a> | <a class="requesting" href="python">Python</a> | <a class="tocontent" href="#UsingOA.WorksAPI">OA.Works API docs</a> | <a class="tocontent" href="#UsingParadigmAPI">Paradigm API docs</a>
+<a class="requesting" href="node">Node</a> | <a class="requesting" href="python">Python</a> | <a class="goto" href="#UsingOA.WorksAPI">OA.Works API docs</a> | <a class="goto" href="#UsingParadigmAPI">Paradigm API docs</a>
 </pre>
 
-<p>Or access our Paradigm API at <a class="shadow" target="_blank" href="https://paradigm.oa.works">https://paradigm.oa.works</a></p>
-<p>Or run your own for free with <a class="shadow tocontent" target="_blank" href="#Deployment">Cloudflare Workers</a></p>
-<p>Or get the code for yourself: <a name="install" class="shadow" target="_blank" href="https://github.com/oaworks/paradigm">https://github.com/oaworks/paradigm</a></p>
+<p>Access our Paradigm API at <a class="shadow" target="_blank" href="https://paradigm.oa.works">https://paradigm.oa.works</a></p>
+<p>Run your own for free with <a class="shadow goto" target="_blank" href="#Deployment">Cloudflare Workers</a></p>
+<p>Get the code for yourself: <a name="install" class="shadow" target="_blank" href="https://github.com/oaworks/paradigm">https://github.com/oaworks/paradigm</a></p>
 
 <pre class="shadow">
 <code class="install linux">sudo apt install nodejs
-npm install -g coffeescript
 git clone https://github.com/oaworks/paradigm.git
 cd paradigm
+npm install coffeescript uglify-js uglifycss
 coffee construct.coffee
 node server/dist/server.min.js
 # now use curl or a browser to find it running at localhost:4000
 </code><code style="display:none;" class="install apple"># you'll need homebrew installed
-# https://treehouse.github.io/installation-guides/mac/homebrew
+# https://brew.sh
 ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
 brew update
 brew install git
 brew install nodejs
-npm install -g coffeescript
 git clone https://github.com/oaworks/paradigm.git
 cd paradigm
+npm install coffeescript uglify-js uglifycss
 coffee construct.coffee
 node server/dist/server.min.js
 # you may get a warning about an app trying to use port 4000 - if so, allow it
@@ -166,19 +89,19 @@ node server/dist/server.min.js
 </code><code style="display:none;" class="install windows"># Not too sure about this one...
 # install git for windows: https://gitforwindows.org
 # install node.js and npm for windows...
-# use npm to install coffeescript
+# use npm to install coffeescript uglify-js uglifycss
 # clone the repo: https://github.com/oaworks/paradigm.git
 # in the "paradigm" directory, run "coffee construct.coffee"
 # then run "node server/dist/server.min.js"
 # now use your web browser to find it running at localhost:4000
 </code>
-<a class="installing" href="apple">Apple</a> | <a class="installing" href="windows">Windows</a> | <a class="tocontent" href="#Deployment">Deployment docs</a> | <a class="tocontent" href="#Development">Development docs</a>
+<a class="installing" href="apple">Apple</a> | <a class="installing" href="windows">Windows</a> | <a class="goto" href="#Deployment">Deployment docs</a> | <a class="goto" href="#Development">Development docs</a>
 </pre>
 
 
 
 
-<hr class="embossed"></hr>
+<hr></hr>
 
 <h2>Using OA.Works API</h2>
 
@@ -190,7 +113,7 @@ update here whenever we move more across. We should finish in June 2021.</p>
 <p>OA.Works is an API for accessing papers (through <a href="#find">Open Access</a>, <a href="#subscriptions">subscriptions</a>, 
 <a href="#ill">Interlibrary Loans</a>, and <a href="#request">emails to authors</a>), <a href="#metadata">finding metadata</a>, 
 and <a href="#deposit">depositing papers</a>. It's built on our Paradigm API framework, so it's also an example of 
-<a class="tocontent" href="#Buildyourownservice">how to build a Paradigm service</a>.</p>
+<a class="goto" href="#Buildyourownservice">how to build a Paradigm service</a>.</p>
 
 <!--
 <p id="apikey"><a href="/auth.html?next=/docs">Logging in</a> 
@@ -270,9 +193,9 @@ include any relevant institutional policies in the response.</p>
 </pre>
 
 <p>Provide an ID for a paper either as a DOI appended on the URL, or as URL parameters, or in a JSON body. Suitable IDs are the same 
-as those for <a class="tocontent" href="#/find">/find</a>. If you have any additional metadata for the article, 
+as those for <a class="goto" href="#/find">/find</a>. If you have any additional metadata for the article, 
 such as title, journal title, etc, include those as parameters on the URL or in the JSON body. The metadata key 
-names we typically use can be viewed in one of our <a class="tocontent" href="#/find">/metadata</a> responses. 
+names we typically use can be viewed in one of our <a class="goto" href="#/find">/metadata</a> responses. 
 We'll add what we can to whatever metadata you give us.</p>
 
 We will then attempt to start an ILL according to your InstantILL configuration. By default, we will send an email to your account email, and you’ll need to pass the requestor’s email in the "email" parameter. If InstantILL is configured to do so, we can pass you a link to your completed ILL form.
@@ -305,7 +228,7 @@ Note, responses will not necessarily have all fields - it depends what we can fi
 
 
 
-<hr class="embossed"></hr>
+<hr></hr>
 
 <h2>Using Paradigm API</h2>
 
@@ -315,7 +238,7 @@ default, unless otherwise documented. Many routes can also return a simple HTML 
 authorisation, so <a href="#"></a>sign up for an account</a> to use those.</p>
 
 <p>Please limit your requests to two per second, and include an email address in a <b>User-Agent</b> 
-header on your requests. Or if you've <a class="tocontent" href="#Auth">signed up for an account</a>, 
+header on your requests. Or if you've <a class="goto" href="#Auth">signed up for an account</a>, 
 include your API key in an <b>x-apikey</b> header. We don't enforce rate limits, but if we 
 notice prolonged high usage we may have to limit to keep the API accessible for all, and
 we'd love to be able to contact you about your greater requirements.</p>
@@ -357,7 +280,7 @@ curl -X GET 'https://paradigm.oa.works/status' -H 'x-apikey: APIKEY'
 
 
 
-<hr class="embossed"></hr>
+<hr></hr>
 
 <h2>Deployment</h2>
 
@@ -368,7 +291,7 @@ our "escape route". For example we rely on Workers KV, but if we had to move fro
 we would start our own Redis server and update our KV code to connect to that instead.</p>
 
 <p>If you want to know more about why we chose Cloudflare, and the other choices we made, 
-read our <a class="tocontent" href="#Development">Development</a> section.</p>
+read our <a class="goto" href="#Development">Development</a> section.</p>
 
 <h3>Worker (Cloudflare)</h3>
 
@@ -385,7 +308,7 @@ create a KV namespace, and note down the name you gave it (you can call it Parad
 <p>(Workers KV is also available free on cloudflare. There are limits on free usage, but they're plenty to start with. 
 Raising the limits is also pretty cheap - we pay about $5 a month.)</p>
 
-<p>Next, <a class="tocontent" href="#install">clone our git repo</a> (if you haven't already) and create a folder 
+<p>Next, <a class="goto" href="#install">clone our git repo</a> (if you haven't already) and create a folder 
 called <b>secrets</b> in the main Paradigm folder, and in there create a file called 
 <b>construct.json</b>.</p>
 
@@ -538,7 +461,7 @@ deal-breaker for anyone worried about vendor lock-in.</p>
 
 
 
-<hr class="embossed"></hr>
+<hr></hr>
 
 <h2>Development</h2>
 
@@ -733,6 +656,13 @@ Why elasticsearch / Amazon Elastic?
 
 # _hidden can be set to stop a route showing up on the list of available routes
 
+NOTE: Questions: Why aren't there any prototypes/classes used? Answer to be expanded upon: What would the actual benefit be?
+It's not that we don't know about these, and OOP approach in general, but why use something that there is not a specific 
+purpose for, particularly when there ARE benefits to doing it a different way? Those being easier wrapping and less 
+effort to configure new additions to the code. But of course - DO use prototypes/classes when adding new functionality 
+that WOULD benefit from them. This was most obvious when writing the Index functions, and directly relates to the old code 
+where these WERE prototyped and then instantiated with "new ..."
+
 
 <h3>Build your own service</h3>
 
@@ -769,8 +699,21 @@ will be given access to develop feature branches and request PRs directly on our
 <h2>Our funders and supporters</h2>
 
 
-
-</div>
-
 </body>
+
+<script>
+P.writer.toc();
+
+P.on('click', '.installing', function(e) {
+  e.preventDefault();
+  P.hide('.install');
+  P.show('.' + P.attr(e.target, 'href'));
+});
+P.on('click', '.requesting', function(e) {
+  e.preventDefault();
+  P.hide('.request');
+  P.show('.' + P.attr(e.target, 'href'));
+});
+</script>
+
 </html>

@@ -6,7 +6,7 @@ import puppeteer from 'puppeteer'
 # sudo sh -c 'echo "deb https://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list'
 # sudo apt-get update
 # sudo apt-get install google-chrome-stable
-# and check that which google-chrome does give the path used below
+# and check "which google-chrome" does give the path used below
 P.puppet = (url, proxy, headers, idle=false) ->
   try url ?= @params.url
   return '' if not url? or typeof url isnt 'string'
@@ -46,3 +46,6 @@ P.puppet = (url, proxy, headers, idle=false) ->
     return content
   catch
     return ''
+
+P.puppet._auth = 'system'
+P.puppet._hide = true

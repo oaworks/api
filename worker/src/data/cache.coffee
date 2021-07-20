@@ -18,9 +18,9 @@
 
 # https://developers.cloudflare.com/workers/examples/cache-api
 
-P._cache = (request, response, age) ->
+P.cache = (request, response, age) ->
   if typeof age isnt 'number'
-    age = if typeof @S.cache is 'number' then @S.cache else if @S.dev then 120 else 3600 # how long should default cache be?
+    age = if typeof @S.cache is 'number' then @S.cache else if @S.dev then 120 else 43200 # how long should default cache be? here is 2 mins for dev, 12 hours for live
   # age is max age in seconds until removal from cache (note this is not strict, CF could remove for other reasons)
   # request and response needs to be an actual Request and Response objects
   # returns promise wrapping the Response object
@@ -31,7 +31,7 @@ P._cache = (request, response, age) ->
       request ?= @request
       try
         url = request.url.toString()
-        for h in ['refresh'] # should caches be keyed to apikey? what about headers? Do they affect caching?
+        for h in ['refresh']
           if url.indexOf(h + '=') isnt -1
             hp = new RegExp h + '=.*?&'
             url = url.replace hp, ''
@@ -64,3 +64,5 @@ P._cache = (request, response, age) ->
     else
       return undefined
 
+P.cache._hide = true
+P.cache._auth = 'system'

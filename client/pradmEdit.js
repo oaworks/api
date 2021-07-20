@@ -1,103 +1,208 @@
-//a library for managing reading writing and saving of objects
-if (this.pradm == null) {
-  this.pradm = {};
-}
+//a library for managing reading writing and saving of records
+P._editStyle = '<style>.PChanged { border-color: yellow; box-shadow: 1px 1px 1px 1px yellow; } .PSaved { border-color: green; box-shadow: 1px 1px 1px 1px green; } .PError { border-color: red; box-shadow: 1px 1px 1px 1px red; } </style>';
 
-pradm._editStyle = '<style>.pradmChanged { border-color: yellow; box-shadow: 1px 1px 1px 1px yellow; } .pradmSaved { border-color: green; box-shadow: 1px 1px 1px 1px green; } .pradmError { border-color: red; box-shadow: 1px 1px 1px 1px red; } </style>';
+P._editTimeout;
 
-pradm._editTimeout;
+P._editRecord;
 
-pradm._editObject;
-
-pradm.edit = function(obj) {
-  var _watch;
-  pradm.append('body', pradm._editStyle);
-  if (obj != null) {
-    // could add options to build or populate here
-    pradm._editObject = obj;
+P.edit = function(opts) {
+  var _watch, form, pa, pe, pf, ref;
+  if (opts == null) {
+    opts = {};
+  }
+  if (pe = P('.PSave')) {
+    if (!opts.goto) {
+      pa = P.get(pe, 'goto');
+      if (pa == null) {
+        pa = P.get(pe, 'href');
+      }
+      if (pa) {
+        opts.goto = pa;
+      }
+      if (!opts.goto) {
+        opts.goto = '#PThanks';
+        if (opts.clear == null) {
+          opts.clear = true;
+        }
+        if (opts.hide == null) {
+          opts.hide = false;
+        }
+      }
+    }
+  }
+  try {
+    if (pf = P('.PForm')) {
+      if (Array.isArray(pf) || HTMLCollection.prototype.isPrototypeOf(pf) || NodeList.prototype.isPrototypeOf(pf)) {
+        pf = pf[0];
+      }
+      form = pf.closest('form');
+      if (opts.url == null) {
+        opts.url = P.get(form, 'action');
+      }
+      if (opts.method == null) {
+        opts.method = P.get(form, 'method');
+      }
+    }
+  } catch (error) {}
+  if (opts.url == null) {
+    opts.url = window.location.pathname.replace('.html', '');
+  }
+  if (opts.style !== false) {
+    P.append('body', (ref = opts.style) != null ? ref : P._editStyle);
+  }
+  if (opts.record != null) {
+    // could add opts to build or populate here
+    P._editRecord = opts.record;
   } else {
-    pradm.save(void 0, false);
+    P.save(void 0, false);
   }
   _watch = function(e) {
     var el;
     el = e.target;
-    if (pradm._editTimeout != null) {
-      clearTimeout(pradm._editTimeout);
+    if (P._editTimeout != null) {
+      clearTimeout(P._editTimeout);
     }
-    pradm.class(el, 'pradmError', false);
-    pradm.class(el, 'pradmSaved', false);
-    pradm.class(el, 'pradmChanged');
-    if (!pradm.gebi('#pradmSave')) {
-      return pradm._editTimeout = setTimeout(pradm.save, 1500);
+    P.class(el, 'PError', false);
+    P.class(el, 'PSaved', false);
+    P.class(el, 'PChanged');
+    if (!P('.PSave')) {
+      return P._editTimeout = setTimeout((function() {
+        return P.save(void 0, opts);
+      }), 1500);
     }
   };
-  pradm.listen('change', '.pradmForm', _watch);
-  pradm.listen('keyup', '.pradmForm', _watch);
-  if (pradm.gebi('#pradmSave')) {
-    return pradm.listen('click', '#pradmSave', function(el) {
-      pradm.save();
-      return false;
+  if (P('.PSave')) {
+    return P.on('click', '.PSave', function(e) {
+      return P.save(void 0, opts, e);
     });
+  } else if (opts.watch !== false) {
+    P.on('change', '.PForm', _watch);
+    return P.on('keyup', '.PForm', _watch);
   }
 };
 
-pradm.save = function(obj, send) {
-  console.log('saving', send);
-  if (obj == null) {
-    if (pradm._editObject == null) {
-      pradm._editObject = {};
+P.save = function(rec, opts, e) { // does this need to be separate?
+  var cls;
+  if (typeof P.validate !== 'function' || P.validate()) {
+    console.log('saving');
+    P.show('.PLoading');
+    if (e != null) {
+      try {
+        P.attr(e.target, '_content', P.html(e.target));
+        P.html(e.target, 'Submitting...');
+      } catch (error) {}
+      try {
+        e.preventDefault();
+      } catch (error) {}
     }
-    pradm.each('.pradmSaved', function(el) {
-      return pradm.class(el, 'pradmSaved', false);
-    });
-    pradm.each((send === false ? '.pradmForm' : '.pradmChanged'), function(el) {
-      var base, key, pv;
-      key = pradm.get(el, 'pradmKey');
-      if (key == null) {
-        key = pradm.get(el, 'id');
+    if (rec == null) {
+      if (P._editRecord == null) {
+        P._editRecord = {};
       }
-      if (el.getAttribute('type') === 'radio') {
-        if ((base = pradm._editObject)[key] == null) {
-          base[key] = [];
+      P('.PSaved', function(el) {
+        return P.class(el, 'PSaved', false);
+      });
+      cls = opts === false ? '.PForm' : '.PChanged';
+      if (cls === '.PChanged' && !P(cls)) {
+        cls = '.PForm';
+      }
+      P(cls, function(el) {
+        var base, key, pv;
+        key = P.get(el, 'PKey');
+        if (key == null) {
+          key = P.get(el, 'id');
         }
-        return pradm._editObject[key].push(pradm.get(el));
-      } else {
-        pv = pradm.get(el);
-        if (pv === null) {
-          try {
-            return delete pradm._editObject[key];
-          } catch (error) {}
+        if (el.getAttribute('type') === 'radio') {
+          if ((base = P._editRecord)[key] == null) {
+            base[key] = [];
+          }
+          return P._editRecord[key].push(P.get(el));
         } else {
-          return pradm._editObject[key] = pv;
+          pv = P.get(el);
+          if (pv === null) {
+            try {
+              return delete P._editRecord[key];
+            } catch (error) {}
+          } else {
+            return P._editRecord[key] = pv;
+          }
         }
-      }
-    });
-    obj = pradm._editObject;
-  }
-  if (send !== false) {
-    if (obj._id == null) {
-      obj._id = pradm._newid;
+      });
+      rec = P._editRecord;
     }
-    return pradm.ajax(window.location.pathname.replace('.html', ''), {
-      data: obj,
-      success: function(data) {
-        if (!pradm._newid && window.location.search.indexOf('?new') !== -1 || window.location.search.indexOf('&new') !== -1) {
-          pradm._newid = data._id;
-          try {
-            window.history.replaceState("", "", window.location.pathname.replace('.html', '/' + data._id + '.html?edit'));
-          } catch (error) {}
-        }
-        return pradm.each('.pradmChanged', function(el) {
-          pradm.class(el, 'pradmChanged', false);
-          return pradm.class(el, 'pradmSaved');
-        });
-      },
-      error: function(data) {
-        return pradm.each('.pradmChanged', function(el) {
-          pradm.class(el, 'pradmChanged', false);
-          return pradm.class(el, 'pradmError');
-        });
+    if (opts !== false) {
+      if (rec._id == null) {
+        rec._id = P._newid;
       }
-    });
+      P.ajax(opts.url, {
+        method: opts.method,
+        data: rec, // use opts.method and other settings to decide whether to GET or POST or send a form-URL-encoded
+        success: function(data) {
+          try {
+            P.html(e.target, P.attr(e.target, '_content'));
+          } catch (error) {}
+          P.hide('.PLoading');
+          if (!P._newid && window.location.search.indexOf('?new') !== -1 || window.location.search.indexOf('&new') !== -1) {
+            P._newid = data._id;
+            try {
+              window.history.replaceState("", "", window.location.pathname.replace('.html', '/' + data._id + '.html?edit'));
+            } catch (error) {}
+          }
+          P('.PChanged', function(el) {
+            P.class(el, 'PChanged', false);
+            return P.class(el, 'PSaved');
+          });
+          if (opts.clear) {
+            try {
+              P.set('.PForm', '');
+            } catch (error) {}
+          }
+          if (opts.hide && (e != null)) {
+            P.hide(e.target.closest('form'));
+          }
+          if (typeof opts.goto === 'function') {
+            return opts.goto();
+          } else if (typeof opts.goto === 'string') {
+            if (opts.goto.startsWith('#') || opts.goto.startsWith('.') && P(opts.goto)) {
+              P.hide('.PSave');
+              P.show(opts.goto);
+              return setTimeout((function() {
+                P.hide(opts.goto);
+                return P.show('.PSave');
+              }), 10000);
+            } else {
+              return window.location = opts.goto;
+            }
+          }
+        },
+        error: function(data) {
+          try {
+            P.html(e.target, P.attr(e.target, '_content'));
+          } catch (error) {}
+          P.hide('.PLoading');
+          P.show('.PError');
+          return P('.PChanged', function(el) {
+            P.class(el, 'PChanged', false);
+            return P.class(el, 'PError');
+          });
+        }
+      });
+    }
+  }
+  return false; // always returns false to stop form submitting manually as well
+};
+
+P.validate = function(form) {
+  var pf, res;
+  if ((form == null) && (pf = P('.PForm'))) {
+    pf = P.list(pf)[0];
+    form = pf.closest('form');
+  }
+  if (form != null) {
+    form = P.list(form)[0];
+    res = form.checkValidity();
+    return res;
+  } else {
+    return true;
   }
 };

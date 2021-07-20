@@ -11,6 +11,12 @@ P.fetch = (url, params) ->
     params = url
     url = params.url
   params ?= {}
+  if typeof params is 'number'
+    params = cache: params
+  if typeof params.cache is 'number' # https://developers.cloudflare.com/workers/examples/cache-using-fetch
+    params.cf ?= cacheEverything: true
+    params.cf.cacheTtl = params.cache
+    delete params.cache
   if not url and params.url
     url = params.url
     delete params.url
@@ -29,9 +35,9 @@ P.fetch = (url, params) ->
     url = url.replace params.auth+'@', ''
   if params.auth
     params.headers ?= {}
-    params.headers['Authorization'] = 'Basic ' + Buffer.from(params.auth).toString('base64') # should be fine on node
+    params.headers['Authorization'] = 'Basic ' + Buffer.from(params.auth).toString('base64')
     delete params.auth
-  for ct in ['data', 'content', 'json'] # where else might body content reasonably be?
+  for ct in ['data', 'content', 'json']
     if params[ct]?
       params.body = params[ct]
       delete params[ct]
@@ -55,18 +61,23 @@ P.fetch = (url, params) ->
   if typeof url isnt 'string'
     return false
   else
-    try
-      if url.indexOf('?') isnt -1
-        nu = url.split('?')[0] + '?'
-        for qp in url.split('?')[1].split '&'
-          nu += '&' if not nu.endsWith '?'
-          [k,v] = qp.split '='
-          v ?= ''
-          nu += k + '=' + if v.indexOf('%') isnt -1 then v else encodeURIComponent v
-        url = nu
+    if url.indexOf('?') isnt -1
+      pts = url.split '?'
+      nu = pts.shift() + '?'
+      for qp in pts.join('?').split '&'
+        nu += '&' if not nu.endsWith '?'
+        [k,v] = qp.split '='
+        v ?= ''
+        nu += encodeURIComponent(k) + (if v then '=' + (if v.indexOf('%') isnt -1 then v else encodeURIComponent v) else '') if k
+      url = nu
+    if params.params and JSON.stringify(params.params) isnt '{}'
+      url += '?' if url.indexOf('?') is -1
+      for k, v of params.params
+        url += '&' if not url.endsWith('&') and not url.endsWith '?'
+        url += encodeURIComponent(k) + '=' + encodeURIComponent(JSON.stringify(v)) if k
     if S.system and ((typeof S.bg is 'string' and url.startsWith S.bg) or (typeof S.kv is 'string' and S.kv.startsWith('http') and url.startsWith S.kv))
       params.headers ?= {} # add the system auth code when passing anything back to bg, or when bg passing to worker to reach kv
-      params.headers['x-' + S.name + '-system'] ?= S.system
+      params.headers['x-' + S.name.toLowerCase() + '-system'] ?= S.system
     _f = () =>
       if params.verbose
         verbose = true
@@ -90,6 +101,7 @@ P.fetch = (url, params) ->
         resp = undefined
       else if response.status >= 400
         if S.dev
+          console.log params
           console.log JSON.stringify r
           console.log 'ERROR ' + response.status
         resp.status = response.status
@@ -119,14 +131,53 @@ P.fetch = (url, params) ->
           delete params[rk]
       res = @retry.call this, _f, [url, params], opts
     else'''
-    if params.timeout and this?._timeout?
-      pt = if params.timeout is true then 30000 else params.timeout
-      delete params.timeout
-      res = await @_timeout pt, _f()
-    else
-      res = await _f()
     try
-      res = res.trim()
-      res = JSON.parse(res) if res.indexOf('[') is 0 or res.indexOf('{') is 0
-    return res
+      if params.timeout and this?._timeout?
+        pt = if params.timeout is true then 30000 else params.timeout
+        delete params.timeout
+        res = await @_timeout pt, _f()
+      else
+        res = await _f()
+      try
+        res = res.trim()
+        res = JSON.parse(res) if res.indexOf('[') is 0 or res.indexOf('{') is 0
+      return res
+    catch err
+      if S.dev or this?.S?.dev
+        console.log err
+        console.log JSON.stringify err
+      try @log err
+      return undefined
 
+
+'''
+limiting = (fetcher, retries=1) ->
+  # notice if someone else is limiting us, and how long to wait for
+  while retries
+    retries--
+    response = await fetcher()
+    switch (response.status) ->
+      default:
+        return response
+      case 403:
+      case 429:
+        # header names differ by API we're hitting, these examples are for github. 
+        # It's the timestamp of when the rate limit window would reset, generalise this
+        # e.g. look for any header containing ratelimit? or rate? then see if it's a big
+        # number which would be a timestamp (and check if need *1000 for unix to ms version) 
+        # or a small number which is probably ms to wait
+        resets = parseInt response.headers.get "x-ratelimit-reset"
+        ms = if isNaN(resets) then 0 else new Date(resets * 1000).getTime() - Date.now()
+        if ms is 0
+          # this one is like a count of ms to wait?
+          remaining = parseInt response.headers.get "x-ratelimit-remaining"
+          ms = remaining if not isNaN remaining
+
+        if ms <= 0
+          return response
+        else
+          await new Promise resolve => setTimeout resolve, ms
+'''
+
+P.fetch._auth = 'system'
+P.fetch._hide = true

@@ -101,15 +101,16 @@ P.tdm.hamming = (a, b, lowercase) ->
 
 P.tdm.extract = (opts) ->
 	# opts expects url,content,matchers (a list, or singular "match" string),start,end,convert,format,lowercase,ascii
+	#opts ?= @params
 	if opts.url and not opts.content
 		if opts.url.indexOf('.pdf') isnt -1 or opts.url.indexOf('/pdf') isnt -1
 			opts.convert ?= 'pdf'
 		else
-			opts.content = P.http.puppeteer opts.url, true
-	try
-		text = if opts.convert then P.convert.run(opts.url ? opts.content, opts.convert, 'txt') else opts.content
-	catch
-		text = opts.content
+			opts.content = await @puppet opts.url
+	if opts.convert
+		try
+			text = await @convert[opts.convert + '2txt'] opts.url ? opts.content
+	text ?= opts.content
 
 	opts.matchers ?= [opts.match]
 	if opts.start?
@@ -120,24 +121,27 @@ P.tdm.extract = (opts) ->
 	text = text.replace(/[^a-z0-9]/g,'') if opts.ascii
 	text = text.replace(/ /g,'') if opts.spaces is false
 
-	res = {length:text.length, matched:0, matches:[], matchers:opts.matchers, text: text}
+	res = {length: text.length, matched: 0, matches: [], matchers: opts.matchers, text: text}
 
 	if text and typeof text isnt 'number'
-		for match in opts.matchers
-			mopts = 'g'
-			mopts += 'i' if opts.lowercase
-			if match.indexOf('/') is 0
-				lastslash = match.lastIndexOf '/'
-				if lastslash+1 isnt match.length
-					mopts = match.substring lastslash+1
-					match = match.substring 1,lastslash
+		for match in (if typeof opts.matchers is 'string' then opts.matchers.split(',') else opts.matchers)
+			if typeof match is 'string'
+				mopts = ''
+				if match.indexOf('/') is 0
+					lastslash = match.lastIndexOf '/'
+					if lastslash+1 isnt match.length
+						mopts = match.substring lastslash+1
+						match = match.substring 1,lastslash
+				else
+					match = match.replace /[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&"
 			else
-				match = match.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&")
-			m
-			mr = new RegExp match,mopts
-			while m = mr.exec(text)
-				res.matched += 1
-				res.matches.push {matched:match,result:m}
+				mopts = ''
+			mopts += 'i' if opts.lowercase
+			try
+				mr = new RegExp match, mopts
+				if m = mr.exec text
+					res.matched += 1
+					res.matches.push {matched: match.toString(), result: m}
 
 	return res
 
@@ -208,3 +212,7 @@ P.tdm.stopwords = (stops, more, gramstops=true) ->
 			stops.push(m) if m not in stops
 	return stops
 
+# note that new wordpos can be used in browser and can preload word files or get them on demand
+# try this from within CF and see if it works fast enough - it'll be about 7MB compressed data to 
+# preload all, or on demand may introduce some lag
+# https://github.com/moos/wordpos-web

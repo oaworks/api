@@ -25,21 +25,18 @@ if (S.name == null) {
 }
 
 if (S.version == null) {
-  S.version = '5.3.1'; // the construct script will use this to overwrite any version in the worker and server package.json files
+  S.version = '5.5.0'; // the construct script will use this to overwrite any version in the worker and server package.json files
 }
+
+// S.pass can be set to false if there is a bg URL but worker errors should NOT pass through on exception to it (otherwise they will by default)
+S.pass = [
+  'docs',
+  'client',
+  '.well-known' // if this is a list of strings, any route starting with these will throw error and pass back to bg (this would happen anyway with no function defined for them, but this avoids unnecessary processing)
+];
 
 if (S.dev == null) {
   S.dev = true;
-}
-
-if (typeof S.bg === 'string') { // if there is a bg to pass through to on errors/timeouts, then go to it by default
-  if (S.pass == null) {
-    S.pass = true;
-  }
-}
-
-if (S.docs == null) {
-  S.docs = 'https://leviathanindustries.com/paradigm';
 }
 
 if (S.headers == null) {
@@ -70,10 +67,14 @@ if (S.src == null) {
 try {
   // check _auth, refuse if not appropriate
   // _auth - if true an authorised user is required. If a string or a list, an authorised user with that role is required. For empty list, cascade the url routes as groups. always try to find user even if auth is not required, so that user is optionally available
+  // _auths can be used instead to cascade the _auth setting to everything below it
 
-  // check cache unless _cache is false, set res from cache if matches
+  // check cache unless _cache is false, set result from cache if matches
   // _cache - can be false or a number of seconds for how long the cache value is valid) (pass refresh param with incoming request to override a cache)
+  // _caches - can be used to cascade the cache setting to everything below it
   // NOTE _auth and _cache are ALWAYS checked first at the incoming request level, and NOT checked for subsequent called functions (fetch can also use cache internally)
+
+  // _wrap - can be set to false so that a function that would otherwise be wrapped won't be
 
   // if an _async param was provided, check the async index for a completed result
   // if found, delete it and save it to wherever it should be (if anywhere), just as if a normal result had been processed
@@ -83,35 +84,24 @@ try {
   // if args has length, args have priority
   // otherwise go with params (or just pass through?)
 
-  // then check storage layers if configured to do so
   // _kv - if true store the result in CF workers KV, and check for it on new requests - like a cache, but global, with 1s eventual consistency whereas cache is regional
-  // _index - if true send the result to an index. Or can be an object of index initialisation settings, mappings, aliases
-  // _key - optional which key, if not default _id, to use from a result object to save it as - along with the function route which will be derived if not provided
-  // _search - if false, the wrapper won't run a search on incoming potential queries before calling the function. If a string, will be used as the key to search within, unless the incoming content is obviously already a complex query
-  // _qopts - an optional object defining query options, see P.index.translate and elasticsearch docs to learn more about what can be provided
-  // _prefix - if false, the index is not prefixed with the app/index name, so can be accessed by any running version. Otherwise, an index is only accessible to the app version with the matching prefix. TODO this may be updated with abilityt o list prefix names to match multiple app versions but not all
-  // _sheet - if true get a sheet ID from settings for the given endpoint, if string then it is the sheet ID. If present it implies _index:true if _index is not set
-
   // _kv gets checked prior to _index UNLESS there are args that appear to be a query
   // for _kv, args[0] has to be a string for a key, with no args[1] - otherwise pass through
-  // for _index args[0] has to be string for key, or query str or query obj, args[1] empty or query params
-  // if it was a call to /index directly, and if those get wrapped, then args[0] may also be index name, with a query obj in args[1]
-  // if _index and no index present, create it - or only on provision of data or query?
-  // if _sheet, and no index present, or @params.sheet, load it too
-  // _sheet loads should be _bg even if main function isn't
-  // if _sheet, block anything appearing to be a write?
+
+  // _index - if true send the result to an index. Or can be an object of index initialisation settings, mappings, aliases
+  // _key - optional which key, if not default _id, to use from a result object to save it as - along with the function route which will be derived if not provided
+  // _prefix - if false, the index is not prefixed with the app/index name, so can be accessed by any running version. Otherwise, an index is only accessible to the app version with the matching prefix.
+  // _sheet - if true get a sheet ID from settings for the given endpoint, if string then it is the sheet ID. If present it implies _index:true if _index is not set
 
   // _async - if true, don't wait for the result, just return _async:@rid. If bg is configured and _bg isn't false on the function, send to bg. Otherwise just continue it locally.
   // _bg - if true pass request to backend server e.g for things that are known will be long running
   // this can happen at the top level route or if it calls any function that falls back to bg, the whole query falls back
 
   // by this point, with nothing else available, run the process (by now either on bg or worker, whichever was appropriate)
-
   // if the response indicates an error, e.g. it is an object with a status: 404 or similar, return to the response
   // also do not save if a Response object is directly passed as result from the function (and don't send to _response either, just return it)
 
-  // if a valid result is available, and wasn't already a record in from kv or index, write the result to kv/index if configured to do so
-  // NOTE index actually writes to kv unless _kv is explicitly false, for later scheduled pickup and bulk index
+  // if a valid result is available, and wasn't already a record in kv or index, write the result to kv/index if configured to do so
   // otherwise result needs to have a _key or _id
   // cache the result unless _cache is false or it was an index creation or sheet load
 
@@ -123,15 +113,16 @@ try {
   // picked up by the alert mechanism
 
   // _format can be set to default the function format return type (html or csv so far)
-  // _hidden can be set to hide a function that should otherwise show up on the routes list, 
+  // _hide can be set to hide a function that should otherwise show up on the routes list, 
+  // or _hides can be used to hide a function and anything under it
   // e.g. one that doesn't start with _ but should be hidden for some reason anyway. NOTE this 
   // doesn't stop it being ACCESSIBLE on the API, only hidden, whereas starting it with _ makes it inaccessible
 
-  // TODO limit, retry, cron/job/batch (note workers now has a schedule ability too. explore that but consider vendor lock-in)
+  // TODO limit, retry, cron/job/batch
   // TODO add a way for a function to result in a file url on local disk or s3, or perhaps even a URL somewhere else, 
   // and to serve the location redirect as the result. Could be a _file option
   addEventListener('fetch', function(event) {
-    if (S.pass) {
+    if (S.pass !== false) {
       event.passThroughOnException();
     }
     return event.respondWith(P.call(event));
@@ -147,44 +138,66 @@ try {
 } catch (error) {}
 
 P = async function(scheduled) {
-  var _lp, _return, _save, authd, base, base1, base2, ct, d, entry, fd, fn, fs, fun, hd, hhmm, hk, i, j, klogs, kp, kpn, last, lasts, len, len1, len2, m, name, pf, pk, prs, qp, recs, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, requested_refresh, res, resp, schedule;
+  var _lp, authd, base, base1, base2, bd, cp, ct, d, du, entry, exclusive, fd, fn, fs, hd, hk, i, j, kp, kpn, l, len, len1, len2, len3, name, o, pf, pk, pkp, pp, prs, qp, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, resp, rk, schedule, si, tp;
   // the context here is the fetch event
   this.started = Date.now(); // not strictly accurate in a workers environment, but handy nevertheless, used for comparison when logs are finally written
   try {
     
     // make @S settings object local to this fetch event
     // this header is defined later because the built date is added to the end of the file by the deploy script, so it's not known until now
-    if ((base = S.headers)[name = 'X-' + S.name] == null) {
+    if ((base = S.headers)[name = 'x-' + S.name.toLowerCase()] == null) {
       base[name] = (S.version ? 'v' + S.version : '') + (S.built ? ' built ' + S.built : '');
     }
   } catch (error) {}
   this.S = JSON.parse(JSON.stringify(S));
-  
+  if (typeof this.waitUntil !== 'function') { // it will be on worker, but not on backend
+    if ((this.S.bg == null) || typeof this.S.bg === 'string') { // or could there be other places there is no waitUntil, but we want to deploy there without it being in bg mode?
+      this.S.bg = true;
+    }
+    if ((base1 = this.S).cache == null) {
+      base1.cache = false;
+    }
+    this.waitUntil = function(fn) {
+      return true; // just let it run
+    };
+  } else if (!this.S.kv) { // try setting a default key-value store reference on the worker
+    // where will backend overwrite this to true? can this be set on the global S, and overwritten on backend?
+    this.S.kv = this.S.name.replace(/\s/g, '');
+    if (!global[this.S.kv]) {
+      delete this.S.kv;
+    }
+  }
   // make @params @body, @headers, @cookie
-  this.params = {}; // TODO add a general cleaner of incoming params? but allow override if necessary for certain endpoints?
-  // note may need to remove apikey param - but if removing, how does that affect the fact that request is an actual immutable Request object?
-  // it probably would appear to change, but may still be in there, then may get saved in cache etc which prob isn't wanted
-  // unless results SHOULD differ by apikey? Probably on any route where that is the case, caching should be disabled
+  this.params = {};
   if ((this.request.url != null) && this.request.url.indexOf('?') !== -1) {
+    pkp = '';
     ref = this.request.url.split('?')[1].split('&');
     for (i = 0, len = ref.length; i < len; i++) {
       qp = ref[i];
       kp = qp.split('=');
-      this.params[kp[0]] = kp.length === 1 ? true : typeof kp[1] === 'string' && kp[1].toLowerCase() === 'true' ? true : typeof kp[1] === 'string' && kp[1].toLowerCase() === 'false' ? false : qp.endsWith('=') ? true : kp[1];
-      if (typeof this.params[kp[0]] === 'string' && this.params[kp[0]].replace(/[0-9]/g, '').length === 0 && !this.params[kp[0]].startsWith('0')) {
-        kpn = parseInt(this.params[kp[0]]);
-        if (!isNaN(kpn)) {
-          this.params[kp[0]] = kpn;
+      if (kp[0].length) { // avoid &&
+        if (kp.length === 1 && pkp && (kp[0].startsWith(' ') || kp[0].includes('%'))) {
+          this.params[pkp] += '&' + decodeURIComponent(kp[0]);
+        } else {
+          this.params[kp[0]] = kp.length === 1 ? true : typeof kp[1] === 'string' && kp[1].toLowerCase() === 'true' ? true : typeof kp[1] === 'string' && kp[1].toLowerCase() === 'false' ? false : qp.endsWith('=') ? true : kp[1];
+          if (typeof this.params[kp[0]] === 'string' && this.params[kp[0]].replace(/[0-9]/g, '').length === 0 && !this.params[kp[0]].startsWith('0')) {
+            kpn = parseInt(this.params[kp[0]]);
+            if (!isNaN(kpn)) {
+              this.params[kp[0]] = kpn;
+            }
+          }
+          if (typeof this.params[kp[0]] === 'string' && this.params[kp[0]].indexOf('%') !== -1) {
+            try {
+              this.params[kp[0]] = decodeURIComponent(this.params[kp[0]]);
+            } catch (error) {}
+          }
+          if (typeof this.params[kp[0]] === 'string' && (this.params[kp[0]].startsWith('[') || this.params[kp[0]].startsWith('{'))) {
+            try {
+              this.params[kp[0]] = JSON.parse(this.params[kp[0]]);
+            } catch (error) {}
+          }
         }
-      }
-      if (typeof this.params[kp[0]] === 'string' && (this.params[kp[0]].startsWith('[') || this.params[kp[0]].startsWith('{'))) {
-        try {
-          this.params[kp[0]] = JSON.parse(this.params[kp[0]]);
-        } catch (error) {}
-      } else if (typeof this.params[kp[0]] === 'string' && this.params[kp[0]].indexOf('%') !== -1) {
-        try {
-          this.params[kp[0]] = decodeURIComponent(this.params[kp[0]]);
-        } catch (error) {}
+        pkp = kp[0];
       }
     }
   }
@@ -204,99 +217,84 @@ P = async function(scheduled) {
       }
     } catch (error) {}
   }
-  try {
-    ct = this.headers['content-type'];
-    if (ct == null) {
-      ct = '';
+  ct = (ref2 = this.headers['content-type']) != null ? ref2 : '';
+  if (this.S.bg === true) {
+    if (this.request.body != null) {
+      this.body = this.request.body;
     }
-    if (ct.includes('/json')) {
-      this.body = (await this.request.json());
-    } else if (ct.includes('form')) {
-      fd = (await this.request.formData());
-      for (entry in fd.entries()) {
-        if (this.body[entry[0]] != null) {
-          if (!Array.isArray(this.body[entry[0]])) {
-            this.body[entry[0]] = [this.body[entry[0]]];
+  } else if (ct.includes('/json')) {
+    this.body = (await this.request.json());
+  } else if (ct.includes('form')) { // NOTE below, multipart may need to go to bg if receiving a file to save
+    bd = {};
+    fd = (await this.request.formData());
+    for (entry in fd.entries()) {
+      if (entry[0]) {
+        if (bd[entry[0]] != null) {
+          if (!Array.isArray(bd[entry[0]])) {
+            bd[entry[0]] = [bd[entry[0]]];
           }
-          this.body[entry[0]].push(entry[1]);
+          bd[entry[0]].push(entry[1]);
         } else {
-          this.body[entry[0]] = entry[1];
+          bd[entry[0]] = entry[1];
         }
       }
-    } else {
-      this.body = (await this.request.text());
     }
-  } catch (error) {}
-  try {
-    // and what if blob? Accept blobs or not?
-    // @body = URL.createObjectURL await request.blob()
-    if (this.body == null) {
-      this.body = this.request.body; // if nothing else, just get the body which may be directly provided by the server
+    if ((bd != null) && JSON.stringify(bd) !== '{}') {
+      this.body = bd;
     }
-  } catch (error) {}
+  }
+  if ((this.body == null) && ((ref3 = this.request.method) === 'POST' || ref3 === 'PUT' || ref3 === 'DELETE')) {
+    try {
+      // TODO get worker to hand off to bg if available, if receiving any sort of file
+      bd = (await this.request.text()); // NOTE this will always be at least an empty string when request method isnt GET
+    } catch (error) {}
+    if (bd) {
+      // can also do URL.createObjectURL @request.blob() here, but would that be useful? Or revert to bg?
+      this.body = bd;
+    }
+  }
   try {
-    if (this.body.startsWith('{') || this.body.startsWith('[')) {
+    if (typeof this.body === 'string' && (this.body.startsWith('{') || this.body.startsWith('['))) {
       this.body = JSON.parse(this.body);
     }
   } catch (error) {}
-  try {
-    if (typeof this.body === 'object' && !Array.isArray(this.body)) {
-      for (qp in this.body) {
-        if ((base1 = this.params)[qp] == null) {
-          base1[qp] = this.body[qp];
+  if (typeof this.body === 'object' && !Array.isArray(this.body)) {
+    for (qp in this.body) {
+      if (qp) {
+        if ((base2 = this.params)[qp] == null) {
+          base2[qp] = this.body[qp];
         }
       }
     }
-  } catch (error) {}
-  if (typeof this.waitUntil !== 'function') { // it will be on worker, but not on backend
-    if ((this.S.bg == null) || typeof this.S.bg === 'string') { // or could there be other places there is no waitUntil, but we want to deploy there without it being in bg mode?
-      this.S.bg = true;
-    }
-    if ((base2 = this.S).cache == null) {
-      base2.cache = false;
-    }
-    this.waitUntil = function(fn) {
-      return true; // just let it run
-    };
-  } else if (!this.S.kv) { // try setting a default key-value store reference on the worker
-    // where will backend overwrite this to true? can this be set on the global S, and overwritten on backend?
-    this.S.kv = this.S.name.replace(/\s/g, '');
-    if (!global[this.S.kv]) {
-      delete this.S.kv;
-    }
   }
   try {
-    this.cookie = (ref2 = this.headers.Cookie) != null ? ref2 : this.headers.cookie;
+    this.cookie = (ref4 = this.headers.Cookie) != null ? ref4 : this.headers.cookie;
   } catch (error) {}
-  try {
-    
-    // set some request and user IDs / keys in @rid, @id, @apikey, and @refresh
-    this.rid = this.headers['cf-ray'].slice(0, -4);
-  } catch (error) {}
+  
+  // set some request and user IDs / keys in @rid, @apikey, and @refresh
+  this.rid = this.headers['x-' + this.S.name.toLowerCase() + '-async'];
   try {
     if (this.rid == null) {
-      this.rid = this.headers['x-' + this.S.name + '-async'];
+      this.rid = this.headers['cf-ray'].slice(0, -4);
     }
   } catch (error) {}
+  if (this.rid == null) {
+    this.rid = P.uid(); // @uid is not defined yet
+  }
   try {
     // how / when to remove various auth headers before logging / matching cache?
-    // e.g apikey, id, resume, token, access_token, email?
-    this.uid = (ref3 = (ref4 = this.headers['x-uid']) != null ? ref4 : this.headers.uid) != null ? ref3 : this.params.uid;
-  } catch (error) {}
-  try {
+    // e.g apikey, resume, token, access_token, email?
     this.apikey = (ref5 = (ref6 = this.headers['x-apikey']) != null ? ref6 : this.headers.apikey) != null ? ref5 : this.params.apikey;
   } catch (error) {}
-  if (this.headers['x-apikey']) {
-    delete this.headers['x-apikey'];
-  }
-  if (this.headers.apikey) {
-    delete this.headers.apikey;
-  }
-  if (this.params.apikey) {
-    delete this.params.apikey;
-  }
-  if (this.params.uid) {
-    delete this.params.uid;
+  ref7 = ['x-apikey', 'apikey'];
+  for (l = 0, len2 = ref7.length; l < len2; l++) {
+    rk = ref7[l];
+    if (this.headers[rk] != null) {
+      delete this.headers[rk];
+    }
+    if (this.params[rk] != null) {
+      delete this.params[rk];
+    }
   }
   if (this.params.refresh) {
     this.refresh = this.params.refresh;
@@ -308,13 +306,23 @@ P = async function(scheduled) {
     // in case there's a url param with them as well, check if they're at the start
     // there's no base to the URL passed on the backend server, so here the @base isn't shifted from the parts list
     this.url = this.request.url.split('?')[0].replace(/^\//, '').replace(/\/$/, '');
-    this.parts = this.url.length ? this.url.split('/') : [];
+    try {
+      if (this.url.indexOf('%') !== -1) {
+        du = decodeURIComponent(this.url);
+      }
+    } catch (error) {}
+    this.parts = this.url.length ? (du != null ? du : this.url).split('/') : [];
     try {
       this.base = this.headers.host;
     } catch (error) {}
   } else {
     this.url = this.request.url.split('?')[0].replace(/\/$/, '').split('://')[1];
-    this.parts = this.url.split('/');
+    try {
+      if (this.url.indexOf('%') !== -1) {
+        du = decodeURIComponent(this.url);
+      }
+    } catch (error) {}
+    this.parts = (du != null ? du : this.url).split('/');
     this.base = this.parts.shift();
   }
   if (typeof this.headers.accept === 'string') {
@@ -329,18 +337,39 @@ P = async function(scheduled) {
       this.parts[this.parts.length - 1] = this.parts[this.parts.length - 1].replace('.' + pf, '');
     }
   }
-  if (this.parts.length === 1 && ((ref7 = this.parts[0]) === 'docs' || ref7 === 'client') && typeof this.S.bg === 'string' && this.S.pass) {
+  if (typeof this.S.bg === 'string' && Array.isArray(this.S.pass) && this.parts.length && (ref8 = this.parts[0], indexOf.call(this.S.pass, ref8) >= 0)) {
     throw new Error(); // send to backend to handle requests for anything that should be served from folders on disk
   }
-  for (d in (ref8 = this.S.domains) != null ? ref8 : {}) {
+  for (d in (ref9 = this.S.domains) != null ? ref9 : {}) {
+    if (Array.isArray(this.S.domains[d])) {
+      this.S.domains[d] = {
+        parts: this.S.domains[d],
+        exclusive: false
+      };
+    }
     if (this.base.indexOf(d) !== -1) {
-      this.domain = d;
-      this.parts = [...this.S.domains[d], ...this.parts];
-      break;
+      exclusive = this.S.domains[d].exclusive; // if exclusive, ONLY routes that match within the defined parts will be served
+      if (!exclusive) { // for non-exclusive, only restrict if there IS something to match at or after the defined parts
+        pp = [...this.S.domains[d].parts];
+        tp = P;
+        while (cp = pp.shift()) {
+          try {
+            tp = tp[cp];
+          } catch (error) {}
+        }
+        if ((tp != null) && ((!this.parts.length && typeof tp === 'function') || (tp[this.parts[0]] != null))) {
+          exclusive = true;
+        }
+      }
+      if (exclusive) {
+        this.domain = d;
+        this.parts = [...this.S.domains[d].parts, ...this.parts];
+        break;
+      }
     }
   }
-  if (this.S.dev && this.S.bg === true) {
-    console.log(this.base, this.domain);
+  if (this.S.dev) { //and @S.bg is true
+    console.log(this.request.method, this.base, this.domain, typeof this.body);
   }
   this.route = this.parts.join('/');
   this.routes = [];
@@ -348,324 +377,15 @@ P = async function(scheduled) {
   if (scheduled || this.route === '_schedule') { // and restrict this to root, or disable URL route to it
     this.scheduled = true;
   }
-  //@nolog = true if ... # don't log if nolog is present and its value matches a secret key? Or if @S.log is false?
   this._logs = []; // place for a running request to dump multiple logs, which will combine and save at the end of the overall request
   if (this.route === '') { //don't bother doing anything, just serve a direct P._response with the API details
-    return P._response.call(this, (ref9 = this.request.method) === 'HEAD' || ref9 === 'OPTIONS' ? '' : {
+    return P._response.call(this, (ref10 = this.request.method) === 'HEAD' || ref10 === 'OPTIONS' ? '' : {
       name: this.S.name,
       version: this.S.version,
       base: (this.S.dev ? this.base : void 0),
       built: (this.S.dev ? this.S.built : void 0)
     });
   }
-  // a save method called by the following _return when necessary
-  _save = async(k, r, f) => {
-    var c, exists, id, len2, m, ref10, ref11;
-    if ((r != null) && (typeof r !== 'object' || Array.isArray(r) || (((ref10 = r.headers) != null ? ref10.append : void 0) !== 'function' && (typeof r.status !== 'number' || r.status < 200 || r.status > 600)))) {
-      // if the function returned a Response object, or something with an error status, don't save it
-      if (f._key && Array.isArray(r) && r.length && (r[0]._id == null) && (r[0][f._key] != null)) {
-        for (m = 0, len2 = r.length; m < len2; m++) {
-          c = r[m];
-          c._id = (Array.isArray(c[f._key]) ? c[f._key][0] : c[f._key]);
-        }
-      }
-      id = Array.isArray(r) ? '' : '/' + (f._key && r[f._key] ? r[f._key] : (ref11 = r._id) != null ? ref11 : this.uid()).replace(/\//g, '_').replace(k + '_', '').toLowerCase();
-      if (f._kv && !Array.isArray(r)) { //_kv should be set for things that MUST be in the kv - they won't be removed, but will be copied to index if _index is also true
-        this.kv(k + id, r, f._kv);
-      }
-      if (f._index && (f._kv === false || !this.S.kv || this.S.bg)) { // all indexing is bulked through kv unless _kv is false or overall kv is disabled in settings, or immediate indexing is true
-        if (!(exists = (await this.index(k.split('/')[0])))) {
-          await this.index(k.split('/')[0], (typeof f._index !== 'object' ? {} : {
-            settings: f._index.settings,
-            mappings: f._index.mappings,
-            aliases: f._index.aliases
-          }));
-        }
-        this.index(k + id, r);
-      }
-      if (f._async) {
-        return this.kv('async/' + this.rid, f._index || f._kv ? k + id : r);
-      }
-    }
-  };
-  // wraps every function on P, apart from top level functions and ones that start with _
-  // and controls how it should return, depending on wrapper settings declared on each P object
-  // _auth and _cache are handled before _return is used to wrap, because they only operate on the function defined by the URL route
-  // whereas any other functon called later also gets wrapped and handled here
-  _return = (f, n) => {
-    var _wrapped, fs, uf, uk, wb;
-    try {
-      fs = P.dot(this.S, n);
-      for (uf in fs) {
-        if (uf.startsWith('_')) { // try to find anything in settings and treat it as an override
-          f[uf] = fs[uf];
-        }
-      }
-    } catch (error) {}
-    if (Array.isArray(f._auth) && f._auth.length === 0) { // an empty auth array defaults to group names corresponding to the function subroutes
-      f._auth = n.split('.');
-    }
-    if (f._sheet) {
-      if (f._index == null) {
-        f._index = true;
-      }
-    }
-    if (n.startsWith('auth')) {
-      if (f._cache == null) {
-        f._cache = false;
-      }
-    }
-    if (f._index && f._kv !== false) {
-      if (f._schedule == null) {
-        f._schedule = (f._sheet ? '0001' : true); // reload sheets at 0600 every day by default?
-      }
-    }
-    if (typeof f === 'function' && (n.indexOf('.') === -1 || n.split('.').pop().indexOf('_') === 0)) {
-      return f.bind(this); // don't wrap top-level or underscored methods
-    } else if (typeof f === 'object' && !f._index && !f._kv && !f._bg && typeof f[this.request.method] !== 'function') {
-      f._fn = n;
-      return JSON.parse(JSON.stringify(f));
-    } else {
-      _wrapped = async function() {
-        var _async, adone, bup, c, di, dr, exists, isq, len2, len3, len4, lg, m, o, q, qopts, rec, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref20, res, rt, st;
-        st = Date.now(); // again, not necessarily going to be accurate in a workers environment
-        rt = n.replace(/\./g, '_');
-        lg = {
-          fn: n,
-          key: rt
-        };
-        if (f._async && this.params.async && !arguments.length && this.fn === n) {
-          // check for an _async param request and look to see if it is in the async temp store (if it's finished)
-          if (adone = (await this.kv('async/' + this.params.async, ''))) {
-            if (typeof adone === 'string' && adone.indexOf('/') !== -1 && adone.split('/').length === 2) {
-              if (f._kv) { // retrieve the full result from kv or index (the async just stored the identifier for it)
-                res = (await this.kv(adone));
-              } else if (f._index) {
-                res = (await this.index(adone));
-              }
-            } else {
-              try {
-                res = typeof adone === 'string' ? JSON.parse(adone) : adone;
-              } catch (error) {
-                res = adone;
-              }
-            }
-          } else {
-            res = {
-              _async: this.params.async // user should keep waiting
-            };
-          }
-        } else if (f._index || f._kv) {
-          if (arguments.length === 1) {
-            if (f._index && (await this.index._q(arguments[0]))) {
-              lg.qry = arguments[0];
-            } else if (typeof arguments[0] === 'string') {
-              if (arguments[0].length) {
-                //lg.key = rt + '/' + arguments[0].replace(/\//g, '_').replace rt + '_', ''
-                lg.key = arguments[0];
-              } else {
-                rec = '';
-              }
-            } else if (typeof arguments[0] === 'object') {
-              rec = arguments[0];
-              lg.key = f._key ? rec[f._key] : rec._id ? rec._id : rt;
-            }
-          } else if (arguments.length === 2) {
-            if (f._index && (arguments[0] != null) && (isq = (await this.index._q(arguments[0])))) {
-              lg.qry = arguments[0];
-              qopts = arguments[1];
-            } else if (f._index && typeof arguments[0] === 'string' && arguments[0].indexOf('/') === -1 && (isq = (await this.index._q(arguments[1])))) {
-              lg.key = arguments[0];
-              lg.qry = arguments[1];
-            } else if (typeof arguments[0] === 'string') {
-              lg.key = arguments[0];
-              rec = arguments[1];
-              if (lg.key.indexOf('/') === -1) {
-                lg.key = f._key && rec[f._key] ? rec[f._key] : rec._id ? rec._id : rt;
-              }
-            }
-          } else if (this.fn === n) { // try from params and parts - it's only a rec if the parts indicate an ID as well as route
-            if (this.request.method === 'PUT' || (this.request.method === 'POST' && !(isq = (await this.index._q(this.params))))) {
-              rec = this.body;
-            } else if (this.request.method === 'DELETE') {
-              rec = '';
-            } else if (isq = (await this.index._q(this.params))) {
-              lg.qry = this.params;
-            } else if (this.parts.indexOf('create') === this.parts.length - 1 || this.parts.indexOf('save') === this.parts.length - 1) {
-              rec = this.copy(this.params);
-              ref10 = this.parts;
-              for (m = 0, len2 = ref10.length; m < len2; m++) {
-                c = ref10[m];
-                delete rec[c];
-              }
-              if (JSON.stringify(rec) === '{}') {
-                rec = void 0;
-              }
-            }
-            lg.key = this.route;
-          }
-        }
-        if (f._sheet && this.parts.indexOf('sheet') === this.parts.length - 1) {
-          // serve the sheet url. TODO could make this a redirect too - als make it handle sheet and sheet ID in cases where both are provided
-          res = {
-            status: 302
-          };
-          if (this.format === 'json') {
-            res.body = 'https://spreadsheets.google.com/feeds/list/' + f._sheet + '/' + 'default' + '/public/values?alt=json';
-          } else {
-            res.body = 'https://docs.google.com/spreadsheets/d/' + f._sheet;
-          }
-          res.headers = {
-            Location: res.body
-          };
-        }
-        if (lg.key) {
-          lg.key = rt + '/' + lg.key.replace(/\//g, '_').replace(rt, '').replace(/^_/, '');
-        }
-        if ((res == null) && (f._index || f._kv) && (!this.refresh || (f._sheet && this.fn !== n && !this.scheduled) || (this.fn === n && rec))) { // and not rec? and not fn.qry))
-          if (f._kv && lg.key.indexOf('/') !== -1 && !lg.qry) { // check kv first if there is an ID present
-            res = (await this.kv(lg.key, rec));
-            if ((res != null) && (rec == null)) {
-              lg.cached = 'kv';
-            }
-          }
-          if ((res == null) && f._index && ((rec != null) || f._search !== false)) { // otherwise try the index
-            // TODO if lg.qry is a string like a title, with no other search qualifiers in it, and f._search is a string, treat f._search as the key name to search in
-            // BUT if there are no spaces in lg.qry, it's probably supposed to be part of the key - that should be handled above anyway
-            if (rec != null) {
-              if (typeof rec === 'object' && !Array.isArray(rec) && !rec._id && ((ref11 = JSON.stringify(rec)) !== '{}' && ref11 !== '[]')) {
-                rec._id = this.uid();
-              }
-              res = (await this.index(lg.key, rec));
-            } else {
-              if (!lg.key.includes('/')) {
-                qopts = (ref12 = (ref13 = (ref14 = f['_' + this.format]) != null ? ref14._qopts : void 0) != null ? ref13 : (ref15 = f._json) != null ? ref15._qopts : void 0) != null ? ref12 : f._qopts;
-                if ((lg.qry == null) && (qopts != null)) {
-                  lg.qry = '*';
-                }
-              }
-              res = (await this.index(lg.key, (lg.qry ? (await this.index.translate(lg.qry, qopts)) : void 0)));
-            }
-            if (this.fn !== n && typeof lg.qry === 'string' && lg.qry.indexOf(' ') === -1 && !rec && (res != null ? (ref16 = res.hits) != null ? ref16.total : void 0 : void 0) === 1 && lg.qry.indexOf(res.hits.hits[0]._id) !== -1) {
-              try {
-                res = res.hits.hits[0]._source;
-              } catch (error) {}
-            }
-            if ((res != null) && (rec == null)) {
-              lg.cached = 'index';
-            }
-          }
-        }
-        if (lg.cached && this.fn.startsWith(n)) { // record whether or not the main function result was cached in index or kv
-          this.cached = lg.cached;
-        }
-        if ((res == null) && (f._bg || f._sheet) && typeof this.S.bg === 'string' && this.S.bg.indexOf('http') === 0) {
-          // if nothing yet and requires bg or sheet, pass to bg if available and not yet there
-          // TODO would it be better to just throw error here and divert the entire request to backend?
-          bup = {
-            headers: {},
-            body: rec != null ? rec : (arguments.length ? arguments[0] : this.params)
-          };
-          bup.headers['x-' + this.S.name + '-async'] = this.rid;
-          try {
-            // TODO could @_timeout this and if it runs out, throw new Error() to go to bg machine
-            // TODO this replace of _ with / affects function names with underscores in them - if there are any, need a neater way to handle switching back to url form
-            res = (await this.fetch(this.S.bg + '/' + lg.key.replace(/_/g, '/') + (this.refresh ? '?refresh=true' : ''), bup)); // if this takes too long the whole route function will timeout and cascade to bg
-            lg.bg = true;
-          } catch (error) {}
-        }
-        // if it's an index function with a sheet setting, or a sheet param has been provided, what to do by default?
-        if ((res == null) && f._sheet && (this.refresh || !(exists = (await this.index(rt))))) { // this will happen on background where possible, because above will have routed to bg if it was available
-          res = (await this.src.google.sheets(f._sheet));
-          if (typeof f === 'function') { // process the sheet with the parent if it is a function
-            res = (await f.apply(this, [res]));
-          }
-          if (Array.isArray(res) && res.length) {
-            await this.index(rt, '');
-          }
-          this.waitUntil(_save(rt, this.copy(res), f));
-          res = res.length;
-        }
-        if (res == null) {
-          if (typeof ((ref17 = f[this.request.method]) != null ? ref17 : f) === 'function') { // it could also be an index or kv config object with no default function
-            if (f._async) {
-              lg.async = true;
-              res = {
-                _async: this.rid
-              };
-              _async = async(rt, f) => {
-                var ares, ref18;
-                if (ares = (await ((ref18 = f[this.request.method]) != null ? ref18 : f).apply(this, arguments))) {
-                  return _save(rt, this.copy(ares), f);
-                }
-              };
-              this.waitUntil(_async(rt, f));
-            } else {
-              res = (await ((ref18 = f[this.request.method]) != null ? ref18 : f).apply(this, arguments));
-              if ((res != null) && (f._kv || f._index)) {
-                this.waitUntil(_save(rt, this.copy(res), f));
-              }
-            }
-          } else if (f._index && !lg.qry && !rec && rt.indexOf('/') === -1 && !(exists = (await this.index(rt)))) { // create the index
-            res = (await this.index(rt, (typeof f._index !== 'object' ? {} : {
-              settings: f._index.settings,
-              mappings: f._index.mappings,
-              aliases: f._index.aliases
-            })));
-          }
-        }
-        if (f._diff && this.request.method === 'GET' && (res != null) && !lg.cached && !lg.async) {
-          try {
-            lg.args = JSON.stringify(arguments);
-            if (Array.isArray(f._diff) && typeof f._diff[0] === 'string') {
-              if (f._diff[0].startsWith('-')) { // it's a list of keys to ignore
-                dr = this.copy(res);
-                ref19 = f._diff;
-                // it's a list of keys to include
-                for (o = 0, len3 = ref19.length; o < len3; o++) {
-                  d = ref19[o];
-                  delete dr[d.replace('-', '')];
-                }
-              } else {
-                dr = {};
-                ref20 = f._diff;
-                for (q = 0, len4 = ref20.length; q < len4; q++) {
-                  di = ref20[q];
-                  dr[di] = res[di];
-                }
-              }
-              lg.res = JSON.stringify(dr);
-            } else {
-              lg.res = JSON.stringify(res); // what if this is huge? just checksum it?
-            }
-          } catch (error) {}
-        }
-        if (f._history && (f._index || f._kv) && (rec != null) && !Array.isArray(rec)) {
-          try {
-            lg.rec = JSON.stringify(rec); // record the incoming rec to record a history of changes to the record
-          } catch (error) {}
-        }
-        if (lg.qry) {
-          lg.qry = JSON.stringify(lg.qry);
-        }
-        try {
-          lg.took = Date.now() - st;
-        } catch (error) {}
-        this.log(lg);
-        return res;
-      };
-      wb = _wrapped.bind(this);
-      for (uk in f) {
-        if (uk.startsWith('_')) {
-          if (wb._fn == null) {
-            wb._fn = n; // set the function name if there are other underscored wraper settings to work with
-          }
-          wb[uk] = f[uk];
-        }
-      }
-      return wb;
-    }
-  };
   // TODO add a way to identify and iterate multiple functions either parallel or serial, adding to results
   // e.g. split url at // for multi functions. Params parallel gives on obj of named results
   // with merge for one result overwriting as they're received, or if only merge then merge in order
@@ -680,13 +400,8 @@ P = async function(scheduled) {
   fn = void 0; // the actual function to run, once it's found (not just the name of it, which is put in @fn)
   prs = [...this.parts];
   pk = void 0;
-  _lp = (p, a, n) => {
-    var nd, ref10, results;
-    // TODO consider if it would be useful to have the construct script build a default of this
-    // NOTE that may reduce the configurability of it per call, or at least may require some additional config at call time anyway, 
-    // which may limit the value of having it pre-configured in the first place
-    //if p._index # add default additional index functions
-    //  p[ik] ?= P.index[ik] for ik of P.index #['keys', 'terms', 'suggest', 'count', 'min', 'max', 'range']
+  _lp = (p, a, n, hides, auths, wraps, caches) => {
+    var base10, base11, base12, base13, base3, base4, base5, base6, base7, base8, base9, fs, ik, len3, nd, o, ref11, ref12, results, sk, uk;
     if (pk && this.fn.indexOf(n) === 0) {
       while (prs.length && (p[prs[0]] == null)) {
         this.params[pk] = (this.params[pk] ? this.params[pk] + '/' : '') + prs.shift();
@@ -694,19 +409,75 @@ P = async function(scheduled) {
     }
     results = [];
     for (k in p) {
-      if ((ref10 = typeof p[k]) !== 'function' && ref10 !== 'object') {
-        try {
-          results.push(a[k] = JSON.parse(JSON.stringify(p[k])));
-        } catch (error) {
-          results.push(a[k] = p[k]);
-        }
-      } else {
+      if ((ref11 = typeof p[k]) !== 'function' && ref11 !== 'object') {
+        results.push(a[k] = p[k]);
+      } else if (p[k] != null) {
         nd = n + (n ? '.' : '') + k;
-        a[k] = _return(p[k], nd);
+        if (typeof p[k] === 'object' && !p[k]._index && !p[k]._indexed && !p[k]._kv && !p[k]._bg) { // index, kv, or bg could be objects that need wrapped
+          a[k] = JSON.parse(JSON.stringify(p[k]));
+        } else {
+          if ((base3 = p[k])._hide == null) {
+            base3._hide = (base4 = p[k])._hides != null ? base4._hides : base4._hides = hides;
+          }
+          if ((base5 = p[k])._auth == null) {
+            base5._auth = (base6 = p[k])._auths != null ? base6._auths : base6._auths = auths;
+          }
+          if (Array.isArray(p[k]._auths) && p[k]._auths.length === 0) { // an empty auth array defaults to group names corresponding to the function subroutes
+            p[k]._auths = nd.split('.');
+          }
+          if (Array.isArray(p[k]._auth) && p[k]._auth.length === 0) { // an empty auth array defaults to group names corresponding to the function subroutes
+            p[k]._auth = nd.split('.');
+          }
+          if ((base7 = p[k])._wrap == null) {
+            base7._wrap = (base8 = p[k])._wraps != null ? base8._wraps : base8._wraps = wraps;
+          }
+          if ((base9 = p[k])._cache == null) {
+            base9._cache = (base10 = p[k])._caches != null ? base10._caches : base10._caches = caches;
+          }
+          if (nd.startsWith('auth')) {
+            if ((base11 = p[k])._cache == null) {
+              base11._cache = false;
+            }
+          }
+          if (p[k]._sheet) {
+            if ((base12 = p[k])._index == null) {
+              base12._index = true;
+            }
+          }
+          if (p[k]._index) { // add index functions to index endpoints
+            ref12 = ['keys', 'terms', 'suggest', 'count', 'min', 'max', 'range', 'mapping', 'history', '_for'];
+            //, '_each', '_bulk', '_refresh'] # of P.index
+            for (o = 0, len3 = ref12.length; o < len3; o++) {
+              ik = ref12[o];
+              if ((base13 = p[k])[ik] == null) {
+                base13[ik] = {
+                  _indexed: ik,
+                  _auth: (indexOf.call([], ik) >= 0 ? 'system' : p[k]._auth)
+                };
+              }
+            }
+          }
+          for (sk in fs = P.dot(this.S, n)) {
+            if (sk.startsWith('_')) { // try to find anything in settings and treat it as an override
+              p[k][sk] = fs[sk];
+            }
+          }
+          if (typeof p[k] === 'function' && !p[k]._index && !p[k]._indexed && !p[k]._kv && !p[k]._bg && (nd.indexOf('.') === -1 || p[k]._wrap === false || nd.split('.').pop().indexOf('_') === 0)) {
+            a[k] = p[k].bind(this);
+          } else {
+            a[k] = P._wrapper(p[k], nd).bind(this);
+          }
+          a[k]._fn = nd;
+          for (uk in p[k]) {
+            if (uk.startsWith('_')) {
+              a[k][uk] = p[k][uk];
+            }
+          }
+        }
         if (this.scheduled && a[k]._schedule) {
           schedule.push(a[k]);
         }
-        if (!k.startsWith('_')) { // underscored methods cannot be accessed from URLs, and are never wrapped
+        if (!k.startsWith('_')) { // underscored methods cannot be accessed from URLs
           if (prs.length && prs[0] === k && this.fn.indexOf(n) === 0) {
             pk = prs.shift();
             this.fn += (this.fn === '' ? '' : '.') + pk;
@@ -714,15 +485,17 @@ P = async function(scheduled) {
               fn = a[k];
             }
           }
-          if (typeof a[k] === 'function' && !a[k]._hidden && !nd.startsWith('scripts') && nd.indexOf('.scripts') === -1 && !nd.startsWith('kv') && !nd.startsWith('index') && ((!nd.startsWith('svc') && !nd.startsWith('src')) || nd.split('.').length < 3)) {
+          if (typeof a[k] === 'function' && !a[k]._hide && nd.replace('svc.', '').replace('src.', '').split('.').length === 1) { //and not nd.startsWith('scripts') and nd.indexOf('.scripts') is -1 and ((not nd.startsWith('svc') and not nd.startsWith('src')) or nd.split('.').length < 3)
             this.routes.push(nd.replace(/\./g, '/')); // TODO this could check the auth method, and only show things the current user can access, and also search for description / comment? NOTE this is just about visibility, they're still accessible if given right auth (if any)
           }
         }
         if (!Array.isArray(p[k]) && (!k.startsWith('_') || typeof a[k] === 'function')) {
-          results.push(_lp(p[k], a[k], nd));
+          results.push(_lp(p[k], a[k], nd, hides != null ? hides : p[k]._hides, auths != null ? auths : p[k]._auths, wraps != null ? wraps : p[k]._wraps, caches != null ? caches : p[k]._caches));
         } else {
           results.push(void 0);
         }
+      } else {
+        results.push(void 0);
       }
     }
     return results;
@@ -733,166 +506,100 @@ P = async function(scheduled) {
   }
   // TODO should url params get some auto-processing like query params do above? Could be numbers, lists, bools...
   if (this.scheduled) {
-    res = {};
-    klogs = []; // move any logs first so that schedule can be aware of any recently run scheduled events
-    await this.kv._each('log', async function(lk) {
-      var l;
-      if (lk.indexOf('/') !== -1 && lk !== 'log') {
-        l = (await this.kv(lk, ''));
-        if (l._id == null) {
-          l._id = lk.split('/').pop();
-        }
-        return klogs.push(l);
+    for (o = 0, len3 = schedule.length; o < len3; o++) {
+      fs = schedule[o];
+      if (this.S.dev) {
+        console.log('scheduled', fs._fn);
       }
-    });
-    res.log = klogs.length;
-    if (klogs.length) {
-      this.waitUntil(this.index('log', klogs));
-    }
-    if (this.refresh === true) { // track if the main request included a refresh from the start, to force all scheduled events to happen regardless of timing (mainly for dev/test)
-      requested_refresh = true;
-    }
-    for (m = 0, len2 = schedule.length; m < len2; m++) {
-      fs = schedule[m];
-      if (fs._fn) { //and fs._fn in ['svc.oaworks.permissions.journals']
-        if (this.S.dev) { //and @S.bg is true
-          console.log('scheduled', fs._fn);
-        }
+      try {
         if (typeof fs._schedule === 'function') {
-          res[fs._fn] = true;
-          this.waitUntil(fs._schedule());
+          this.waitUntil(fs._schedule.apply(this)); // TODO add a timing method to this to only run at certain times, waiting until a kv record or similar indicating last run is not available
         } else {
-          fun = fs._fn.replace(/\./g, '_');
-          recs = [];
-          hhmm = true;
-          if (typeof fs._schedule === 'number' || (typeof fs._schedule === 'string' && fs._schedule.length === 4 && fs._schedule.replace(/[0-9]/g, '').length === 0)) {
-            // TODO consider changing this to accept cron style strings of space-separated numbers. For now can be time like "0900" or number of minutes like 240
-            if (requested_refresh) {
-              last = false;
-            } else {
-              lasts = (await this.index('log', 'logs.fn:"' + fs._fn + '" AND scheduled:true', true));
-              last = ((lasts != null ? (ref10 = lasts.hits) != null ? ref10.hits : void 0 : void 0) != null) && lasts.hits.hits.length ? lasts.hits.hits[0]._source : false;
-            }
-            if (typeof last === 'object' && ((typeof fs._schedule === 'number' && last.started && (last.started + (fs._schedule * 60000)) > this.started) || (last.createdAt && (last.createdAt.split('T')[0].split('-').pop().replace(/^0/, '') === (new Date()).getDate().toString() || this.started < (new Date()).setHours(parseInt(fs._schedule.substring(0, 2)), parseInt(fs._schedule.substring(2)), 0, 0))))) {
-              hhmm = false;
-              res[fs._fn] = false;
-            } else {
-              hhmm = fs._schedule;
-            }
-          }
-          if (hhmm !== false) {
-            res[fs._fn] = true;
-            if (fs._sheet) {
-              if (typeof fs === 'function') {
-                if (this.refresh == null) {
-                  this.refresh = true;
-                }
-                await fs(); // await this one so that the kv import runs after
-// will it ever not be a (wrapped) function?
-              } else {
-                recs = (await this.src.google.sheets(fs._sheet));
-                if (Array.isArray(recs) && recs.length) {
-                  await this.index(fun, '');
-                }
-              }
-            } else if (typeof fs === 'function' && hhmm !== true) {
-              this.waitUntil(fs());
-            }
-          }
-          await this.kv._each(fun, async function(kn) {
-            var rec;
-            if (kn.indexOf('/') !== -1 && kn !== fun) {
-              // this could also be used as a way to replicate changes back into a sheet after reload, if there was a unique identifier for records
-              rec = (await this.kv(kn, fs._kv ? void 0 : '')); // if kv not explicitly set, delete when moving to index
-              if (rec._id == null) {
-                rec._id = kn.split('/').pop();
-              }
-              return recs.push(rec);
-            }
-          });
-          if (typeof recs === 'object' && JSON.stringify(recs) !== '{}' && !Array.isArray(recs)) {
-            recs = [recs];
-          }
-          if (Array.isArray(recs) && recs.length) {
-            res[fs._fn] = recs.length;
-            this.waitUntil(this.index(fun, recs));
-          }
+          this.waitUntil(fs.apply(this));
         }
-      }
+      } catch (error) {}
     }
+  } else if (((ref11 = typeof fn) === 'object' || ref11 === 'function') && fn._bg && typeof this.S.bg === 'string' && this.S.bg.startsWith('http')) {
+    throw new Error();
   } else if (typeof fn === 'function') {
-    if (this.S.name && this.S.system && this.headers['x-' + this.S.name + '-system'] === this.S.system) {
-      this.system = true;
-      authd = true; // would this be sufficient or could original user be required too
+    authd = this.fn === 'auth' ? void 0 : (await this.auth());
+    if (typeof authd === 'object' && authd._id && authd.email) {
+      this.user = authd;
+    }
+    if (typeof fn._auth === 'function') {
+      authd = (await fn._auth());
+    } else if (fn._auth === true && (this.user != null)) { // just need a logged in user if true
+      authd = true;
+    } else if (fn._auth) { // which should be a string... comma-separated, or a list
+      authd = (await this.auth.role(fn._auth)); // _auth should be true or name of required group.role
     } else {
-      authd = (await this.auth());
-      if (typeof authd === 'object' && authd._id && authd.email) {
-        this.user = authd;
-      }
-      if (typeof fn._auth === 'function') {
-        authd = (await fn._auth());
-      } else if (fn._auth === true && (this.user != null)) { // just need a logged in user if true
-        authd = true;
-      } else if (fn._auth) { // which should be a string... comma-separated, or a list
-        authd = (await this.auth.role(fn._auth)); // _auth should be true or name of required group.role
-      } else {
-        authd = true;
-      }
+      authd = true;
     }
     // TODO check the blacklist
     if (authd) {
-      if (typeof fn._format === 'string' && (ref11 = fn._format, indexOf.call(this.S.formats, ref11) >= 0)) {
+      if (typeof fn._format === 'string' && (ref12 = fn._format, indexOf.call(this.S.formats, ref12) >= 0)) {
         if (this.format == null) {
           this.format = fn._format;
         }
       }
-      if ((ref12 = this.request.method) === 'HEAD' || ref12 === 'OPTIONS') {
+      if ((ref13 = this.request.method) === 'HEAD' || ref13 === 'OPTIONS') {
         res = '';
-      } else if (fn._cache !== false && !this.refresh && (this.request.method === 'GET' || (this.request.method === 'POST' && this.index._q(this.params))) && (res = (await this._cache()))) { // this will return empty if nothing relevant was ever put in there anyway
+      } else if (fn._cache !== false && !this.refresh && (this.request.method === 'GET' || (this.request.method === 'POST' && (await this.index.translate(this.params)))) && (res = (await this.cache()))) { // this will return empty if nothing relevant was ever put in there anyway
         // how about caching of responses to logged in users, by param or header?
         this.cached = 'cache';
         res = new Response(res.body, res); // no need to catch this for backend execution because cache function will never find anything on backend anyway
-        res.headers.append('x-' + this.S.name + '-cached', 'cache'); // this would leave any prior "index" value, for example. Or use .set to overwrite
-        res.headers.delete('x-' + this.S.name + '-took');
+        res.headers.append('x-' + this.S.name.toLowerCase() + '-cached', 'cache'); // this would leave any prior "index" value, for example. Or use .set to overwrite
+        res.headers.delete('x-' + this.S.name.toLowerCase() + '-took');
       } else {
         res = (await fn());
         this.completed = true;
       }
     } else {
-      // Random delay for https://en.wikipedia.org/wiki/Timing_attack https://www.owasp.org/index.php/Blocking_Brute_Force_Attacks#Finding_Other_Countermeasures
+      // Random delay for https://en.wikipedia.org/wiki/Timing_attack
       this.unauthorised = true;
       await this.sleep(200 * (1 + Math.random()));
       res = {
         status: 401 // not authorised
       };
-      if (this.fn === 'svc.rscvd.supply') { // quick workaround for demo
-        this.format = 'html';
-      }
       if (this.format === 'html') {
-        res.body = (await this.auth());
+        res.body = (await this.auth(void 0, (this.fn.startsWith('svc.') ? this.fn.replace('svc.', '').split('.')[0].toUpperCase() : '')));
       }
     }
   }
   if (((res == null) || (typeof res === 'object' && res.status === 404)) && this.url.replace('.ico', '').replace('.gif', '').replace('.png', '').endsWith('favicon')) {
     res = '';
   }
-  resp = typeof res === 'object' && !Array.isArray(res) && typeof ((ref13 = res.headers) != null ? ref13.append : void 0) === 'function' ? res : (await this._response(res, fn));
-  if (this.scheduled || (this.parts.length && ((ref14 = this.parts[0]) !== 'log' && ref14 !== 'status') && ((ref15 = this.request.method) !== 'HEAD' && ref15 !== 'OPTIONS') && (res != null) && res !== '')) {
-    if (this.completed && fn._cache !== false && resp.status === 200 && (typeof res !== 'object' || Array.isArray(res) || ((ref16 = res.hits) != null ? ref16.total : void 0) !== 0) && (!fn._sheet || typeof res !== 'number' || !this.refresh)) {
-      this._cache(void 0, resp, fn._cache); // fn._cache can be a number of seconds for cache to live, so pass it to cache to use if suitable
+  resp = typeof res === 'object' && !Array.isArray(res) && typeof ((ref14 = res.headers) != null ? ref14.append : void 0) === 'function' ? res : (await this._response(res, fn));
+  // what about if scheduled? log?
+  if (this.parts.length && ((ref15 = this.parts[0]) !== 'log' && ref15 !== 'status') && (!this.system || ((ref16 = this.parts[0]) !== 'kv' && ref16 !== 'index')) && ((ref17 = this.request.method) !== 'HEAD' && ref17 !== 'OPTIONS') && (res != null) && res !== '') {
+    if (this.completed && fn._cache !== false && resp.status === 200 && (typeof res !== 'object' || Array.isArray(res) || ((ref18 = res.hits) != null ? ref18.total : void 0) !== 0) && (typeof res !== 'number' || !this.refresh)) {
+      si = fn._cache; // fn._cache can be a number of seconds for cache to live, so pass it to cache to use if suitable
+      if ((si == null) && typeof res === 'object' && !Array.isArray(res) && (((ref19 = res.hits) != null ? ref19.hits : void 0) != null)) { // if this is a search result, cache only 1 minute max if nothing else was set for it
+        si = 60;
+      }
+      this.cache(void 0, resp, si);
+    } else if (this.refresh) {
+      this.cache(void 0, '');
     }
-    this.log();
+    if (((ref20 = typeof fn) !== 'object' && ref20 !== 'function') || fn._log !== false) {
+      this.log();
+    }
   }
-  if (!this.completed && !this.cached && !this.unauthorised && !this.scheduled && this.S.pass && typeof this.S.bg === 'string' && ((ref17 = this.request.method) !== 'HEAD' && ref17 !== 'OPTIONS')) {
-    // TODO add a regular schedule to check logs for things that didn't complete, and set them to _bg by default so they don't keep timing out
-    throw new Error();
+  if (!this.completed && !this.cached && !this.unauthorised && !this.scheduled && this.S.pass !== false && typeof this.S.bg === 'string' && ((ref21 = this.request.method) !== 'HEAD' && ref21 !== 'OPTIONS')) {
+    throw new Error(); // TODO check for functions that often timeout and set them to _bg by default
   } else {
     return resp;
   }
 };
 
-P._response = async function(res, fn) { // this provides a Response object. It's outside the main P.call so that it can be used elsewhere if convenient
-  var base, base1, base2, h, keys, ref, ref1, ref2, ref3, ref4, ref5, status;
+P.src = {};
+
+P.svc = {};
+
+P.scripts = {};
+
+P._response = async function(res, fn) {
+  var ah, at, base, base1, base2, h, hdr, hh, i, j, keys, len, len1, m, ph, pt, ref, ref1, ref2, ref3, ret, rm, status, tt;
   if ((base = this.S).headers == null) {
     base.headers = {};
   }
@@ -921,10 +628,45 @@ P._response = async function(res, fn) { // this provides a Response object. It's
     if (this.format && ((ref1 = this.format) === 'html' || ref1 === 'csv')) {
       if (typeof res !== 'string') {
         try {
-          res = (await this.convert['json2' + this.format](res, {
-            keys: (ref2 = fn != null ? (ref3 = fn['_' + this.format]) != null ? (ref4 = ref3._qopts) != null ? ref4.include : void 0 : void 0 : void 0) != null ? ref2 : fn != null ? (ref5 = fn._qopts) != null ? ref5.include : void 0 : void 0
-          }));
+          res = (await this.convert['json2' + this.format](res));
         } catch (error) {}
+      }
+      if (typeof res === 'string' && this.format === 'html' && !res.includes('<html') && !this.params.partial) {
+        ret = '<!DOCTYPE html><html dir="ltr" lang="en">\n<head>\n';
+        ret += '<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n';
+        if (res.includes('<title')) {
+          [pt, tt] = res.split('<title');
+          [tt, at] = tt.split('</title>');
+          ret += '<title' + tt + '</title>\n';
+          res = pt + at;
+        } else if (res.includes('id="title"')) {
+          ret += '<title>' + res.split('id="title"')[1].split('>')[1].split('<')[0] + '</title>\n';
+        }
+        ret += '<link href="//fonts.googleapis.com/css?family=Lustria|Noto+Sans|Roboto+Slab|Nixie+One" rel="stylesheet" type="text/css">\n';
+        ret += '<link rel="stylesheet" href="/client/pradm.min.css?v=' + this.S.version + '">\n';
+        ret += '<script type="text/javascript" src="/client/pradm.min.js?v=' + this.S.version + '"></script><script type="text/javascript" src="/client/pradmLogin.min.js?v=' + this.S.version + '"></script>\n';
+        ref2 = ['<meta ', '<link '];
+        for (i = 0, len = ref2.length; i < len; i++) {
+          hdr = ref2[i];
+          if (res.includes(hdr)) {
+            ref3 = res.split(hdr);
+            for (j = 0, len1 = ref3.length; j < len1; j++) {
+              m = ref3[j];
+              rm = hdr + m.split('>')[0];
+              res = res.replace(rm, '');
+              ret += rm + '\n';
+            }
+          }
+        }
+        if (res.includes('<head>')) {
+          [ph, hh] = res.split('<head>');
+          [hh, ah] = hh.split('</head>');
+          ret += hh;
+          res = ph + ah;
+        }
+        ret += '\n</head>\n';
+        ret += !res.includes('<body') ? '\n<body>\n' + res + '\n</body>\n' : res;
+        res = ret + '\n</html>';
       }
       this.S.headers['Content-Type'] = this.format === 'html' ? 'text/html; charset=UTF-8' : 'text/csv; charset=UTF-8';
     }
@@ -943,11 +685,11 @@ P._response = async function(res, fn) { // this provides a Response object. It's
     }
   } catch (error) {}
   try {
-    this.S.headers['x-' + this.S.name + '-took'] = Date.now() - this.started;
+    this.S.headers['x-' + this.S.name.toLowerCase() + '-took'] = Date.now() - this.started;
   } catch (error) {}
   try {
     if (this.cached) {
-      this.S.headers['x-' + this.S.name + '-cached'] = this.cached;
+      this.S.headers['x-' + this.S.name.toLowerCase() + '-cached'] = this.cached;
     }
   } catch (error) {}
   try {
@@ -964,61 +706,59 @@ P._response = async function(res, fn) { // this provides a Response object. It's
   }
 };
 
-P.src = {};
+// curl -X GET "https://api.oa.works/auth" -H "x-id:YOURUSERIDHERE" -H "x-apikey:YOURAPIKEYHERE"
+// curl -X GET "https://api.oa.works/auth?apikey=YOURAPIKEYHERE"
 
-P.svc = {};
-
-P.scripts = {};
-
-// curl -X GET "https://api.lvatn.com/auth" -H "x-id:YOURUSERIDHERE" -H "x-apikey:YOURAPIKEYHERE"
-// curl -X GET "https://api.lvatn.com/auth?apikey=YOURAPIKEYHERE"
-
-// NOTE all emails will be lowercased
-// store user record object in kv as user/:UID (value is stringified json object)
-// and store a map of API keys as well, user/apikey/:KEY (value is user ID) (could have more than one, and have ones that give different permissions)
-// store a login token at auth/token/:TOKEN (value is email) (autoexpire login tokens at 10mins 600s)
+// store user record object in kv as users/:UID (value is stringified json object)
+// and store a map of API keys as well, auth/apikey/:KEY (value is user ID) (could have more than one, and have ones that give different permissions)
+// store a login token at auth/token/:TOKEN (value is email) (autoexpire login tokens at 20mins 1200s)
 // and store a resume token at auth/resume/:UID/:RESUMETOKEN (value is a timestamp) (autoexpire resume tokens at about three months 7890000s, but rotate them on non-cookie use)
-
-// TODO check how system header auth should affect checks on auth and group/role activities further down the stack
-// ideally should be ok to run anything after system hand-off that already got auth'd at top level, but check
+// and store users to the index as well if available
 var indexOf = [].indexOf;
 
 P.auth = async function(key) {
-  var cookie, email, oauth, ref, ref1, ref2, ref3, ref4, ref5, ref6, restok, resume, ret, uid, upd, user;
-  try {
-    if (this.S.name && this.S.system && this.headers['x-' + S.name + '-system'] === this.S.system) {
-      return true;
-    }
-  } catch (error) {}
+  var cookie, email, oauth, ref, ref1, ref2, ref3, ref4, ref5, restok, resume, ret, shn, uid, user;
+  shn = 'x-' + this.S.name.toLowerCase() + '-system';
+  if (this.S.name && this.S.system && this.headers[shn] === this.S.system) {
+    delete this.headers[shn];
+    this.system = true;
+  }
+  if (this.system) {
+    return true;
+  }
   // if params.auth, someone looking up the URL route for this acc. Who would have the right to see that?
   if (typeof key === 'string') {
-    return (await this.kv('user/' + (key.includes('@') ? this.hashhex(key) : key)));
+    return this.users._get(key);
   }
-  if ((this.params.access_token && (oauth = (await this.oauth(this.params.access_token)))) || ((this.params.token || this.params.auth) && (email = (await this.kv('auth/token/' + ((ref = this.params.token) != null ? ref : this.params.auth), ''))))) { // true causes delete after found
-    if (!(user = (await this.kv('user/' + this.hashhex((ref1 = oauth != null ? oauth.email : void 0) != null ? ref1 : email))))) { // get the user record if it already exists
-      user = (await this.auth._insert(oauth != null ? oauth : email)); // create the user record if not existing, as this is the first token login attempt for this email address
+  if ((key == null) && (this.user != null) && this.fn === 'auth') {
+    user = this.user;
+  } else {
+    if ((this.params.access_token && (oauth = (await this.oauth(this.params.access_token)))) || ((this.params.token || this.params.auth) && (email = (await this.kv('auth/token/' + ((ref = this.params.token) != null ? ref : this.params.auth), ''))))) { // true causes delete after found
+      if (!(user = (await this.users._get((ref1 = oauth != null ? oauth.email : void 0) != null ? ref1 : email)))) { // get the user record if it already exists
+        user = (await this.users._create(oauth != null ? oauth : email)); // create the user record if not existing, as this is the first token login attempt for this email address
+      }
     }
-  }
-  if (!user && this.apikey && (uid = (await this.kv('user/apikey/' + this.apikey)))) {
-    user = (await this.kv('user/' + uid)); // no user creation if apikey doesn't match here - only create on login token above 
-  }
-  if (!user && (this.params.resume || this.cookie)) { // accept resume on a header too?
-    if (!(resume = this.params.resume)) { // login by resume token if provided in param or cookie
-      try {
-        cookie = JSON.parse(decodeURIComponent(this.cookie).split(((ref2 = (ref3 = S.auth) != null ? (ref4 = ref3.cookie) != null ? ref4.name : void 0 : void 0) != null ? ref2 : 'pradm') + "=")[1].split(';')[0]);
-        resume = cookie.resume;
-        uid = cookie._id;
-      } catch (error) {}
+    if (!user && this.apikey && (uid = (await this.kv('auth/apikey/' + this.apikey)))) {
+      user = (await this.users._get(uid)); // no user creation if apikey doesn't match here - only create on login token above 
     }
-    if (uid == null) {
-      uid = this.id; // if picked up from incoming params
-    }
-    if (this.params.email && !uid) {
-      uid = this.hashhex(this.params.email); // accept resume with email instead of id?
-    }
-    if (resume && uid && (restok = (await this.kv('auth/resume/' + uid + '/' + resume, (this.params.resume ? '' : void 0))))) { // delete if not a cookie resume
-      user = (await this.kv('user/' + uid));
-      user.resume = resume;
+    if (!user && (this.params.resume || this.cookie)) { // accept resume on a header too?
+      if (!(resume = this.params.resume)) { // login by resume token if provided in param or cookie
+        try {
+          cookie = JSON.parse(decodeURIComponent(this.cookie).split(((ref2 = (ref3 = S.auth) != null ? (ref4 = ref3.cookie) != null ? ref4.name : void 0 : void 0) != null ? ref2 : 'pradm') + "=")[1].split(';')[0]);
+          resume = cookie.resume;
+          uid = cookie._id;
+        } catch (error) {}
+      }
+      if (uid == null) {
+        uid = this.headers['x-id'];
+      }
+      if (this.params.email && !uid) {
+        uid = this.hashhex(this.params.email.trim().toLowerCase()); // accept resume with email instead of id?
+      }
+      if (resume && uid && (restok = (await this.kv('auth/resume/' + uid + '/' + resume)))) {
+        user = (await this.users._get(uid));
+        user.resume = resume;
+      }
     }
   }
   if (typeof user === 'object' && user._id) {
@@ -1027,29 +767,50 @@ P.auth = async function(key) {
     // record the user login timestamp, and if login came from a service the user does not yet have a role in, add the service user role
     // who can add the service param?
     if (this.params.service && (((ref5 = user.roles) != null ? ref5[this.params.service] : void 0) == null)) {
-      upd = {};
-      upd.roles = (ref6 = user.roles) != null ? ref6 : {};
-      upd.roles[this.params.service] = 'user';
-      this.kv('user/' + user._id, upd, user); // record the user login time?
+      if (user.roles == null) {
+        user.roles = {};
+      }
+      user.roles[this.params.service] = 'user';
+      this.users._update(user);
     }
-    if (this.params.resume || this.params.token || this.params.auth) {
-      // if a fresh login or resume token was used explicitly, provide a new resume token
+    if ((user.resume == null) && !this.apikey) {
       user.resume = this.uid();
       this.kv('auth/resume/' + user._id + '/' + user.resume, Date.now(), 7890000); // resume token lasts three months (could make six at 15768000)
     }
+    if ((await this.auth.role('root', this.user))) {
+      this.log({
+        msg: 'root login' //, notify: true
+      });
+    }
   }
   
-  //if @auth.role 'root', @user
-  //  lg = msg: 'Root login from ' + @request.headers['x-forwarded-for'] + ' ' + @request.headers['cf-connecting-ip'] + ' ' + @request.headers['x-real-ip']
-  //  lg.notify = subject: lg.msg
-  //  @log lg
-
   // if this is called with no variables, and no defaults, provide a count of users?
   // but then if logged in and on this route, what does it provide? the user account?
-  if ((key == null) && (user == null) && this.format === 'html') {
-    ret = '<input id="pradmEmail" class="pradmEmail" style="min-width:250px;" type="text" name="email" placeholder="Enter your email address to sign in"><input id="pradmToken" class="pradmToken" style="display:none;min-width:250px;" type="text" name="token" placeholder="Enter the login token once you receive it">';
-    ret += '<script type="text/javascript" src="/client/pradm.js"></script><script type="text/javascript" src="/client/pradmLogin.js"></script>';
-    ret += '<script>pradm.next = true;</script>';
+  if ((key == null) && this.fn === 'auth' && !this.format && this.headers['user-agent'] && this.headers['user-agent'].toLowerCase().includes('mozilla') && this.headers.accept && this.headers.accept.toLowerCase().includes('html')) {
+    this.format = 'html';
+  }
+  if ((key == null) && this.format === 'html') {
+    ret = this.fn === 'auth' ? '<body class="black">' : '<body>';
+    ret += '<div class="flex" style="margin-top: 10%;"><div class="c6 off3"><h1 id="title" class="centre statement" style="font-size:40px;">' + (this.base ? this.base.replace('bg.', '(bg) ') : this.S.name) + '</h1></div></div>';
+    ret += '<div class="flex" style="margin-top: 5%;"><div class="c6 off3">';
+    if (user == null) {
+      ret += '<input autofocus id="PEmail" class="PEmail big shadow" type="text" name="email" placeholder="email">';
+      ret += '<input id="PToken" class="PToken big shadow" style="display:none;" type="text" name="token" placeholder="token (check your email)">';
+      ret += '<p class="PWelcome" style="display:none;">Welcome back</p>';
+      ret += '<p class="PLogout" style="display:none;"><a id="PLogout" class="button action" href="#">logout</a></p>';
+    } else {
+      ret += '<p>' + user.email + '</p><p><a id="PLogout" class="button action" href="#">logout</a></p>';
+    }
+    ret += '<div class="PLoading" style="display:none;"><div class="loading big"></div></div>';
+    ret += '</div></div></body>';
+    ret += '<script>';
+    if (this.fn === 'auth') {
+      ret += 'P.afterLogout = function() { location.reload(); }; ';
+    }
+    if (this.fn !== 'auth' || (user != null)) {
+      ret += 'P.loginNext = true;';
+    }
+    ret += '</script>';
     return ret;
   } else {
     return user;
@@ -1067,7 +828,7 @@ P.auth.token = function(email, from, subject, text, html, template, url) {
       from = (ref = (ref1 = S.auth) != null ? ref1.from : void 0) != null ? ref : 'login@example.com';
     }
     if (subject == null) {
-      subject = (ref2 = (ref3 = S.auth) != null ? ref3.subject : void 0) != null ? ref2 : 'Please complete your login';
+      subject = (ref2 = (ref3 = S.auth) != null ? ref3.subject : void 0) != null ? ref2 : 'Complete your login to ' + (this.base ? this.base.replace('bg.', '(bg) ') : this.S.name);
     }
     token = this.uid(8);
     if (this.S.dev && this.S.bg === true) {
@@ -1081,12 +842,12 @@ P.auth.token = function(email, from, subject, text, html, template, url) {
     } else {
       url = this.base + '/' + this.route.replace('/token', '/' + token);
     }
-    this.kv('auth/token/' + token, email, 600); // create a token that expires in 10 minutes
+    this.kv('auth/token/' + token, email, 1200); // create a token that expires in 20 minutes
     this.waitUntil(this.mail({
       from: from,
       to: email,
       subject: subject,
-      text: text != null ? text : 'Your login code is:\r\n\r\n' + token + '\r\n\r\nor use this link:\r\n\r\n' + url + '\r\n\r\nnote: this single-use code is only valid for 10 minutes.',
+      text: text != null ? text : 'Your login code is:\r\n\r\n' + token + '\r\n\r\nor use this link:\r\n\r\n' + url + '\r\n\r\nnote: this single-use code is only valid for 20 minutes.',
       html: html != null ? html : '<html><body><p>Your login code is:</p><p><b>' + token + '</b></p><p>or click on this link</p><p><a href=\"' + url + '\">' + url + '</a></p><p>note: this single-use code is only valid for 10 minutes.</p></body></html>',
       //template: template
       params: {
@@ -1103,54 +864,41 @@ P.auth.token = function(email, from, subject, text, html, template, url) {
 };
 
 
-// auth/role/:grl/:uid
-// any logged in user can find out if any other user is in a role
-P.auth.role = async function(grl, uid) {
-  var cascade, g, group, i, j, len, len1, ref, ref1, ref2, ref3, ri, rl, role, user;
+// auth/:uid/role/:grl
+// check if a user has a role or one of a list of roles
+P.auth.role = async function(grl, user) {
+  var cascade, g, group, i, j, len, len1, ref, ref1, ref2, ref3, ri, rl, role;
   if (grl == null) {
     grl = this.params.role;
   }
-  if ((grl == null) && typeof ((ref = this.params) != null ? ref.auth : void 0) === 'string') {
-    grl = this.params.auth;
+  user = typeof user === 'object' ? user : user || this.params.auth ? (await this.users._get(user != null ? user : this.params.auth)) : this.user;
+  if (grl === 'system' && this.system) {
+    return 'system';
   }
-  if (typeof grl === 'string' && grl.indexOf('/') !== -1) {
-    if (uid == null) {
-      uid = grl.split('/').pop();
-      grl = grl.replace('/' + uid, '');
-    }
+  if ((user != null ? user.email : void 0) && (ref = user.email, indexOf.call((typeof this.S.root === 'string' ? [this.S.root] : Array.isArray(this.S.root) ? this.S.root : []), ref) >= 0)) {
+    return 'root';
   }
-  user = typeof uid === 'object' ? uid : typeof uid === 'string' ? (await this.kv(uid.includes('@') ? this.hashhex(uid) : uid)) : this.user;
-  if ((user != null ? user.roles : void 0) == null) {
-    return false;
-  }
-  if (typeof grl === 'string') {
-    grl = [grl];
-  }
-  for (i = 0, len = grl.length; i < len; i++) {
-    g = grl[i];
-    g = g.replace('/', '.');
-    [group, role] = g.split('.');
-    if (role == null) {
-      role = group;
-      group = '__global__';
-    }
-    if (group === user.id) { // user is owner on their own group
-      return 'owner';
-    }
-    if (indexOf.call((ref1 = user.roles.__global__) != null ? ref1 : [], 'root') >= 0) {
-      return 'root';
-    }
-    if (indexOf.call((ref2 = user.roles[group]) != null ? ref2 : [], role) >= 0) {
-      return role;
-    }
-    if (user.roles[group] != null) {
-      cascade = ['root', 'service', 'owner', 'super', 'admin', 'auth', 'bulk', 'delete', 'remove', 'create', 'insert', 'publish', 'put', 'draft', 'post', 'edit', 'update', 'user', 'get', 'read', 'info', 'public'];
-      if (0 < (ri = cascade.indexOf(role))) {
-        ref3 = cascade.splice(0, ri);
-        for (j = 0, len1 = ref3.length; j < len1; j++) {
-          rl = ref3[j];
-          if (indexOf.call(user.roles[group], rl) >= 0) {
-            return rl;
+  if ((user != null ? user.roles : void 0) != null) {
+    ref1 = (typeof grl === 'string' ? grl.split(',') : grl);
+    for (i = 0, len = ref1.length; i < len; i++) {
+      g = ref1[i];
+      [group, role] = g.replace('/', '.').split('.');
+      if (group === user._id) { // user is owner on their own group
+        return 'owner';
+      }
+      if (role) {
+        if (indexOf.call((ref2 = user.roles[group]) != null ? ref2 : [], role) >= 0) {
+          return role;
+        } else if (user.roles[group] != null) {
+          cascade = ['service', 'owner', 'super', 'admin', 'auth', 'bulk', 'delete', 'remove', 'create', 'insert', 'publish', 'put', 'draft', 'post', 'edit', 'update', 'user', 'get', 'read', 'info', 'public'];
+          if (-1 < (ri = cascade.indexOf(role))) {
+            ref3 = cascade.splice(0, ri);
+            for (j = 0, len1 = ref3.length; j < len1; j++) {
+              rl = ref3[j];
+              if (indexOf.call(user.roles[group], rl) >= 0) {
+                return rl;
+              }
+            }
           }
         }
       }
@@ -1159,54 +907,85 @@ P.auth.role = async function(grl, uid) {
   return false;
 };
 
-P.auth.roles = async function(user, grl, keep) {
-  var base, group, ref, ref1, ref2, role;
-  if (user == null) {
-    user = (ref = this.user) != null ? ref : this.params.roles;
+// /auth/:uid/roles/:grl
+// add a user to a role, or remove, or deny
+// deny meaning automatically not allowed any other role on the group
+// whereas otherwise a user (or system on behalf of) should be able to request a role (TODO)
+P.auth.add = async function(grl, user, remove, deny) {
+  var base, group, ref, role;
+  if (grl == null) {
+    grl = this.params.add;
   }
-  if (typeof user === 'string') {
-    user = (await this.kv('user/' + (user.includes('@') ? this.hashhex(user) : user)));
+  [group, role] = grl.replace('/', '.').split('.');
+  user = typeof user === 'object' ? user : user || this.params.auth ? (await this.users._get(user != null ? user : this.params.auth)) : this.user;
+  if (this.user._id !== user._id) {
+    if (!(await this.auth.role('system'))) {
+      // TODO what about one logged in user acting on the roles route of another? - which groups could a user add another user to?
+      return false;
+    }
   }
-  // what about one logged in user acting on the roles route of another?
-  [group, role] = grl.split('.');
-  if (role == null) {
-    role = group;
-    group = '__global__';
+  if (remove == null) {
+    remove = (this.request.method === 'DELETE' || this.params._delete === true) && this.fn === 'auth.roles';
   }
-  if ((ref1 = indexOf.call((ref2 = user.roles) != null ? ref2[group] : void 0, role) >= 0) != null ? ref1 : []) {
-    if (keep != null) {
+  if (group === 'root' || role === 'root') { // root only allowed by config. can't be set via API.
+    return false;
+  } else if (deny) {
+    user.roles[group] = ['deny']; // no other roles can be kept
+    this.users._update(user);
+  } else if (!role) {
+    if (user.roles[group] != null) {
+      if (remove != null) {
+        delete user.roles[group];
+        this.users._update(user);
+      }
+    } else {
+      user.roles[group] = ['user'];
+      this.users._update(user);
+    }
+  } else if (((ref = user.roles) != null ? ref[group] : void 0) && indexOf.call(user.roles[group], role) >= 0) {
+    if (remove != null) {
       user.roles[group].splice(user.roles[group].indexOf(role), 1);
-      return this.kv('user/' + user._id, user);
+      if (!user.roles[group].length) {
+        delete user.roles[group];
+      }
+      this.users._update(user);
     }
   } else {
     if ((base = user.roles)[group] == null) {
       base[group] = [];
     }
     user.roles.group.push(role);
-    return this.kv('user/' + user._id, user);
+    this.users._update(user);
   }
+  return user;
 };
 
-P.auth.logout = function(user) { // how about triggering a logout on a different user account
-  var ret;
+P.auth.remove = function(grl, user) {
+  if (grl == null) {
+    grl = this.params.remove;
+  }
+  return this.auth.permit(grl, user, true);
+};
+
+P.auth.deny = function(grl, user) {
+  if (grl == null) {
+    grl = this.params.deny;
+  }
+  return this.auth.permit(grl, user, void 0, true);
+};
+
+P.auth.logout = async function(user) { // how about triggering a logout on a different user account
   if (user == null) {
     user = this.user;
   }
   if (user) {
-    this.kv('auth/resume/' + (typeof user === 'string' ? (user.includes('@') ? this.hashhex(user) : user) : user._id), '');
-  }
-  if (this.format === 'html') {
-    ret = '<p id="logout">Logging out...</p>';
-    ret += '<script type="text/javascript" src="/client/pradm.js"></script><script type="text/javascript" src="/client/pradmLogin.js"></script>';
-    ret += `<script>
-setTimeout(function() {
-  pradm.logout();
-  pradm.html('#logout', "You're logged out");
-}, 2000);
-</script>`;
-    return ret;
+    await this.kv._each('auth/resume/' + (typeof user === 'string' ? (user.includes('@') ? this.hashhex(user.trim().toLowerCase()) : user) : user._id), '');
+    return true;
+  } else {
+    return false;
   }
 };
+
 
 // add a 2FA mechanism to auth (authenticator, sms...)
 // https://stackoverflow.com/questions/8529265/google-authenticator-implementation-in-python/8549884#8549884
@@ -1254,79 +1033,121 @@ P._oauth = async function(token, cid) {
 // the Oauth URL that would trigger something like this would be like:
 // grl = 'https://accounts.google.com/o/oauth2/v2/auth?response_type=token&include_granted_scopes=true'
 // grl += '&scope=https://www.googleapis.com/auth/userinfo.email+https://www.googleapis.com/auth/userinfo.profile'
-// grl += '&state=' + state + '&redirect_uri=' + pradm.oauthRedirectUri + '&client_id=' + pradm.oauthGoogleClientId
+// grl += '&state=' + state + '&redirect_uri=' + P.oauthRedirectUri + '&client_id=' + P.oauthGoogleClientId
 // state would be something like Math.random().toString(36).substring(2,8) and would be sent and also kept for checking against the response
 // the response from oauth login page would go back to current page and have a # with access_token= and state=
 // NOTE as it is after a # these would only be available on a browser, as servers don't get the # part of a URL
 // if the states match, send the access_token into the above method and if it validates then we can login the user
-P.auth._insert = function(obj) {
-  var first, u;
-  if (typeof obj === 'string') {
-    obj = {
-      email: obj
+P.users = {
+  _index: true,
+  _hide: true,
+  _auth: 'system'
+};
+
+P.users._get = async function(uid) {
+  var user;
+  if (typeof uid === 'string') {
+    if (uid.startsWith('users/')) {
+      uid = uid.replace('users/', '');
+    }
+    if (uid.includes('@')) {
+      uid = this.hashhex(uid.trim().toLowerCase());
+    }
+    if (this.S.bg !== true) {
+      try {
+        user = (await this.kv('users/' + uid));
+      } catch (error) {}
+    }
+    if (user == null) {
+      try {
+        user = (await this.index('users/' + uid));
+      } catch (error) {}
+      if ((user != null) && this.S.bg !== true) { // may have found a user from the index who isn't in the local kv yet, so put it in
+        try {
+          await this.kv('users/' + uid, user);
+        } catch (error) {}
+        try {
+          await this.kv('auth/apikey/' + user.apikey, uid);
+        } catch (error) {}
+      }
+    }
+  }
+  return user;
+};
+
+P.users._create = async function(user) {
+  var u;
+  if (typeof user === 'string') {
+    user = {
+      email: user
     };
   }
-  if (typeof obj.email !== 'string' || !obj.email.includes('@')) {
+  if (typeof user.email !== 'string' || !user.email.includes('@')) {
     return false;
   }
   u = {
-    _id: this.hashhex(obj.email.trim().toLowerCase()),
-    email: obj.email, //store email here or not?
-    apikey: this.uid() // store the apikey here or not?
+    _id: this.hashhex(user.email.trim().toLowerCase()),
+    email: user.email,
+    apikey: this.uid()
   };
-  delete obj.email;
-  u.profile = obj; // could use obj as profile input data? better for services to store this where necessary though
-  first = false; // if no other user accounts yet
-  u.roles = first ? {
-    __global__: ['root']
-  } : {};
+  delete user.email;
+  u.profile = user; // could use other input as profile input data? better for services to store this where necessary though
+  u.roles = {};
   u.createdAt = new Date();
-  this.kv('user/apikey/' + u.apikey, u._id);
-  this.kv('user/' + u._id, u);
+  try {
+    await this.kv('users/' + u._id, u);
+  } catch (error) {}
+  try {
+    await this.kv('auth/apikey/' + u.apikey, u._id);
+  } catch (error) {}
+  try {
+    this.waitUntil(this.index('users/' + u._id, u));
+  } catch (error) {}
   return u;
 };
 
-P.auth._update = async function(r, user) {
-  var a, nu, p;
-  if (user == null) {
-    user = r.auth; // what about update a user other than the logged in one?
+P.users._update = async function(uid, user) {
+  // TODO how to decide who can update users, remotely or locally, and is it always a total update or could be a partial?
+  if (typeof uid === 'object' && user._id && (user == null)) {
+    user = uid;
+    uid = user._id;
   }
-  if (r.param && (nu = this.auth(r.param))) {
-    a = ''; // does the currently authorised user have permission to update the user being queried? if so, set user to nu
-  }
-  if (JSON.stringify(r.params) !== '{}') {
-    if (user.profile == null) {
-      user.profile = {};
+  if (typeof uid === 'string' && typeof user === 'object' && JSON.stringify(user) !== '{}') {
+    if (uid.startsWith('users/')) {
+      uid = uid.replace('users/', '');
     }
-// normal user can update profile values
-    for (p in r.params) {
-      user.profile[p] = pr[p];
+    if (uid.includes('@')) {
+      uid = this.hashhex(uid.trim().toLowerCase());
     }
-    await this.kv('user/' + user.id, user);
-    return true; // or return the updated user object?
+    user.updatedAt = new Date();
+    try {
+      await this.kv('users/' + uid, user);
+    } catch (error) {}
+    try {
+      this.waitUntil(this.index('users/' + uid, user));
+    } catch (error) {}
+    return true;
   } else {
     return false;
   }
 };
 
-P.auth._remove = async function(key) {
+P.users._delete = async function(uid) {
   var ref, user;
-  if (key.startsWith('user/')) {
-    key = key.replace('user/', '');
+  if (user = (typeof uid === 'object' ? uid : ((ref = this.user) != null ? ref._id : void 0) === uid ? this.user : (await this.users._get(uid)))) {
+    try {
+      await this.kv._each('auth/resume/' + user._id, '');
+    } catch (error) {}
+    try {
+      await this.kv('auth/apikey/' + user.apikey, '');
+    } catch (error) {}
+    try {
+      await this.kv('users/' + user._id, '');
+    } catch (error) {}
+    try {
+      return (await this.index('users/' + user._id, ''));
+    } catch (error) {}
   }
-  if (key.includes('@')) {
-    key = this.hashhex(key);
-  }
-  user = ((ref = this.user) != null ? ref._id : void 0) === key ? this.user : (await this.kv('user/' + key));
-  try {
-    this.auth.logout(key);
-  } catch (error) {}
-  try {
-    this.kv('user/apikey/' + user.apikey, '');
-  } catch (error) {}
-  try {
-    return this.kv('user/' + key, '');
-  } catch (error) {}
 };
 
 var indexOf = [].indexOf;
@@ -1416,8 +1237,8 @@ P.convert.json2csv = async function(recs, params) {
             }
           } catch (error) {}
           try {
-            if (Array.isArray(rec[h]) && rec[h].length && typeof rec[h][0] === 'string') {
-              rec[h] = rec[h].join(', ');
+            if (Array.isArray(rec[h]) && rec[h].length && typeof rec[h][0] !== 'object') {
+              rec[h] = rec[h].join(',');
             }
           } catch (error) {}
           try {
@@ -1426,12 +1247,12 @@ P.convert.json2csv = async function(recs, params) {
             }
           } catch (error) {}
           try {
-            rec[h] = rec[h].replace(/"/g, quote + quote);
+            if (quote === '"' && rec[h].indexOf(quote) !== -1) { // escape quotes with another quote
+              rec[h] = rec[h].replace(/"/g, quote + quote);
+            }
           } catch (error) {}
           try {
-            rec[h] = rec[h].replace(/,,/g, separator); // TODO change this for a regex of the separator
-          } catch (error) {}
-          try {
+            //try rec[h] = rec[h].replace /,,/g, separator # TODO change this for a regex of the separator
             rec[h] = rec[h].replace(/\n/g, ' ');
           } catch (error) {}
           try {
@@ -1449,63 +1270,74 @@ P.convert.json2csv = async function(recs, params) {
 };
 
 P.convert.csv2json = async function(csv, params) {
-  var h, header, headers, i, j, len, len1, len2, line, lines, m, newline, quote, ref, ref1, ref2, ref3, res, row, separator, vals;
-  if (csv == null) {
-    csv = (ref = this.body) != null ? ref : this.params.csv;
-  }
-  if (this.params.url) {
-    csv = (await this.fetch(url));
-  }
+  var h, headers, i, j, len, len1, line, lines, newline, pl, quote, ref, ref1, ref2, ref3, ref4, res, row, separator, vals;
   if (params == null) {
     params = this.params;
   }
-  quote = (ref1 = params.quote) != null ? ref1 : '"';
-  separator = (ref2 = params.separator) != null ? ref2 : ',';
-  newline = (ref3 = params.newline) != null ? ref3 : '\n';
-  csv = csv.replace(/""/g, 'XXX_QUOTER_GOES_HERE_XXX'); // TODO change this for a regex of whatever the quote char is
+  if (csv == null) {
+    csv = (ref = this.body) != null ? ref : this.params.csv;
+  }
+  if (params.url || (typeof csv === 'string' && csv.startsWith('http'))) {
+    csv = (await this.fetch((ref1 = params.url) != null ? ref1 : csv));
+  }
   res = [];
   if (typeof csv === 'string' && csv.length) {
+    quote = (ref2 = params.quote) != null ? ref2 : '"';
+    separator = (ref3 = params.separator) != null ? ref3 : ',';
+    newline = (ref4 = params.newline) != null ? ref4 : '\n';
     lines = csv.split(newline);
     if (lines.length) {
       headers = lines.shift().split(quote + separator);
-// TODO add handling for flattened object headers eg metadata.author.0.name
-// should do this by making an unflatten utility that goes through the object and rebuilds
-      for (i = 0, len = headers.length; i < len; i++) {
-        header = headers[i];
-        if (header.indexOf(quote) === 0) {
-          header = header.replace(quote, '');
-        }
-      }
-      for (j = 0, len1 = lines.length; j < len1; j++) {
-        line = lines[j];
-        row = {};
-        vals = line.split(quote + separator);
-        for (m = 0, len2 = headers.length; m < len2; m++) {
-          h = headers[m];
-          if (vals.length) {
-            row[h] = vals.shift();
-            if (row[h]) {
-              row[h] = row[h].replace(/^"/, '').replace(/"$/, '').replace(/XXX_QUOTER_GOES_HERE_XXX/g, quote);
-              try {
-                row[h] = JSON.parse(row[h]);
-              } catch (error) {}
+      // TODO add handling for flattened object headers eg metadata.author.0.name via a utility for it
+      pl = '';
+      for (i = 0, len = lines.length; i < len; i++) {
+        line = lines[i];
+        pl += (pl ? newline : '') + line;
+        vals = pl.split(quote + separator);
+        if (vals.length === headers.length && (!quote || line.endsWith(quote))) {
+          pl = '';
+          row = {};
+          for (j = 0, len1 = headers.length; j < len1; j++) {
+            h = headers[j];
+            if (h.startsWith(quote)) {
+              h = h.replace(quote, '');
+            }
+            if (h.endsWith(quote)) {
+              h = h.substring(0, h.length - 1);
+            }
+            if (vals.length) {
+              row[h] = vals.shift();
+              if (row[h]) {
+                if (row[h].startsWith(quote)) {
+                  row[h] = row[h].replace(quote, '');
+                }
+                if (!vals.length && row[h].endsWith(quote)) { // strip the end quote from the last one
+                  row[h] = row[h].substring(0, row[h].length - 1);
+                }
+                try {
+                  row[h] = JSON.parse(row[h]);
+                } catch (error) {}
+              }
             }
           }
+          res.push(row);
         }
-        res.push(row);
       }
     }
   }
   return res;
 };
 
-P.convert.csv2html = async function(csv) {
-  var header, headers, i, j, len, len1, len2, line, lines, ln, m, newline, quote, ref, ref1, ref2, res, separator, v, vn;
+P.convert.csv2html = async function(csv, params) {
+  var header, headers, i, j, len, len1, len2, line, lines, ln, m, newline, quote, ref, ref1, ref2, ref3, res, separator, v, vn;
   if (csv == null) {
     csv = (ref = this.body) != null ? ref : this.params.csv;
   }
-  if (this.params.url) {
-    csv = (await this.fetch(url));
+  if (params == null) {
+    params = this.params;
+  }
+  if (params.url || (typeof csv === 'string' && csv.startsWith('http'))) {
+    csv = (await this.fetch((ref1 = params.url) != null ? ref1 : csv));
   }
   quote = '"';
   separator = ',';
@@ -1519,9 +1351,9 @@ P.convert.csv2html = async function(csv) {
       res += '<thead><tr>';
       headers = lines.shift();
       ln = 0;
-      ref1 = headers.split(quote + separator + quote);
-      for (i = 0, len = ref1.length; i < len; i++) {
-        header = ref1[i];
+      ref2 = headers.split(quote + separator + quote);
+      for (i = 0, len = ref2.length; i < len; i++) {
+        header = ref2[i];
         res += '<th style="padding:2px; border:1px solid #ccc;">' + header.replace(/"/g, '') + '</th>';
         ln += 1;
       }
@@ -1540,9 +1372,9 @@ P.convert.csv2html = async function(csv) {
         }
         line = line.replace(/""/g, 'XXX_QUOTER_GOES_HERE_XXX'); // TODO change this for a regex of whatever the quote char is
         vn = 0;
-        ref2 = line.split(quote + separator + quote);
-        for (m = 0, len2 = ref2.length; m < len2; m++) {
-          v = ref2[m];
+        ref3 = line.split(quote + separator + quote);
+        for (m = 0, len2 = ref3.length; m < len2; m++) {
+          v = ref3[m];
           vn += 1;
           res += '<td style="padding:2px; border:1px solid #ccc;vertical-align:text-top;">';
           v = v.replace(/^"/, '').replace(/"$/, '');
@@ -1570,7 +1402,7 @@ P.convert.csv2html = async function(csv) {
 };
 
 P.convert.json2html = async function(recs, params) {
-  var _draw, i, j, key, len, len1, len2, m, part, parts, pt, ref, ref1, ref2, ref3, res, st, tbl;
+  var _draw, i, j, key, len, len1, part, parts, pt, ref, ref1, ref2, res;
   if (recs == null) {
     recs = (ref = this.body) != null ? ref : this.params;
   }
@@ -1601,33 +1433,25 @@ P.convert.json2html = async function(recs, params) {
       }
     }
   }
-  if (Array.isArray(recs) || ((recs != null ? (ref2 = recs.hits) != null ? ref2.hits : void 0 : void 0) && params.es !== false)) {
-    if (parts != null) {
-      params.subset = parts.join('.');
+  if (Array.isArray(recs) || (((recs != null ? (ref2 = recs.hits) != null ? ref2.hits : void 0 : void 0) != null) && params.es !== false)) {
+    if (params.search) {
+      return '<script type="text/javascript" src="/client/pradmSearch.min.js"></script><script>P.search()</script>';
+    } else {
+      if (parts != null) {
+        params.subset = parts.join('.');
+      }
+      return this.convert.csv2html((await this.convert.json2csv(recs, params)));
     }
-    tbl = (await this.convert.csv2html((await this.convert.json2csv(recs, params))));
-    return tbl;
   } else {
     res = '<div>';
-    if (params.edit) { // extras only for rscvd for now but should be any management fields to add and not yet present
-      res += '<div style="clear:both; margin:-1px 0px;"><div style="float:left;width: 150px; overflow: scroll;"><b><p>status</p></b></div>';
-      res += '<div style="float:left;"><select class="pradmForm" id="status" style="margin-top:15px;margin-bottom:0px;min-width:180px;">';
-      ref3 = ['', 'Verified', 'Denied', 'Progressing', 'Overdue', 'Provided', 'Cancelled', 'Done'];
-      for (j = 0, len1 = ref3.length; j < len1; j++) {
-        st = ref3[j];
-        res += '<option' + (recs.status === st ? ' selected="selected"' : '') + '>' + st + '</option>';
-      }
-      delete recs.status;
-      res += '</select></div>';
-    }
     if (params.flatten) {
       recs = (await this.flatten(recs));
       res += '<input type="hidden" id="options_flatten" value="true">';
     }
     if (params.subset) {
       if (parts.length) {
-        for (m = 0, len2 = parts.length; m < len2; m++) {
-          pt = parts[m];
+        for (j = 0, len1 = parts.length; j < len1; j++) {
+          pt = parts[j];
           recs = recs[pt];
         }
       }
@@ -1635,16 +1459,16 @@ P.convert.json2html = async function(recs, params) {
       res += '<input type="hidden" id="options_subset" value="' + params.subset + '">';
     }
     _draw = (rec) => {
-      var k, len3, len4, n, o, ok, pk, ref4, ref5, results, rks;
+      var k, len2, len3, m, n, ok, pk, ref3, ref4, results, rks;
       if (params.edit) { // just for rscvd demo for now
         if (rec.comments == null) {
           rec.comments = '';
         }
       }
       if (params.keys) {
-        ref4 = params.keys;
-        for (n = 0, len3 = ref4.length; n < len3; n++) {
-          pk = ref4[n];
+        ref3 = params.keys;
+        for (m = 0, len2 = ref3.length; m < len2; m++) {
+          pk = ref3[m];
           if (rec[pk] == null) {
             rec[pk] = '';
           }
@@ -1661,12 +1485,12 @@ P.convert.json2html = async function(recs, params) {
         if ((rec[k] != null) && (!Array.isArray(rec[k]) || rec[k].length) && (!params.keys || indexOf.call(params.keys, k) >= 0)) {
           res += '<div style="clear:both; ' + (!params.edit ? 'border:1px solid #ccc; ' : '') + 'margin:-1px 0px;"><div style="float:left;width: 150px; overflow: scroll;"><b><p>' + k + '</p></b></div>';
           res += '<div style="float:left;">';
-          res += params.edit ? '<textarea class="pradmForm" id="' + k + '" style="min-height:80px;width:100%;margin-bottom:5px;">' : '';
+          res += params.edit ? '<textarea class="PForm" id="' + k + '" style="min-height:80px;width:100%;margin-bottom:5px;">' : '';
           if (Array.isArray(rec[k])) {
             if (typeof rec[k][0] === 'object') {
-              ref5 = rec[k];
-              for (o = 0, len4 = ref5.length; o < len4; o++) {
-                ok = ref5[o];
+              ref4 = rec[k];
+              for (n = 0, len3 = ref4.length; n < len3; n++) {
+                ok = ref4[n];
                 _draw(ok);
               }
             } else {
@@ -1699,8 +1523,8 @@ P.convert.json2html = async function(recs, params) {
     _draw(recs);
     res += '</div>';
     if (params.edit) {
-      res = '<script type="text/javascript" src="/client/pradm.js"></script><script type="text/javascript" src="/client/pradmEdit.js"></script>' + res;
-      res += '<script type="text/javascript">pradm.edit()</script>';
+      res = '<script type="text/javascript" src="/client/pradm.min.js"></script><script type="text/javascript" src="/client/pradmEdit.min.js"></script>' + res;
+      res += '<script type="text/javascript">P.edit()</script>';
     }
     return res;
   }
@@ -1991,6 +1815,8 @@ P.example = function() {
   return res;
 };
 
+P.example._hides = true;
+
 P.example.restricted = function() {
   return {
     hello: this.user._id
@@ -2055,7 +1881,7 @@ P.example.inbetween = function() {
 
 // NOTE TODO for getting certain file content, adding encoding: null to headers (or correct encoding required) is helpful
 P.fetch = async function(url, params) {
-  var _f, base, ct, i, j, k, len, len1, name, nu, pt, qp, ref, ref1, ref2, res, v;
+  var _f, base, ct, err, i, j, k, len, len1, name, nu, pt, pts, qp, ref, ref1, ref2, ref3, ref4, res, v;
   // TODO if asked to fetch a URL that is the same as the @url this worker served on, then needs to switch to a bg call if bg URL available
   if ((url == null) && (params == null)) {
     try {
@@ -2068,6 +1894,20 @@ P.fetch = async function(url, params) {
   }
   if (params == null) {
     params = {};
+  }
+  if (typeof params === 'number') {
+    params = {
+      cache: params
+    };
+  }
+  if (typeof params.cache === 'number') { // https://developers.cloudflare.com/workers/examples/cache-using-fetch
+    if (params.cf == null) {
+      params.cf = {
+        cacheEverything: true
+      };
+    }
+    params.cf.cacheTtl = params.cache;
+    delete params.cache;
   }
   if (!url && params.url) {
     url = params.url;
@@ -2093,11 +1933,10 @@ P.fetch = async function(url, params) {
     if (params.headers == null) {
       params.headers = {};
     }
-    params.headers['Authorization'] = 'Basic ' + Buffer.from(params.auth).toString('base64'); // should be fine on node
+    params.headers['Authorization'] = 'Basic ' + Buffer.from(params.auth).toString('base64');
     delete params.auth;
   }
   ref = ['data', 'content', 'json'];
-  // where else might body content reasonably be?
   for (i = 0, len = ref.length; i < len; i++) {
     ct = ref[i];
     if (params[ct] != null) {
@@ -2142,34 +1981,50 @@ P.fetch = async function(url, params) {
   if (typeof url !== 'string') {
     return false;
   } else {
-    try {
-      if (url.indexOf('?') !== -1) {
-        nu = url.split('?')[0] + '?';
-        ref2 = url.split('?')[1].split('&');
-        for (j = 0, len1 = ref2.length; j < len1; j++) {
-          qp = ref2[j];
-          if (!nu.endsWith('?')) {
-            nu += '&';
-          }
-          [k, v] = qp.split('=');
-          if (v == null) {
-            v = '';
-          }
-          nu += k + '=' + (v.indexOf('%') !== -1 ? v : encodeURIComponent(v));
+    if (url.indexOf('?') !== -1) {
+      pts = url.split('?');
+      nu = pts.shift() + '?';
+      ref2 = pts.join('?').split('&');
+      for (j = 0, len1 = ref2.length; j < len1; j++) {
+        qp = ref2[j];
+        if (!nu.endsWith('?')) {
+          nu += '&';
         }
-        url = nu;
+        [k, v] = qp.split('=');
+        if (v == null) {
+          v = '';
+        }
+        if (k) {
+          nu += encodeURIComponent(k) + (v ? '=' + (v.indexOf('%') !== -1 ? v : encodeURIComponent(v)) : '');
+        }
       }
-    } catch (error) {}
+      url = nu;
+    }
+    if (params.params && JSON.stringify(params.params) !== '{}') {
+      if (url.indexOf('?') === -1) {
+        url += '?';
+      }
+      ref3 = params.params;
+      for (k in ref3) {
+        v = ref3[k];
+        if (!url.endsWith('&') && !url.endsWith('?')) {
+          url += '&';
+        }
+        if (k) {
+          url += encodeURIComponent(k) + '=' + encodeURIComponent(JSON.stringify(v));
+        }
+      }
+    }
     if (S.system && ((typeof S.bg === 'string' && url.startsWith(S.bg)) || (typeof S.kv === 'string' && S.kv.startsWith('http') && url.startsWith(S.kv)))) {
       if (params.headers == null) {
         params.headers = {};
       }
-      if ((base = params.headers)[name = 'x-' + S.name + '-system'] == null) {
+      if ((base = params.headers)[name = 'x-' + S.name.toLowerCase() + '-system'] == null) {
         base[name] = S.system;
       }
     }
     _f = async() => {
-      var hd, l, len2, len3, m, r, ref3, ref4, resp, response, rk, verbose;
+      var hd, l, len2, len3, m, r, ref4, ref5, resp, response, rk, verbose;
       if (params.verbose) {
         verbose = true;
         delete params.verbose;
@@ -2205,6 +2060,7 @@ P.fetch = async function(url, params) {
         resp = void 0;
       } else if (response.status >= 400) {
         if (S.dev) {
+          console.log(params);
           console.log(JSON.stringify(r));
           console.log('ERROR ' + response.status);
         }
@@ -2220,15 +2076,15 @@ P.fetch = async function(url, params) {
       }
       if (verbose && typeof resp === 'object') {
         resp.headers = {};
-        ref3 = [...response.headers];
-        for (l = 0, len2 = ref3.length; l < len2; l++) {
-          hd = ref3[l];
+        ref4 = [...response.headers];
+        for (l = 0, len2 = ref4.length; l < len2; l++) {
+          hd = ref4[l];
           resp.headers[hd[0]] = hd[1];
         }
-        ref4 = ['status', 'ok', 'redirected', 'bodyUsed'];
+        ref5 = ['status', 'ok', 'redirected', 'bodyUsed'];
         // size, timeout url, statusText, clone, body, arrayBuffer, blob, json, text, buffer, textConverted
-        for (m = 0, len3 = ref4.length; m < len3; m++) {
-          rk = ref4[m];
+        for (m = 0, len3 = ref5.length; m < len3; m++) {
+          rk = ref5[m];
           resp[rk] = response[rk];
         }
       }
@@ -2251,31 +2107,98 @@ P.fetch = async function(url, params) {
       delete params[rk]
   res = @retry.call this, _f, [url, params], opts
 else`;
-    if (params.timeout && ((this != null ? this._timeout : void 0) != null)) {
-      pt = params.timeout === true ? 30000 : params.timeout;
-      delete params.timeout;
-      res = (await this._timeout(pt, _f()));
-    } else {
-      res = (await _f());
-    }
     try {
-      res = res.trim();
-      if (res.indexOf('[') === 0 || res.indexOf('{') === 0) {
-        res = JSON.parse(res);
+      if (params.timeout && ((this != null ? this._timeout : void 0) != null)) {
+        pt = params.timeout === true ? 30000 : params.timeout;
+        delete params.timeout;
+        res = (await this._timeout(pt, _f()));
+      } else {
+        res = (await _f());
       }
-    } catch (error) {}
-    return res;
+      try {
+        res = res.trim();
+        if (res.indexOf('[') === 0 || res.indexOf('{') === 0) {
+          res = JSON.parse(res);
+        }
+      } catch (error) {}
+      return res;
+    } catch (error) {
+      err = error;
+      if (S.dev || (this != null ? (ref4 = this.S) != null ? ref4.dev : void 0 : void 0)) {
+        console.log(err);
+        console.log(JSON.stringify(err));
+      }
+      try {
+        this.log(err);
+      } catch (error) {}
+      return void 0;
+    }
   }
 };
+
+`limiting = (fetcher, retries=1) ->
+  # notice if someone else is limiting us, and how long to wait for
+  while retries
+    retries--
+    response = await fetcher()
+    switch (response.status) ->
+      default:
+        return response
+      case 403:
+      case 429:
+        # header names differ by API we're hitting, these examples are for github. 
+        # It's the timestamp of when the rate limit window would reset, generalise this
+        # e.g. look for any header containing ratelimit? or rate? then see if it's a big
+        # number which would be a timestamp (and check if need *1000 for unix to ms version) 
+        # or a small number which is probably ms to wait
+        resets = parseInt response.headers.get "x-ratelimit-reset"
+        ms = if isNaN(resets) then 0 else new Date(resets * 1000).getTime() - Date.now()
+        if ms is 0
+          # this one is like a count of ms to wait?
+          remaining = parseInt response.headers.get "x-ratelimit-remaining"
+          ms = remaining if not isNaN remaining
+
+        if ms <= 0
+          return response
+        else
+          await new Promise resolve => setTimeout resolve, ms`;
+
+P.fetch._auth = 'system';
+
+P.fetch._hide = true;
+
+var _bg_log_batch, _bg_log_batch_timeout;
 
 if (S.log == null) {
   S.log = {};
 }
 
-// it would also be good to log every fetch, and what was sent with it too, although if it was a big file or something like that, then not that
-// what about a param to pass to avoid logging?
+_bg_log_batch = [];
+
+_bg_log_batch_timeout = false;
+
 P.log = async function(msg, store) {
-  var i, indexed, j, l, len, len1, mid, p, prev, ref, ref1, ref2;
+  var _save_batch, i, j, l, len, len1, p, prev, prevs, ref, ref1, ref2;
+  _save_batch = async() => {
+    var _batch, indexed;
+    // TODO may be worth generalising this into index functionality and having an option to bulk any index
+    // then index calls that are writing data should route to the bg /index functions instead of 
+    // direct to the index, so that they can be temporarily stored and handled in bulk (only suitable for when they can be lost too)
+    _batch = [];
+    while (_batch.length < 400 && _bg_log_batch.length) {
+      _batch.push(_bg_log_batch.shift());
+    }
+    if (_batch.length) {
+      if (this.S.dev && this.S.bg === true) {
+        console.log('Writing ' + _batch.length + ' logs to index');
+      }
+      if (!(indexed = (await this.index('logs', _batch)))) {
+        await this.index('logs', {});
+        await this.index('logs', _batch);
+      }
+      return _batch = [];
+    }
+  };
   if (this.S.log !== false) {
     if (store !== true) { // an empty call to log stores everything in the _logs list
       store = msg == null;
@@ -2299,12 +2222,20 @@ P.log = async function(msg, store) {
     }
     if (msg == null) {
       if (this.parts.length === 1 && this.parts[0] === 'log') { // should a remote log be allowed to send to a sub-route URL as an ID? maybe with particular auth?
-        // receive a remote log
-        msg = typeof this.body === 'object' ? {
-          logs: this.body
-        } : this.params; // bunch of logs sent in as POST body, or else just params
-        if (msg.fn == null) {
-          msg.fn = this.params.log; // the fn, if any, would be in params.log (because @fn would just be log)
+        if (this.system) {
+          _bg_log_batch.push(this.body);
+          if (_bg_log_batch_timeout === false) {
+            _bg_log_batch_timeout = setTimeout(_save_batch, 60000);
+          }
+          return true; // end here, just saving a log received from remote with system credential
+        } else {
+          // receive a remote log - what permissions should be required?
+          msg = typeof this.body === 'object' ? this.body : this.params; // bunch of logs sent in as POST body, or else just params
+          if (Array.isArray(msg)) {
+            msg = {
+              logs: msg
+            };
+          }
         }
       }
       if (msg == null) {
@@ -2370,8 +2301,9 @@ P.log = async function(msg, store) {
     } else if (typeof msg === 'object' && msg.res && msg.args) { // this indicates the fn had _diff true
       // find a previous log for the same thing and if it's different add a diff: true to the log of this one. Or diff: false if same, to track that it was diffed
       try {
-        prev = (await this.index('log', 'args:"' + msg.args)); // TODO what if it was a diff on a main log event though? do all log events have child log events now? check. and check what args/params should be compared for diff
-        msg.diff = prev.hits.hits[0]._source.res !== msg.res;
+        prevs = (await this.index('logs', 'args:"' + msg.args + '"')); // TODO what if it was a diff on a main log event though? do all log events have child log events now? check. and check what args/params should be compared for diff
+        prev = prevs.hits.hits[0]._source;
+        msg.diff = msg.checksum && prev.checksum ? msg.checksum !== prev.checksum : msg.res !== prev.res;
       } catch (error) {}
     }
     // if msg.diff, send an email alert? Or have schedule pick up on those later?
@@ -2421,31 +2353,50 @@ P.log = async function(msg, store) {
         msg.started = this.started;
         msg.took = Date.now() - this.started;
       } catch (error) {}
-      mid = 'log/' + ((ref2 = this.rid) != null ? ref2 : (await this.uid()));
-      if (this.S.bg === true || this.S.kv === false) {
-        if (!(indexed = (await this.index(mid, msg)))) {
-          await this.index('log', {});
-          return this.index(mid, msg);
+      msg._id = this.rid;
+      if (((ref2 = this.S.index) != null ? ref2.url : void 0) != null) {
+        if (this.S.bg === true) {
+          _bg_log_batch.push(msg);
+          if ((typeof this.S.log === 'object' && this.S.log.batch === false) || _bg_log_batch.length > 300) {
+            _save_batch();
+          } else {
+            if (_bg_log_batch_timeout !== false) {
+              clearTimeout(_bg_log_batch_timeout);
+            }
+            _bg_log_batch_timeout = setTimeout(_save_batch, 60000);
+          }
+        } else if (typeof this.S.bg !== 'string' || (typeof this.S.log === 'object' && this.S.log.batch === false)) {
+          _bg_log_batch.push(msg);
+          this.waitUntil(_save_batch());
+        } else {
+          this.waitUntil(this.fetch(this.S.bg + '/log', {
+            body: msg
+          }));
         }
       } else {
-        return this.kv(mid, msg);
+        try {
+          this.kv('logs/' + msg._id, msg);
+        } catch (error) {
+          console.log('Logging unable to save to kv or index');
+          consolg.log(msg);
+        }
       }
     } else {
-      return this._logs.push(msg);
+      this._logs.push(msg);
     }
   } else if (this.S.dev && this.S.bg === true) {
-    return console.log(msg);
+    console.log(msg);
   }
+  return true;
 };
 
-P.log.clear = function() {
-  // this is just for manual log removal on dev
-  if (this.S.dev) {
-    return this.kv._each('log', '');
-  }
-};
+P.log._hide = true;
 
-P.log.clear._hidden = true;
+P.logs = {
+  _index: true,
+  _hide: true,
+  _auth: 'system'
+};
 
 // a user should be able to set a list of endpoints they want to receive notifications for
 // could also wildcard* match
@@ -2467,13 +2418,13 @@ P.log.monitor._schedule = () ->
   notify = {}
   chat = []
   counter = 0
-  await @index._each 'log_monitor', '*', (rec) ->
+  await @index.each 'log_monitor', '*', (rec) ->
     if not rec.notified or rec.notified + (rec.frequency * 60000) < @started
       rec.notified = @started
       @waitUntil @index 'log_monitor/' + rec._id, @copy rec
       q = if typeof rec.q is 'string' and rec.q.startsWith('{') then JSON.parse(rec.q) else rec.q
       q = await @index.translate q, { newest: true, restrict: [{query_string: {query: 'createdAt:>' + (@started - (rec.frequency * 60000))}}]}
-      count = await @index.count 'log', undefined, q
+      count = await @index.count 'logs', undefined, q
       if count
         counter += count
         rec.dq = q
@@ -2712,16 +2663,20 @@ P.mail = async function(opts) {
   }));
 };
 
-P.mail.validate = async function(e, apikey) {
+P.mail._hide = true;
+
+P.mail._auth = 'system';
+
+P.mail.validate = async function(e, mgkey) {
   var ns, nsp, ref, ref1, v;
-  //apikey ?= @S.mail?.pubkey
+  //mgkey ?= @S.mail?.pubkey
   if (e == null) {
     e = this != null ? (ref = this.params) != null ? ref.email : void 0 : void 0;
   }
   if (typeof e === 'string' && e.length && (e.indexOf(' ') === -1 || (e.startsWith('"') && e.split('"@').length === 2))) {
     try {
-      if (typeof apikey === 'string') {
-        v = (await this.fetch('https://api.mailgun.net/v3/address/validate?syntax_only=false&address=' + encodeURIComponent(e) + '&api_key=' + apikey));
+      if (typeof mgkey === 'string') {
+        v = (await this.fetch('https://api.mailgun.net/v3/address/validate?syntax_only=false&address=' + encodeURIComponent(e) + '&api_key=' + mgkey));
         return (ref1 = v.did_you_mean) != null ? ref1 : v.is_valid;
       }
     } catch (error) {}
@@ -2762,7 +2717,7 @@ try {
 } catch (error) {}
 
 P.status = async function() {
-  var i, j, k, len, len1, ref, ref1, res;
+  var i, j, k, len, len1, ref, ref1, ref2, res;
   res = {
     name: S.name,
     version: S.version,
@@ -2781,16 +2736,17 @@ P.status = async function() {
     res.bg = true;
   }
   res.kv = typeof this.S.kv === 'string' && global[this.S.kv] ? this.S.kv : typeof this.S.kv === 'string' ? this.S.kv : false;
-  if ((await this.index(''))) {
-    res.index = true;
-  }
+  try {
+    res.index = (await this.index.status());
+  } catch (error) {}
   if (S.dev) {
+    res.bg = this.S.bg;
     if (this.S.bg !== true) {
       try {
         res.request = this.request;
       } catch (error) {}
     }
-    ref1 = ['headers', 'cookie', 'user'];
+    ref1 = ['headers', 'cookie', 'user', 'body'];
     for (j = 0, len1 = ref1.length; j < len1; j++) {
       k = ref1[j];
       try {
@@ -2798,6 +2754,16 @@ P.status = async function() {
           res[k] = this[k];
         }
       } catch (error) {}
+    }
+  } else {
+    try {
+      res.index = res.index.status;
+    } catch (error) {}
+    if (res.kv) {
+      res.kv = true;
+    }
+    if ((ref2 = this.user) != null ? ref2.email : void 0) {
+      res.user = this.user.email;
     }
   }
   
@@ -2819,7 +2785,7 @@ P.structure = (src) ->
   method = {}
   incomment = false
   inroute = false
-  for l of lns = fs.readFileSync(src).toString().replace(/\r\n/g,'\n').split '\n'
+  for l of lns = (await fs.readFile src).toString().replace(/\r\n/g,'\n').split '\n'
     line = lns[l].replace /\t/g, '  '
     if JSON.stringify(method) isnt '{}' and (l is '0' or parseInt(l) is lns.length-1 or (line.indexOf('P.') is 0 and line.indexOf('>') isnt -1))
       method.code = method.code.trim()
@@ -3124,21 +3090,25 @@ P.tdm.hamming = function(a, b, lowercase) {
   return moves;
 };
 
-P.tdm.extract = function(opts) {
+P.tdm.extract = async function(opts) {
   var l, lastslash, len, m, match, mopts, mr, parts, ref, ref1, res, text;
   // opts expects url,content,matchers (a list, or singular "match" string),start,end,convert,format,lowercase,ascii
+  //opts ?= @params
   if (opts.url && !opts.content) {
     if (opts.url.indexOf('.pdf') !== -1 || opts.url.indexOf('/pdf') !== -1) {
       if (opts.convert == null) {
         opts.convert = 'pdf';
       }
     } else {
-      opts.content = P.http.puppeteer(opts.url, true);
+      opts.content = (await this.puppet(opts.url));
     }
   }
-  try {
-    text = opts.convert ? P.convert.run((ref = opts.url) != null ? ref : opts.content, opts.convert, 'txt') : opts.content;
-  } catch (error) {
+  if (opts.convert) {
+    try {
+      text = (await this.convert[opts.convert + '2txt']((ref = opts.url) != null ? ref : opts.content));
+    } catch (error) {}
+  }
+  if (text == null) {
     text = opts.content;
   }
   if (opts.matchers == null) {
@@ -3168,31 +3138,36 @@ P.tdm.extract = function(opts) {
     text: text
   };
   if (text && typeof text !== 'number') {
-    ref1 = opts.matchers;
+    ref1 = (typeof opts.matchers === 'string' ? opts.matchers.split(',') : opts.matchers);
     for (l = 0, len = ref1.length; l < len; l++) {
       match = ref1[l];
-      mopts = 'g';
+      if (typeof match === 'string') {
+        mopts = '';
+        if (match.indexOf('/') === 0) {
+          lastslash = match.lastIndexOf('/');
+          if (lastslash + 1 !== match.length) {
+            mopts = match.substring(lastslash + 1);
+            match = match.substring(1, lastslash);
+          }
+        } else {
+          match = match.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&");
+        }
+      } else {
+        mopts = '';
+      }
       if (opts.lowercase) {
         mopts += 'i';
       }
-      if (match.indexOf('/') === 0) {
-        lastslash = match.lastIndexOf('/');
-        if (lastslash + 1 !== match.length) {
-          mopts = match.substring(lastslash + 1);
-          match = match.substring(1, lastslash);
+      try {
+        mr = new RegExp(match, mopts);
+        if (m = mr.exec(text)) {
+          res.matched += 1;
+          res.matches.push({
+            matched: match.toString(),
+            result: m
+          });
         }
-      } else {
-        match = match.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&");
-      }
-      m;
-      mr = new RegExp(match, mopts);
-      while (m = mr.exec(text)) {
-        res.matched += 1;
-        res.matches.push({
-          matched: match,
-          result: m
-        });
-      }
+      } catch (error) {}
     }
   }
   return res;
@@ -3251,6 +3226,11 @@ P.tdm.stopwords = function(stops, more, gramstops = true) {
   return stops;
 };
 
+// note that new wordpos can be used in browser and can preload word files or get them on demand
+// try this from within CF and see if it works fast enough - it'll be about 7MB compressed data to 
+// preload all, or on demand may introduce some lag
+// https://github.com/moos/wordpos-web
+
 var indexOf = [].indexOf;
 
 import {
@@ -3277,7 +3257,7 @@ P.uid = function(r) {
 P.uid._cache = false;
 
 P.hash = async function(content) {
-  var arr, b, buf, j, len, parts, ref, ref1, ref2, ref3;
+  var arr, b, buf, j, len1, parts, ref, ref1, ref2, ref3;
   if (content == null) {
     content = (ref = (ref1 = (ref2 = (ref3 = this.params.hash) != null ? ref3 : this.params.content) != null ? ref2 : this.params.q) != null ? ref1 : this.params) != null ? ref : this.body;
   }
@@ -3294,7 +3274,7 @@ P.hash = async function(content) {
     buf = (await crypto.subtle.digest("SHA-256", content));
     arr = new Uint8Array(buf);
     parts = [];
-    for (j = 0, len = arr.length; j < len; j++) {
+    for (j = 0, len1 = arr.length; j < len1; j++) {
       b = arr[j];
       parts.push(('00' + b.toString(16)).slice(-2));
     }
@@ -3309,7 +3289,7 @@ P.hash = async function(content) {
 P.hashcode = function(content) { // java hash code style
   var hash, i, ref, ref1, ref2, ref3;
   if (content == null) {
-    content = (ref = (ref1 = (ref2 = (ref3 = this.params.shorthash) != null ? ref3 : this.params.content) != null ? ref2 : this.params.q) != null ? ref1 : this.params) != null ? ref : this.body;
+    content = (ref = (ref1 = (ref2 = (ref3 = this.params.hashcode) != null ? ref3 : this.params.content) != null ? ref2 : this.params.q) != null ? ref1 : this.params) != null ? ref : this.body;
   }
   if (typeof content !== 'string') {
     content = JSON.stringify(content);
@@ -3326,6 +3306,9 @@ P.hashcode = function(content) { // java hash code style
 
 P.hashhex = function(content) {
   var n;
+  if (content == null) {
+    content = this.params.hashhex;
+  }
   n = this.hashcode(content);
   if (n < 0) {
     n = 0xFFFFFFFF + n + 1;
@@ -3370,6 +3353,8 @@ P.sleep = function(ms) { // await this when calling it to actually wait
   });
 };
 
+P.sleep._hide = true;
+
 P._timeout = function(ms, fn) { // where fn is a promise-able function that has been called
   // so call this like res = await @_timeout 5000, @fetch url
   return new Promise((resolve, reject) => {
@@ -3388,7 +3373,7 @@ P._timeout = function(ms, fn) { // where fn is a promise-able function that has 
 };
 
 P.form = function(params) {
-  var j, len, p, po, ppt, ref;
+  var j, len1, p, po, ppt, ref;
   // return params object x-www-form-urlencoded
   if (params == null) {
     params = this.params;
@@ -3399,7 +3384,7 @@ P.form = function(params) {
       po += '&';
     }
     ref = (Array.isArray(params[p]) ? params[p] : [params[p]]);
-    for (j = 0, len = ref.length; j < len; j++) {
+    for (j = 0, len1 = ref.length; j < len1; j++) {
       ppt = ref[j];
       if (ppt != null) {
         if (!po.endsWith('&')) {
@@ -3413,7 +3398,7 @@ P.form = function(params) {
 };
 
 P.decode = async function(content) {
-  var _decode, c, j, len, re, ref, ref1, ref2, ref3, text;
+  var _decode, c, j, len1, re, ref, ref1, ref2, ref3, text;
   if (content == null) {
     content = (ref = (ref1 = (ref2 = this.params.decode) != null ? ref2 : this.params.content) != null ? ref1 : this.params.text) != null ? ref : this.body;
   }
@@ -3468,7 +3453,7 @@ P.decode = async function(content) {
       good: '-'
     }
   ];
-  for (j = 0, len = ref3.length; j < len; j++) {
+  for (j = 0, len1 = ref3.length; j < len1; j++) {
     c = ref3[j];
     re = new RegExp(c.bad, 'g');
     text = text.replace(re, c.good);
@@ -3508,7 +3493,7 @@ P.keys = function(obj) {
 };
 
 P.dot = function(obj, key) {
-  var j, k, len, ref, res, st;
+  var j, k, len1, ref, res, st;
   // TODO can add back in a way to pass in values or deletions if necessary, and traversing lists too
   if (typeof obj === 'string' && typeof key === 'object') {
     st = obj;
@@ -3524,7 +3509,7 @@ P.dot = function(obj, key) {
   }
   try {
     res = obj;
-    for (j = 0, len = key.length; j < len; j++) {
+    for (j = 0, len1 = key.length; j < len1; j++) {
       k = key[j];
       res = res[k];
     }
@@ -3535,7 +3520,7 @@ P.dot = function(obj, key) {
 };
 
 P.flatten = async function(obj) {
-  var _flatten, d, j, len, res, results;
+  var _flatten, d, j, len1, res, results;
   if (obj == null) {
     obj = this.params;
   }
@@ -3569,7 +3554,7 @@ P.flatten = async function(obj) {
   };
   if (Array.isArray(obj)) {
     results = [];
-    for (j = 0, len = data.length; j < len; j++) {
+    for (j = 0, len1 = data.length; j < len1; j++) {
       d = data[j];
       res = {};
       results.push((await _flatten(d)));
@@ -3582,7 +3567,7 @@ P.flatten = async function(obj) {
 };
 
 P.template = async function(content, vars) {
-  var _rv, cp, cs, j, k, key, keyu, kg, kkg, l, len, len1, pcp, ref, ref1, ref2, ref3, ret, val, vs;
+  var _rv, cp, cs, j, k, key, keyu, kg, kkg, l, len1, len2, pcp, ref, ref1, ref2, ref3, ret, val, vs;
   if (content == null) {
     content = (ref = (ref1 = this.params.content) != null ? ref1 : this.params.template) != null ? ref : this.body;
   }
@@ -3622,14 +3607,14 @@ P.template = async function(content, vars) {
     ref3 = content.toLowerCase().split('{{');
     // the could be vars in content that themselves contain vars, e.g {{subject I am the subject about {{id}} yes I am}}
     // and some of those vars may fail to get filled in. So define the list of possible vars names THEN go through the content with them
-    for (j = 0, len = ref3.length; j < len; j++) {
+    for (j = 0, len1 = ref3.length; j < len1; j++) {
       cp = ref3[j];
       pcp = cp.split('{{')[0].split('}}')[0].split(' ')[0];
       if (indexOf.call(vs, pcp) < 0) {
         vs.push(pcp);
       }
     }
-    for (l = 0, len1 = vs.length; l < len1; l++) {
+    for (l = 0, len2 = vs.length; l < len2; l++) {
       k = vs[l];
       key = content.toLowerCase().indexOf('{{' + k) !== -1 ? k : void 0;
       if (key) {
@@ -3658,14 +3643,14 @@ P.template = async function(content, vars) {
 
 //P._templates = _index: true # an index to store templates in - although generally should be handled at the individual function/service level
 P.date = function(rt, timed) {
-  var k, pts, ref, ret;
+  var k, pts, ref, ref1, ret;
   if (rt == null) {
-    rt = this.params.date;
+    rt = (ref = this.params.date) != null ? ref : Date.now();
   }
   if (timed == null) {
     timed = this.params.time;
   }
-  if (typeof rt === 'number' || (typeof rt === 'string' && rt.indexOf(' ') === -1 && rt.length > 10 && rt.indexOf('T') === -1)) {
+  if (typeof rt === 'number' || (typeof rt === 'string' && rt.indexOf(' ') === -1 && rt.indexOf('/') === -1 && rt.indexOf('-') === -1 && rt.length > 8 && rt.indexOf('T') === -1)) {
     try {
       ret = new Date(parseInt(rt));
       ret = ret.toISOString();
@@ -3686,7 +3671,7 @@ P.date = function(rt, timed) {
     if (typeof rt !== 'string') {
       try {
         for (k in rt) {
-          if ((ref = typeof rt[k]) !== 'number' && ref !== 'string') {
+          if ((ref1 = typeof rt[k]) !== 'number' && ref1 !== 'string') {
             rt[k] = '01';
           }
         }
@@ -3728,42 +3713,102 @@ P.epoch = function(epoch) {
   if (epoch == null) {
     epoch = this.params.epoch;
   }
-  try {
-    if (epoch.length > 10 && parseInt(epoch)) {
-      return this.date(this.params.epoch, (ref = this.params.time) != null ? ref : true);
+  if (!epoch) {
+    return Date.now();
+  } else {
+    try {
+      if (epoch.length > 8 && typeof epoch === 'number') {
+        return this.date(this.params.epoch, (ref = this.params.time) != null ? ref : true);
+      }
+    } catch (error) {}
+    if (typeof epoch === 'number') {
+      epoch = epoch.toString();
     }
-  } catch (error) {}
-  if (typeof epoch === 'number') {
-    epoch = epoch.toString();
+    if (epoch.length === 4) {
+      epoch += '-01';
+    }
+    if (epoch.split('-').length < 3) {
+      epoch += '-01';
+    }
+    if (epoch.indexOf('T') === -1) {
+      epoch += 'T';
+    }
+    if (epoch.indexOf(':') === -1) {
+      epoch += '00:00';
+    }
+    if (epoch.split(':').length < 3) {
+      epoch += ':00';
+    }
+    if (epoch.indexOf('.') === -1) {
+      epoch += '.';
+    }
+    [start, end] = epoch.split('.');
+    end = end.replace('Z', '').replace('z', '');
+    while (end.length < 3) {
+      end += '0';
+    }
+    if (end.indexOf('Z') === -1) {
+      end += 'Z';
+    }
+    return new Date(start + '.' + end).valueOf();
   }
-  if (epoch.length === 4) {
-    epoch += '-01';
-  }
-  if (epoch.split('-').length < 3) {
-    epoch += '-01';
-  }
-  if (epoch.indexOf('T') === -1) {
-    epoch += 'T';
-  }
-  if (epoch.indexOf(':') === -1) {
-    epoch += '00:00';
-  }
-  if (epoch.split(':').length < 3) {
-    epoch += ':00';
-  }
-  if (epoch.indexOf('.') === -1) {
-    epoch += '.';
-  }
-  [start, end] = epoch.split('.');
-  end = end.replace('Z', '').replace('z', '');
-  while (end.length < 3) {
-    end += '0';
-  }
-  if (end.indexOf('Z') === -1) {
-    end += 'Z';
-  }
-  return new Date(start + '.' + end).valueOf();
 };
+
+P._subroutes = function(top) {
+  var _lp, subroutes;
+  subroutes = [];
+  _lp = (p, n, _hide) => {
+    var k, nd, ref, results1;
+    results1 = [];
+    for (k in p) {
+      if ((ref = typeof p[k]) === 'function' || ref === 'object') {
+        nd = (n != null ? n : '') + (n ? '.' : '') + k;
+        if (!k.startsWith('_') && (typeof p[k] === 'function' || p[k]._index || p[k]._kv || p[k]._sheet) && !p[k]._hide && !p[k]._hides && !_hide && !nd.startsWith('scripts') && nd.indexOf('.scripts') === -1) {
+          subroutes.push(nd.replace(/\./g, '/'));
+        }
+        if (!Array.isArray(p[k]) && !k.startsWith('_')) {
+          results1.push(_lp(p[k], nd, _hide != null ? _hide : p[k]._hides));
+        } else {
+          results1.push(void 0);
+        }
+      } else {
+        results1.push(void 0);
+      }
+    }
+    return results1;
+  };
+  if (top) {
+    if (typeof top === 'string') {
+      top = top.replace(/\//g, '.');
+    }
+    _lp(typeof top === 'string' ? this.dot(P, top) : top);
+  }
+  return subroutes;
+};
+
+`P.limit = (fn, ms=300) ->
+  p = 0
+  t = null
+
+  lim = () ->
+    n = Date.now()
+    r = ms - (n - p)
+    args = arguments
+    if r <= 0 or r > ms
+      if t
+        clearTimeout t
+        t = null
+      p = n
+      res = fn.apply this, args
+    else
+      t ?= setTimeout () =>
+        p = Date.now()
+        res = fn.apply this, args
+      , r
+    return res
+
+  lim.stop = () -> clearTimeout t
+  return lim`;
 
 `P.retry = (fn, params=[], opts={}) ->
   # params should be a list of params for the fn
@@ -3803,45 +3848,340 @@ P.epoch = function(epoch) {
         opts.pause += opts.increment
     
   return undefined
+`;
 
+P.passphrase = function(len, lowercase) {
+  var ref, ref1, ref2, ref3, w, wl, words;
+  if (len == null) {
+    len = (ref = (ref1 = this.params.passphrase) != null ? ref1 : this.params.len) != null ? ref : 4;
+  }
+  if (lowercase == null) {
+    lowercase = (ref2 = (ref3 = this.params.lowercase) != null ? ref3 : this.params.lower) != null ? ref2 : false;
+  }
+  words = [];
+  wl = P._passphrase_words.length;
+  while (words.length < len) {
+    w = P._passphrase_words[Math.floor(Math.random() * wl)];
+    words.push(lowercase ? w : w.substring(0, 1).toUpperCase() + w.substring(1));
+  }
+  return words.join('');
+};
 
-# see https://github.com/arlac77/fetch-rate-limit-util/blob/master/src/rate-limit-util.mjs
-MIN_WAIT_MSECS = 1000 # wait at least this long
-MAX_RETRIES = 5 # only retry max this many times
+// the original xkcd password generator word list of 1949 common English words
+// https://preshing.com/20110811/xkcd-password-generator/
+// https://xkcd.com/936/
+P._passphrase_words = ["ability", "able", "aboard", "about", "above", "accept", "accident", "according", "account", "accurate", "acres", "across", "act", "action", "active", "activity", "actual", "actually", "add", "addition", "additional", "adjective", "adult", "adventure", "advice", "affect", "afraid", "after", "afternoon", "again", "against", "age", "ago", "agree", "ahead", "aid", "air", "airplane", "alike", "alive", "all", "allow", "almost", "alone", "along", "aloud", "alphabet", "already", "also", "although", "am", "among", "amount", "ancient", "angle", "angry", "animal", "announced", "another", "answer", "ants", "any", "anybody", "anyone", "anything", "anyway", "anywhere", "apart", "apartment", "appearance", "apple", "applied", "appropriate", "are", "area", "arm", "army", "around", "arrange", "arrangement", "arrive", "arrow", "art", "article", "as", "aside", "ask", "asleep", "at", "ate", "atmosphere", "atom", "atomic", "attached", "attack", "attempt", "attention", "audience", "author", "automobile", "available", "average", "avoid", "aware", "away", "baby", "back", "bad", "badly", "bag", "balance", "ball", "balloon", "band", "bank", "bar", "bare", "bark", "barn", "base", "baseball", "basic", "basis", "basket", "bat", "battle", "be", "bean", "bear", "beat", "beautiful", "beauty", "became", "because", "become", "becoming", "bee", "been", "before", "began", "beginning", "begun", "behavior", "behind", "being", "believed", "bell", "belong", "below", "belt", "bend", "beneath", "bent", "beside", "best", "bet", "better", "between", "beyond", "bicycle", "bigger", "biggest", "bill", "birds", "birth", "birthday", "bit", "bite", "black", "blank", "blanket", "blew", "blind", "block", "blood", "blow", "blue", "board", "boat", "body", "bone", "book", "border", "born", "both", "bottle", "bottom", "bound", "bow", "bowl", "box", "boy", "brain", "branch", "brass", "brave", "bread", "break", "breakfast", "breath", "breathe", "breathing", "breeze", "brick", "bridge", "brief", "bright", "bring", "broad", "broke", "broken", "brother", "brought", "brown", "brush", "buffalo", "build", "building", "built", "buried", "burn", "burst", "bus", "bush", "business", "busy", "but", "butter", "buy", "by", "cabin", "cage", "cake", "call", "calm", "came", "camera", "camp", "can", "canal", "cannot", "cap", "capital", "captain", "captured", "car", "carbon", "card", "care", "careful", "carefully", "carried", "carry", "case", "cast", "castle", "cat", "catch", "cattle", "caught", "cause", "cave", "cell", "cent", "center", "central", "century", "certain", "certainly", "chain", "chair", "chamber", "chance", "change", "changing", "chapter", "character", "characteristic", "charge", "chart", "check", "cheese", "chemical", "chest", "chicken", "chief", "child", "children", "choice", "choose", "chose", "chosen", "church", "circle", "circus", "citizen", "city", "class", "classroom", "claws", "clay", "clean", "clear", "clearly", "climate", "climb", "clock", "close", "closely", "closer", "cloth", "clothes", "clothing", "cloud", "club", "coach", "coal", "coast", "coat", "coffee", "cold", "collect", "college", "colony", "color", "column", "combination", "combine", "come", "comfortable", "coming", "command", "common", "community", "company", "compare", "compass", "complete", "completely", "complex", "composed", "composition", "compound", "concerned", "condition", "congress", "connected", "consider", "consist", "consonant", "constantly", "construction", "contain", "continent", "continued", "contrast", "control", "conversation", "cook", "cookies", "cool", "copper", "copy", "corn", "corner", "correct", "correctly", "cost", "cotton", "could", "count", "country", "couple", "courage", "course", "court", "cover", "cow", "cowboy", "crack", "cream", "create", "creature", "crew", "crop", "cross", "crowd", "cry", "cup", "curious", "current", "curve", "customs", "cut", "cutting", "daily", "damage", "dance", "danger", "dangerous", "dark", "darkness", "date", "daughter", "dawn", "day", "dead", "deal", "dear", "death", "decide", "declared", "deep", "deeply", "deer", "definition", "degree", "depend", "depth", "describe", "desert", "design", "desk", "detail", "determine", "develop", "development", "diagram", "diameter", "did", "die", "differ", "difference", "different", "difficult", "difficulty", "dig", "dinner", "direct", "direction", "directly", "dirt", "dirty", "disappear", "discover", "discovery", "discuss", "discussion", "disease", "dish", "distance", "distant", "divide", "division", "do", "doctor", "does", "dog", "doing", "doll", "dollar", "done", "donkey", "door", "dot", "double", "doubt", "down", "dozen", "draw", "drawn", "dream", "dress", "drew", "dried", "drink", "drive", "driven", "driver", "driving", "drop", "dropped", "drove", "dry", "duck", "due", "dug", "dull", "during", "dust", "duty", "each", "eager", "ear", "earlier", "early", "earn", "earth", "easier", "easily", "east", "easy", "eat", "eaten", "edge", "education", "effect", "effort", "egg", "eight", "either", "electric", "electricity", "element", "elephant", "eleven", "else", "empty", "end", "enemy", "energy", "engine", "engineer", "enjoy", "enough", "enter", "entire", "entirely", "environment", "equal", "equally", "equator", "equipment", "escape", "especially", "essential", "establish", "even", "evening", "event", "eventually", "ever", "every", "everybody", "everyone", "everything", "everywhere", "evidence", "exact", "exactly", "examine", "example", "excellent", "except", "exchange", "excited", "excitement", "exciting", "exclaimed", "exercise", "exist", "expect", "experience", "experiment", "explain", "explanation", "explore", "express", "expression", "extra", "eye", "face", "facing", "fact", "factor", "factory", "failed", "fair", "fairly", "fall", "fallen", "familiar", "family", "famous", "far", "farm", "farmer", "farther", "fast", "fastened", "faster", "fat", "father", "favorite", "fear", "feathers", "feature", "fed", "feed", "feel", "feet", "fell", "fellow", "felt", "fence", "few", "fewer", "field", "fierce", "fifteen", "fifth", "fifty", "fight", "fighting", "figure", "fill", "film", "final", "finally", "find", "fine", "finest", "finger", "finish", "fire", "fireplace", "firm", "first", "fish", "five", "fix", "flag", "flame", "flat", "flew", "flies", "flight", "floating", "floor", "flow", "flower", "fly", "fog", "folks", "follow", "food", "foot", "football", "for", "force", "foreign", "forest", "forget", "forgot", "forgotten", "form", "former", "fort", "forth", "forty", "forward", "fought", "found", "four", "fourth", "fox", "frame", "free", "freedom", "frequently", "fresh", "friend", "friendly", "frighten", "frog", "from", "front", "frozen", "fruit", "fuel", "full", "fully", "fun", "function", "funny", "fur", "furniture", "further", "future", "gain", "game", "garage", "garden", "gas", "gasoline", "gate", "gather", "gave", "general", "generally", "gentle", "gently", "get", "getting", "giant", "gift", "girl", "give", "given", "giving", "glad", "glass", "globe", "go", "goes", "gold", "golden", "gone", "good", "goose", "got", "government", "grabbed", "grade", "gradually", "grain", "grandfather", "grandmother", "graph", "grass", "gravity", "gray", "great", "greater", "greatest", "greatly", "green", "grew", "ground", "group", "grow", "grown", "growth", "guard", "guess", "guide", "gulf", "gun", "habit", "had", "hair", "half", "halfway", "hall", "hand", "handle", "handsome", "hang", "happen", "happened", "happily", "happy", "harbor", "hard", "harder", "hardly", "has", "hat", "have", "having", "hay", "he", "headed", "heading", "health", "heard", "hearing", "heart", "heat", "heavy", "height", "held", "hello", "help", "helpful", "her", "herd", "here", "herself", "hidden", "hide", "high", "higher", "highest", "highway", "hill", "him", "himself", "his", "history", "hit", "hold", "hole", "hollow", "home", "honor", "hope", "horn", "horse", "hospital", "hot", "hour", "house", "how", "however", "huge", "human", "hundred", "hung", "hungry", "hunt", "hunter", "hurried", "hurry", "hurt", "husband", "ice", "idea", "identity", "if", "ill", "image", "imagine", "immediately", "importance", "important", "impossible", "improve", "in", "inch", "include", "including", "income", "increase", "indeed", "independent", "indicate", "individual", "industrial", "industry", "influence", "information", "inside", "instance", "instant", "instead", "instrument", "interest", "interior", "into", "introduced", "invented", "involved", "iron", "is", "island", "it", "its", "itself", "jack", "jar", "jet", "job", "join", "joined", "journey", "joy", "judge", "jump", "jungle", "just", "keep", "kept", "key", "kids", "kill", "kind", "kitchen", "knew", "knife", "know", "knowledge", "known", "label", "labor", "lack", "lady", "laid", "lake", "lamp", "land", "language", "large", "larger", "largest", "last", "late", "later", "laugh", "law", "lay", "layers", "lead", "leader", "leaf", "learn", "least", "leather", "leave", "leaving", "led", "left", "leg", "length", "lesson", "let", "letter", "level", "library", "lie", "life", "lift", "light", "like", "likely", "limited", "line", "lion", "lips", "liquid", "list", "listen", "little", "live", "living", "load", "local", "locate", "location", "log", "lonely", "long", "longer", "look", "loose", "lose", "loss", "lost", "lot", "loud", "love", "lovely", "low", "lower", "luck", "lucky", "lunch", "lungs", "lying", "machine", "machinery", "mad", "made", "magic", "magnet", "mail", "main", "mainly", "major", "make", "making", "man", "managed", "manner", "manufacturing", "many", "map", "mark", "market", "married", "mass", "massage", "master", "material", "mathematics", "matter", "may", "maybe", "me", "meal", "mean", "means", "meant", "measure", "meat", "medicine", "meet", "melted", "member", "memory", "men", "mental", "merely", "met", "metal", "method", "mice", "middle", "might", "mighty", "mile", "military", "milk", "mill", "mind", "mine", "minerals", "minute", "mirror", "missing", "mission", "mistake", "mix", "mixture", "model", "modern", "molecular", "moment", "money", "monkey", "month", "mood", "moon", "more", "morning", "most", "mostly", "mother", "motion", "motor", "mountain", "mouse", "mouth", "move", "movement", "movie", "moving", "mud", "muscle", "music", "musical", "must", "my", "myself", "mysterious", "nails", "name", "nation", "national", "native", "natural", "naturally", "nature", "near", "nearby", "nearer", "nearest", "nearly", "necessary", "neck", "needed", "needle", "needs", "negative", "neighbor", "neighborhood", "nervous", "nest", "never", "new", "news", "newspaper", "next", "nice", "night", "nine", "no", "nobody", "nodded", "noise", "none", "noon", "nor", "north", "nose", "not", "note", "noted", "nothing", "notice", "noun", "now", "number", "numeral", "nuts", "object", "observe", "obtain", "occasionally", "occur", "ocean", "of", "off", "offer", "office", "officer", "official", "oil", "old", "older", "oldest", "on", "once", "one", "only", "onto", "open", "operation", "opinion", "opportunity", "opposite", "or", "orange", "orbit", "order", "ordinary", "organization", "organized", "origin", "original", "other", "ought", "our", "ourselves", "out", "outer", "outline", "outside", "over", "own", "owner", "oxygen", "pack", "package", "page", "paid", "pain", "paint", "pair", "palace", "pale", "pan", "paper", "paragraph", "parallel", "parent", "park", "part", "particles", "particular", "particularly", "partly", "parts", "party", "pass", "passage", "past", "path", "pattern", "pay", "peace", "pen", "pencil", "people", "per", "percent", "perfect", "perfectly", "perhaps", "period", "person", "personal", "pet", "phrase", "physical", "piano", "pick", "picture", "pictured", "pie", "piece", "pig", "pile", "pilot", "pine", "pink", "pipe", "pitch", "place", "plain", "plan", "plane", "planet", "planned", "planning", "plant", "plastic", "plate", "plates", "play", "pleasant", "please", "pleasure", "plenty", "plural", "plus", "pocket", "poem", "poet", "poetry", "point", "pole", "police", "policeman", "political", "pond", "pony", "pool", "poor", "popular", "population", "porch", "port", "position", "positive", "possible", "possibly", "post", "pot", "potatoes", "pound", "pour", "powder", "power", "powerful", "practical", "practice", "prepare", "present", "president", "press", "pressure", "pretty", "prevent", "previous", "price", "pride", "primitive", "principal", "principle", "printed", "private", "prize", "probably", "problem", "process", "produce", "product", "production", "program", "progress", "promised", "proper", "properly", "property", "protection", "proud", "prove", "provide", "public", "pull", "pupil", "pure", "purple", "purpose", "push", "put", "putting", "quarter", "queen", "question", "quick", "quickly", "quiet", "quietly", "quite", "rabbit", "race", "radio", "railroad", "rain", "raise", "ran", "ranch", "range", "rapidly", "rate", "rather", "raw", "rays", "reach", "read", "reader", "ready", "real", "realize", "rear", "reason", "recall", "receive", "recent", "recently", "recognize", "record", "red", "refer", "refused", "region", "regular", "related", "relationship", "religious", "remain", "remarkable", "remember", "remove", "repeat", "replace", "replied", "report", "represent", "require", "research", "respect", "rest", "result", "return", "review", "rhyme", "rhythm", "rice", "rich", "ride", "riding", "right", "ring", "rise", "rising", "river", "road", "roar", "rock", "rocket", "rocky", "rod", "roll", "roof", "room", "root", "rope", "rose", "rough", "round", "route", "row", "rubbed", "rubber", "rule", "ruler", "run", "running", "rush", "sad", "saddle", "safe", "safety", "said", "sail", "sale", "salmon", "salt", "same", "sand", "sang", "sat", "satellites", "satisfied", "save", "saved", "saw", "say", "scale", "scared", "scene", "school", "science", "scientific", "scientist", "score", "screen", "sea", "search", "season", "seat", "second", "secret", "section", "see", "seed", "seeing", "seems", "seen", "seldom", "select", "selection", "sell", "send", "sense", "sent", "sentence", "separate", "series", "serious", "serve", "service", "sets", "setting", "settle", "settlers", "seven", "several", "shade", "shadow", "shake", "shaking", "shall", "shallow", "shape", "share", "sharp", "she", "sheep", "sheet", "shelf", "shells", "shelter", "shine", "shinning", "ship", "shirt", "shoe", "shoot", "shop", "shore", "short", "shorter", "shot", "should", "shoulder", "shout", "show", "shown", "shut", "sick", "sides", "sight", "sign", "signal", "silence", "silent", "silk", "silly", "silver", "similar", "simple", "simplest", "simply", "since", "sing", "single", "sink", "sister", "sit", "sitting", "situation", "six", "size", "skill", "skin", "sky", "slabs", "slave", "sleep", "slept", "slide", "slight", "slightly", "slip", "slipped", "slope", "slow", "slowly", "small", "smaller", "smallest", "smell", "smile", "smoke", "smooth", "snake", "snow", "so", "soap", "social", "society", "soft", "softly", "soil", "solar", "sold", "soldier", "solid", "solution", "solve", "some", "somebody", "somehow", "someone", "something", "sometime", "somewhere", "son", "song", "soon", "sort", "sound", "source", "south", "southern", "space", "speak", "special", "species", "specific", "speech", "speed", "spell", "spend", "spent", "spider", "spin", "spirit", "spite", "split", "spoken", "sport", "spread", "spring", "square", "stage", "stairs", "stand", "standard", "star", "stared", "start", "state", "statement", "station", "stay", "steady", "steam", "steel", "steep", "stems", "step", "stepped", "stick", "stiff", "still", "stock", "stomach", "stone", "stood", "stop", "stopped", "store", "storm", "story", "stove", "straight", "strange", "stranger", "straw", "stream", "street", "strength", "stretch", "strike", "string", "strip", "strong", "stronger", "struck", "structure", "struggle", "stuck", "student", "studied", "studying", "subject", "substance", "success", "successful", "such", "sudden", "suddenly", "sugar", "suggest", "suit", "sum", "summer", "sun", "sunlight", "supper", "supply", "support", "suppose", "sure", "surface", "surprise", "surrounded", "swam", "sweet", "swept", "swim", "swimming", "swing", "swung", "syllable", "symbol", "system", "table", "tail", "take", "taken", "tales", "talk", "tall", "tank", "tape", "task", "taste", "taught", "tax", "tea", "teach", "teacher", "team", "tears", "teeth", "telephone", "television", "tell", "temperature", "ten", "tent", "term", "terrible", "test", "than", "thank", "that", "thee", "them", "themselves", "then", "theory", "there", "therefore", "these", "they", "thick", "thin", "thing", "think", "third", "thirty", "this", "those", "thou", "though", "thought", "thousand", "thread", "three", "threw", "throat", "through", "throughout", "throw", "thrown", "thumb", "thus", "thy", "tide", "tie", "tight", "tightly", "till", "time", "tin", "tiny", "tip", "tired", "title", "to", "tobacco", "today", "together", "told", "tomorrow", "tone", "tongue", "tonight", "too", "took", "tool", "top", "topic", "torn", "total", "touch", "toward", "tower", "town", "toy", "trace", "track", "trade", "traffic", "trail", "train", "transportation", "trap", "travel", "treated", "tree", "triangle", "tribe", "trick", "tried", "trip", "troops", "tropical", "trouble", "truck", "trunk", "truth", "try", "tube", "tune", "turn", "twelve", "twenty", "twice", "two", "type", "typical", "uncle", "under", "underline", "understanding", "unhappy", "union", "unit", "universe", "unknown", "unless", "until", "unusual", "up", "upon", "upper", "upward", "us", "use", "useful", "using", "usual", "usually", "valley", "valuable", "value", "vapor", "variety", "various", "vast", "vegetable", "verb", "vertical", "very", "vessels", "victory", "view", "village", "visit", "visitor", "voice", "volume", "vote", "vowel", "voyage", "wagon", "wait", "walk", "wall", "want", "war", "warm", "warn", "was", "wash", "waste", "watch", "water", "wave", "way", "we", "weak", "wealth", "wear", "weather", "week", "weigh", "weight", "welcome", "well", "went", "were", "west", "western", "wet", "whale", "what", "whatever", "wheat", "wheel", "when", "whenever", "where", "wherever", "whether", "which", "while", "whispered", "whistle", "white", "who", "whole", "whom", "whose", "why", "wide", "widely", "wife", "wild", "will", "willing", "win", "wind", "window", "wing", "winter", "wire", "wise", "wish", "with", "within", "without", "wolf", "women", "won", "wonder", "wonderful", "wood", "wooden", "wool", "word", "wore", "work", "worker", "world", "worried", "worry", "worse", "worth", "would", "wrapped", "write", "writer", "writing", "written", "wrong", "wrote", "yard", "year", "yellow", "yes", "yesterday", "yet", "you", "young", "younger", "your", "yourself", "youth", "zero", "zoo"];
 
-/**
- * @param {Integer} millisecondsToWait
- * @param {Integer} rateLimitRemaining parsed from "x-ratelimit-remaining" header
- * @param {Integer} nthTry how often have we retried the request already
- * @param {Object} response as returned from fetch
- * @return {Integer} milliseconds to wait for next try or < 0 to deliver current response
- */
-defaultWaitDecide = (millisecondsToWait, rateLimitRemaining, nthTry, response) ->
-  return if nthTry > MAX_RETRIES then -1 else millisecondsToWait + MIN_WAIT_MSECS
-
-rateLimitHandler = (fetcher, waitDecide = defaultWaitDecide) ->
-  i = 0
-  while true
-    response = await fetcher()
-
-    switch (response.status) ->
-      default:
-        return response
-
-      case 403:
-      case 429:
-        # this differs by API we're hitting, example was for github. 
-        # It's the timestamp of when the rate limit window would reset, generalise this
-        rateLimitReset = parseInt response.headers.get "x-ratelimit-reset"
-
-        millisecondsToWait = if isNaN(rateLimitReset) then 0 else new Date(rateLimitReset * 1000).getTime() - Date.now()
-
-        millisecondsToWait = waitDecide(millisecondsToWait, parseInt(response.headers.get("x-ratelimit-remaining")), i, response)
-        if millisecondsToWait <= 0
-          return response
-        else
-          await new Promise resolve => setTimeout resolve, millisecondsToWait
-    i++`;
+// API calls this to wrap functions on P, apart from top level functions and ones 
+// that start with _ or that indicate no wrapping with _wrap: false
+// wrapper settings declared on each P function specify which wrap actions to apply
+// _auth and _cache settings on a P function are handled by API BEFORE _wrapper is 
+// used, so _auth and _cache are not handled within the wrapper
+// the wrapepr logs the function call (whether it was the main API call or subsequent)
+P._wrapper = function(f, n) { // the function to wrap and the string name of the function
+  return async function() {
+    var _as, args, bup, exists, lg, limited, qry, rec, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, res, rt, sht, started;
+    started = Date.now(); // not accurate in a workers environment, but close enough
+    rt = n.replace(/\./g, '_');
+    lg = {
+      fn: n
+    };
+    // _limit can be true, which stays in place until the function completes, or it can be a number which 
+    // will be the lifespan of the limit record in the KV store
+    // _limit
+    if (f._limit) {
+      limited = (await this.kv('limit/' + n));
+      while (limited) {
+        if (lg.limited == null) {
+          lg.limited = 0;
+        }
+        lg.limited += limited;
+        await this.sleep(limited - started);
+        limited = (await this.kv('limit/' + n));
+      }
+    }
+    // check for an _async param request and look to see if it is in the async finished store
+    // if so, serve the result otherwise re-serve the param to indicate waiting should continue
+    // _async
+    if ((ref = typeof this.params._async) === 'string' || ref === 'number') {
+      if (res = (await this.kv('async/' + this.params._async, ''))) {
+        if (typeof res === 'string' && res.includes('/') && !res.includes(' ') && !res.startsWith('10.') && res.split('/').length === 2) {
+          try {
+            if (f._kv) {
+              res = (await this.kv(res));
+            }
+          } catch (error) {}
+          try {
+            if ((res == null) && f._index) { // async stored the _id for the result
+              res = (await this.index(res));
+            }
+          } catch (error) {}
+        }
+        try {
+          if (typeof res === 'string' && (res.startsWith('{') || res.startsWith('['))) {
+            res = JSON.parse(res);
+          }
+        } catch (error) {}
+      } else {
+        res = {
+          _async: this.params._async // user should keep waiting
+        };
+      }
+    
+    // serve the underlying sheet / csv link if configured and asked for it
+    // _sheet
+    } else if (this.fn === n && f._sheet && this.parts.indexOf('sheet') === this.parts.length - 1) {
+      res = {
+        status: 302
+      };
+      if (f._sheet.startsWith('http')) {
+        res.body = f._sheet;
+      } else if (this.format === 'json') { // TODO make it handle sheet and sheet ID in cases where both are provided
+        res.body = 'https://spreadsheets.google.com/feeds/list/' + f._sheet + '/' + 'default' + '/public/values?alt=json';
+      } else {
+        res.body = 'https://docs.google.com/spreadsheets/d/' + f._sheet;
+      }
+      res.headers = {
+        Location: res.body
+      };
+    // a function with _index will be given child functions that call the default index child functions - if they're present, call them with the route specified
+    } else if (f._indexed) {
+      args = [...arguments];
+      args.unshift(rt.replace('_' + f._indexed, ''));
+      res = (await this.index[f._indexed](...args));
+    
+    // index / kv should first be checked if configured
+    // _index, _kv
+    } else if (f._index || f._kv && (!f._sheet || this.fn !== n || !this.refresh)) {
+      if (arguments.length === 1) {
+        rec = f._kv || (f._index && (arguments[0] === '' || typeof arguments[0] === 'object')) ? arguments[0] : void 0;
+      } else if (arguments.length === 2 && typeof arguments[0] === 'string' && arguments[0].length) {
+        rec = arguments[1];
+      } else if (this.fn === n && ((this.request.method === 'DELETE' || this.params._delete) || (((ref1 = this.request.method) === 'POST' || ref1 === 'PUT') && (this.body != null) && JSON.stringify(this.body) !== '{}'))) {
+        rec = this.request.method === 'DELETE' || this.params._delete ? '' : this.body; // TODO an auth check has to occur somewhere if this is a delete from the API
+      }
+      if (f._index && (this.fn !== n || this.request.method !== 'PUT') && arguments[0] !== '' && arguments[1] !== '') { // check in case rec is actually a query
+        qry = arguments.length ? (await this.index.translate(arguments[0], arguments[1])) : (rec != null) || JSON.stringify(this.params) !== '{}' ? (await this.index.translate(rec != null ? rec : this.params)) : void 0;
+        if ((qry != null) && (arguments.length || this.fn === n)) {
+          rec = void 0;
+        }
+      }
+      lg.key = typeof arguments[0] === 'string' && arguments[0] !== rec ? arguments[0] : this.fn === n && this.fn.replace(/\./g, '/') !== this.route ? this.route.split(n.split('.').pop()).pop() : void 0;
+      if (lg.key) {
+        lg.key = lg.key.replace(/\//g, '_').replace(/^_/, '').replace(/_$/, '');
+      }
+      if (typeof rec === 'object' && !Array.isArray(rec) && !rec._id) {
+        rec._id = (ref2 = (ref3 = lg.key) != null ? ref3 : rec[f._key]) != null ? ref2 : this.uid();
+      }
+      if (f._kv && (qry == null) && lg.key) {
+        res = (await this.kv(rt + (lg.key ? '/' + lg.key : ''), rec));
+        if ((res != null) && (rec == null)) {
+          lg.cached = this.cached = 'kv';
+        }
+      }
+      if (f._index && ((rec != null) || (res == null)) && ((rec != null) || !this.refresh || typeof f !== 'function')) {
+        res = (await this.index(rt + (lg.key && ((rec != null) || (qry == null)) ? '/' + lg.key : ''), rec != null ? rec : (!lg.key ? qry : void 0)));
+        if ((res == null) && (!lg.key || (rec == null))) { // this happens if the index does not exist yet, so create it (otherwise res would be a search result object)
+          await this.index(rt, typeof f._index !== 'object' ? {} : {
+            settings: f._index.settings,
+            mappings: f._index.mappings,
+            aliases: f._index.aliases
+          });
+          res = (await this.index(rt + (lg.key ? '/' + lg.key : ''), rec != null ? rec : (!lg.key ? qry : void 0)));
+        }
+        if ((rec == null) && typeof res === 'object' && !Array.isArray(res) && ((ref4 = res.hits) != null ? ref4.total : void 0) === 0 && typeof f === 'function' && lg.key) { // allow the function to run to try to retrieve or create the record from remote
+          res = void 0;
+        }
+        if ((res != null ? (ref5 = res.hits) != null ? ref5.total : void 0 : void 0) !== 1 && (qry != null) && lg.key && ((this.fn === n && this.fn.replace(/\./g, '/') === this.route) || arguments.length === 1) && !lg.key.includes(' ')) {
+          res = (await this.index(rt, qry)); // if direct lookup didn't work try a search
+        }
+        if ((res != null) && (qry != null) && ((ref6 = qry.query) != null ? (ref7 = ref6.bool) != null ? ref7.must : void 0 : void 0) && qry.query.bool.must.length === 1 && (qry.size === 1 || (res.hits.total === 1 && ((this.fn !== n && typeof arguments[0] === 'string' && !arguments[0].includes(' ') && !arguments[0].includes('*')) || (this.params.q == null))))) {
+          if ((res.hits.hits[0]._source != null) && (res.hits.hits[0]._source._id == null)) {
+            res.hits.hits[0]._source._id = res.hits.hits[0]._id;
+          }
+          res = (ref8 = res.hits.hits[0]._source) != null ? ref8 : res.hits.hits[0].fields; // return 1 record instead of a search result. is fields instead of _source still possible in ES7.x?
+        }
+        if ((res != null) && (rec == null)) {
+          lg.cached = this.cached = 'index';
+        }
+      }
+      `lg.key = @route.split(n.split('.').pop()).pop() if @fn is n
+if not lg.key and f._index and (@fn isnt n or @request.method in ['GET', 'POST']) and ((arguments.length in [1,2] and arguments[1] isnt '' and qr = await @index.translate arguments[0], arguments[1]) or (not arguments.length and qr = await @index.translate @params))
+  lg.qry = qr
+else
+  if (arguments.length is 1 and arguments[0] is '') or (@fn is n and @request.method is 'DELETE')
+    rec = ''
+  else if (typeof arguments[0] is 'string' and arguments[0].length) or typeof arguments[0] is 'object'
+    rec = arguments[1] ? arguments[0]
+    lg.key = arguments[0] if typeof arguments[0] is 'string'
+    rec = undefined if rec is lg.key and arguments.length < 2
+  else if @fn is n
+    rec = if @request.method in ['POST', 'PUT'] then @body else @copy @params
+    delete rec[c] for c in @parts
+    rec = undefined if JSON.stringify(rec) is '{}'
+  if typeof rec is 'object' and not Array.isArray rec
+    rec._id ?= rec[f._key] ? @uid()
+    lg.key ?= rec._id
+  if f._kv and lg.key
+    lg.key = lg.key.replace(/\//g, '_').replace(/^_/,'').replace(/_$/,'')
+    res = await @kv rt + '/' + lg.key, rec
+    lg.cached = 'kv' if res? and not rec?
+if f._index and (not res? or rec? or lg.key)
+  lg.key = lg.key.replace(/\//g, '_').replace(/^_/,'').replace(/_$/,'') if lg.key
+  if not f._sheet or @fn isnt n or not @refresh # try either putting the record, or getting a key, or searching
+    res = await @index rt + (if lg.key then '/' + lg.key else ''), (if rec? then rec else if lg.key then undefined else lg.qry)
+  if not res? and not lg.key # anything apart from a direct record lookup for a record that doesn't exist should at least return an empty search result or an ES response, so if nothing back, create the index and try again
+    await @index rt, if typeof f._index isnt 'object' then {} else {settings: f._index.settings, mappings: f._index.mappings, aliases: f._index.aliases}
+    if not f._sheet or @fn isnt n or not @refresh # try again now that the index has been created
+      res = await @index rt + (if lg.key then '/' + lg.key else ''), (if rec? then rec else if lg.key then undefined else lg.qry)
+  if res? and typeof res is 'object' and res.hits? and not rec? and lg.qry?
+    if res.hits.total isnt 1 and lg.qry? and typeof arguments[0] is 'string' and arguments[0].length and not arguments[0].includes ' '
+      try res = await @index rt, lg.qry # if direct lookup didn't work try a search
+    if res.hits?.total is 0 and typeof f is 'function' and (lg.key or arguments[0])
+      res = undefined # allow the function to run to try to retrieve or create the record from remote
+    else if res.hits?.total? and res.hits.hits?
+      lg.cached = 'index'
+      if ((lg.key or (typeof lg.qry is 'object' and lg.qry.query?.bool?.must and lg.qry.query.bool.must.length is 1 and lg.qry.query.bool.must[0].query_string?.query)) and res.hits.total is 1) or (res.hits.hits and lg.qry?.size is 1)
+        rd = res.hits.hits[0]._id
+        res = res.hits.hits[0]._source ? res.hits.hits[0].fields
+        res._id ?= rd
+@cached = lg.cached`;
+    }
+    // if nothing yet, send to bg for _bg or _sheet functions, if bg is available and not yet on bg
+    // _bg, _sheet
+    if ((res == null) && (f._bg || f._sheet) && typeof this.S.bg === 'string' && this.S.bg.indexOf('http') === 0) {
+      bup = {
+        headers: {},
+        body: rec,
+        params: this.copy(this.params)
+      };
+      if (this.refresh) {
+        bup.params.refresh = true;
+      }
+      bup.headers['x-' + this.S.name.toLowerCase() + '-async'] = this.rid;
+      res = (await this.fetch(this.S.bg + '/' + rt.replace(/\_/g, '/'), bup)); // if this takes too long the whole route function will timeout and cascade to bg
+      lg.bg = true; // TODO would it be better to just throw error here and divert the entire request to backend?
+    }
+    
+    // if nothing yet, and function has _sheet, and it wasn't a specific record lookup attempt, 
+    // or it was a specific API call to refresh the _sheet index, or any call where index doesn't exist yet,
+    // then (create the index if not existing and) populate the index from the sheet
+    // this will happen on background where possible, because above will have routed to bg if it was available
+    // _sheet
+    if ((res == null) && f._sheet && ((this.refresh && this.fn === n) || !(exists = (await this.index(rt))))) {
+      if (f._sheet.startsWith('http') && f._sheet.includes('csv')) {
+        sht = (await this.convert.csv2json(f._sheet));
+      } else if (f._sheet.startsWith('http') && f._sheet.includes('json')) {
+        sht = (await this.fetch(f._sheet));
+        if (sht && !Array.isArray(sht)) {
+          sht = [sht];
+        }
+      } else {
+        sht = (await this.src.google.sheets(f._sheet));
+      }
+      if (Array.isArray(sht) && sht.length) {
+        if (typeof f === 'function') { // process the sheet with the function if necessary, then create or empty the index
+          sht = (await f.apply(this, [sht]));
+        }
+        await this.index(rt, '');
+        await this.index(rt, typeof f._index !== 'object' ? {} : {
+          settings: f._index.settings,
+          mappings: f._index.mappings,
+          aliases: f._index.aliases
+        });
+        if (arguments.length || JSON.stringify(this.params) !== '{}') {
+          await this.index(rt, sht);
+        } else {
+          this.waitUntil(this.index(rt, sht));
+          res = sht.length; // if there are args, don't set the res, so the function can run afterwards if present
+        }
+      } else {
+        res = 0;
+      }
+    }
+    
+    // if still nothing happened, and the function defined on P really IS a function
+    // (it could also be an index or kv config object with no default function)
+    // call the function, either _async if the function indicates it, or directly
+    // and record limit settings if present to restrict more runnings of the same function
+    // _async, _limit
+    if ((res == null) && typeof f === 'function') {
+      _as = async(rt, f, ar, notify) => {
+        var c, ends, i, id, len, r, ref10, ref9;
+        if (f._limit) {
+          ends = f._limit === true ? 86400 : f._limit;
+          await this.kv('limit/' + n, started + ends, ends); // max limit for one day
+        }
+        r = (await f.apply(this, ar));
+        if ((r != null) && (f._kv || f._index) && (r.took == null) && (r.hits == null)) {
+          if (f._key && Array.isArray(r) && r.length && (r[0]._id == null) && (r[0][f._key] != null)) {
+            for (i = 0, len = r.length; i < len; i++) {
+              c = r[i];
+              if (c._id == null) {
+                c._id = c[f._key];
+              }
+            }
+          }
+          id = Array.isArray(r) ? '' : '/' + ((ref9 = (ref10 = r[f._key]) != null ? ref10 : r._id) != null ? ref9 : this.uid()).replace(/\//g, '_').toLowerCase();
+          if (f._kv && !Array.isArray(r)) {
+            this.kv(rt + id, res, f._kv);
+          }
+          if (f._index) {
+            this.waitUntil(this.index(rt + id, r));
+          }
+        }
+        if (f._limit === true) {
+          await this.kv('limit/' + n, ''); // where limit is true only delay until function completes, then delete limit record
+        }
+        if (f._async) {
+          this.kv('async/' + this.rid, ((id != null) && !Array.isArray(r) ? rt + id : Array.isArray(r) ? r.length : r), 172800); // lasts 48 hours
+          if (notify) {
+            this.mail({
+              to: notify,
+              text: this.base + '/' + rt + '?_async=' + this.rid
+            });
+          }
+        }
+        return r;
+      };
+      if (f._async) {
+        lg.async = true;
+        res = {
+          _async: this.rid
+        };
+        this.waitUntil(_as(rt, f, arguments, this.params.notify));
+      } else {
+        res = (await _as(rt, f, arguments));
+      }
+    }
+    // if _diff checking is required, save the args and res and the "log" will alert 
+    // if there is a difference in the result for the same args
+    // _diff
+    if (f._diff && (res != null) && !lg.cached && !lg.async) {
+      lg.args = JSON.stringify(arguments.length ? arguments : this.fn === n ? this.params : '');
+      lg.res = JSON.stringify(res); // what if this is huge? just checksum it?
+      try {
+        lg.checksum = this.shorthash(lg.res);
+      } catch (error) {}
+    }
+    // if _history is required, record more about the incoming record change, if that's what happened
+    // _history
+    if (f._history && typeof rec === 'object' && !Array.isArray(rec) && rec._id) {
+      lg.history = rec._id;
+      lg.rec = JSON.stringify(rec); // record the incoming rec to record a history of changes to the record
+    }
+    
+    // _log
+    if (f._log !== false) {
+      if (qry) {
+        lg.qry = JSON.stringify(qry);
+      }
+      lg.took = Date.now() - started;
+      this.log(lg);
+    }
+    return res;
+  };
+};
 
 // https://developers.cloudflare.com/workers/runtime-apis/cache
 
@@ -3861,10 +4201,10 @@ rateLimitHandler = (fetcher, waitDecide = defaultWaitDecide) ->
 // https://support.cloudflare.com/hc/en-us/articles/200168276
 
 // https://developers.cloudflare.com/workers/examples/cache-api
-P._cache = async function(request, response, age) {
+P.cache = async function(request, response, age) {
   var ck, cu, h, hp, i, len, ref, rp, rs, url;
   if (typeof age !== 'number') {
-    age = typeof this.S.cache === 'number' ? this.S.cache : this.S.dev ? 120 : 3600; // how long should default cache be?
+    age = typeof this.S.cache === 'number' ? this.S.cache : this.S.dev ? 120 : 43200; // how long should default cache be? here is 2 mins for dev, 12 hours for live
   }
   // age is max age in seconds until removal from cache (note this is not strict, CF could remove for other reasons)
   // request and response needs to be an actual Request and Response objects
@@ -3879,7 +4219,6 @@ P._cache = async function(request, response, age) {
       try {
         url = request.url.toString();
         ref = ['refresh'];
-        // should caches be keyed to apikey? what about headers? Do they affect caching?
         for (i = 0, len = ref.length; i < len; i++) {
           h = ref[i];
           if (url.indexOf(h + '=') !== -1) {
@@ -3927,17 +4266,18 @@ P._cache = async function(request, response, age) {
   }
 };
 
-  // TODO be able to receive bulk json lists or formatted bulk strings. Need to stick the useful default values into each
-  // those would be createdAt, created_date (in default templates format for ES 7.1) and user ID of the action?
+P.cache._hide = true;
 
-// TODO add alias handling, particularly so that complete new imports can be built in a separate index then just repoint the alias
+P.cache._auth = 'system';
+
+  // TODO add alias handling, particularly so that complete new imports can be built in a separate index then just repoint the alias
   // alias can be set on create, and may be best just to use an alias every time
   // https://www.elastic.co/guide/en/elasticsearch/reference/current/indices-aliases.html
   // can also use aliases and alternate routes to handle auth to certain subsets of date
   // aliased mappings can also have a filter applied, so only the filter results get returned
 
-// TODO if index SHOULD be available but fails, write to kv if that's available? But don't end up in a loop...
-  // anything found by _schedule in kv that isn't set to _kv will get written to index once it becomes available
+// TODO if index SHOULD be available but fails, write to kv if that's available? But don't end up in a loop.
+  // schedule would then have to pick them up and write them to index later once it becomes available again
 var base, base1, ref,
   indexOf = [].indexOf;
 
@@ -3961,8 +4301,27 @@ if (typeof S.bg === 'string') {
   }
 }
 
-P.index = async function(route, data, qopts) {
-  var c, chk, cidx, dni, ind, j, len, ref1, ref2, ref3, ref4, ref5, ret, rex, rpl, rqp;
+// route must be a string (or derived from URL params)
+// any _ route is a control request (can only come from internal, not via API) e.g. _mapping, _scroll, etc
+// a route without /_ and /... is an index (or all indices)
+// in which case data can be a record to save (or update) or a query
+// if a query, it plus opts must be identifiable as such by P.index.translate
+// no data at all is also a query - queries will return the full ES _search result object
+// this can be overridden by setting opts to 1, in which case only the _source of the first hit is returned
+// to loop over all search results (or a specified max number of results), set opts to -1?
+// and provide the foreach param
+
+// if not a query, it's a record which may or may not have an _id (if has _id it could be a save or update)
+// a route without /_ but with /... is a record. Anything after the slash must be the ID
+// if there is no data the _source (with _id?) of the specific record will be returned
+// if there is data it will replace the record (any _id in the data will be removed, it cannot overwrite the route)
+// if data is a list it will be bulk loaded to the index
+
+// delete is achieved by setting data to '' (works for either a route without /... to delete the index, or with /... to delete a record)
+// delete can only be achieved with '' internally, or by a request method of DELETE or URL param of _delete and suitable auth
+// delete by query can also work this way
+P.index = async function(route, data, opts, foreach) {
+  var c, chk, dni, i, ind, j, len, qr, ref1, ref2, ref3, ref4, ref5, res, ret, rex, rpl, rqp;
   if (typeof route === 'object') {
     data = route;
     route = void 0;
@@ -3979,7 +4338,9 @@ P.index = async function(route, data, qopts) {
       if (typeof this.body === 'object') {
         data = this.copy(this.body);
       } else if (typeof this.body === 'string') {
-        data = this.body;
+        if (this.body !== '') { // have to specify a DELETE method, or the _delete param on API, not just an empty body
+          data = this.body;
+        }
       } else {
         data = this.copy(this.params);
       }
@@ -4002,20 +4363,20 @@ P.index = async function(route, data, qopts) {
   if (route == null) {
     if (((this != null ? this.parts : void 0) != null) && this.parts[0] === 'index') { // need custom auth for who can create/remove indexes and records directly?
       if (this.parts.length === 1) {
-        return (await this.index._indices());
+        res = [];
+        for (i in ((await this.index._send('_stats'))).indices) {
+          if (!i.startsWith('.') && !i.startsWith('security-')) {
+            res.push(i);
+          }
+        }
+        return res;
       } else if (this.parts.length === 2) { // called direct on an index
         route = this.parts[1];
       } else if (this.parts.length > 2) { // called on index/key route
-        `lp = @parts[@parts.length-1]
-lpp = @parts[@parts.length-2]
-if (typeof P.index[lp] is 'function' and not lp.startsWith '_') or lpp is 'suggest'
-  return @index[if lpp is 'suggest' then 'suggest' else lp] @route
-else`;
         // most IDs will only be at position 3 but for example using a DOI as an ID would spread it across 3 and 4
         route = this.parts[1] + '/' + this.parts.slice(2).join('_'); // so combine them with an underscore - IDs can't have a slash in them
       }
     } else if ((this != null ? this.fn : void 0) != null) {
-      // auth should not matter here because providing route or data means the function is being handled elsehwere, which should deal with auth
       route = this.fn.replace(/\./g, '_'); // if the wrapping function wants data other than that defined by the URL route it was called on, it MUST specify the route manually
       if (this.parts.join('.') !== this.fn) {
         // what if the @parts indicate this is a request for a specific record though, not just an index?
@@ -4036,19 +4397,25 @@ else`;
     route = route.replace(/\/$/, '');
   }
   if (typeof data === 'object' && !Array.isArray(data) && data._id) {
+    data = (this != null ? this.copy : void 0) != null ? this.copy(data) : P.copy(data);
     dni = data._id.replace(/\//g, '_');
     if (route.indexOf('/') === -1 && route.indexOf(dni) === -1) {
-      route += '/' + data._id;
+      route += '/' + dni;
     }
     delete data._id; // ID can't go into the data for ES7.x
   }
+  
+  // TODO if data is a record to save, should default fields such as createdAt ALWAYS be added here?
+  // e.g rec.createdAt = Date.now()
   route = route.toLowerCase();
   rpl = route.split('/').length;
-  cidx = (this != null ? this.index : void 0) != null ? this.index : P.index; // allow either P.index or a contextualised @index to be used
+  if (this.index == null) {
+    this.index = P.index; // allow either P.index or a contextualised @index to be used
+  }
   if ((((this != null ? this.parts : void 0) != null) && this.parts[0] === 'index' && (this.request.method === 'DELETE' || this.params._delete)) || data === '') {
     // DELETE can happen on index or index/key, needs no additional route parts for index but index/key has to happen on _doc
-    // TODO for @params._delete allow a passthrough of data in case it is a delete by query, once _submit is updated to handle that if still possible
-    ret = (await cidx._submit(route.replace('/', '/_doc/') + rqp, ''));
+    // TODO for @params._delete allow a passthrough of data in case it is a delete by query, once _send is updated to handle that if still possible
+    ret = (await this.index._send(route.replace('/', '/_doc/') + rqp, ''));
     return void 0; //ret.acknowledged is true or ret.result is 'deleted'
   } else if (rpl === 1) {
     // CREATE can happen on index if index params are provided or empty object is provided
@@ -4056,13 +4423,13 @@ else`;
     // simplest create would be {} or settings={number_of_shards:1} where 1 is default anyway
     if ((typeof data === 'string' && (data === '' || data.indexOf('\n') !== -1)) || Array.isArray(data)) {
       if (data === '') {
-        return cidx._submit(route + rqp, data);
+        return this.index._send(route + rqp, data);
       } else {
-        return cidx._bulk(route + rqp, data); // bulk create (TODO what about if wanting other bulk actions?)
+        return this.index._bulk(route + rqp, data); // bulk create (TODO what about if wanting other bulk actions?)
       }
     } else if ((ref3 = typeof data) === 'object' || ref3 === 'string') {
-      if (typeof data === 'string' || cidx._q(data)) {
-        return cidx._submit(route + '/_search' + rqp, (await cidx.translate(data, qopts)));
+      if (qr = (await this.index.translate(data, opts))) {
+        return this.index._send(route + '/_search' + rqp, qr);
       } else if (typeof data === 'object') {
         chk = (this != null ? this.copy : void 0) != null ? this.copy(data) : P.copy(data);
         ref4 = ['settings', 'aliases', 'mappings'];
@@ -4071,21 +4438,26 @@ else`;
           delete chk[c];
         }
         if (JSON.stringify(chk) === '{}') {
-          if (!(await cidx._submit(route + rqp))) {
-            ind = !cidx._q(data) ? {
+          if (!(await this.index._send(route + rqp))) {
+            ind = !(await this.index.translate(data)) ? {
               settings: data.settings,
               aliases: data.aliases,
               mappings: data.mappings
             } : {};
-            await cidx._submit(route + rqp, ind); // create the index
+            await this.index._send(route + rqp, ind); // create the index
           }
-          return cidx._submit(route + '/_search' + rqp); // just do a search
+          return this.index._send(route + '/_search' + rqp); // just do a search
         } else {
-          return cidx._submit(route + '/_doc' + rqp, data); // create a single record without ID (if it came with ID it would have been caught above and converted to route with multiple parts)
+          ret = (await this.index._send(route + '/_doc' + rqp, data)); // create a single record without ID (if it came with ID it would have been caught above and converted to route with multiple parts)
+          if ((ret != null ? ret.result : void 0) === 'created' && ret._id) {
+            return ret._id;
+          } else {
+            return ret;
+          }
         }
       }
     } else {
-      return cidx._submit(route + '/_search' + rqp);
+      return this.index._send(route + '/_search' + rqp);
     }
   } else if (rpl === 2 && ((data == null) || typeof data === 'object' && !Array.isArray(data))) {
     if (!route.startsWith('_') && !route.includes('/_')) {
@@ -4099,9 +4471,14 @@ else`;
         route += '_update';
         rqp += (rqp.length ? '&' : '?') + 'retry_on_conflict=2';
       }
-      return cidx._submit(route + rqp, data); // or just get the record
+      ret = (await this.index._send(route + rqp, data));
+      if ((ret != null ? ret.result : void 0) === 'created' && ret._id) {
+        return ret._id;
+      } else {
+        return ret; // or just get the record
+      }
     } else {
-      ret = (await cidx._submit(route + rqp));
+      ret = (await this.index._send(route + rqp));
       if (typeof ret === 'object' && (ret._source || ret.fields)) {
         rex = (ref5 = ret._source) != null ? ref5 : ret.fields;
         if (rex._id == null) {
@@ -4115,128 +4492,73 @@ else`;
   return void 0;
 };
 
-// calling this should be given a correct URL route for ES7.x, domain part of the URL is optional though.
-// call the above to have the route constructed. method is optional and will be inferred if possible (may be removed)
-P.index._submit = async function(route, data, method, deletes = true) { // deletes is true in dev, but remove or add auth control for live
-  var opts, prefix, ref1, ref2, ref3, ref4, res, rqp, url;
-  if (route.includes('?')) {
-    [route, rqp] = route.split('?');
-    rqp = '?' + rqp;
-  } else {
-    rqp = '';
-  }
-  route = route.toLowerCase(); // force lowercase on all IDs so that can deal with users giving incorrectly cased IDs for things like DOIs which are defined as case insensitive
-  if (route.startsWith('/')) { // gets added back in when combined with the url
-    route = route.replace('/', '');
-  }
-  if (route.endsWith('/')) {
-    route = route.replace(/\/$/, '');
-  }
-  if (method == null) {
-    method = data === '' ? 'DELETE' : (data != null) && (route.indexOf('/') === -1 || route.indexOf('/_create') !== -1 || (route.indexOf('/_doc') !== -1 && !route.endsWith('/_doc'))) ? 'PUT' : (data != null) || ((ref1 = route.split('/').pop().split('?')[0]) === '_refresh' || ref1 === '_aliases') ? 'POST' : 'GET';
-  }
-  if (method === 'DELETE' && (deletes !== true || route.indexOf('/_all') !== -1)) { // nobody can delete all via the API
-    // TODO if data is a query that also has a _delete key in it, remove that key and do a delete by query? and should that be bulked? is dbq still allowed in ES7.x?
-    return false;
-  }
-  if (!route.startsWith('http')) { // which it probably doesn't
-    if (this.S.index.name && !route.startsWith(this.S.index.name) && !route.startsWith('_')) {
-      prefix = (await this.dot(P, (route.split('/')[0]).replace(/_/g, '.') + '._prefix'));
-      if (prefix !== false) {
-        // TODO could allow prefix to be a list of names, and if index name is in the list, alias the index into those namespaces, to share indexes between specific instances rather than just one or global
-        route = this.S.index.name + '_' + route;
-      }
-    }
-    url = (this != null ? (ref2 = this.S) != null ? (ref3 = ref2.index) != null ? ref3.url : void 0 : void 0 : void 0) ? this.S.index.url : (ref4 = S.index) != null ? ref4.url : void 0;
-    if (Array.isArray(url)) {
-      url = url[Math.floor(Math.random() * url.length)];
-    }
-    if (typeof url !== 'string') {
-      return void 0;
-    }
-    route = url + '/' + route;
-  }
-  if (!route.startsWith('http')) {
-    console.log('NO INDEX URL AVAILABLE');
-    return void 0;
-  }
-  route = route += rqp;
-  opts = route.indexOf('/_bulk') !== -1 || typeof (data != null ? data.headers : void 0) === 'object' ? data : {
-    body: data // fetch requires data to be body
-  };
-  if (route.indexOf('/_search') !== -1) {
-    // avoid hits.total coming back as object in new ES, because it also becomes vague
-    // see hits.total https://www.elastic.co/guide/en/elasticsearch/reference/current/breaking-changes-7.0.html
-    route += (route.indexOf('?') === -1 ? '?' : '&') + 'rest_total_hits_as_int=true';
-  }
-  if (this.S.dev) {
-    console.log('INDEX ' + route);
-    console.log(method + ' ' + (data == null ? '' : JSON.stringify(Array.isArray(data) && data.length ? data[0] : data).substr(0, 1000)));
-  }
-  //opts.retry = 3
-  opts.method = method;
-  res = (await this.fetch(route, opts));
-  if (this.S.dev) {
-    try {
-      console.log('INDEX QUERY FOUND', res.hits.total, res.hits.hits.length);
-    } catch (error) {}
-  }
-  if ((res == null) || (typeof res === 'object' && typeof res.status === 'number' && res.status >= 400 && res.status <= 600)) {
-    // fetch returns undefined for 404, otherwise any other error from 400 is returned like status: 400
-    // write a log / send an alert?
-    //em = level: 'debug', msg: 'ES error, but may be OK, 404 for empty lookup, for example', method: method, url: url, route: route, opts: opts, error: err.toString()
-    //if this?.log? then @log(em) else P.log em
-    // do anything for 409 (version mismatch?)
-    return void 0;
-  } else {
-    try {
-      if (this.S.dev && ((data != null ? data.query : void 0) != null)) {
-        res.q = data;
-      }
-    } catch (error) {}
-    return res;
-  }
-};
+P.index._auths = 'system';
 
-P.index._mapping = async function(route) {
-  if (typeof route !== 'string') {
-    return false;
+P.index._hides = true;
+
+P.index._wraps = false;
+
+P.index._caches = false;
+
+P.index.status = async function() {
+  var base2, i, j, k, l, len, len1, ref1, ref2, res, s, sh, shards;
+  res = {
+    status: 'green'
+  };
+  res.indices = {};
+  s = (await this.index._send('_stats'));
+  shards = (await this.index._send('_cat/shards?format=json'));
+  for (i in s.indices) {
+    if (!i.startsWith('.') && !i.startsWith('security-')) {
+      // is primaries or total better for numbers here?
+      res.indices[i] = {
+        docs: s.indices[i].primaries.docs.count,
+        size: Math.ceil(s.indices[i].primaries.store.size_in_bytes / 1024 / 1024) + 'mb'
+      };
+      for (j = 0, len = shards.length; j < len; j++) {
+        sh = shards[j];
+        if (sh.index === i && sh.prirep === 'p') {
+          if ((base2 = res.indices[i]).shards == null) {
+            base2.shards = 0;
+          }
+          res.indices[i].shards += 1;
+        }
+      }
+    }
   }
-  route = route.replace(/^\//, ''); // remove any leading /
-  if (route.indexOf('/') === -1) {
-    route = route + '/';
-  }
-  if (route.indexOf('_mapping') === -1) {
-    route = route.replace('/', '/_mapping');
-  }
-  return (await this.index._submit(route));
+  try {
+    if ((ref1 = res.cluster.status) !== 'green' && ref1 !== 'yellow') { // accept yellow for single node cluster (or configure ES itself to accept that as green)
+      res.status = 'red';
+    }
+    ref2 = ['cluster_name', 'number_of_nodes', 'number_of_data_nodes', 'unassigned_shards'];
+    for (l = 0, len1 = ref2.length; l < len1; l++) {
+      k = ref2[l];
+      delete res.cluster[k];
+    }
+  } catch (error) {}
+  return res;
 };
 
 P.index.keys = async function(route) {
-  var _keys, keys, ref1;
-  try {
-    if (route == null) {
-      route = (ref1 = this.params.index) != null ? ref1 : this.params.keys;
-    }
-    if (route == null) {
-      route = this.fn.replace(/\./g, '/');
-    }
-    route = route.replace('index/', '').replace('/keys', '');
-  } catch (error) {}
+  var _keys, keys, ref1, ref2;
+  if (route == null) {
+    route = (ref1 = (ref2 = this.params.index) != null ? ref2 : this.params.keys) != null ? ref1 : this.fn.replace(/\./g, '/');
+  }
+  route = route.replace('index/', '').replace('/keys', '');
   keys = [];
   _keys = async(mapping, depth = '') => {
-    var k, ref2, ref3, ref4, ref5, ref6, ref7, ref8, results;
+    var k, ref3, ref4, ref5, ref6, ref7, ref8, ref9, results;
     if (mapping == null) {
-      mapping = typeof route === 'object' ? route : (await this.index._mapping(route));
+      mapping = typeof route === 'object' ? route : (await this.index.mapping(route));
     }
-    mapping.properties = (ref2 = (ref3 = (ref4 = mapping[route]) != null ? (ref5 = ref4.mappings) != null ? ref5.properties : void 0 : void 0) != null ? ref3 : (ref6 = mapping[this.S.index.name + '_' + route]) != null ? (ref7 = ref6.mappings) != null ? ref7.properties : void 0 : void 0) != null ? ref2 : mapping.properties;
+    mapping.properties = (ref3 = (ref4 = (ref5 = mapping[route]) != null ? (ref6 = ref5.mappings) != null ? ref6.properties : void 0 : void 0) != null ? ref4 : (ref7 = mapping[this.S.index.name + '_' + route]) != null ? (ref8 = ref7.mappings) != null ? ref8.properties : void 0 : void 0) != null ? ref3 : mapping.properties;
     if (mapping.properties != null) {
       if (depth.length) {
         depth += '.';
       }
       results = [];
       for (k in mapping.properties) {
-        if (ref8 = depth + k, indexOf.call(keys, ref8) < 0) {
+        if (ref9 = depth + k, indexOf.call(keys, ref9) < 0) {
           keys.push(depth + k);
         }
         if (mapping.properties[k].properties != null) {
@@ -4253,38 +4575,28 @@ P.index.keys = async function(route) {
 };
 
 P.index.terms = async function(route, key, qry, size = 1000, counts = true, order = "count") {
-  var j, len, p, query, ref1, ref2, ref3, ref4, ref5, res, ret;
-  try {
-    if (route == null) {
-      route = (ref1 = this.params.index) != null ? ref1 : this.params.terms;
-    }
-    if (route == null) {
-      route = this.fn.replace(/\./g, '/');
-    }
-    route = route.replace('index/', '').replace('/terms', '');
-    if ((key == null) && route.indexOf('/') !== -1) {
-      [route, key] = route.split('/');
-    }
-    cp(this.copy(this.params));
-    delete cp.index;
-    if (cp.size != null) {
-      size = cp.size;
-      delete cp.size;
-    }
-    if (cp.counts != null) {
-      counts = cp.counts;
-      delete cp.counts;
-    }
-    if (cp.order != null) {
-      order = cp.order;
-      delete cp.order;
-    }
-    if ((qry == null) && this.index._q(cp)) {
-      qry = (await this.index.translate(cp));
-    }
-  } catch (error) {}
+  var cq, j, k, l, len, len1, ords, p, query, ref1, ref2, ref3, ref4, ref5, ref6, ref7, res, ret;
+  if (key == null) {
+    key = (ref1 = this.params.terms) != null ? ref1 : this.params.key;
+  }
+  if (route == null) {
+    route = (ref2 = this.params.index) != null ? ref2 : this.fn.replace(/\./g, '/');
+  }
+  route = route.replace('index/', '').replace('/terms', '');
+  if ((key == null) && route.indexOf('/') !== -1) {
+    [route, key] = route.split('/');
+  }
   if (!key) {
     return [];
+  }
+  cq = this.copy(this.params);
+  ref3 = ['index', 'route', 'terms', 'key'];
+  for (j = 0, len = ref3.length; j < len; j++) {
+    k = ref3[j];
+    delete cq[k];
+  }
+  if (qry == null) {
+    qry = (await this.index.translate(cq));
   }
   query = typeof qry === 'object' ? qry : {
     size: 0,
@@ -4311,36 +4623,45 @@ P.index.terms = async function(route, key, qry, size = 1000, counts = true, orde
   if (query.aggregations == null) {
     query.aggregations = {};
   }
+  if (this.params.size != null) {
+    size = this.params.size;
+  }
+  if (this.params.counts != null) {
+    counts = this.params.counts;
+  }
+  if (this.params.order != null) {
+    order = this.params.order;
+  }
   // order: (default) count is highest count first, reverse_count is lowest first. term is ordered alphabetical by term, reverse_term is reverse alpha
-  if (order === 'count') { // convert for ES7.x
-    order = {
-      _count: 'desc' // default
-    };
-  } else if (order === 'reverse_count') {
-    order = {
+  ords = {
+    count: {
+      _count: 'desc'
+    },
+    reverse_count: {
       _count: 'asc'
-    };
-  } else if (order === 'term') {
-    order = {
+    },
+    term: {
       _key: 'asc'
-    };
-  } else if (order === 'reverse_term') {
-    order = {
-      _key: 'desc'
-    };
+    },
+    reverse_term: {
+      _key: 'desc' // convert for ES7.x
+    }
+  };
+  if (typeof order === 'string' && (ords[order] != null)) {
+    order = ords[order];
   }
   query.aggregations[key] = {
     terms: {
-      field: key + (key.indexOf('.keyword') === -1 ? '.keyword' : ''),
+      field: key + (key.endsWith('.keyword') ? '' : '.keyword'),
       size: size,
       order: order
     }
   };
-  ret = (await this.index._submit('/' + route + '/_search', query, 'POST'));
+  ret = (await this.index._send('/' + route + '/_search', query, 'POST'));
   res = [];
-  ref5 = (ref2 = ret != null ? (ref3 = ret.aggregations) != null ? (ref4 = ref3[key]) != null ? ref4.buckets : void 0 : void 0 : void 0) != null ? ref2 : [];
-  for (j = 0, len = ref5.length; j < len; j++) {
-    p = ref5[j];
+  ref7 = (ref4 = ret != null ? (ref5 = ret.aggregations) != null ? (ref6 = ref5[key]) != null ? ref6.buckets : void 0 : void 0 : void 0) != null ? ref4 : [];
+  for (l = 0, len1 = ref7.length; l < len1; l++) {
+    p = ref7[l];
     res.push(counts ? {
       term: p.key,
       count: p.doc_count
@@ -4349,39 +4670,40 @@ P.index.terms = async function(route, key, qry, size = 1000, counts = true, orde
   return res;
 };
 
-P.index.suggest = async function(route, key, qry, size = 100, counts = false, order = "term") {
-  var j, k, l, len, len1, q, ref1, ref2, ref3, res;
-  if (route == null) {
-    route = (ref1 = this.params.index) != null ? ref1 : this.params.suggest;
+P.index.suggest = async function(route, key, qry, size, counts = false, order = "term") {
+  var j, k, l, len, len1, len2, n, ref1, ref2, ref3, ref4, ref5, res;
+  if (key == null) {
+    key = (ref1 = this.params.suggest) != null ? ref1 : this.params.key;
+  }
+  if (key.indexOf('/') !== -1) {
+    [key, qry] = key.split('/');
   }
   if (route == null) {
-    route = this.fn.replace(/\./g, '/');
+    route = (ref2 = this.params.index) != null ? ref2 : this.fn.replace(/\./g, '/');
   }
-  route = route.replace('index/', ''); //.replace '/suggest', ''
-  if (!route.endsWith('suggest')) {
-    [route, q] = route.split('/suggest/');
-    if (key == null) {
-      key = route.split('/').pop();
-    }
-    route = route.replace('/' + key, '');
-    if (q && (qry == null)) {
-      qry = key + ':' + q + '*';
-    }
-  }
+  route = route.replace('index/', '').split('/suggest')[0];
   res = [];
-  ref2 = (await this.index.terms(route, key, qry, size, counts, order));
-  for (j = 0, len = ref2.length; j < len; j++) {
-    k = ref2[j];
-    if (!q || k.toLowerCase().indexOf(q.toLowerCase()) === 0) { // or match at start?
+  ref3 = (await this.index.terms(route, key, qry, size, counts, order));
+  for (j = 0, len = ref3.length; j < len; j++) {
+    k = ref3[j];
+    if (typeof qry !== 'string' || k.toLowerCase().indexOf(qry.toLowerCase()) === 0) { // match at start
       res.push(k);
     }
   }
-  if (res.length === 0 && q && typeof qry === 'string') {
-    qry = qry.replace(':', ':*');
-    ref3 = (await this.index.terms(route, key, qry, size, counts, order));
-    for (l = 0, len1 = ref3.length; l < len1; l++) {
-      k = ref3[l];
-      if (!q || k.toLowerCase().indexOf(q.toLowerCase()) !== -1) { // or match at start?
+  if (res.length === 0 && typeof qry === 'string' && !qry.endsWith('*')) {
+    ref4 = (await this.index.terms(route, key, qry + '*', size, counts, order));
+    for (l = 0, len1 = ref4.length; l < len1; l++) {
+      k = ref4[l];
+      if (k.toLowerCase().indexOf(qry.toLowerCase()) !== -1) {
+        res.push(k);
+      }
+    }
+  }
+  if (res.length === 0 && typeof qry === 'string' && !qry.startsWith('*')) {
+    ref5 = (await this.index.terms(route, key, '*' + qry + '*', size, counts, order));
+    for (n = 0, len2 = ref5.length; n < len2; n++) {
+      k = ref5[n];
+      if (k.toLowerCase().indexOf(qry.toLowerCase()) !== -1) {
         res.push(k);
       }
     }
@@ -4390,31 +4712,26 @@ P.index.suggest = async function(route, key, qry, size = 100, counts = false, or
 };
 
 P.index.count = async function(route, key, qry) {
-  var cq, j, k, len, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ret;
-  try {
-    if (route == null) {
-      route = (ref1 = (ref2 = this.params.index) != null ? ref2 : this.params.count) != null ? ref1 : this.fn.replace(/\./g, '_');
-    }
-  } catch (error) {}
+  var cq, j, k, len, qr, ref1, ref2, ref3, ref4, ref5, ref6, ret;
+  if (key == null) {
+    key = (ref1 = this.params.count) != null ? ref1 : this.params.key;
+  }
+  if (route == null) {
+    route = (ref2 = this.params.index) != null ? ref2 : this.fn.replace(/\./g, '_');
+  }
+  route = route.replace('index/', '').split('/count')[0];
   if (route.indexOf('/') !== -1) {
     [route, key] = route.split('/');
   }
-  try {
-    if (key == null) {
-      key = (ref3 = this.params.count) != null ? ref3 : this.params.key;
-    }
-  } catch (error) {}
-  try {
-    cq = this.copy(this.params);
-    ref4 = ['index', 'route', 'count', 'key'];
-    for (j = 0, len = ref4.length; j < len; j++) {
-      k = ref4[j];
-      delete cq[k];
-    }
-    if ((qry == null) && this.index._q(cq)) {
-      qry = (await this.index.translate(cq));
-    }
-  } catch (error) {}
+  cq = this.copy(this.params);
+  ref3 = ['index', 'route', 'count', 'key'];
+  for (j = 0, len = ref3.length; j < len; j++) {
+    k = ref3[j];
+    delete cq[k];
+  }
+  if ((qry == null) && (qr = (await this.index.translate(cq)))) {
+    qry = qr;
+  }
   if (qry == null) {
     qry = {
       query: {
@@ -4426,7 +4743,7 @@ P.index.count = async function(route, key, qry) {
     };
   }
   if (key) {
-    if (key.indexOf('.keyword') === -1) {
+    if (!key.endsWith('.keyword')) {
       key += '.keyword';
     }
     qry.size = 0;
@@ -4438,34 +4755,35 @@ P.index.count = async function(route, key, qry) {
         }
       }
     };
-    ret = (await this.index._submit('/' + route + '/_search', qry, 'POST'));
-    return ret != null ? (ref5 = ret.aggregations) != null ? (ref6 = ref5.keyed) != null ? ref6.value : void 0 : void 0 : void 0;
+    ret = (await this.index._send('/' + route + '/_search', qry, 'POST'));
+    return ret != null ? (ref4 = ret.aggregations) != null ? (ref5 = ref4.keyed) != null ? ref5.value : void 0 : void 0 : void 0;
   } else {
-    ret = (await this.index._submit('/' + route + '/_search', qry, 'POST'));
-    return ret != null ? (ref7 = ret.hits) != null ? ref7.total : void 0 : void 0;
+    ret = (await this.index._send('/' + route + '/_search', qry, 'POST'));
+    return ret != null ? (ref6 = ret.hits) != null ? ref6.total : void 0 : void 0;
   }
 };
 
-P.index.min = async function(route, key, qry) {
-  var query, ref1, ret;
-  try {
-    if (route == null) {
-      route = (ref1 = this.params.index) != null ? ref1 : this.params.min;
-    }
-    if (route == null) {
-      route = this.fn.replace(/\./g, '/');
-    }
-    route = route.replace('index/', '').replace('/min', '');
-    if ((key == null) && route.indexOf('/') !== -1) {
-      [route, key] = route.split('/');
-    }
-    delete this.params.index;
-    if (this.index._q(this.params)) {
-      if (qry == null) {
-        qry = (await this.index.translate(this.params));
-      }
-    }
-  } catch (error) {}
+P.index.min = async function(route, key, qry, end = 'min') {
+  var cq, j, k, len, query, ref1, ref2, ref3, ret;
+  if (key == null) {
+    key = (ref1 = this.params[end]) != null ? ref1 : this.params.key;
+  }
+  if (route == null) {
+    route = (ref2 = this.params.index) != null ? ref2 : this.fn.replace(/\./g, '/');
+  }
+  route = route.replace('index/', '').replace('/' + end, '');
+  if (route.indexOf('/') !== -1) {
+    [route, key] = route.split('/');
+  }
+  cq = this.copy(this.params);
+  ref3 = ['index', 'route', 'min', 'max', 'key'];
+  for (j = 0, len = ref3.length; j < len; j++) {
+    k = ref3[j];
+    delete cq[k];
+  }
+  if (qry == null) {
+    qry = (await this.index.translate(cq));
+  }
   query = typeof key === 'object' ? key : qry != null ? qry : {
     query: {
       bool: {
@@ -4481,227 +4799,175 @@ P.index.min = async function(route, key, qry) {
     }
   };
   query.size = 0;
-  query.aggs = {
-    min: {
+  query.aggs = {};
+  if (end === 'min' || end === 'range') {
+    query.aggs.min = {
       min: {
         field: key
       }
-    }
-  };
-  ret = (await this.index._submit('/' + route + '/_search', query, 'POST'));
-  return ret.aggregations.min.value;
-};
-
-P.index.max = async function(route, key, qry) {
-  var query, ref1, ret;
-  try {
-    if (route == null) {
-      route = (ref1 = this.params.index) != null ? ref1 : this.params.max;
-    }
-    if (route == null) {
-      route = this.fn.replace(/\./g, '/');
-    }
-    route = route.replace('index/', '').replace('/max', '');
-    if ((key == null) && route.indexOf('/') !== -1) {
-      [route, key] = route.split('/');
-    }
-    delete this.params.index;
-    if (this.index._q(this.params)) {
-      if (qry == null) {
-        qry = (await this.index.translate(this.params));
-      }
-    }
-  } catch (error) {}
-  query = typeof key === 'object' ? key : qry != null ? qry : {
-    query: {
-      bool: {
-        must: [],
-        filter: [
-          {
-            exists: {
-              field: key
-            }
-          }
-        ]
-      }
-    }
-  };
-  query.size = 0;
-  query.aggs = {
-    max: {
+    };
+  }
+  if (end === 'max' || end === 'range') {
+    query.aggs.max = {
       max: {
         field: key
       }
-    }
-  };
-  ret = (await this.index._submit('/' + route + '/_search', query, 'POST'));
-  return ret.aggregations.max.value;
+    };
+  }
+  ret = (await this.index._send('/' + route + '/_search', query, 'POST'));
+  if (end === 'range') {
+    return {
+      min: ret.aggregations.min.value,
+      max: ret.aggregations.max.value
+    };
+  } else {
+    return ret.aggregations[end].value;
+  }
 };
 
-P.index.range = async function(route, key, qry) {
-  var query, ref1, ret;
+P.index.max = function(route, key, qry) {
+  return this.index.min(route, key, qry, 'max');
+};
+
+P.index.range = function(route, key, qry) {
+  return this.index.min(route, key, qry, 'range');
+};
+
+P.index.mapping = function(route) {
+  route = route.replace(/^\//, ''); // remove any leading /
+  if (route.indexOf('/') === -1) {
+    route = route + '/';
+  }
+  if (route.indexOf('_mapping') === -1) {
+    route = route.replace('/', '/_mapping');
+  }
+  return this.index._send(route);
+};
+
+P.index.history = function(route, key) {
+  var ref1;
   try {
-    if (route == null) {
-      route = (ref1 = this.params.index) != null ? ref1 : this.params.range;
-    }
-    if (route == null) {
-      route = this.fn.replace(/\./g, '/');
-    }
-    route = route.replace('index/', '').replace('/range', '');
-    if ((key == null) && route.indexOf('/') !== -1) {
-      [route, key] = route.split('/');
-    }
-    delete this.params.index;
-    if (this.index._q(this.params)) {
-      if (qry == null) {
-        qry = (await this.index.translate(this.params));
-      }
+    // TODO get the history of a record by a query of the log
+    if (key == null) {
+      key = (ref1 = this.params.history) != null ? ref1 : this.params.index;
     }
   } catch (error) {}
-  query = typeof key === 'object' ? key : qry != null ? qry : {
-    query: {
-      bool: {
-        must: [],
-        filter: [
-          {
-            exists: {
-              field: key
-            }
-          }
-        ]
-      }
-    }
-  };
-  query.size = 0;
-  query.aggs = {
-    min: {
-      min: {
-        field: key
-      }
-    },
-    max: {
-      max: {
-        field: key
-      }
-    }
-  };
-  ret = (await this.index._submit('/' + route + '/_search', query, 'POST'));
-  return {
-    min: ret.aggregations.min.value,
-    max: ret.aggregations.max.value
-  };
+  return [];
 };
 
-// can still manually make scan/scroll calls if desired, see:
-//  scan, scroll='10m'
-//  if scan is true
-//    route += (if route.indexOf('?') is -1 then '?' else '&')
-//    if not data? or (typeof data is 'object' and not data.sort?) or (typeof data is 'string' and data.indexOf('sort=') is -1)
-//      route += 'search_type=scan&'
-//    route += 'scroll=' + scroll
-//  else if scan?
-//    route = '/_search/scroll?scroll_id=' + scan + (if action isnt 'DELETE' then '&scroll=' + scroll else '')
-P.index._each = async function(route, q, opts, fn) {
-  var action, chk, fr, h, j, len, max_size, processed, qy, ref1, ref2, ref3, ref4, ref5, ref6, ref7, res, rf, scroll, sz, updates;
+// use this like: for rec from @index._for route, q, opts
+// see index._each below for example of how to call this for/yield generator
+P.index._for = async function*(route, q, opts) {
+  var qy, r, ref1, ref2, ref3, ref4, ref5, res, ret, scroll;
+  if (opts != null ? opts.scroll : void 0) {
+    scroll = opts.scroll;
+    if (typeof scroll === 'number' || !scroll.endsWith('m')) {
+      scroll += 'm';
+    }
+    delete opts.scroll;
+  } else {
+    scroll = '10m';
+  }
+  qy = (await this.index.translate(q, opts));
+  if (qy.from == null) {
+    qy.from = 0;
+  }
+  if (qy.size == null) {
+    qy.size = 500;
+  }
   // use scan/scroll for each, because _pit is only available in "default" ES, which ES means is NOT the open one, so our OSS distro does not include it!
   // https://www.elastic.co/guide/en/elasticsearch/reference/7.10/paginate-search-results.html#search-after
-  // each executes the function for each record. If the function makes changes to a record and saves those changes, 
-  // this can cause many writes to the collection. So, instead, that sort of function could return something
-  // and if the action has also been specified then all the returned values will be used to do a bulk write to the collection index.
-  // suitable returns would be entire records for insert, record update objects for update, or record IDs for remove
-  // this does not allow different actions for different records that are operated on - so has to be bulks of the same action
-  if (fn === void 0 && opts === void 0 && typeof q === 'function') {
+  res = (await this.index(route + '?scroll=' + scroll, qy));
+  if (((res != null ? (ref1 = res.hits) != null ? ref1.total : void 0 : void 0) != null) && res.hits.total === res.hits.hits.length) {
+    delete res._scroll_id;
+  }
+  while (true) {
+    if ((!(res != null ? (ref2 = res.hits) != null ? ref2.hits : void 0 : void 0) || !(res != null ? (ref3 = res.hits) != null ? ref3.hits.length : void 0 : void 0)) && (res != null ? res._scroll_id : void 0)) {
+      res = (await this.index('/_search/scroll?scroll=' + scroll + '&scroll_id=' + res._scroll_id));
+    }
+    if (((res != null ? (ref4 = res.hits) != null ? ref4.hits : void 0 : void 0) != null) && res.hits.hits.length) {
+      r = res.hits.hits.shift();
+      ret = (ref5 = r._source) != null ? ref5 : r.fields;
+      if (ret._id == null) {
+        ret._id = r._id;
+      }
+      yield ret;
+    }
+  }
+};
+
+P.index._each = async function(route, q, opts, fn) {
+  var action, chk, fr, max_size, processed, qy, rec, ref1, ref2, ref3, sz, updates;
+  // Performs a function on each record. If the function should make changes to a record, optionally 
+  // avoid many writes by having the function return the record object or the string ID, and specify 
+  // an "action" in opts. returned objects can then be bulk "insert" or "update", or string IDs for "remove"
+  if ((fn == null) && (opts == null) && typeof q === 'function') {
     fn = q;
     q = '*';
   }
-  if (fn === void 0 && typeof opts === 'function') {
+  if ((fn == null) && typeof opts === 'function') {
     fn = opts;
     opts = void 0;
   }
   if (opts == null) {
     opts = {};
   }
-  if (opts.scroll != null) {
-    scroll = opts.scroll;
-    delete opts.scroll;
-  } else {
-    scroll = '10m';
-  }
-  if (opts.action) {
+  if (opts != null ? opts.action : void 0) {
     action = opts.action;
     delete opts.action;
-  } else {
-    action = false;
   }
-  qy = (await this.index.translate(q, opts));
-  qy.from = 0; // from has to be 0 for search_after
-  if (qy.size == null) {
-    qy.size = 1000; // 10000 is max and would be fine for small records...
-  }
-  sz = (ref1 = qy.size) != null ? ref1 : 800;
-  qy.size = 1;
-  chk = (await this.index(route, qy));
-  if (((chk != null ? (ref2 = chk.hits) != null ? ref2.total : void 0 : void 0) != null) && chk.hits.total !== 0) {
-    // make sure that query result size does not take up more than about 1gb
-    // NOTE also that in a scroll-scan size is per shard, not per result set
-    max_size = Math.floor(1000000000 / (Buffer.byteLength(JSON.stringify(chk.hits.hits[0])) * chk._shards.total));
-    if (max_size < sz) {
-      sz = max_size;
+  sz = (ref1 = opts.size) != null ? ref1 : (typeof q === 'object' && (q.size != null) ? q.size : 1000);
+  if (sz > 50) {
+    qy = (await this.index.translate(q, opts));
+    qy.size = 1;
+    chk = (await this.index(route, qy));
+    if (((chk != null ? (ref2 = chk.hits) != null ? ref2.total : void 0 : void 0) != null) && chk.hits.total !== 0) {
+      // make sure that query result size does not take up more than about 1gb. In a scroll-scan size is per shard, not per result set
+      max_size = Math.floor(1000000000 / (Buffer.byteLength(JSON.stringify(chk.hits.hits[0])) * chk._shards.total));
+      if (max_size < sz) {
+        sz = max_size;
+      }
     }
-  }
-  qy.size = sz;
-  res = (await this.index(route + '?scroll=' + scroll, qy));
-  if (((res != null ? (ref3 = res.hits) != null ? ref3.total : void 0 : void 0) != null) && res.hits.total === res.hits.hits.length) {
-    delete res._scroll_id;
+    qy.size = sz;
   }
   processed = 0;
   updates = [];
-  while (((res != null ? (ref7 = res.hits) != null ? ref7.hits : void 0 : void 0) != null) && res.hits.hits.length) {
-    ref4 = res.hits.hits;
-    for (j = 0, len = ref4.length; j < len; j++) {
-      h = ref4[j];
-      fn = fn.bind(this);
-      rf = (ref5 = (ref6 = h._source) != null ? ref6 : h.fields) != null ? ref5 : {};
-      if (!h.fields) {
-        if (rf._id == null) {
-          rf._id = h._id;
-        }
-      }
-      fr = fn(rf);
-      processed += 1;
-      if ((fr != null) && (typeof fr === 'object' || typeof fr === 'string')) {
-        updates.push(fr);
-      }
+  ref3 = this.index._for(route, qy != null ? qy : q, opts);
+  // TODO check if this needs await
+  for (rec of ref3) {
+    fr = (await fn.apply(this, rec));
+    processed += 1;
+    if ((fr != null) && (typeof fr === 'object' || typeof fr === 'string')) {
+      updates.push(fr);
     }
-    if (res._scroll_id != null) {
-      res = (await this.index('/_search/scroll?scroll_id=' + res._scroll_id + '&scroll=' + scroll));
-    } else {
-      res.hits.hits = [];
+    if (action && updates.length > sz) {
+      await this.index._bulk(route, updates, action);
+      updates = [];
     }
+  }
+  if (action && updates.length) { // catch any left over
+    this.index._bulk(route, updates, action);
   }
   if (this.S.dev && this.S.bg === true) {
-    console.log('_each processed ' + processed);
-  }
-  if (action && updates.length) { // TODO should prob do this during the while loop above, once updates reaches some number
-    return this.index._bulk(route, updates, action);
+    return console.log('_each processed ' + processed);
   }
 };
 
 P.index._bulk = async function(route, data, action = 'index', bulk = 50000) {
-  var cidx, counter, errs, i, j, k, len, meta, pkg, prefix, r, ref1, ref2, ref3, rid, row, rows, rs;
+  var counter, meta, pkg, prefix, r, ref1, ref2, ref3, ref4, ref5, rid, row, rows, rs;
   if (action === true) {
-    // https://www.elastic.co/guide/en/elasticsearch/reference/1.4/docs-bulk.html
-    // https://www.elastic.co/guide/en/elasticsearch/reference/1.4/docs-update.html
     action = 'index';
   }
   prefix = (await this.dot(P, (route.split('/')[0]).replace(/_/g, '.') + '._prefix'));
-  if (prefix !== false) { // need to do this here as well as in _submit so it can be set below in each object of the bulk
+  if (prefix !== false) { // need to do this here as well as in _send so it can be set below in each object of the bulk
     route = this.S.index.name + '_' + route;
   }
-  cidx = (this != null ? this.index : void 0) != null ? this.index : P.index;
+  if (this.index == null) {
+    this.index = P.index;
+  }
   if (typeof data === 'string' && data.indexOf('\n') !== -1) {
     // TODO should this check through the string and make sure it only indexes to the specified route?
-    await cidx._submit('/_bulk', {
+    await this.index._send('/_bulk', {
       body: data,
       headers: {
         'Content-Type': 'application/x-ndjson' // new ES 7.x requires this rather than text/plain
@@ -4716,25 +4982,20 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000) {
     counter = 0;
     pkg = '';
     for (r in rows) {
-      counter += 1;
       row = rows[r];
-      rid = void 0;
+      counter += 1;
       if (typeof row === 'object') {
-        if (row._source != null) {
+        rid = (ref2 = row._id) != null ? ref2 : (ref3 = row._source) != null ? ref3._id : void 0;
+        if (row._source) {
           row = row._source;
         }
-        if (row._id) {
-          rid = row._id;
-          delete row._id; // newer ES 7.x won't accept the _id in the object itself
-        } else {
-          rid = (this != null ? this.uid : void 0) != null ? this.uid() : P.uid();
-        }
+        delete row._id; // newer ES 7.x won't accept the _id in the object itself
       }
       meta = {};
       meta[action] = {
         "_index": route
       };
-      meta[action]._id = action === 'delete' && typeof row === 'string' ? row : rid; // what if action is delete but can't set an ID?
+      meta[action]._id = action === 'delete' && ((ref4 = typeof row) === 'string' || ref4 === 'number') ? row : rid; // what if action is delete but can't set an ID?
       pkg += JSON.stringify(meta) + '\n';
       if (action === 'create' || action === 'index') {
         pkg += JSON.stringify(row) + '\n';
@@ -4745,24 +5006,14 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000) {
       }
       // don't need a second row for deletes
       if (counter === bulk || parseInt(r) === (rows.length - 1) || pkg.length > 70000000) {
-        rs = (await cidx._submit('/_bulk', {
+        rs = (await this.index._send('/_bulk', {
           body: pkg,
           headers: {
             'Content-Type': 'application/x-ndjson'
           }
         }));
-        if ((this != null ? (ref2 = this.S) != null ? ref2.dev : void 0 : void 0) && (rs != null ? rs.errors : void 0)) {
-          errs = [];
-          ref3 = rs.items;
-          for (j = 0, len = ref3.length; j < len; j++) {
-            i = ref3[j];
-            for (k in i) {
-              if (i[k].status >= 300) {
-                errs.push(i);
-              }
-            }
-          }
-          console.log('Bulk load errors: ' + errs.length + ', like: ' + JSON.stringify(errs[0]));
+        if ((this != null ? (ref5 = this.S) != null ? ref5.dev : void 0 : void 0) && (rs != null ? rs.errors : void 0)) {
+          console.log(rs.items);
         }
         pkg = '';
         counter = 0;
@@ -4772,125 +5023,90 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000) {
   }
 };
 
-P.index._indices = async function(verbose = false) {
-  var base2, i, j, len, res, s, sh, shards;
-  res = verbose ? {} : [];
-  s = (await this.index._submit('_stats'));
-  shards = !verbose ? [] : (await this.index._submit('_cat/shards?format=json'));
-  for (i in s.indices) {
-    if (indexOf.call([], i) < 0 && !i.startsWith('.') && !i.startsWith('security-')) {
-      if (verbose) {
-        // is primaries or total better for numbers here?
-        res[i] = {
-          docs: s.indices[i].primaries.docs.count,
-          size: Math.ceil(s.indices[i].primaries.store.size_in_bytes / 1024 / 1024) + 'mb'
-        };
-        for (j = 0, len = shards.length; j < len; j++) {
-          sh = shards[j];
-          if (sh.index === i && sh.prirep === 'p') {
-            if ((base2 = res[i]).shards == null) {
-              base2.shards = 0;
-            }
-            res[i].shards += 1;
-          }
-        }
-      } else {
-        res.push(i);
-      }
-    }
-  }
-  return res;
-};
+//P.index._refresh = (route) -> return @index._send route.replace(/^\//, '').split('/')[0] + '/_refresh'
+`# fetches everything of route from kv into the index
+P.index.kv = (route) -> 
+  route ?= @params.index ? @params.kv
+  total = 0
+  if typeof route is 'string' and route.length
+    route = route.replace(/\./g, '/').replace(/_/g, '/')
+    if not exists = await @index route
+      idx = await @dot P, route.replace(/\//g, '.')
+      if typeof idx is 'object' and typeof idx._index is 'object' and (idx._index.settings? or idx._index.aliases? or idx._index.mappings?)
+        await @index route, idx._index
+    klogs = []
+    await @kv._each route, (lk) ->
+      if lk.indexOf('/') isnt -1
+        l = await @kv lk
+        l._id ?= lk.split('/').pop()
+        klogs.push l
+      if klogs.length >= 1000
+        await @index route, klogs
+        total += klogs.length
+        klogs = []
+    if klogs.length # save any remaining ones
+      total += klogs.length
+      @waitUntil @index route, klogs
+      klogs = []
+  return total
+P.index.kv._bg = true`;
 
-P.index.status = async function() {
-  var j, k, len, ref1, ref2, res;
-  res = {
-    status: 'green'
-  };
-  res.indices = (await this.index._indices(true));
-  try {
-    if ((ref1 = res.cluster.status) !== 'green' && ref1 !== 'yellow') { // accept yellow for single node cluster (or configure ES itself to accept that as green)
-      res.status = 'red';
-    }
-    ref2 = ['cluster_name', 'number_of_nodes', 'number_of_data_nodes', 'unassigned_shards'];
-    for (j = 0, len = ref2.length; j < len; j++) {
-      k = ref2[j];
-      delete res.cluster[k];
-    }
-  } catch (error) {}
-  return res;
-};
+// query formats that can be accepted:
+//  'A simple string to match on'
+//  'statement:"A more complex" AND difficult string' - which will be used as is to ES as a query string
+//  '?q=query params directly as string'
+//  {"q":"object of query params"} - must contain at least q or source as keys to be identified as such
+//  {"must": []} - a list of must queries, in full ES syntax, which will be dropped into the query filter (works for "should" as well)
+//  ["list","of strings to OR match on"] - this is an OR query strings match UNLESS strings contain : then mapped to terms matches
+//  [{"list":"of objects to OR match"}] - so a set of OR terms matches. If objects are not key: string they are assumed to be full ES queries that can drop into the bool
 
-P.index.status._cache = false;
+//  Keys can use dot notation
+//  If opts is true, the query will be adjusted to sort by createdAt descending, so returning the newest first (it sets newest:true, see below)
+//  If opts is string 'random' it will convert the query to be a random order
+//  If opts is a number it will be assumed to be the size parameter
+//  Otherwise opts should be an object (and the above can be provided as keys, "newest", "random")
+//  If newest is true the query will have a sort desc on createdAt. If false, sort will be asc
+//  If "random" key is provided, "seed" can be provided too if desired, for seeded random queries
+//  If "restrict" is provided, should point to list of ES queries to add to the and part of the query filter
+//  Any other keys in the options object should be directly attributable to an ES query object
 
-// helper to identify strings or objects that likely should be interpreted as queries
-P.index._q = function(q, rt) { // could this be a query as opposed to an _id or index/_id string
-  var c, j, k, l, len, len1, ref1, ref2;
-  if (typeof q === 'object' && !Array.isArray(q)) {
-    ref1 = ['settings', 'aliases', 'mappings', 'index'];
-    for (j = 0, len = ref1.length; j < len; j++) {
-      k = ref1[j];
-      if (q[k]) {
-        return false;
-      }
-    }
-    if ((q.q != null) || (q.query != null)) {
-      return true; // q or query COULD be valid values of an object, in which case don't pass such objects to ambiguous locations such as the first param of an index function
-    }
-  } else if (typeof q === 'string' && q.length && q.indexOf('\n') === -1) { // newlines indicates a bulk load string
-    if (typeof rt === 'string' && q.toLowerCase().startsWith(rt.toLowerCase())) {
-      return false; // handy check for a string that is probably an index route, just to save manually checking elsewhere
-    } else if (q.startsWith('?') || q.startsWith('q=')) { // like an incoming URL query params string
-      return true;
-    } else if (q.length < 8 || (q.indexOf('/') !== -1 ? q.split('/').pop() : q).length > 34) { // no _id would be shorter than 8 or longer than 34
-      return true;
-    } else {
-      ref2 = [' ', ':', '*', '~', '(', ')', '?'];
-      // none of these are present in an ID
-      for (l = 0, len1 = ref2.length; l < len1; l++) {
-        c = ref2[l];
-        if (q.indexOf(c) !== -1) {
-          return true;
-        }
-      }
-    }
-  }
-  return false;
-};
-
-/* query formats that can be accepted:
-    'A simple string to match on'
-    'statement:"A more complex" AND difficult string' - which will be used as is to ES as a query string
-    '?q=query params directly as string'
-    {"q":"object of query params"} - must contain at least q or source as keys to be identified as such
-    {"must": []} - a list of must queries, in full ES syntax, which will be dropped into the query filter (works for "should" as well)
-    {"object":"of key/value pairs, all of which must match"} - so this is an AND terms match/ If keys do not point to strings, they will be assumed to be named ES queries that can drop into the bool
-    ["list","of strings to OR match on"] - this is an OR query strings match UNLESS strings contain : then mapped to terms matches
-    [{"list":"of objects to OR match"}] - so a set of OR terms matches. If objects are not key: string they are assumed to be full ES queries that can drop into the bool
-
-    Keys can use dot notation
-
-    Options that can be included:
-    If options is true, the query will be adjusted to sort by createdAt descending, so returning the newest first (it sets newest:true, see below)
-    If options is string 'random' it will convert the query to be a random order
-    If options is a number it will be assumed to be the size parameter
-    Otherwise options should be an object (and the above can be provided as keys, "newest", "random")
-    If newest is true the query will have a sort desc on createdAt. If false, sort will be asc
-    If "random" key is provided, "seed" can be provided too if desired, for seeded random queries
-    If "restrict" is provided, should point to list of ES queries to add to the and part of the query filter
-    Any other keys in the options object should be directly attributable to an ES query object
-
-    For ES 7.x there is no filtered query any more, filter is a value of bool.must
-    Filter essentially acts like a must but without scoring. Whereas normal must does score.
-    must_not also does not affect score. Not sure about should
-
-    Default empty query looks like:
-    {query: {bool: {must: [], filter: []}}, size: 10}
-*/
+//  For ES 7.x there is no filtered query any more, filter is a value of bool.must
+//  Filter acts like a must but without scoring. Whereas normal must does score.
+//  must_not does not affect score. Not sure about should
+//  Default empty query: {query: {bool: {must: [], filter: []}}, size: 10}
 P.index.translate = function(q, opts = {}) {
-  var _structure, a, af, b, base2, base3, base4, bm, bt, dk, exc, excludes, f, fq, i, i1, inc, includes, j, j1, k, k1, l, l1, len, len1, len10, len11, len2, len3, len4, len5, len6, len7, len8, len9, m, n, nos, nr, o, ok, os, pfx, ps, qobj, qpts, qry, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rs, sr, t, tgt, tm, tobj, u, v, w, x, y, z;
+  var _structure, a, af, b, base2, base3, base4, bm, bt, dk, exc, excludes, f, fq, i, i1, inc, includes, j, j1, k, k1, l, l1, len, len1, len10, len11, len12, len2, len3, len4, len5, len6, len7, len8, len9, m, m1, maybe_route_or_id, n, nos, nr, o, ok, os, pfx, ps, qobj, qpts, qry, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rs, sr, t, tgt, tm, tobj, u, v, w, x, y, z;
   if (q == null) {
-    q = this != null ? this.params : void 0;
+    q = this != null ? this.params : void 0; // return undefined if q isnt a string or object that can become a valid query
+  }
+  if (typeof q === 'string') {
+    if (q === '' || q.indexOf('\n') !== -1) { // this would likely be a bulk load string
+      return void 0;
+    }
+    maybe_route_or_id = q.length > 8 && q.split('/').pop().length < 34 && q.length === q.replace(/\s\:\*~()\?=%/g, '').length;
+    if (maybe_route_or_id && q.split('/').length === 2) { // a route / ID to discern from a route
+      return void 0;
+    }
+  } else {
+    if (typeof q !== 'object') {
+      return void 0;
+    }
+    if (Array.isArray(q)) {
+      if (!q.length) {
+        return void 0;
+      }
+    } else {
+      ref1 = ['settings', 'aliases', 'mappings', 'index'];
+      for (j = 0, len = ref1.length; j < len; j++) {
+        k = ref1[j];
+        if (q[k] != null) {
+          return void 0;
+        }
+      }
+      if (JSON.stringify(q) !== '{}' && (q.q == null) && (q.query == null) && (q.source == null)) { //and not q.must? and not q.should? and not q.aggs? and not q.aggregations?
+        return void 0;
+      }
+    }
   }
   try {
     if (typeof q === 'object') { // copy objects so don't interfere with what was passed in
@@ -4922,12 +5138,12 @@ P.index.translate = function(q, opts = {}) {
       newest: false
     };
   }
-  qry = (ref1 = opts != null ? opts.query : void 0) != null ? ref1 : {};
+  qry = (ref2 = opts != null ? opts.query : void 0) != null ? ref2 : {};
   if (qry.query == null) {
     qry.query = {};
   }
-  _structure = function(sq) {
-    var base2, base3, ms;
+  _structure = (sq) => {
+    var base2, base3, fq, ms, ref3, ref4;
     if (sq.query == null) {
       sq.query = {
         bool: {
@@ -4935,6 +5151,11 @@ P.index.translate = function(q, opts = {}) {
           filter: []
         }
       };
+    }
+    if (((ref3 = sq.query) != null ? (ref4 = ref3.filtered) != null ? ref4.query : void 0 : void 0) != null) {
+      fq = this.copy(sq);
+      sq.query = fq.query.filtered.query; // should be a bool must for this convenience
+      sq.query.bool.filter = fq.query.filtered.filter; // simple convenience catch for old-style queries - NOT complete
     }
     if (sq.query.bool == null) {
       ms = [];
@@ -4958,15 +5179,15 @@ P.index.translate = function(q, opts = {}) {
   };
   qry = _structure(qry);
   if (typeof q === 'object') {
-    ref2 = ['apikey', '_', 'callback', 'refresh', 'key', 'counts', 'index'];
-    for (j = 0, len = ref2.length; j < len; j++) {
-      dk = ref2[j];
+    ref3 = ['apikey', '_', 'callback', 'refresh', 'key', 'counts', 'index', 'search'];
+    for (l = 0, len1 = ref3.length; l < len1; l++) {
+      dk = ref3[l];
       delete q[dk];
     }
-    ref3 = ['random', 'seed'];
+    ref4 = ['random', 'seed'];
     // is this necessary or is the general push of things other than q to opts good enough?
-    for (l = 0, len1 = ref3.length; l < len1; l++) {
-      ok = ref3[l];
+    for (n = 0, len2 = ref4.length; n < len2; n++) {
+      ok = ref4[n];
       opts[ok] = q[ok];
       delete q[ok];
     }
@@ -4976,8 +5197,8 @@ P.index.translate = function(q, opts = {}) {
       if ((base2 = qry.query.bool).should == null) {
         base2.should = [];
       }
-      for (n = 0, len2 = q.length; n < len2; n++) {
-        m = q[n];
+      for (t = 0, len3 = q.length; t < len3; t++) {
+        m = q[t];
         if (typeof m === 'object' && (m != null)) {
           for (k in m) {
             if (typeof m[k] === 'string') {
@@ -4986,7 +5207,7 @@ P.index.translate = function(q, opts = {}) {
               };
               tobj.term[k] = m[k];
               qry.query.bool.should.push(tobj);
-            } else if ((ref4 = typeof m[k]) === 'number' || ref4 === 'boolean') {
+            } else if ((ref5 = typeof m[k]) === 'number' || ref5 === 'boolean') {
               qry.query.bool.should.push({
                 query_string: {
                   query: k + ':' + m[k]
@@ -5050,9 +5271,9 @@ P.index.translate = function(q, opts = {}) {
         }
       }
     } else {
-      ref5 = ['must', 'must_not', 'filter', 'should'];
-      for (t = 0, len3 = ref5.length; t < len3; t++) {
-        bt = ref5[t];
+      ref6 = ['must', 'must_not', 'filter', 'should'];
+      for (u = 0, len4 = ref6.length; u < len4; u++) {
+        bt = ref6[u];
         if (q[bt] != null) {
           qry.query.bool[bt] = q[bt];
         }
@@ -5071,7 +5292,7 @@ P.index.translate = function(q, opts = {}) {
             };
             tobj.term[y] = q[y];
             qry.query.bool.filter.push(tobj);
-          } else if ((ref6 = typeof q[y]) === 'number' || ref6 === 'boolean') {
+          } else if ((ref7 = typeof q[y]) === 'number' || ref7 === 'boolean') {
             qry.query.bool.filter.push({
               query_string: {
                 query: y + ':' + q[y]
@@ -5156,9 +5377,9 @@ P.index.translate = function(q, opts = {}) {
         if (typeof excludes === 'string') {
           excludes = excludes.split(',');
         }
-        ref7 = includes != null ? includes : [];
-        for (u = 0, len4 = ref7.length; u < len4; u++) {
-          i = ref7[u];
+        ref8 = includes != null ? includes : [];
+        for (w = 0, len5 = ref8.length; w < len5; w++) {
+          i = ref8[w];
           if (indexOf.call(excludes, i) >= 0) {
             delete excludes[i];
           }
@@ -5168,9 +5389,9 @@ P.index.translate = function(q, opts = {}) {
       }
     }
     if (opts.and != null) {
-      ref8 = opts.and;
-      for (w = 0, len5 = ref8.length; w < len5; w++) {
-        a = ref8[w];
+      ref9 = opts.and;
+      for (x = 0, len6 = ref9.length; x < len6; x++) {
+        a = ref9[x];
         qry.query.bool.filter.push(a);
       }
       delete opts.and;
@@ -5179,9 +5400,9 @@ P.index.translate = function(q, opts = {}) {
       if (typeof opts.sort === 'string' && opts.sort.indexOf(',') !== -1) {
         if (opts.sort.indexOf(':') !== -1) {
           os = [];
-          ref9 = opts.sort.split(',');
-          for (x = 0, len6 = ref9.length; x < len6; x++) {
-            ps = ref9[x];
+          ref10 = opts.sort.split(',');
+          for (z = 0, len7 = ref10.length; z < len7; z++) {
+            ps = ref10[z];
             nos = {};
             nos[ps.split(':')[0]] = {
               order: ps.split(':')[1]
@@ -5202,9 +5423,9 @@ P.index.translate = function(q, opts = {}) {
       }
     }
     if ((opts.restrict != null) || (opts.filter != null)) {
-      ref11 = (ref10 = opts.restrict) != null ? ref10 : opts.filter;
-      for (z = 0, len7 = ref11.length; z < len7; z++) {
-        rs = ref11[z];
+      ref12 = (ref11 = opts.restrict) != null ? ref11 : opts.filter;
+      for (i1 = 0, len8 = ref12.length; i1 < len8; i1++) {
+        rs = ref12[i1];
         qry.query.bool.filter.push(rs);
       }
       delete opts.restrict;
@@ -5217,9 +5438,9 @@ P.index.translate = function(q, opts = {}) {
         if ((base3 = qry.query.bool).must_not == null) {
           base3.must_not = [];
         }
-        ref12 = opts[tgt];
-        for (i1 = 0, len8 = ref12.length; i1 < len8; i1++) {
-          nr = ref12[i1];
+        ref13 = opts[tgt];
+        for (j1 = 0, len9 = ref13.length; j1 < len9; j1++) {
+          nr = ref13[j1];
           qry.query.bool.must_not.push(nr);
         }
       }
@@ -5232,18 +5453,13 @@ P.index.translate = function(q, opts = {}) {
         if ((base4 = qry.query.bool).should == null) {
           base4.should = [];
         }
-        ref13 = opts.should;
-        for (j1 = 0, len9 = ref13.length; j1 < len9; j1++) {
-          sr = ref13[j1];
+        ref14 = opts.should;
+        for (k1 = 0, len10 = ref14.length; k1 < len10; k1++) {
+          sr = ref14[k1];
           qry.query.bool.should.push(sr);
         }
       }
       delete opts.should;
-    }
-    if (opts.all != null) {
-      // TODO newer ES doesn't allow more than 10k by default, need to do scan/scroll or whatever the new equivalent is
-      qry.size = 1000000; // just a simple way to try to get "all" records - although passing size would be a better solution, and works anyway
-      delete opts.all;
     }
     if (opts.terms != null) {
       try {
@@ -5252,21 +5468,21 @@ P.index.translate = function(q, opts = {}) {
       if (qry.aggregations == null) {
         qry.aggregations = {};
       }
-      ref14 = opts.terms;
-      for (k1 = 0, len10 = ref14.length; k1 < len10; k1++) {
-        tm = ref14[k1];
+      ref15 = opts.terms;
+      for (l1 = 0, len11 = ref15.length; l1 < len11; l1++) {
+        tm = ref15[l1];
         qry.aggregations[tm] = {
           terms: {
-            field: tm + (tm.indexOf('.keyword') === -1 ? '.keyword' : ''),
+            field: tm + (tm.endsWith('.keyword') ? '' : '.keyword'),
             size: 1000
           }
         };
       }
       delete opts.terms;
     }
-    ref15 = ['aggs', 'aggregations'];
-    for (l1 = 0, len11 = ref15.length; l1 < len11; l1++) {
-      af = ref15[l1];
+    ref16 = ['aggs', 'aggregations'];
+    for (m1 = 0, len12 = ref16.length; m1 < len12; m1++) {
+      af = ref16[m1];
       if (opts[af] != null) {
         if (qry[af] == null) {
           qry[af] = {};
@@ -5285,10 +5501,10 @@ P.index.translate = function(q, opts = {}) {
   // no filter query or no main query can cause issues on some queries especially if certain aggs/terms are present, so insert some default searches if necessary
   //qry.query = { match_all: {} } if typeof qry is 'object' and qry.query? and JSON.stringify(qry.query) is '{}'
   // clean slashes out of query strings
-  if (((ref16 = qry.query) != null ? ref16.bool : void 0) != null) {
+  if (((ref17 = qry.query) != null ? ref17.bool : void 0) != null) {
     for (bm in qry.query.bool) {
       for (b in qry.query.bool[bm]) {
-        if (typeof ((ref17 = qry.query.bool[bm][b].query_string) != null ? ref17.query : void 0) === 'string' && qry.query.bool[bm][b].query_string.query.indexOf('/') !== -1 && qry.query.bool[bm][b].query_string.query.indexOf('"') === -1) {
+        if (typeof ((ref18 = qry.query.bool[bm][b].query_string) != null ? ref18.query : void 0) === 'string' && qry.query.bool[bm][b].query_string.query.indexOf('/') !== -1 && qry.query.bool[bm][b].query_string.query.indexOf('"') === -1) {
           qry.query.bool[bm][b].query_string.query = '"' + qry.query.bool[bm][b].query_string.query + '"';
         }
       }
@@ -5300,11 +5516,97 @@ P.index.translate = function(q, opts = {}) {
   return qry;
 };
 
+// calling this should be given a correct URL route for ES7.x, domain part of the URL is optional though.
+// call the above to have the route constructed. method is optional and will be inferred if possible (may be removed)
+P.index._send = async function(route, data, method) {
+  var opts, prefix, ref1, ref2, ref3, ref4, res, rqp, url;
+  if (route.includes('?')) {
+    [route, rqp] = route.split('?');
+    rqp = '?' + rqp;
+  } else {
+    rqp = '';
+  }
+  route = route.toLowerCase(); // force lowercase on all IDs so that can deal with users giving incorrectly cased IDs for things like DOIs which are defined as case insensitive
+  if (route.startsWith('/')) { // gets added back in when combined with the url
+    route = route.replace('/', '');
+  }
+  if (route.endsWith('/')) {
+    route = route.replace(/\/$/, '');
+  }
+  if (method == null) {
+    method = data === '' ? 'DELETE' : (data != null) && (route.indexOf('/') === -1 || route.indexOf('/_create') !== -1 || (route.indexOf('/_doc') !== -1 && !route.endsWith('/_doc'))) ? 'PUT' : (data != null) || ((ref1 = route.split('/').pop().split('?')[0]) === '_refresh' || ref1 === '_aliases') ? 'POST' : 'GET';
+  }
+  if (method === 'DELETE' && route.indexOf('/_all') !== -1) { // nobody can delete all via the API
+    // TODO if data is a query that also has a _delete key in it, remove that key and do a delete by query? and should that be bulked? is dbq still allowed in ES7.x?
+    return false;
+  }
+  if (!route.startsWith('http')) { // which it probably doesn't
+    if (this.S.index.name && !route.startsWith(this.S.index.name) && !route.startsWith('_')) {
+      prefix = (await this.dot(P, (route.split('/')[0]).replace(/_/g, '.') + '._prefix'));
+      // TODO could allow prefix to be a list of names, and if index name is in the list, alias the index into those namespaces, to share indexes between specific instances rather than just one or global
+      if (prefix !== false) {
+        route = (typeof prefix === 'string' ? prefix : this.S.index.name) + '_' + route;
+      }
+    }
+    url = (this != null ? (ref2 = this.S) != null ? (ref3 = ref2.index) != null ? ref3.url : void 0 : void 0 : void 0) ? this.S.index.url : (ref4 = S.index) != null ? ref4.url : void 0;
+    if (Array.isArray(url)) {
+      url = url[Math.floor(Math.random() * url.length)];
+    }
+    if (typeof url !== 'string') {
+      return void 0;
+    }
+    route = url + '/' + route;
+  }
+  if (!route.startsWith('http')) {
+    console.log('NO INDEX URL AVAILABLE');
+    return void 0;
+  }
+  route = route += rqp;
+  opts = route.indexOf('/_bulk') !== -1 || typeof (data != null ? data.headers : void 0) === 'object' ? data : {
+    body: data // fetch requires data to be body
+  };
+  if (route.indexOf('/_search') !== -1) {
+    // avoid hits.total coming back as object in new ES, because it also becomes vague
+    // see hits.total https://www.elastic.co/guide/en/elasticsearch/reference/current/breaking-changes-7.0.html
+    route += (route.indexOf('?') === -1 ? '?' : '&') + 'rest_total_hits_as_int=true';
+  }
+  if (this.S.dev) {
+    console.log('INDEX ' + route);
+    console.log(method + ' ' + (data == null ? '' : JSON.stringify(Array.isArray(data) && data.length ? data[0] : data).substr(0, 5000)));
+  }
+  //opts.retry = 3
+  opts.method = method;
+  res = (await this.fetch(route, opts));
+  if (this.S.dev) {
+    try {
+      console.log('INDEX QUERY FOUND', res.hits.total, res.hits.hits.length);
+    } catch (error) {}
+  }
+  if ((res == null) || (typeof res === 'object' && typeof res.status === 'number' && res.status >= 400 && res.status <= 600)) {
+    // fetch returns undefined for 404, otherwise any other error from 400 is returned like status: 400
+    // write a log / send an alert?
+    //em = level: 'debug', msg: 'ES error, but may be OK, 404 for empty lookup, for example', method: method, url: url, route: route, opts: opts, error: err.toString()
+    //if this?.log? then @log(em) else P.log em
+    // do anything for 409 (version mismatch?)
+    return void 0;
+  } else {
+    try {
+      if (this.S.dev && ((data != null ? data.query : void 0) != null)) {
+        res.q = data;
+      }
+    } catch (error) {}
+    return res;
+  }
+};
+
 // https://developers.cloudflare.com/workers/runtime-apis/kv
 // Keys are always returned in lexicographically sorted order according to their UTF-8 bytes.
 // NOTE these need to be awaited when necessary, as the val will be a Promise
 
-// this could move to server, if never going to be used from worker - would want to run a worker connecting to a somehow remote kv?
+// this is here instead of server because it can be useful to deploy a worker to cloudflare
+// that does NOT use a KV on the same account it is deployed to, instead it connects 
+// via another instance of Paradigm running on another account to a KV on that secondary account.
+// e.g. multiple worker instances on multiple accounts sharing one resume token KV collection.
 if (typeof S.kv === 'string' && S.kv.startsWith('http') && !global[S.kv]) {
   // kv is a URL back to the worker to access cloudflare kv
   global[S.kv] = {};
@@ -5329,33 +5631,49 @@ if (typeof S.kv === 'string' && S.kv.startsWith('http') && !global[S.kv]) {
       method: 'DELETE'
     });
   };
-  global[S.kv].list = function(prefix, cursor) {
-    return P.fetch(S.kv + '/list' + (prefix ? '/' + prefix : '') + (cursor ? '?cursor=' + cursor : ''));
+  global[S.kv].list = function(opts) {
+    if (opts == null) {
+      opts = {};
+    }
+    return P.fetch(S.kv + '/list' + (opts.prefix ? '/' + opts.prefix : '') + (opts.cursor ? '?cursor=' + opts.cursor : ''));
   };
 }
 
 `if typeof S.kv isnt 'string' and S.kv isnt false
 global[S.kv] = {}
 global[S.kv].get = (key) ->
-  ret = await P.index 'kv/' + key.replace /\//g, '_'
-  try ret.val = JSON.parse ret.val
-  return ret.val
+  kc = 'kv/' + key.replace /\//g, '_'
+  ret = await P.index kc
+  if ret.expiresAt and ret.expiresAt < Date.now()
+    P.index kc, '' # delete
+    return undefined
+  else
+    try ret.val = JSON.parse ret.val
+    return ret.val
 global[S.kv].getWithMetadata = (key) ->
-  ret = await P.index 'kv/' + key.replace /\//g, '_'
+  kc = 'kv/' + key.replace /\//g, '_'
+  ret = await P.index kc
   try ret.val = JSON.parse ret.val
-  return value: ret.val, metadata: {} # can't get the metadata remotely
+  try ret.metadata = JSON.parse ret.metadata
+  return value: ret.val, metadata: ret.metadata
 global[S.kv].put = (key, data) ->
-  return await P.index 'kv/' + key.replace(/\//g, '_'), key: key, val: JSON.stringify data
+  kc = 'kv/' + key.replace /\//g, '_'
+  return await P.index kc, key: key, val: JSON.stringify data
 global[S.kv].delete = (key) ->
-  return await P.index 'kv/' + key.replace(/\//g, '_'), ''
-global[S.kv].list = (prefix, cursor) ->
+  kc = 'kv/' + key.replace /\//g, '_'
+  return await P.index kc, ''
+global[S.kv].list = (opts) ->
   # cursor on real kv isnt a from count, but use that for now
   # need to change this to use each properly on index, as from will only go as far as 10k
-  ret = await P.index 'kv/', (if prefix then 'key:' + prefix + '*' else '*'), {sort: {key: {order: 'asc'}}, from: cursor}
+  opts ?= {}
+  opts.cursor ?= 0
+  ret = await P.index 'kv', (if opts.prefix then 'key:' + opts.prefix.replace(/\//g, '_') + '*' else '*'), {sort: {key: {order: 'asc'}}, from: opts.cursor}
   res = keys: []
   try
-    res.cursor: (cursor ? 0) + 1000
-    res.list_complete = true if res.cursor >= ret.hits.total
+    res.cursor: opts.cursor + 1000
+    if res.cursor >= ret.hits.total
+      res.list_complete = true
+      delete res.cursor
     for k in ret.hits.hits
       res.keys.push k._source.key
   return res`;
@@ -5431,15 +5749,9 @@ P.kv = async function(key, val, ttle, metadata, type) {
           }
         }
       }
-      //if @S.kv.indexOf('http') is 0 # has to be a URL route back to the worker
-      //  @fetch @S.kv + '/' + key, body: val # send m as well?
-      //else
       this.waitUntil(global[this.S.kv].put(key, (typeof val === 'object' ? JSON.stringify(val) : val), m));
       return val;
     } else {
-      //if @S.kv.indexOf('http') is 0
-      //  return await @fetch @S.kv + '/' + key # any way or need to get metadata here too?
-      //else
       ({value, metadata} = (await global[this.S.kv].getWithMetadata(key, type)));
       if (value != null) {
         try {
@@ -5468,6 +5780,12 @@ P.kv = async function(key, val, ttle, metadata, type) {
   }
 };
 
+P.kv._auths = 'system';
+
+P.kv._hides = true;
+
+P.kv._caches = false;
+
 P.kv.list = async function(prefix, cursor) {
   var ref, ref1;
   try {
@@ -5487,6 +5805,8 @@ P.kv.list = async function(prefix, cursor) {
 };
 
 // NOTE that count on kv is expensive because it requires listing everything
+// so these count/prefixes/clear actions are really only for dev convenience
+// not good for production scale
 P.kv.count = async function(prefix) {
   var complete, counter, cursor, i, k, len, ls, ref, ref1, ref2;
   counter = 0;
@@ -5495,6 +5815,7 @@ P.kv.count = async function(prefix) {
       prefix = (ref = (ref1 = this.params.kv) != null ? ref1 : this.params.prefix) != null ? ref : this.params.count;
     }
     complete = false;
+    cursor = void 0;
     while (!complete) {
       ls = (await global[this.S.kv].list({
         prefix: prefix,
@@ -5512,12 +5833,71 @@ P.kv.count = async function(prefix) {
   return counter;
 };
 
-P.kv._each = async function(prefix, fn, size) {
-  var complete, counter, cursor, i, k, len, ls, ref, res, rs;
-  res = [];
+P.kv.prefixes = async function() {
+  var prefixes;
+  prefixes = {};
+  await this.kv._each(void 0, function(k) {
+    var kp;
+    kp = k.split('/')[0];
+    if (prefixes[kp] == null) {
+      prefixes[kp] = 0;
+    }
+    return prefixes[kp] += 1;
+  });
+  return prefixes;
+};
+
+P.kv.clear = function(prefix) {
+  var ref;
+  if (this.S.dev) {
+    if (prefix == null) {
+      prefix = (ref = this.params.clear) != null ? ref : this.params.kv;
+    }
+    this.waitUntil(this.kv._each(prefix, function(k) {
+      return this.waitUntil(global[this.S.kv].delete(k));
+    }));
+    return true;
+  }
+};
+
+// NOTE there is no bulk delete option on the bound kv. It can be done via the API 
+// but requires the API tokens which aren't shared in the deployed code. Could be 
+// done manually via a script on bg. Or have bg iterate calls to frontend until it 
+// can no longer count any existing.
+// A LOOPING CLEAR AS ABOVE GETS RID OF ABOUT 200 KV ENTRIES BEFORE IT TIMES OUT
+P.kv.delete = async function(prefix) {
+  var count, ref, ref1, res;
+  if (typeof this.S.kv === 'string' && this.S.kv.startsWith('http')) { // which it should if kv is available from bg
+    if (prefix == null) {
+      prefix = (ref = (ref1 = this.params.kv) != null ? ref1 : this.params.delete) != null ? ref : this.params.prefix;
+    }
+    count = (await this.fetch(this.S.kv + '/count' + (prefix ? '/' + prefix : '')));
+    res = count;
+    while (count && count !== '0') {
+      if (this.S.dev) {
+        console.log(prefix, count);
+      }
+      await this.fetch(this.S.kv + '/clear' + (prefix ? '/' + prefix : ''));
+      await this.sleep(500);
+      count = (await this.fetch(this.S.kv + '/count' + (prefix ? '/' + prefix : '')));
+    }
+    return res;
+  }
+};
+
+P.kv.delete._bg = true;
+
+P.kv._each = async function(prefix, fn) {
+  var complete, counter, cursor, i, k, len, ls, ref, results;
+  counter = 0;
   if (this.S.kv && (global[this.S.kv] != null)) {
+    if (typeof prefix === 'function' && (fn == null)) {
+      fn = prefix;
+      prefix = void 0;
+    }
     complete = false;
-    counter = 0;
+    cursor = void 0;
+    results = [];
     while (!complete) {
       ls = (await global[this.S.kv].list({
         prefix: prefix,
@@ -5528,25 +5908,18 @@ P.kv._each = async function(prefix, fn, size) {
       for (i = 0, len = ref.length; i < len; i++) {
         k = ref[i];
         counter += 1;
-        if (fn === '') {
-          this.waitUntil(this.kv(k.name, ''));
-        } else if (typeof fn === 'function') {
-          res.push((await fn.call(this, k.name)));
+        if (typeof fn === 'function') {
+          this.waitUntil(fn.call(this, k.name));
+        } else if (fn === '') {
+          this.waitUntil(global[this.S.kv].delete(k.name));
         } else if (fn != null) {
           this.waitUntil(this.kv(k.name, fn));
-        } else {
-          if (rs = (await this.kv(k.name))) {
-            if (rs._id == null) {
-              rs._id = k.name; // worthwhile?
-            }
-            res.push(rs);
-          }
         }
       }
-      complete = size && counter === size ? true : ls.list_complete;
+      results.push(complete = ls.list_complete);
     }
+    return results;
   }
-  return res;
 };
 
 // BASE provide a search endpoint, but must register our IP to use it first
@@ -5617,98 +5990,38 @@ P.src.base.search = async function(qry = '*', from, size) {
   } catch (error) {}
 };
 
-// core docs:
-// http://core.ac.uk/docs/
-// http://core.ac.uk/docs/#!/articles/searchArticles
-// http://core.ac.uk:80/api-v2/articles/search/doi:"10.1186/1471-2458-6-309"
-P.src.core = {};
-
-P.src.core.doi = function(doi) {
-  return this.src.core.get('doi:"' + doi + '"');
-};
-
-P.src.core.title = function(title) {
-  try {
-    title = title.toLowerCase().replace(/(<([^>]+)>)/g, '').replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' ');
-  } catch (error) {}
-  return this.src.core.get('title:"' + title + '"');
-};
-
-P.src.core.get = async function(qrystr) {
-  var i, j, len, ref, res, ret;
-  ret = (await this.src.core.search(qrystr));
-  if (ret != null ? ret.total : void 0) {
-    res = ret.data[0];
-    ref = ret.data;
-    for (j = 0, len = ref.length; j < len; j++) {
-      i = ref[j];
-      if (i.hasFullText === "true") {
-        res = i;
-        break;
-      }
-    }
-  }
-  return res;
-};
-
-P.src.core.search = async function(qrystr, from, size = 10) {
-  var apikey, ref, res, url;
-  // assume incoming query string is of ES query string format
-  // assume from and size are ES typical
-  // but core only accepts certain field searches:
-  // title, description, fullText, authorsString, publisher, repositoryIds, doi, identifiers, language.name and year
-  // for paging core uses "page" from 1 (but can only go up to 100?) and "pageSize" defaulting to 10 but can go up to 100
-  apikey = (ref = this.S.src.core) != null ? ref.apikey : void 0;
-  if (!apikey) {
-    return void 0;
-  }
-  //var qry = '"' + qrystr.replace(/\w+?\:/g,'') + '"'; # TODO have this accept the above list
-  url = 'http://core.ac.uk/api-v2/articles/search/' + qrystr + '?urls=true&apiKey=' + apikey;
-  if (size !== 10) {
-    url += '&pageSize=' + size;
-  }
-  if (from) {
-    url += '&page=' + (Math.floor(from / size) + 1);
-  }
-  try {
-    res = (await this.fetch(url)); //, {timeout: 10000}
-    return {
-      total: res.data.totalHits,
-      data: res.data.data
-    };
-  } catch (error) {}
-};
-
   // https://github.com/CrossRef/rest-api-doc/blob/master/rest_api.md
   // http://api.crossref.org/works/10.1016/j.paid.2009.02.013
-var _xref_hdr, base, ref,
+var _xref_hdr, ref,
   indexOf = [].indexOf;
 
 _xref_hdr = {
   'User-Agent': S.name + '; mailto:' + ((ref = S.mail) != null ? ref.to : void 0)
 };
 
-if ((base = P.src).crossref == null) {
-  base.crossref = {};
-}
+P.src.crossref = function() {
+  return 'Crossref API wrapper';
+};
 
 P.src.crossref.journals = async function(issn) {
-  var isq, ref1, res, url;
+  var isissn, ref1, res, url;
   // by being an index, should default to a search of the index, then run this query if not present, which should get saved to the index
   if (issn == null) {
     issn = (ref1 = this.params.journals) != null ? ref1 : this.params.issn;
   }
-  isq = this.index._q(issn);
+  isissn = typeof issn === 'string' && issn.length === 9 && issn.split('-').length === 2 && issn.indexOf('-') === 4;
   //url = 'https://api.crossref.org/journals?query=' + issn
-  url = 'https://dev.api.cottagelabs.com/use/crossref/journals' + (isq ? '?q=' + issn : '/' + issn);
+  url = 'https://dev.api.cottagelabs.com/use/crossref/journals' + (isissn ? '/' + issn : '?q=') + issn;
   res = (await this.fetch(url)); //, {headers: _xref_hdr} # TODO check how headers get sent by fetch
   //return if res?.message?['total-results']? and res.message['total-results'].length then res.message['total-results'][0] else undefined
-  if (isq) {
-    return res;
-  } else if ((res != null ? res.ISSN : void 0) != null) {
-    return res;
+  if (isissn) {
+    if ((res != null ? res.ISSN : void 0) != null) {
+      return res;
+    } else {
+      return void 0;
+    }
   } else {
-    return void 0;
+    return res;
   }
 };
 
@@ -5732,10 +6045,10 @@ P.src.crossref.journals.doi = async function(issn) {
   }
 };
 
-P.src.crossref.works = async function(doi) {
-  var rec, ref1, ref2, res, url;
+P.src.crossref.works = async function(doi, opts) {
+  var rec, ref1, ref2, ref3, res, url;
   if (doi == null) {
-    doi = (ref1 = (ref2 = this.params.works) != null ? ref2 : this.params.doi) != null ? ref1 : this.params.title || this.params.q;
+    doi = (ref1 = (ref2 = (ref3 = this.params.works) != null ? ref3 : this.params.doi) != null ? ref2 : this.params.title) != null ? ref1 : this.params.q;
   }
   if (typeof doi === 'string') {
     if (doi.indexOf('10.') !== 0) {
@@ -5753,13 +6066,19 @@ P.src.crossref.works = async function(doi) {
       url = 'https://dev.api.cottagelabs.com/use/crossref/works?doi=' + doi;
       res = (await this.fetch(url)); //, {headers: _xref_hdr}
     }
-  }
-  if ((res != null ? res.DOI : void 0) != null) {
-    rec = (await this.src.crossref.works._prep(res)); //res.data.message
-    return rec;
+    if ((res != null ? res.DOI : void 0) != null) {
+      rec = (await this.src.crossref.works._prep(res)); //res.data.message
+      return rec; //res?.message?.DOI?
+    }
   } else {
-    return void 0; //res?.message?.DOI?
+    // for now just get from old system instead of crossref
+    //url = 'https://api.crossref.org/works/' + doi
+    url = 'https://dev.api.cottagelabs.com/use/crossref/works?q=' + doi;
+    return (await this.fetch(url, {
+      params: opts //, {headers: _xref_hdr}
+    }));
   }
+  return void 0;
 };
 
 //P.src.crossref.works._kv = false
@@ -5973,6 +6292,7 @@ P.src.epmc = async function(qrystr, from, size) {
     url += '&cursorMark=' + from; // used to be a from pager, but now uses a cursor
   }
   ret = {};
+  await this.sleep(300);
   res = (await this.fetch(url));
   ret.total = res.hitCount;
   ret.data = (ref1 = (ref2 = res.resultList) != null ? ref2.result : void 0) != null ? ref1 : [];
@@ -5997,7 +6317,7 @@ P.src.epmc.doi = async function(ident) {
   }
 };
 
-P.src.epmc.doi._hidden = true;
+P.src.epmc.doi._hide = true;
 
 P.src.epmc.pmid = async function(ident) {
   var res;
@@ -6039,7 +6359,7 @@ P.src.epmc.title = async function(title) {
 };
 
 P.src.epmc.licence = async function(pmcid, rec, fulltext) {
-  var licanywhere, licinapi, licinperms, licsplash, maybe_licence, pg, ref, res, url;
+  var licanywhere, licinapi, licinperms, licsplash, maybe_licence, pg, ref, ref1, res, url;
   if (pmcid == null) {
     pmcid = (ref = this.params.licence) != null ? ref : this.params.pmcid;
   }
@@ -6085,8 +6405,9 @@ P.src.epmc.licence = async function(pmcid, rec, fulltext) {
         };
       }
     }
-    if (false) { //pmcid and @svc?.lantern?.licence?
-      // TODO need a 3s rate limit
+    if (pmcid && (((ref1 = this.svc.lantern) != null ? ref1.licence : void 0) != null)) {
+      // TODO need a 3s rate limit (but limited by IP? If so what happens when coming from different workers?)
+      await this.sleep(1000);
       url = 'https://europepmc.org/articles/PMC' + pmcid.toLowerCase().replace('pmc', '');
       pg = (await this.puppet(url));
       if (typeof pg === 'string') {
@@ -6105,7 +6426,7 @@ P.src.epmc.licence = async function(pmcid, rec, fulltext) {
   }
 };
 
-P.src.epmc.xml = function(pmcid) {
+P.src.epmc.xml = async function(pmcid) {
   var ref;
   if (pmcid == null) {
     pmcid = (ref = this.params.xml) != null ? ref : this.params.pmcid;
@@ -6113,6 +6434,7 @@ P.src.epmc.xml = function(pmcid) {
   if (pmcid) {
     pmcid = pmcid.toLowerCase().replace('pmc', '');
   }
+  await this.sleep(900);
   return this.fetch('https://www.ebi.ac.uk/europepmc/webservices/rest/PMC' + pmcid + '/fullTextXML');
 };
 
@@ -6139,8 +6461,8 @@ P.src.epmc.aam = async function(pmcid, rec, fulltext) {
           aam: true,
           info: 'fulltext'
         };
-      } else if (false) {
-        // NOTE to enable this it needs a 3s rate limit
+      } else {
+        await this.sleep(1000); // TODO need a 3s rate limit
         pg = (await this.puppet('https://europepmc.org/articles/PMC' + pmcid.toLowerCase().replace('pmc', '')));
         if (pg == null) {
           return {
@@ -6577,8 +6899,9 @@ P.src.microsoft.bing = async function(q, key) {
   url = 'https://api.cognitive.microsoft.com/bing/v7.0/search?mkt=en-GB&count=20&q=' + q;
   res = (await this.fetch(url, {
     headers: {
-      'Ocp-Apim-Subscription-Key': key // TODO set a long cache time on it
-    }
+      'Ocp-Apim-Subscription-Key': key
+    },
+    cache: 259200 // cache for 3 days
   }));
   if (res != null ? (ref8 = res.webPages) != null ? ref8.value : void 0 : void 0) {
     return {
@@ -6676,7 +6999,7 @@ P.src.microsoft.graph.journal = async function(q) {
   return res;
 };
 
-`P.src.microsoft.graph.paper = _index: true # TODO check how API init will pick up an index that has no main function
+`P.src.microsoft.graph.paper = _index: true
 P.src.microsoft.graph.journal = _index: true
 P.src.microsoft.graph.author = _index: true
 P.src.microsoft.graph.affiliation = _index: true
@@ -6716,12 +7039,13 @@ P.src.microsoft.graph.relation = _index: true`;
 
   return results`;
 
-P.src.oadoi = function(doi) {
+P.src.oadoi = async function(doi) {
   var ref, ref1, ref2, url;
   if (doi == null) {
-    doi = (ref = this != null ? (ref1 = this.params) != null ? ref1.oadoi : void 0 : void 0) != null ? ref : this != null ? (ref2 = this.params) != null ? ref2.doi : void 0 : void 0;
+    doi = (ref = (ref1 = this.params) != null ? ref1.oadoi : void 0) != null ? ref : (ref2 = this.params) != null ? ref2.doi : void 0;
   }
   if (typeof doi === 'string' && doi.startsWith('10.')) {
+    await this.sleep(900);
     url = 'https://api.oadoi.org/v2/' + doi + '?email=' + S.mail.to;
     return this.fetch(url);
   } else {
@@ -7214,7 +7538,7 @@ P.src.sherpa.opendoar.import = async function() {
   return counter;
 };
 
-P.src.sherpa.opendoar.import._hidden = true;
+P.src.sherpa.opendoar.import._hide = true;
 
 // TODO copy over from old system
 P.src.wikidata = function(q) {
@@ -7584,6 +7908,144 @@ P.src.zenodo.deposition.delete = async function(id, token, dev) {
   return true;
 };
 
+P.svc.hanzi = {
+  _index: true,
+  _hides: true
+};
+
+P.svc.hanzi.collect = async function() {
+  var c, counter, i, j, k, keys, len, len1, len2, p, page, pager, rec, ref, ref1, ref2, row, rows, ti, url, val, vc;
+  //url = 'http://hanzidb.org/character-list/hsk'
+  url = 'http://hanzidb.org/character-list/general-standard';
+  counter = 0;
+  pager = 0;
+  this.svc.hanzi('');
+  while (pager < 82) { //27
+    pager += 1;
+    console.log(pager, counter);
+    if (pager > 1) {
+      url = url.split('?')[0] + '?page=' + pager;
+    }
+    page = (await this.fetch(url));
+    rows = page.split('<table>')[1].split('</table>')[0].split('</tr>');
+    rows.shift(); // drop the first row of headers (thead and tbody were not used, so just ignore first row)
+    keys = [
+      'character',
+      'pinyin',
+      'definition',
+      'radical',
+      'strokes',
+      'HSK',
+      'standard',
+      'frequency' // url, radical_url, radical_base, radical_float
+    ];
+    for (i = 0, len = rows.length; i < len; i++) {
+      row = rows[i];
+      rec = {
+        type: ['character'],
+        page: url
+      };
+      vc = 0;
+      ref = row.replace('<tr>', '').replace('</td></td>', '</td>').split('</td>');
+      for (j = 0, len1 = ref.length; j < len1; j++) {
+        val = ref[j];
+        val = val.replace('<td>', '');
+        if (typeof val === 'string' && val.includes('</span>')) {
+          val = val.replace('</span>', '').split('>')[1];
+        } else if (typeof val === 'string' && val.includes('</a>')) {
+          if (vc === 0) {
+            val = val.replace('</a>', '').split('>')[1];
+          } else {
+            try {
+              rec.radical_float = parseFloat(val.split('>').pop().replace('&nbsp;', ''));
+            } catch (error) {}
+            try {
+              rec.radical_base = parseInt(rec.radical_float.toString().split('.')[0]);
+            } catch (error) {}
+            val = val.split('</a>')[0].split('>').pop();
+            try {
+              rec.radical_url = 'http://hanzidb.org/character/' + val;
+            } catch (error) {}
+          }
+        }
+        try {
+          val = val.replace('&nbsp;', '');
+        } catch (error) {}
+        try {
+          val = val.trim();
+        } catch (error) {}
+        try {
+          if (typeof val === 'string' && val.replace(/[0-9]/g, '').length === 0) {
+            p = parseInt(val);
+            if (!isNaN(p)) {
+              val = p;
+            }
+          }
+        } catch (error) {}
+        if (val && ((ref1 = typeof val) === 'number' || ref1 === 'string')) {
+          rec[keys[vc]] = val;
+        }
+        vc += 1;
+      }
+      if (rec.definition && rec.definition.includes('KangXi radical')) {
+        rec.type.push('radical');
+      }
+      if (rec.definition && rec.definition.includes('heavenly stem')) {
+        rec.type.push('stem');
+      }
+      try {
+        rec.url = 'http://hanzidb.org/character/' + rec.character;
+      } catch (error) {}
+      rec.ascii = '';
+      rec.tones = [];
+      if (rec.pinyin) {
+        ref2 = [...rec.pinyin.normalize('NFD')];
+        for (k = 0, len2 = ref2.length; k < len2; k++) {
+          c = ref2[k];
+          ti = ['', 772, 769, 780, 768].indexOf(c.codePointAt(0));
+          if (ti && ti > 0) {
+            rec.tones.push(ti);
+          }
+          if (c.replace(/[a-zA-Z]/g, '').length === 0) {
+            rec.ascii += c;
+          }
+        }
+      }
+      if (rec.character != null) {
+        this.svc.hanzi(rec);
+      } else {
+        console.log(rec);
+      }
+      counter += 1;
+    }
+  }
+  return counter;
+};
+
+P.svc.hanzi.collect._async = true;
+
+// TODO add a lookup for the page about the character, where can extract some sample words and more info
+
+// TODO get all 214 radicals. https://hsk.academy/en/learn/the-chinese-radicals
+
+// https://www.unicode.org/charts/unihan.html
+
+// TODO try extracting every particle from a character, not just the radical (first) particle (may need image analysis of the characters)
+// https://www.researchgate.net/publication/265175086_RadicalLocator_A_software_tool_for_identifying_the_radicals_in_Chinese_characters
+// https://apple.stackexchange.com/questions/127534/convert-single-unicode-character-to-png-image
+
+// direct keyboard entry method for hanzi characters (instead of pinyin method)
+// https://en.wikipedia.org/wiki/Wubi_method
+`<td><a href="/character/师">师</a></td>
+<td><span style="color:#990000;">shī</span></td>
+<td><span class="smmr">teacher, master, specialist</span></td>
+<td><a href="/character/巾" title="Kangxi radical 50">巾</a>&nbsp;50.3</td>
+<td>6</td>
+<td>1</td>
+<td>0413</td>
+</td>
+<td>333</td></tr>`;
+
 `P.svc.lantern = (jid) ->
   jid ?= @params.lantern ? @params.job
   jid = undefined if jid and jid.startsWith '10.'
@@ -7651,7 +8113,7 @@ P.svc.lantern.results = (jid, count) ->
       "electronic_publication_date", "publisher", "publisher_licence", "licence", "epmc_licence", "licence_source",
       "epmc_licence_source", "in_epmc", "epmc_xml", "aam", "open_access", "ahead_of_print", "romeo_colour", "preprint_embargo",
       "preprint_self_archiving", "postprint_embargo", "postprint_self_archiving", "publisher_copy_embargo", "publisher_copy_self_archiving",
-      "authors", "in_core", "in_base", "repositories", "repository_urls", "repository_oai_ids", "repository_fulltext_urls", "confidence",
+      "authors", "in_base", "repositories", "repository_urls", "repository_oai_ids", "repository_fulltext_urls", "confidence",
       "compliance_wellcome_standard", "compliance_wellcome_deluxe"
     ]
     grantcount = 0
@@ -7837,7 +8299,6 @@ P.svc.lantern.process = (proc, last) ->
     publisher_copy_embargo: 'unknown'
     publisher_copy_self_archiving: 'unknown'
     authors: [] # eupmc author list if available
-    in_core: 'unknown'
     in_base: 'unknown'
     repositories: [] # where CORE or BASE says it is. Should be list of objects
     grants:[] # a list of grants, probably from eupmc for now
@@ -7982,52 +8443,6 @@ P.svc.lantern.process = (proc, last) ->
         result.provenance.push 'Added article title from Crossref'
     else
       result.provenance.push 'Unable to obtain information about this article from Crossref.'
-
-    core = await @src.core.doi result.doi
-    if core?.id
-      result.in_core = true
-      result.provenance.push 'Found DOI in CORE'
-      if not result.authors and core.authors
-        result.authors = core.author
-        result.provenance.push 'Added authors from CORE'
-      if core.repositories? and core.repositories.length > 0
-        for rep in core.repositories
-          rc = {name:rep.name}
-          rc.oai = rep.oai if rep.oai?
-          if rep.uri
-            rc.url = rep.uri
-          else
-            try
-              res = await @src.sherpa.opendoar 'repository_metadata.name.name:"' + rep.name + '"'
-              if res.hits.hits[0]._source.repository_metadata.name.toLowerCase().indexOf(rep.name.toLowerCase()) isnt -1
-                rc.url = repo.repository_metadata.url
-                result.provenance.push 'Added repo base URL from OpenDOAR'
-              else
-                result.provenance.push 'Searched OpenDOAR but could not find repo and/or URL'
-            catch
-              result.provenance.push 'Tried but failed to search OpenDOAR for repo base URL'
-          rc.fulltexts = []
-          lastresort = undefined
-          if core.fulltextUrls
-            for fu in core.fulltextUrls
-              if fu.indexOf('core.ac.uk') is -1
-                resolved = await @resolve fu
-                if resolved and rc.fulltexts.indexOf(resolved) is -1
-                  if rc.url and resolved.indexOf(rc.url.replace('http://','').replace('https://','').split('/')[0]) isnt -1
-                    rc.fulltexts.unshift resolved
-                  else
-                    rc.fulltexts.push resolved
-              else if not lastresort?
-                lastresort = fu
-          rc.fulltexts.push(lastresort) if rc.fulltexts.length is 0 and lastresort?
-          result.repositories.push rc
-        result.provenance.push 'Added repositories that CORE claims article is available from'
-      if not result.title and core.title
-        result.title = core.title
-        result.provenance.push 'Added title from CORE'
-    else
-      result.in_core = false
-      result.provenance.push 'Could not find DOI in CORE'
 
     base = await @src.base.doi result.doi
     if base?.dclink?
@@ -8217,7 +8632,6 @@ P.svc.lantern._fields = {
   "publisher_copy_embargo": {"short_name": "Publisher's Copy Embargo"},
   "publisher_copy_self_archiving": {"short_name": "Publisher's Copy Self-Archiving Policy"},
   "authors": {"short_name": "Author(s)"},
-  "in_core": {"short_name": "In CORE?"},
   "in_base": {"short_name": "In BASE?"},
   "repositories": {"short_name": "Archived Repositories"},
   "repository_urls": {"short_name": "Repository URLs"},
@@ -8239,24 +8653,28 @@ try {
   S.svc.oaworks = {};
 }
 
-P.svc.oaworks = function() {
+P.svc.oaworks = async function() {
+  var ref;
   if (JSON.stringify(this.params) !== '{}') {
     return {
       status: 404
     };
   } else {
     return {
-      name: 'OA.Works API',
+      name: 'OA.Works Paradigm API',
       version: this.S.version,
       base: this.S.dev ? this.base : void 0,
-      built: this.S.built
+      built: this.S.dev ? this.S.built : void 0,
+      user: ((ref = this.user) != null ? ref.email : void 0) ? this.user.email : void 0,
+      routes: (await this._subroutes('svc.oaworks'))
     };
   }
 };
 
 P.svc.oaworks.templates = {
   _key: 'name',
-  _sheet: '16Qm8n3Rmx3QyttFpSGj81_7T6ehfLAtYRSvmDf3pAzg/1'
+  _sheet: '16Qm8n3Rmx3QyttFpSGj81_7T6ehfLAtYRSvmDf3pAzg/1',
+  _hide: true
 };
 
 // oab status and stats
@@ -8881,9 +9299,9 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
     try {
       mct = unidecode(metadata.title.toLowerCase()).replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' ');
       bong = (await this.src.microsoft.bing.search(mct));
-      if (((bong != null ? bong.data : void 0) != null) && bong.data.length) {
+      if (bong != null ? bong.data : void 0) {
         bct = unidecode(bong.data[0].name.toLowerCase()).replace('(pdf)', '').replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' ');
-        if (mct.replace(/ /g, '').indexOf(bct.replace(/ /g, '')) === 0 && !(await this.svc.oaworks.blacklist(bong.data[0].url))) {
+        if (mct.replace(/ /g, '').indexOf(bct.replace(/ /g, '')) === 0) { //and not await @svc.oaworks.blacklist bong.data[0].url
           // if the URL is usable and tidy bing title is a partial match to the start of the provided title, try using it
           options.url = bong.data[0].url.replace(/"/g, '');
           if (typeof options.url === 'string' && options.url.indexOf('pubmed.ncbi') !== -1) {
@@ -9611,8 +10029,8 @@ P.svc.oaworks.availability = async function(params, v2) {
           } else {
             qry = 'url.exact:"' + (Array.isArray(afnd.v2.metadata.url) ? afnd.v2.metadata.url[0] : afnd.v2.metadata.url) + '"';
           }
-          if (qry) {
-            resp = (await this.fetch('https://' + (this.S.dev ? 'dev.' : '') + 'api.cottagelabs.com/service/oab/requests?q=' + qry + ' AND type:article&sort=createdAt:desc'));
+          if (qry) { // ' + (if @S.dev then 'dev.' else '') + '
+            resp = (await this.fetch('https://api.cottagelabs.com/service/oab/requests?q=' + qry + ' AND type:article&sort=createdAt:desc'));
             if (resp != null ? (ref20 = resp.hits) != null ? ref20.total : void 0 : void 0) {
               request = resp.hits.hits[0]._source;
               rq = {
@@ -9635,10 +10053,473 @@ P.svc.oaworks.availability = async function(params, v2) {
   }
 };
 
-P.svc.oaworks.availability._hidden = true;
+P.svc.oaworks.availability._hide = true;
+
+var indexOf = [].indexOf;
+
+P.svc.oaworks.gates = function() {
+  if (this.refresh) {
+    this.svc.oaworks.gates.oacheck(void 0, void 0, void 0, void 0, true);
+    return true;
+  } else if (this.format === 'html') {
+    return 'I will be a nice HTML UI listing the links to trigger updates and listing the result files';
+  } else {
+    return 'OA.works Gates project API parts placeholder';
+  }
+};
+
+P.svc.oaworks.gates.awards = async function(kind, q, total) { // kind can be opp or inv, which will both be uppercased
+  var Funder, Matches, counter, cr, ex, fn, from, funder, i, j, k, len, len1, len2, lm, matchers, r, rec, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, size;
+  if (kind == null) {
+    kind = (ref = this.params.kind) != null ? ref : 'opp';
+  }
+  kind = kind.toLowerCase();
+  if (kind.endsWith('ids')) {
+    kind = kind.replace('ids');
+  }
+  if (total == null) {
+    total = this.params.total;
+  }
+  if (q == null) {
+    q = (ref1 = this.params.q) != null ? ref1 : 'type:"journal-article" AND funder.award:*' + (kind ? kind.toUpperCase() + '*' : '');
+  }
+  matchers = [/Melinda\sGates\sFoundation/g, /Gates\sCambridge\sTrust/g, /investment\s?id\s?\d{5}/gi, /OPPG[HD]\s?\d{4}/g, /OPP\s?1\s?\d{6}/g, /OPP\s?[45]\s?\d{4}/g, /INV\‐\d{6}/g];
+  fn = '/home/cloo/static/gates/' + (kind ? kind + 'ids' : 'awards') + '.csv';
+  await fs.writeFile(fn, '"DOI","Paper title","Journal title","ISSN","Publisher name","Published date","Published year","Funder","Crossref_OA","Matches"');
+  //res = []
+  counter = 0;
+  from = 0;
+  size = 1000;
+  //cr = await @src.crossref.works q, 
+  cr = (await this.fetch('https://dev.api.cottagelabs.com/use/crossref/works?q=' + q, {
+    params: {
+      size: size,
+      from: from
+    }
+  }));
+  try {
+    console.log(cr.hits.total);
+  } catch (error) {}
+  //while cr?.hits?.hits and cr.hits.hits.length and (not total or res.length < total)
+  while ((cr != null ? (ref8 = cr.hits) != null ? ref8.hits : void 0 : void 0) && cr.hits.hits.length && (!total || counter < total)) {
+    ref2 = cr.hits.hits;
+    for (i = 0, len = ref2.length; i < len; i++) {
+      r = ref2[i];
+      if (total && counter === total) {
+        //break if total and res.length is total
+        break;
+      }
+      counter += 1;
+      rec = r._source;
+      //rs = DOI: rec.DOI
+      //rs['Paper title'] = rec.title[0]
+      //rs['Journal title'] = rec['container-title'][0]
+      //rs.ISSN = rec.ISSN.join ', '
+      //rs['Publisher name'] = rec.publisher ? ''
+      //rs['Published date'] = rec.published ? ''
+      //rs['Published year'] = rec.year ? ''
+      //rs.Funder = ''
+      Funder = '';
+      ref3 = rec.funder;
+      for (j = 0, len1 = ref3.length; j < len1; j++) {
+        funder = ref3[j];
+        if (Funder.length) {
+          Funder += '\n';
+        }
+        Funder += funder.name + (funder.award && funder.award.length ? ' (' + funder.award.join(', ') + ')' : '');
+      }
+      //rs['Crossref_OA'] = rec.is_oa ? ''
+      //rs.Matches = ''
+      Matches = '';
+      try {
+        ex = (await this.tdm.extract({
+          content: JSON.stringify(rec),
+          matchers: matchers
+        }));
+        if (ex.matched) {
+          ref4 = ex.matches;
+          for (k = 0, len2 = ref4.length; k < len2; k++) {
+            lm = ref4[k];
+            if (Matches !== '') {
+              Matches += '\n';
+            }
+            Matches += lm.matched + ': ' + lm.result.join(', ');
+          }
+        }
+      } catch (error) {}
+      //res.push rs
+      await fs.appendFile(fn, '\n"' + rec.DOI + '","' + (rec.title ? rec.title[0].replace(/"/g, '') : '') + '","' + (rec['container-title'] ? rec['container-title'][0].replace(/"/g, '') : '') + '","' + (rec.ISSN ? rec.ISSN.join(', ') : '') + '","' + (rec.publisher ? rec.publisher.replace(/"/g, '') : '') + '","' + ((ref5 = rec.published) != null ? ref5 : '') + '","' + ((ref6 = rec.year) != null ? ref6 : '') + '","' + Funder.replace(/"/g, '') + '","' + ((ref7 = rec.is_oa) != null ? ref7 : '') + '","' + Matches + '"');
+    }
+    from += size;
+    //cr = await @src.crossref.works q, {size: size, from: from}
+    cr = (await this.fetch('https://dev.api.cottagelabs.com/use/crossref/works?q=' + q, {
+      params: {
+        size: size,
+        from: from
+      }
+    }));
+  }
+  //await fs.writeFile '/home/cloo/static/gates/' + (if kind then kind + 'ids' else 'awards') + '.csv', await @convert.json2csv res
+  return counter; //res.length
+};
+
+P.svc.oaworks.gates.oppids = function(q, total) {
+  return this.svc.oaworks.gates.awards('opp', q, total);
+};
+
+P.svc.oaworks.gates.invids = function(q, total) {
+  return this.svc.oaworks.gates.awards('inv', q, total);
+};
+
+P.svc.oaworks.gates.funders = async function(funder, q, total) {
+  var a, aff, affiliation, counter, cr, f, fl, from, i, j, k, l, len, len1, len2, len3, r, rec, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, size;
+  if (funder == null) {
+    funder = (ref = (ref1 = this.params.funders) != null ? ref1 : this.params.funder) != null ? ref : 'Melinda Gates Foundation';
+  }
+  funder = funder.replace(/"/g, '');
+  fl = funder.toLowerCase();
+  if (total == null) {
+    total = this.params.total;
+  }
+  if (q == null) {
+    q = (ref2 = this.params.q) != null ? ref2 : 'type:"journal-article" AND (author.affiliation.name:"' + funder + '" OR funder.name:"' + funder + '")';
+  }
+  counter = 0;
+  await fs.writeFile('/home/cloo/static/gates/funders.csv', '"DOI","Affiliation","Funder","Paper title","Journal Title","ISSN","Publisher name","Published date","Published year","Crossref_OA"');
+  from = 0;
+  size = 1000;
+  //cr = await @src.crossref.works q, {size: size, from: from}
+  cr = (await this.fetch('https://dev.api.cottagelabs.com/use/crossref/works?q=' + q, {
+    params: {
+      size: size,
+      from: from
+    }
+  }));
+  try {
+    console.log(cr.hits.total);
+  } catch (error) {}
+  while ((cr != null ? (ref14 = cr.hits) != null ? ref14.hits : void 0 : void 0) && cr.hits.hits.length && (!total || counter < total)) {
+    ref3 = cr.hits.hits;
+    for (i = 0, len = ref3.length; i < len; i++) {
+      r = ref3[i];
+      if (total && counter === total) {
+        break;
+      }
+      counter += 1;
+      rec = r._source;
+      affiliation = 'false';
+      funder = 'false';
+      ref5 = (ref4 = rec.author) != null ? ref4 : [];
+      for (j = 0, len1 = ref5.length; j < len1; j++) {
+        a = ref5[j];
+        ref7 = (ref6 = a.affiliation) != null ? ref6 : [];
+        for (k = 0, len2 = ref7.length; k < len2; k++) {
+          aff = ref7[k];
+          if (aff.name && aff.name.toLowerCase().indexOf(fl) !== -1) {
+            affiliation = aff.name;
+            break;
+          }
+        }
+      }
+      ref9 = (ref8 = rec.funder) != null ? ref8 : [];
+      for (l = 0, len3 = ref9.length; l < len3; l++) {
+        f = ref9[l];
+        if (f.name && f.name.toLowerCase().indexOf(fl) !== -1) {
+          funder = f.name;
+          break;
+        }
+      }
+      await fs.appendFile('/home/cloo/static/gates/funders.csv', '\n"' + rec.DOI + '","' + affiliation.replace(/"/g, '') + '","' + funder.replace(/"/g, '') + '","' + (rec.title ? rec.title[0].replace(/"/g, '') : '') + '","' + (rec['container-title'] ? rec['container-title'][0].replace(/"/g, '') : '') + '","' + (rec.ISSN ? rec.ISSN.join(', ') : '') + '","' + ((ref10 = rec.publisher) != null ? ref10 : '') + '","' + ((ref11 = rec.published) != null ? ref11 : '') + '","' + ((ref12 = rec.year) != null ? ref12 : '') + '","' + ((ref13 = rec.is_oa) != null ? ref13 : '') + '"');
+    }
+    from += size;
+    //cr = await @src.crossref.works q, {size: size, from: from}
+    cr = (await this.fetch('https://dev.api.cottagelabs.com/use/crossref/works?q=' + q, {
+      params: {
+        size: size,
+        from: from
+      }
+    }));
+  }
+  return counter;
+};
+
+P.svc.oaworks.gates.oacheck = async function(urls, q, funder, total, all) {
+  var counter, croa, d, dd, doi, doimatches, dois, done, fn, fr, has_publisher_host_type, i, issn, j, journal_oa_status, k, l, len, len1, len2, len3, len4, len5, loc, m, n, oadoi, out, pmc, publisher_license, publisher_url_for_pdf, publisher_version, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref3, ref4, ref5, ref6, ref7, ref8, ref9, repository_license, repository_url, repository_url_for_pdf, repository_version, tj;
+  if (total == null) {
+    total = this.params.total;
+  }
+  if (all == null) {
+    all = this.params.all;
+  }
+  if (all) {
+    await this.svc.oaworks.gates.oppids(q, total);
+    await this.svc.oaworks.gates.invids(q, total);
+    await this.svc.oaworks.gates.funders(funder, q, total);
+  }
+  dois = [];
+  doimatches = {};
+  croa = {};
+  //urls ?= @params.url ? @params.urls ? 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRdIku4CJK7_do57W06sr34lLwExpjuGGFQV8bBeKoAG2Wt5pXNm3_FMDjjFt7R9C9miWO6Dn3DI-zN/pub?gid=1831154623&single=true&output=csv'
+  //urls = []
+  //for url in (if typeof urls is 'string' then urls.replace(/\s/g, '').split(',') else urls)
+  //  content = await @fetch url
+  //  for row in content.split '\n'
+  //    d = row.replace(/\s/g, '').split(',')[0].replace(/"/g, '').trim()
+  //    dois.push(d) if d.startsWith('10.') and d.indexOf('/') isnt -1 and d not in dois
+  //for row in await @convert.csv2json 'https://github.com/oaworks/Gates/files/6410205/OACheck._.Gates.Dev.-.01_05_2021.csv'
+  done = [];
+  ref = ((await fs.readFile('/home/cloo/static/gates/oacheck_rererun.csv'))).toString().split('\n');
+  //await fs.writeFile '/home/cloo/static/gates/oacheck_fixed.csv', '"DOI","in_oadoi","journal_oa_status","Crossref_OA","best_oa_location_url","best_oa_location_url_for_pdf","is_oa","oa_status","has_repository_copy","repository_license","repository_url_for_pdf","repository_url","repository_version","publisher_license","publisher_url_for_pdf","publisher_version","Paper title","Journal Title","ISSN","Publisher name","Published date","Published year","Matches"'
+  for (i = 0, len = ref.length; i < len; i++) {
+    d = ref[i];
+    dd = d.replace(/"/g, '').split(',')[0].trim();
+    if (dd.startsWith('10.') && dd.indexOf('/') !== -1 && indexOf.call(done, dd) < 0) {
+      done.push(dd);
+    }
+  }
+  //await fs.appendFile '/home/cloo/static/gates/oacheck_fixed.csv', '\n' + d
+  console.log(done.length);
+  //fn = '/home/cloo/static/gates/oacheck_gates_dev_63.csv'
+  out = '/home/cloo/static/gates/oacheck_rererun_opps_invs.csv';
+  ref1 = ['oppids.csv', 'invids.csv', 'funders.csv'];
+  //for row in (await fs.readFile fn).toString().split '\n'
+  //  row = row.replace(/"/g, '').trim()
+  //  dois.push(row) if row.startsWith('10.') and row.indexOf('/') isnt -1 and row not in dois and row not in done
+  //console.log dois.length
+  for (j = 0, len1 = ref1.length; j < len1; j++) {
+    fn = ref1[j];
+    ref2 = (await this.convert.csv2json(((await fs.readFile('/home/cloo/static/gates/' + fn))).toString()));
+    for (k = 0, len2 = ref2.length; k < len2; k++) {
+      fr = ref2[k];
+      if (!fr.DOI.startsWith('10.')) {
+        console.log(fr.DOI);
+      } else if (ref3 = fr.DOI, indexOf.call(done, ref3) < 0) {
+        if (ref4 = fr.DOI, indexOf.call(dois, ref4) < 0) {
+          dois.push(fr.DOI);
+        }
+        if ((fr.Crossref_OA != null) && !croa[fr.DOI]) {
+          croa[fr.DOI] = fr.Crossref_OA;
+        }
+        if ((fr.Matches != null) && !doimatches[fr.DOI]) {
+          doimatches[fr.DOI] = fr.Matches;
+        }
+      }
+    }
+    console.log(fn, dois.length);
+  }
+  await fs.writeFile(out, '"DOI","in_oadoi","journal_oa_status","Crossref_OA","best_oa_location_url","best_oa_location_url_for_pdf","is_oa","oa_status","has_repository_copy","repository_license","repository_url_for_pdf","repository_url","repository_version","publisher_license","publisher_url_for_pdf","publisher_version","Paper title","Journal Title","ISSN","Publisher name","Published date","Published year","Matches"');
+  counter = 0;
+  for (l = 0, len3 = dois.length; l < len3; l++) {
+    doi = dois[l];
+    if (this.params.total && counter === this.params.total) {
+      break;
+    }
+    counter += 1;
+    if (oadoi = (await this.src.oadoi(doi))) { // ensure this is refreshed
+      journal_oa_status = oadoi.oa_status === 'gold' ? 'gold' : oadoi.oa_status === 'bronze' ? 'closed' : oadoi.oa_status === 'hybrid' ? 'hybrid' : '';
+      if (journal_oa_status === 'hybrid' && oadoi.journal_issns) {
+        ref5 = (typeof oadoi.journal_issns === 'string' ? oadoi.journal_issns.split(',') : oadoi.journal_issns);
+        for (m = 0, len4 = ref5.length; m < len4; m++) {
+          issn = ref5[m];
+          try {
+            tj = (await this.fetch('https://api.journalcheckertool.org/tj/' + issn));
+            if (tj.transformative_journal === true) {
+              journal_oa_status = 'transformative';
+              break;
+            }
+          } catch (error) {}
+        }
+      }
+      has_publisher_host_type = false;
+      repository_license = '';
+      repository_url_for_pdf = '';
+      repository_url = ''; // only for repository
+      repository_version = '';
+      publisher_license = '';
+      publisher_url_for_pdf = '';
+      publisher_version = '';
+      pmc = false;
+      ref7 = (ref6 = oadoi.oa_locations) != null ? ref6 : [];
+      for (n = 0, len5 = ref7.length; n < len5; n++) {
+        loc = ref7[n];
+        if (loc.host_type === 'publisher') {
+          has_publisher_host_type = true;
+          if (loc.license && publisher_license === '') {
+            publisher_license = loc.license;
+          }
+          if (loc.url_for_pdf && publisher_url_for_pdf === '') {
+            publisher_url_for_pdf = loc.url_for_pdf;
+          }
+          if (loc.version && publisher_version === '') {
+            publisher_version = loc.version;
+          }
+        }
+        if (loc.host_type === 'repository') {
+          if (loc.license && (repository_license === '' || pmc === false)) {
+            repository_license = loc.license;
+          }
+          if (loc.url_for_pdf && (repository_url_for_pdf === '' || pmc === false)) {
+            repository_url_for_pdf = loc.url_for_pdf;
+          }
+          if (loc.url && (repository_url === '' || pmc === false)) {
+            repository_url = loc.url;
+          }
+          if (loc.version && (repository_version === '' || pmc === false)) {
+            repository_version = loc.version;
+          }
+          if (repository_url.indexOf('pmc') !== -1) {
+            pmc = true;
+          }
+        }
+      }
+      if (!has_publisher_host_type) {
+        journal_oa_status = 'closed';
+      }
+      await fs.appendFile(out, '\n"' + doi + '","true","' + journal_oa_status + '","' + ((ref8 = croa[doi]) != null ? ref8 : '') + '","' + ((ref9 = (ref10 = oadoi.best_oa_location) != null ? ref10.url : void 0) != null ? ref9 : '') + '","' + ((ref11 = (ref12 = oadoi.best_oa_location) != null ? ref12.url_for_pdf : void 0) != null ? ref11 : '') + '","' + ((ref13 = oadoi.is_oa) != null ? ref13 : '') + '","' + ((ref14 = oadoi.oa_status) != null ? ref14 : '') + '","' + ((ref15 = oadoi.has_repository_copy) != null ? ref15 : '') + '","' + repository_license + '","' + repository_url_for_pdf + '","' + repository_url + '","' + repository_version + '","' + publisher_license + '","' + publisher_url_for_pdf + '","' + publisher_version + '","' + ((ref16 = oadoi.title) != null ? ref16 : '') + '","' + ((ref17 = oadoi.journal_name) != null ? ref17 : '') + '","' + ((ref18 = oadoi.journal_issns) != null ? ref18 : '') + '","' + ((ref19 = oadoi.publisher) != null ? ref19 : '') + '","' + ((ref20 = oadoi.published_date) != null ? ref20 : '') + '","' + ((ref21 = oadoi.year) != null ? ref21 : '') + '","' + ((ref22 = doimatches[doi]) != null ? ref22 : '') + '"');
+    } else {
+      await fs.appendFile(out, '\n"' + doi + '","false","","' + ((ref23 = croa[doi]) != null ? ref23 : '') + '","","","","","","","","","","","","","","","","","","' + ((ref24 = doimatches[doi]) != null ? ref24 : '') + '"');
+    }
+    console.log(counter);
+  }
+  this.mail({
+    to: 'mark@oa.works',
+    subject: 'Gates OA check done ' + counter,
+    text: 'https://static.oa.works/gates'
+  });
+  return counter;
+};
+
+P.svc.oaworks.gates._hides = true;
+
+P.svc.oaworks.gates.awards._bg = true;
+
+P.svc.oaworks.gates.awards._hide = true;
+
+P.svc.oaworks.gates.awards._async = true;
+
+P.svc.oaworks.gates.oppids._bg = true;
+
+P.svc.oaworks.gates.oppids._async = true;
+
+P.svc.oaworks.gates.invids._bg = true;
+
+P.svc.oaworks.gates.invids._async = true;
+
+P.svc.oaworks.gates.funders._bg = true;
+
+P.svc.oaworks.gates.funders._async = true;
+
+P.svc.oaworks.gates.oacheck._bg = true;
+
+P.svc.oaworks.gates.oacheck._async = true;
+
+P.svc.oaworks.gates.recheck = async function() {
+  var counter, croad, d, doi, doid, hadjournaloastatus, has_publisher_host_type, i, issn, j, journal_oa_status, k, len, len1, len2, loc, oadoi, out, parts, pmc, publisher_license, publisher_url_for_pdf, publisher_version, redo, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, repository_license, repository_url, repository_url_for_pdf, repository_version, tj, wasinoadoi;
+  out = '/home/cloo/static/gates/rerecheck.csv';
+  await fs.writeFile(out, '"DOI","in_oadoi","journal_oa_status","Crossref_OA","best_oa_location_url","best_oa_location_url_for_pdf","is_oa","oa_status","has_repository_copy","repository_license","repository_url_for_pdf","repository_url","repository_version","publisher_license","publisher_url_for_pdf","publisher_version","Paper title","Journal Title","ISSN","Publisher name","Published date","Published year","Matches","Recheck"');
+  counter = 0;
+  ref = ((await fs.readFile('/home/cloo/static/gates/oacheck_rererun.csv'))).toString().split('\n"10.');
+  for (i = 0, len = ref.length; i < len; i++) {
+    d = ref[i];
+    parts = d.split('","');
+    doi = '10.' + parts[0].replace(/"/g, '');
+    if (counter === 0) {
+      counter += 1; // skip the headers line
+    } else {
+      if (this.params.total && counter === this.params.total + 1) {
+        break;
+      }
+      counter += 1;
+      wasinoadoi = parts[1].replace(/"/g, '');
+      hadjournaloastatus = parts[2].replace(/"/g, '');
+      redo = wasinoadoi === 'false' ? 'notfound' : hadjournaloastatus === 'closed' ? 'closed' : false;
+      console.log(counter, doi, wasinoadoi, hadjournaloastatus);
+      if (redo) {
+        croad = parts[3].replace(/"/g, '');
+        doid = parts[parts.length - 1].replace(/"/g, '');
+        if (oadoi = (await this.src.oadoi(doi))) {
+          journal_oa_status = oadoi.oa_status === 'gold' ? 'gold' : oadoi.oa_status === 'bronze' ? 'closed' : oadoi.oa_status === 'hybrid' ? 'hybrid' : '';
+          if (journal_oa_status === 'hybrid' && oadoi.journal_issns) {
+            ref1 = (typeof oadoi.journal_issns === 'string' ? oadoi.journal_issns.split(',') : oadoi.journal_issns);
+            for (j = 0, len1 = ref1.length; j < len1; j++) {
+              issn = ref1[j];
+              try {
+                tj = (await this.fetch('https://api.journalcheckertool.org/tj/' + issn));
+                if (tj.transformative_journal === true) {
+                  journal_oa_status = 'transformative';
+                  break;
+                }
+              } catch (error) {}
+            }
+          }
+          has_publisher_host_type = false;
+          repository_license = '';
+          repository_url_for_pdf = '';
+          repository_url = ''; // only for repository
+          repository_version = '';
+          publisher_license = '';
+          publisher_url_for_pdf = '';
+          publisher_version = '';
+          pmc = false;
+          ref3 = (ref2 = oadoi.oa_locations) != null ? ref2 : [];
+          for (k = 0, len2 = ref3.length; k < len2; k++) {
+            loc = ref3[k];
+            if (loc.host_type === 'publisher') {
+              has_publisher_host_type = true;
+              if (loc.license && publisher_license === '') {
+                publisher_license = loc.license;
+              }
+              if (loc.url_for_pdf && publisher_url_for_pdf === '') {
+                publisher_url_for_pdf = loc.url_for_pdf;
+              }
+              if (loc.version && publisher_version === '') {
+                publisher_version = loc.version;
+              }
+            }
+            if (loc.host_type === 'repository') {
+              if (loc.license && (repository_license === '' || pmc === false)) {
+                repository_license = loc.license;
+              }
+              if (loc.url_for_pdf && (repository_url_for_pdf === '' || pmc === false)) {
+                repository_url_for_pdf = loc.url_for_pdf;
+              }
+              if (loc.url && (repository_url === '' || pmc === false)) {
+                repository_url = loc.url;
+              }
+              if (loc.version && (repository_version === '' || pmc === false)) {
+                repository_version = loc.version;
+              }
+              if (repository_url.indexOf('pmc') !== -1) {
+                pmc = true;
+              }
+            }
+          }
+          if (!has_publisher_host_type) {
+            journal_oa_status = 'closed';
+          }
+          await fs.appendFile('/home/cloo/static/gates/recheck.csv', '\n"' + doi + '","true","' + journal_oa_status + '","' + croad + '","' + ((ref4 = (ref5 = oadoi.best_oa_location) != null ? ref5.url : void 0) != null ? ref4 : '') + '","' + ((ref6 = (ref7 = oadoi.best_oa_location) != null ? ref7.url_for_pdf : void 0) != null ? ref6 : '') + '","' + ((ref8 = oadoi.is_oa) != null ? ref8 : '') + '","' + ((ref9 = oadoi.oa_status) != null ? ref9 : '') + '","' + ((ref10 = oadoi.has_repository_copy) != null ? ref10 : '') + '","' + repository_license + '","' + repository_url_for_pdf + '","' + repository_url + '","' + repository_version + '","' + publisher_license + '","' + publisher_url_for_pdf + '","' + publisher_version + '","' + ((ref11 = oadoi.title) != null ? ref11 : '') + '","' + ((ref12 = oadoi.journal_name) != null ? ref12 : '') + '","' + ((ref13 = oadoi.journal_issns) != null ? ref13 : '') + '","' + ((ref14 = oadoi.publisher) != null ? ref14 : '') + '","' + ((ref15 = oadoi.published_date) != null ? ref15 : '') + '","' + ((ref16 = oadoi.year) != null ? ref16 : '') + '","' + doid + '","' + redo + '"');
+        } else {
+          await fs.appendFile(out, '\n"' + doi + '","false","","' + croad + '","","","","","","","","","","","","","","","","","","' + doid + '","' + redo + '"');
+        }
+      } else {
+        await fs.appendFile(out, '\n"10.' + d + ',""');
+      }
+    }
+  }
+  this.mail({
+    to: 'mark@oa.works',
+    subject: 'Gates OA recheck done ' + counter,
+    text: 'https://static.oa.works/gates'
+  });
+  return counter;
+};
+
+P.svc.oaworks.gates.recheck._bg = true;
+
+P.svc.oaworks.gates.recheck._async = true;
 
 // this should default to a search of ILLs as well... with a restrict
-// restrict = @auth.role('openaccessbutton.admin', @user) and this.queryParams.all then [] else [{term:{from:@user?._id}}]
+// restrict = @auth.role('openaccessbutton.admin') and this.queryParams.all then [] else [{term:{from:@user?._id}}]
 var indexOf = [].indexOf;
 
 P.svc.oaworks.ill = async function(opts) { // only worked on POST with optional auth
@@ -9763,7 +10644,6 @@ P.svc.oaworks.ill = async function(opts) { // only worked on POST with optional 
   return opts;
 };
 
-//P.svc.oaworks.ill._kv = true
 P.svc.oaworks.ill._index = true;
 
 P.svc.oaworks.ill.collect = async function(params) {
@@ -9786,6 +10666,8 @@ P.svc.oaworks.ill.collect = async function(params) {
   this.waitUntil(this.svc.rscvd(params));
   return true;
 };
+
+P.svc.oaworks.ill.collect._hide = true;
 
 P.svc.oaworks.ill.openurl = async function(config, meta) {
   var author, d, defaults, i, k, len, nfield, ref, ref1, ref2, url, v;
@@ -9861,6 +10743,23 @@ P.svc.oaworks.ill.openurl = async function(config, meta) {
 
 P.svc.oaworks.ill.subscription = async function(config, meta) {
   var err, error, fnd, npg, openurl, pg, ref, ref1, ref2, res, s, spg, sub, subtype, surl, tid, url;
+  if (!config && !meta && (this.params.sub || this.params.subscription)) { // assume values are being passed directly on GET request
+    config = this.copy(this.params);
+    if (config.sub) {
+      config.subscription = config.sub;
+    }
+    if (this.params.meta) {
+      meta = this.params.meta;
+      delete config.meta;
+    } else if (config.doi && this.keys(config).length === 2) {
+      console.log(config.doi);
+      meta = (await this.svc.oaworks.metadata(config.doi));
+      delete config.doi;
+    } else {
+      meta = this.copy(config);
+      delete config.doi;
+    }
+  }
   if (config == null) {
     config = (ref = this.params.config) != null ? ref : {};
   }
@@ -10040,7 +10939,7 @@ P.svc.oaworks.ill.subscription = async function(config, meta) {
             res.error.push('serialssolutions');
           }
           if (spg.indexOf('<ssopenurl:url type="article">') !== -1) {
-            fnd = spg.split('<ssopenurl:url type="article">')[1].split('</ssopenurl:url>')[0].trim(); // this gets us something that has an empty accountid param - do we need that for it to work?
+            fnd = spg.split('<ssopenurl:url type="article">')[1].split('</ssopenurl:url>')[0].trim().replace(/&amp;/g, '&'); // this gets us something that has an empty accountid param - do we need that for it to work?
             if (fnd.length) {
               res.url = fnd;
               res.findings.serials = res.url;
@@ -10066,7 +10965,7 @@ P.svc.oaworks.ill.subscription = async function(config, meta) {
                 surl = url.split('?')[0] + '?ShowSupressedLinks' + pg.split('?ShowSupressedLinks')[1].split('">')[0];
                 npg = (await this.puppet(surl)); // would this still need proxy?
                 if (npg.indexOf('ArticleCL') !== -1 && npg.split('DatabaseCL')[0].indexOf('href="./log') !== -1) {
-                  res.url = surl.split('?')[0] + npg.split('ArticleCL')[1].split('DatabaseCL')[0].split('href="')[1].split('">')[0];
+                  res.url = surl.split('?')[0] + npg.split('ArticleCL')[1].split('DatabaseCL')[0].split('href="')[1].split('">')[0].replace(/&amp;/g, '&');
                   res.findings.serials = res.url;
                   if (res.url != null) {
                     if (res.url.indexOf('getitnow') === -1) {
@@ -10113,7 +11012,7 @@ P.svc.oaworks.journal = async function(q) {
     // search the old journal index endpoint until this gets updated
     //crj = await @src.crossref.journals q
     //drj = await @src.doaj.journals q
-    res = (await this.fetch('https://dev.api.cottagelabs.com/service/jct/journal?q=' + q));
+    res = (await this.fetch('https://api.jct.cottagelabs.com/journal?q=' + q));
     return res.hits.hits[0]._source;
   } catch (error) {
     return void 0;
@@ -10136,15 +11035,15 @@ P.svc.oaworks.journal.oa = async function(issn) {
 P.svc.oaworks.publisher = {};
 
 P.svc.oaworks.publisher.oa = async function(publisher) {
-  var oac, ref, tc;
+  var oac, ref, ref1, ref2, tc;
   try {
     if (publisher == null) {
       publisher = (ref = this.params.publisher) != null ? ref : this.params.oa;
     }
   } catch (error) {}
-  tc = (await this.fetch('https://dev.api.cottagelabs.com/service/jct/journal?q=publisher:"' + publisher + '" AND NOT discontinued:true'));
-  oac = (await this.fetch('https://dev.api.cottagelabs.com/service/jct/journal?q=publisher:"' + publisher + '" AND NOT discontinued:true AND indoaj:true'));
-  return tc.hits.total === oac.hits.total && (tc.hits.total !== 0 || oac.hits.total !== 0);
+  tc = (await this.fetch('https://api.jct.cottagelabs.com/journal?q=publisher:"' + publisher.replace(/&/g, '') + '" AND NOT discontinued:true'));
+  oac = (await this.fetch('https://api.jct.cottagelabs.com/journal?q=publisher:"' + publisher.replace(/&/g, '') + '" AND NOT discontinued:true AND indoaj:true'));
+  return (tc != null) && (oac != null) && ((ref1 = tc.hits) != null ? ref1.total : void 0) === ((ref2 = oac.hits) != null ? ref2.total : void 0) && (tc.hits.total !== 0 || oac.hits.total !== 0);
 };
 
 var indexOf = [].indexOf;
@@ -11229,305 +12128,6 @@ to create a request the url and type are required, What about story?
   return req`;
 
 
-P.svc.rscvd = function() {
-  return 'RSCVD API (prototype)';
-};
-
-P.svc.rscvd._index = true;
-
-//P.svc.rscvd._html = _qopts: {include: ['title', 'status', 'publisher', 'year', 'doi', 'issn', 'isbn']}
-P.svc.rscvd.retrieve = async function() {
-  var ak, i, j, key, kv, len, len1, params, r, rec, recs, ref, ref1, ref2, res, sid, size, u, val;
-  ak = this.apikey; //? ''
-  size = (ref = this.params.size) != null ? ref : '20000';
-  if (ak) {
-    res = (await this.fetch('https://api.cottagelabs.com/log?apikey=' + ak + '&sort=createdAt:asc&q=endpoint:collect&size=' + size));
-    recs = [];
-    ref1 = res.hits.hits;
-    for (i = 0, len = ref1.length; i < len; i++) {
-      r = ref1[i];
-      // /api/service/oab/ill/collect/AKfycbwFA_R-0gjzVS9029ByVpduCYJbHLH0ujstNng1aNnRogw1htU?where=InstantILL&doi=10.3109%252F0167482X.2010.503330&atitle=Management%2520of%2520post%2520traumatic%2520stress%2520disorder%2520after%2520childbirth%253A%2520a%2520review&crossref_type=journal-article&aulast=Lapp%252C%2520Leann%2520K.%252C%2520Agbokou%252C%2520Catherine%252C%2520Peretti%252C%2520Charles-Siegfried%252C%2520Ferreri%252C%2520Florian&title=Journal%2520of%2520Psychosomatic%2520Obstetrics%2520%2526%2520Gynecology&issue=3&volume=31&pages=113-122&issn=0167-482X&publisher=Informa%2520UK%2520Limited&year=2010&date=2010-07-01&url=https%253A%252F%252Fdoi.org%252F10.3109%252F0167482X.2010.503330&notes=Subscription%2520check%2520done%2C%2520found%2520nothing.%2520OA%2520availability%2520check%2520done%2C%2520found%2520nothing.&email=mcclay.ill%2540qub.ac.uk&name=Ivona%2520Coghlan&organization=McClay%2520Library%252C%2520Queen%27s%2520University%2520Belfast&reference=IC00226&other=
-      u = r._source.url;
-      if (typeof u === 'string' && u.startsWith('/api/service/oab/ill/collect/')) {
-        [sid, params] = u.replace('/api/service/oab/ill/collect/', '').split('?');
-        if (typeof sid === 'string' && typeof params === 'string') {
-          rec = {
-            sid: sid,
-            status: 'Awaiting verification'
-          };
-          rec.type = r._source.sid === 'AKfycbwFA_R-0gjzVS9029ByVpduCYJbHLH0ujstNng1aNnRogw1htU' ? 'Paper' : r._source.sid === 'AKfycbwPq7xWoTLwnqZHv7gJAwtsHRkreJ1hMJVeeplxDG_MipdIamU6' ? 'Book' : '';
-          try {
-            rec.createdAt = new Date(parseInt(r._source.createdAt));
-          } catch (error) {}
-          ref2 = params.split('&');
-          for (j = 0, len1 = ref2.length; j < len1; j++) {
-            kv = ref2[j];
-            [key, val] = kv.split('=');
-            rec[key] = decodeURIComponent(decodeURIComponent(val));
-            try {
-              if (key === 'date' || key === 'needed-by') {
-                rec[key] = (await this.date(rec[key]));
-              }
-            } catch (error) {}
-          }
-          recs.push(rec);
-        }
-      }
-    }
-    if (recs.length) {
-      await this.svc.rscvd('');
-      this.waitUntil(this.svc.rscvd(recs));
-    }
-    return res.hits.total + ', ' + recs.length;
-  }
-};
-
-P.svc.rscvd.verify = async function(verify = true) {
-  if (!this.params.verify) {
-    return void 0;
-  }
-  await this.index._each('svc_rscvd', 'email:"' + this.params.verify + '"', {
-    action: 'index'
-  }, function(rec) {
-    rec.verified = verify;
-    if (!rec.status || rec.status === 'Awaiting verification') {
-      rec.status = verify ? 'Verified' : 'Denied';
-    }
-    return rec;
-  });
-  return true;
-};
-
-P.svc.rscvd.deny = function() {
-  return this.svc.rscvd.verify(false);
-};
-
-P.svc.rscvd.status = async function() {
-  var rec, rid, status;
-  if (!this.params.status) {
-    return void 0;
-  }
-  [rid, status] = this.params.status.split('/');
-  rec = (await this.svc.rscvd(rid));
-  rec.status = status;
-  this.svc.rscvd(rec);
-  return rec;
-};
-
-P.svc.rscvd.supply = async function() {
-  var body, c, columns, email_filter, h, headers, i, j, k, l, len, len1, len2, len3, len4, len5, m, n, o, opts, pager, qr, r, ref, ref1, ref10, ref11, ref12, ref13, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, size, sopts, st, status_filter, val;
-  body = '<html><head>';
-  body += '<style>table.paradigm tr:nth-child(even) {background: #eee}table.paradigm tr:nth-child(odd) {background: #fff}</style>\n';
-  body += '</head>';
-  body += '\n<body><h1>RSCVD Supply prototype <small id="welcome"></small></h1>';
-  opts = {
-    sort: {
-      createdAt: 'desc'
-    },
-    terms: ['email', 'status']
-  };
-  size = 500;
-  if (!this.params.size) {
-    opts.size = size;
-  }
-  qr = (await this.index.translate((JSON.stringify(this.params) !== '{}' ? this.params : 'email:* AND (title:* OR atitle:*)'), opts));
-  res = (await this.svc.rscvd(qr));
-  status_filter = '<select class="filter" id="status"><option value="">' + (this.params.q && this.params.q.includes('status:') ? 'clear status filter' : 'Filter by status') + '</option>';
-  ref = res.aggregations.status.buckets;
-  for (i = 0, len = ref.length; i < len; i++) {
-    st = ref[i];
-    if (st.key) {
-      status_filter += '<option value="' + st.key + '"' + (this.params.q && this.params.q.includes(st.key) ? ' selected="selected"' : '') + '>' + st.key + ' (' + st.doc_count + ')' + '</option>';
-    }
-  }
-  status_filter += '</select>';
-  email_filter = '<select class="filter" id="email"><option value="">' + (this.params.q && this.params.q.includes('email:') ? 'clear requestee filter' : 'Filter by requestee') + '</option>';
-  ref1 = res.aggregations.email.buckets;
-  for (j = 0, len1 = ref1.length; j < len1; j++) {
-    st = ref1[j];
-    if (st.key) {
-      email_filter += '<option value="' + st.key + '"' + (this.params.q && this.params.q.includes(st.key) ? ' selected="selected"' : '') + '>' + st.key + ' (' + st.doc_count + ')' + '</option>';
-    }
-  }
-  email_filter += '</select>';
-  body += '<table class="paradigm" style="border-collapse: collapse;">\n';
-  body += '<thead><tr>';
-  headers = [
-    'Item',
-    'Requestee',
-    'Status' //, 'Publisher', 'Year', 'DOI', 'ISSN', 'ISBN']
-  ];
-  for (l = 0, len2 = headers.length; l < len2; l++) {
-    h = headers[l];
-    body += '<th style="padding:2px; border:1px solid #ccc;">';
-    if (h === 'Item') {
-      pager = qr.from ? '<a class="pager ' + (qr.from - ((ref2 = qr.size) != null ? ref2 : size)) + '" href="#">&lt; back</a> items ' : 'Items ';
-      if (res.hits.total > res.hits.hits.length) {
-        pager += ((ref3 = qr.from) != null ? ref3 : 1) + ' to ' + (((ref4 = qr.from) != null ? ref4 : 0) + ((ref5 = qr.size) != null ? ref5 : size));
-        pager += '. <a class="pager ' + (((ref6 = qr.from) != null ? ref6 : 0) + ((ref7 = qr.size) != null ? ref7 : size)) + '" href="#">next &gt;</a>';
-      }
-      body += pager;
-    } else {
-      body += h;
-      if (h === 'Requestee') {
-        body += '<br>' + email_filter;
-      }
-      if (h === 'Status') {
-        body += '<br>' + status_filter;
-      }
-    }
-    body += '</th>';
-  }
-  body += '</tr></thead>';
-  body += '<tbody>';
-  columns = [
-    'title',
-    'email',
-    'status' //, 'publisher', 'year', 'doi', 'issn', 'isbn']
-  ];
-  ref8 = res.hits.hits;
-  for (m = 0, len3 = ref8.length; m < len3; m++) {
-    r = ref8[m];
-    for (k in r._source) {
-      if (typeof r._source[k] === 'string' && r._source[k].includes('%')) {
-        try {
-          r._source[k] = decodeURIComponent(r._source[k]);
-        } catch (error) {}
-      }
-    }
-    body += '\n<tr>';
-    for (n = 0, len4 = columns.length; n < len4; n++) {
-      c = columns[n];
-      val = (ref9 = r._source[c]) != null ? ref9 : '';
-      if (c === 'title') {
-        if ((ref10 = r._source.sid) === 'AKfycbwFA_R-0gjzVS9029ByVpduCYJbHLH0ujstNng1aNnRogw1htU' || ref10 === 'AKfycbwPq7xWoTLwnqZHv7gJAwtsHRkreJ1hMJVeeplxDG_MipdIamU6') {
-          val = '<a class="types" href="#">';
-          val += r._source.sid === 'AKfycbwFA_R-0gjzVS9029ByVpduCYJbHLH0ujstNng1aNnRogw1htU' ? 'Paper' : 'Book';
-          val += '</a><br>';
-        } else {
-          val = '';
-        }
-        val += (r._source.doi && r._source.doi.startsWith('10.') ? '<a target="_blank" href="https://doi.org/' + r._source.doi + '">' : '') + '<b>' + ((ref11 = r._source.atitle) != null ? ref11 : r._source.title) + '</b>' + (r._source.doi && r._source.doi.startsWith('10.') ? '</a>' : '');
-        if (r._source.year || r._source.publisher || (r._source.title && r._source.atitle)) {
-          val += '<br>' + (r._source.year ? r._source.year + ' ' : '') + (r._source.title && r._source.atitle ? '<i><a class="title" href="#">' + r._source.title + '</a></i>' + (r._source.publisher ? ', ' : '') : '') + ((ref12 = r._source.publisher) != null ? ref12 : '');
-        }
-        if (r._source.doi || r._source.issn || r._source.isbn) {
-          val += '<br>' + (r._source.doi && r._source.doi.startsWith('10.') ? '<a target="_blank" href="https://doi.org/' + r._source.doi + '">' + r._source.doi + '</a> ' : '') + (r._source.issn ? ' ISSN ' + r._source.issn : '') + (r._source.isbn ? ' ISBN ' + r._source.isbn : '');
-        }
-      } else if (c === 'email') {
-        if (r._source.verified != null) {
-          val = '<b style="color:' + (r._source.verified ? 'green' : 'red') + ';">' + r._source.email + '</b>';
-          if (r._source.verified) {
-            if (r._source['needed-by']) {
-              val += '<br>Required by ' + r._source['needed-by'].split('-').reverse().join('/');
-              if (r._source.reference) {
-                val += '<br>Ref: ' + r._source.reference;
-              }
-            }
-          }
-        } else {
-          val = r._source.email;
-          val += '<br>' + ((ref13 = r._source.name) != null ? ref13 : '') + (r._source.organization ? (r._source.name ? ', ' : '') + r._source.organization : '');
-        }
-      } else if (c === 'status') {
-        if (r._source.verified != null) {
-          if (r._source.verified) {
-            val = '<select class="status ' + r._id + '" style="margin-top:5px; margin-bottom:0px; min-width:180px;">';
-            sopts = ['Verified', 'Denied', 'Progressing', 'Overdue', 'Provided', 'Cancelled', 'Done'];
-            if (!r._source.status) {
-              sopts.unshift('');
-            }
-            for (o = 0, len5 = sopts.length; o < len5; o++) {
-              st = sopts[o];
-              val += '<option' + (r._source.status === st ? ' selected="selected"' : '') + '>' + st + '</option>';
-            }
-            val += '</select>';
-          } else {
-            val = 'Requestee denied';
-          }
-        } else {
-          val = '<a class="verify ' + r._source.email + '" style="color:green" href="#">Verify</a> or <a class="verify deny ' + r._source.email + '" style="color:red" href="#">Deny</a><br>the requestee';
-        }
-      }
-      body += '<td style="padding:2px; border:1px solid #ccc; vertical-align:text-top;' + (c === 'title' ? ' width:60%;' : '') + '">' + val + '</td>';
-    }
-    body += '</tr>';
-  }
-  body += '\n</tbody></table>';
-  body += '</body>';
-  body += '\n<script src="/client/pradm.js"></script>';
-  body += '\n<script src="/client/pradmLogin.js"></script>';
-  body += `<script>
-pradm.listen("click", ".verify", function(e) {
-  e.preventDefault();
-  var el = e.target;
-  var cls = pradm.classes(el);
-  cls.pop();
-  pradm.html(el, (cls.indexOf("deny") !== -1 ? "Deny" : "Verify") + 'ing...');
-  var url = "/svc/rscvd/" + (cls.indexOf("deny") !== -1 ? "deny" : "verify") + "/" + cls.pop();
-  pradm.ajax(url);
-  setTimeout(function() { location.reload(); }, 3000);
-});
-pradm.listen("change", ".status", function(e) {
-  var el = e.target;
-  var cls = pradm.classes(el);
-  cls.pop();
-  var url = "/svc/rscvd/status/" + cls.pop() + "/" + el.value;
-  pradm.html(el, 'Updating...');
-  pradm.ajax(url);
-  setTimeout(function() { location.reload(); }, 3000);
-});
-pradm.listen("change", ".filter", function(e) {
-  var status = pradm.get('#status');
-  var email = pradm.get('#email');
-  var q = '';
-  if (status) q += 'status:"' + status + '"';
-  if (email) {
-    if (q.length) q += ' AND ';
-    q += 'email:"' + email + '"';
-  }
-  window.history.pushState("", "", window.location.pathname + (q !== '' ? "?q=" + q : ''));
-  location.reload();
-});
-pradm.listen("click", ".pager", function(e) {
-  e.preventDefault();
-  var el = e.target;
-  var cls = pradm.classes(el);
-  cls.pop();
-  window.history.pushState("", "", window.location.pathname + "?from=" + cls.pop());
-  location.reload();
-});
-pradm.listen("click", ".title", function(e) {
-  e.preventDefault();
-  var el = e.target;
-  window.history.pushState("", "", window.location.pathname + '?q=title:"' + el.innerHTML + '"');
-  location.reload();
-});
-pradm.listen("click", ".types", function(e) {
-  e.preventDefault();
-  var el = e.target;
-  var type = el.innerHTML;
-  window.history.pushState("", "", window.location.pathname + '?q=sid:"' + (type === 'Paper' ? 'AKfycbwFA_R-0gjzVS9029ByVpduCYJbHLH0ujstNng1aNnRogw1htU' : 'AKfycbwPq7xWoTLwnqZHv7gJAwtsHRkreJ1hMJVeeplxDG_MipdIamU6') + '"');
-  location.reload();
-});
-try {
-  var name = pradm.account.email.split('@')[0];
-  name = name.substring(0,1).toUpperCase() + name.substring(1);
-  pradm.html('#welcome', ' for <a id="logout" href="#">' + name + '</a>');
-  pradm.listen("click", "#logout", function(e) {
-    e.preventDefault();
-    pradm.next = true;
-    pradm.logout();
-  });
-} catch (err) {}
-</script>`;
-  body += '</html>';
-  this.format = 'html';
-  return body; //headers: {'Content-Type': 'text/html; charset=UTF-8'}, body: body
-};
-
-P.svc.rscvd.supply._auth = true;
-
 // https://jcheminf.springeropen.com/articles/10.1186/1758-2946-3-47
 P.svc.oaworks.scrape = async function(content, doi) {
   var cl, cnts, d, i, j, k, kk, l, len, len1, len2, len3, len4, m, me, meta, mk, mkp, mls, mm, mr, mstr, my, n, o, p, q, ref, ref1, ref2, str, ud;
@@ -11728,17 +12328,336 @@ P.svc.oaworks.scrape = async function(content, doi) {
   return meta;
 };
 
+P.svc.oaworks.scrape._hide = true;
 
-S.built = "Fri May 14 2021 13:21:20 GMT+0100";
-S.system = "eeb98ca9cdfdad899c74e9f492c3c85cb185b58e8f2b42e0adebb35b8d847045";
-P.convert._gz2txt = {_bg: true}// added by constructor
 
-P.convert._excel2 = {}// added by constructor
+var indexOf = [].indexOf;
 
-P.convert.file2txt = {}// added by constructor
+P.svc.rscvd = {
+  _index: true
+};
 
+P.svc.rscvd.form = async function() {
+  var ad, av, rec, ref, ref1, ref2, rq, txt;
+  if (this.keys(this.params).length > 1) {
+    rec = this.copy(this.params);
+    delete rec.form;
+    rec.status = 'Awaiting verification';
+    if (rq = (await this.svc.rscvd.requestees('email:"' + rec.email + '"'))) {
+      if ((rq != null ? rq.verified : void 0) || (rq != null ? rq.verification : void 0) === 'Approved') {
+        rec.status = 'Verified';
+      } else if ((rq != null ? rq.denied : void 0) || (rq != null ? rq.verification : void 0) === 'Denied') {
+        rec.status = 'Denied';
+      }
+    }
+    // TODO check the pre-verified list for rec.email and also look for any already verified emails from that user
+    if (rec.status === 'Awaiting verification') { // not yet found in pre-verified list
+      av = (await this.svc.rscvd('verified:true AND email:"' + rec.email + '"'));
+      if (av.hits.total) {
+        rec.status = 'Verified';
+        rec.verified = true;
+      } else {
+        ad = (await this.svc.rscvd('verified:false AND email:"' + rec.email + '"'));
+        if (ad.hits.total) {
+          rec.status = 'Denied';
+          rec.verified = false;
+        }
+      }
+    }
+    if (rec.type == null) {
+      rec.type = 'paper';
+    }
+    try {
+      rec.createdAt = new Date();
+    } catch (error) {}
+    try {
+      rec.neededAt = (await this.epoch(rec['needed-by']));
+    } catch (error) {}
+    rec._id = (await this.svc.rscvd(rec));
+    try {
+      txt = 'Hi ' + rec.name + ',<br><br>We got your request:<br><br>Title: ' + ((ref = (ref1 = rec.atitle) != null ? ref1 : rec.title) != null ? ref : 'Unknown') + '\nReference (if provided): ' + ((ref2 = rec.reference) != null ? ref2 : '') + '<br><br>';
+      txt += 'If at any point you no longer need this item, please <a href="https://' + (this.S.dev ? 'dev.' : '') + 'rscvd.org/cancel?id=' + rec._id + '">cancel your request</a>, it only takes a second.<br><br>';
+      txt += 'Our team of volunteers will try and fill your request as soon as possible. If you would like to thank us, please consider <a href="https://rscvd.org/volunteer">joining us in helping supply requests</a>.<br><br>';
+      txt += 'Yours,<br><br>RSCVD team';
+      this.mail({
+        from: 'rscvd@oa.works',
+        to: rec.email,
+        subject: 'RSCVD Request Receipt',
+        text: txt
+      });
+    } catch (error) {}
+    return rec;
+  } else {
+    return void 0;
+  }
+};
+
+P.svc.rscvd.requestees = {
+  _index: true,
+  _hide: true,
+  _auth: true
+};
+
+P.svc.rscvd.resolves = async function(rid, resolver) {
+  var i, len, meta, r, rec, recs, ref, ref1, ref2, ref3, res, resolves;
+  if (rid == null) {
+    rid = this.params.resolves;
+  }
+  if (resolver == null) {
+    resolver = this.params.resolver;
+  }
+  if (rid) {
+    rec = typeof rid === 'object' ? rid : (await this.svc.rscvd(rid)); // can pass the ID of a specific record to resolve
+  } else {
+    recs = (await this.svc.rscvd('(status:"Awaiting verification" OR status:"Verified" OR status:"In progress" OR status:"Awaiting Peter") AND NOT resolved:"' + resolver + '" AND NOT unresolved:"' + resolver + '"'));
+  }
+  res = {};
+  ref2 = (rec != null ? [rec] : (ref = recs != null ? (ref1 = recs.hits) != null ? ref1.hits : void 0 : void 0) != null ? ref : []);
+  for (i = 0, len = ref2.length; i < len; i++) {
+    r = ref2[i];
+    if (r._source != null) {
+      rec = r._source;
+      if (rec._id == null) {
+        rec._id = r._id;
+      }
+    }
+    meta = this.copy(rec);
+    if (meta.title) {
+      meta.journal = meta.title;
+    }
+    if (meta.atitle) {
+      meta.title = meta.atitle;
+    }
+    resolves = (await this.svc.oaworks.ill.subscription({
+      subscription: resolver
+    }, meta)); // should send the metadata in the record
+    if (resolves != null ? resolves.url : void 0) { // if resolves
+      if (rec.resolved == null) {
+        rec.resolved = [];
+      }
+      rec.resolved.push(resolver);
+      if (rec.resolves == null) {
+        rec.resolves = [];
+      }
+      rec.resolves.push({
+        resolver: resolver,
+        url: resolves.url,
+        user: (ref3 = this.user) != null ? ref3._id : void 0
+      });
+      res[r._id] = true; // does not resolve
+    } else {
+      if (rec.unresolved == null) {
+        rec.unresolved = [];
+      }
+      rec.unresolved.push(resolver);
+      res[r._id] = false;
+    }
+    this.svc.rscvd(rec);
+  }
+  if (rid && res[rid]) {
+    return res[rid];
+  } else {
+    return res;
+  }
+};
+
+P.svc.rscvd.cancel = async function() {
+  var rec;
+  if (!this.params.cancel) {
+    return void 0;
+  }
+  rec = (await this.svc.rscvd(this.params.cancel));
+  rec.status = 'Cancelled';
+  this.svc.rscvd(rec);
+  return rec;
+};
+
+P.svc.rscvd.verify = async function(email, verify = true) {
+  var re;
+  if (email == null) {
+    email = this.params.verify;
+  }
+  if (!email) {
+    return void 0;
+  }
+  if (!(await this.svc.rscvd.requestees('email:"' + email + '"'))) {
+    re = {
+      email: email,
+      createdAt: Date.now()
+    };
+    if (verify) {
+      re.verified = true;
+      re.verified_by = this.user.email;
+    } else {
+      re.denied = true;
+      re.denied_by = this.user.email;
+    }
+    this.waitUntil(this.svc.rscvd.requestees(re));
+  }
+  await this.index._each('svc_rscvd', 'email:"' + email + '"', {
+    action: 'index'
+  }, function(rec) {
+    if (!rec.status || rec.status === 'Awaiting verification') {
+      rec.verified = verify;
+      if (verify) {
+        rec.status = 'Verified';
+        rec.verified_by = this.user.email;
+      } else {
+        rec.status = 'Denied';
+        rec.denied_by = this.user.email;
+      }
+    }
+    return rec;
+  });
+  return true;
+};
+
+P.svc.rscvd.verify._auth = true;
+
+P.svc.rscvd.deny = function() {
+  return this.svc.rscvd.verify(this.params.deny, false);
+};
+
+P.svc.rscvd.deny._auth = true;
+
+P.svc.rscvd.status = async function() {
+  var rec, rid, status;
+  if (!this.params.status) {
+    return void 0;
+  }
+  [rid, status] = this.params.status.split('/');
+  rec = (await this.svc.rscvd(rid));
+  rec.status = status;
+  try {
+    if (rec.status === 'Done') {
+      rec.done_by = this.user.email;
+    } else if (rec.status === 'In Progress') {
+      rec.progressed_by = this.user.email;
+    }
+  } catch (error) {}
+  this.svc.rscvd(rec);
+  return rec;
+};
+
+P.svc.rscvd.status._auth = true;
+
+P.svc.rscvd.poll = async function() {
+  var base, base1, c, cc, cn, d, dn, ds, i, j, k, l, len, len1, len2, len3, len4, m, n, name, nn, poll, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, res, s, ss, st, v, vn, vs;
+  this.nolog = true;
+  this.svc.rscvd.overdue();
+  poll = (ref = this.params.poll) != null ? ref : Date.now() - 180000; // default to changes in last 3 mins
+  res = {
+    new: [],
+    verify: [],
+    deny: [],
+    cancel: [],
+    status: {}
+  };
+  nn = (await this.svc.rscvd('(status:"Awaiting verification" OR status:"Verified") AND createdAt:>' + poll, 500));
+  ref3 = (ref1 = nn != null ? (ref2 = nn.hits) != null ? ref2.hits : void 0 : void 0) != null ? ref1 : [];
+  for (i = 0, len = ref3.length; i < len; i++) {
+    n = ref3[i];
+    if ((base = n._source)._id == null) {
+      base._id = n._id;
+    }
+    res.new.push(n._source);
+  }
+  vs = (await this.index('logs', 'createdAt:>' + poll + ' AND fn:"svc.rscvd.verify"', {
+    sort: {
+      createdAt: 'desc'
+    },
+    size: 500
+  }));
+  ref4 = vs.hits.hits;
+  for (j = 0, len1 = ref4.length; j < len1; j++) {
+    v = ref4[j];
+    vn = v._source.parts.pop();
+    if (indexOf.call(res.verify, vn) < 0) {
+      res.verify.push(vn);
+    }
+  }
+  ds = (await this.index('logs', 'createdAt:>' + poll + ' AND fn:"svc.rscvd.deny"', {
+    sort: {
+      createdAt: 'desc'
+    },
+    size: 500
+  }));
+  ref5 = ds.hits.hits;
+  for (k = 0, len2 = ref5.length; k < len2; k++) {
+    d = ref5[k];
+    dn = d._source.parts.pop();
+    if (indexOf.call(res.deny, dn) < 0) {
+      res.deny.push(dn);
+    }
+  }
+  cc = (await this.index('logs', 'createdAt:>' + poll + ' AND fn:"svc.rscvd.cancel"', {
+    sort: {
+      createdAt: 'desc'
+    },
+    size: 500
+  }));
+  ref6 = cc.hits.hits;
+  for (l = 0, len3 = ref6.length; l < len3; l++) {
+    c = ref6[l];
+    cn = c._source.parts.pop();
+    if (indexOf.call(res.cancel, cn) < 0) {
+      res.cancel.push(cn);
+    }
+  }
+  // TODO need to track changes to Overdue status as well
+  ss = (await this.index('logs', 'createdAt:>' + poll + ' AND fn:"svc.rscvd.status"', {
+    sort: {
+      createdAt: 'desc'
+    },
+    size: 500
+  }));
+  ref7 = ss.hits.hits;
+  for (m = 0, len4 = ref7.length; m < len4; m++) {
+    s = ref7[m];
+    st = s._source.parts.pop();
+    if ((base1 = res.status)[name = s._source.parts.pop()] == null) {
+      base1[name] = st; // only return the most recent status change for a given record ID
+    }
+  }
+  return res;
+};
+
+P.svc.rscvd.overdue = async function() {
+  var base, counter, dn, i, j, len, len1, r, rec, recs, ref, res;
+  counter = 0;
+  dn = Date.now();
+  recs = [];
+  if (this.params.overdue) {
+    recs.push((await this.svc.rscvd(this.params.overdue)));
+  } else {
+    res = (await this.svc.rscvd('(status:"Awaiting verification" OR status:"Verified") AND (neededAt:<' + dn + ' OR createdAt:<' + (dn - 1209600000) + ')', 10000));
+    ref = res.hits.hits;
+    for (i = 0, len = ref.length; i < len; i++) {
+      r = ref[i];
+      if ((base = r._source)._id == null) {
+        base._id = r._id;
+      }
+      recs.push(r._source);
+    }
+  }
+  for (j = 0, len1 = recs.length; j < len1; j++) {
+    rec = recs[j];
+    rec.status = 'Overdue';
+    this.svc.rscvd(rec);
+    counter += 1;
+  }
+  return counter;
+};
+
+
+S.built = "Tue Jul 20 2021 04:22:22 GMT+0100";
+S.system = "2b6fbaafeeba151c8b08654aeb884bc5c33553af307f6e9a41a979931bc51916";
 P.puppet = {_bg: true}// added by constructor
+
+P.puppet._auth = 'system';// added by constructor
+
+P.puppet._hide = true;// added by constructor
 
 P.scripts.testoab = {_bg: true}// added by constructor
 
-P.src.crossref._load = {_bg: true}// added by constructor
+P.scripts.testoab._cache = false;// added by constructor

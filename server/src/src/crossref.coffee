@@ -21,28 +21,31 @@ P.src.crossref._load = () ->
   batch = [] # batch of json records to upload
   done = 0
 
-  if fs.existsSync lastfile
-    filenumber = parseInt fs.readFileSync(lastfile).toString()
+  try filenumber = parseInt (await fs.readFile lastfile).toString()
 
   console.log 'Starting at file number ' + filenumber
   
-  while (files is -1 or filenumber <= files) and fs.existsSync infolder + filenumber + '.json.gz'
-    content = await @convert._gz2txt infolder + filenumber + '.json.gz'
-    console.log 'File number ' + filenumber + ', done ' + done + ', batch size ' + batch.length + ', content length ' + content.length
-    recs = JSON.parse content
-    lp = 0
-    for rec in recs.items
-      if howmany is -1 or done < howmany
-        done += 1
-        lp += 1
-        rec = await @src.crossref.works._prep rec
-        rec['srcfile'] = filenumber
-        rec['srcidx'] = lp
-        batch.push rec
-        if batch.length >= batchsize
-          await @src.crossref.works batch
-          fs.writeFileSync lastfile, filenumber
-          batch = []
+  while filenumber isnt -1 and (files is -1 or filenumber <= files)
+    try
+      content = await @convert._gz2txt infolder + filenumber + '.json.gz'
+      console.log 'File number ' + filenumber + ', done ' + done + ', batch size ' + batch.length + ', content length ' + content.length
+      recs = JSON.parse content
+      lp = 0
+      for rec in recs.items
+        if howmany is -1 or done < howmany
+          done += 1
+          lp += 1
+          rec = await @src.crossref.works._prep rec
+          rec['srcfile'] = filenumber
+          rec['srcidx'] = lp
+          batch.push rec
+          if batch.length >= batchsize
+            await @src.crossref.works batch
+            await fs.writeFile lastfile, filenumber
+            batch = []
+      filenumber += 1
+    catch
+      filenumber = -1
 
   if batch.length
     @src.crossref.works batch

@@ -13,6 +13,7 @@ P.example = ->
     try res.params ?= @params
     try res.opts ?= @opts
   return res
+P.example._hides = true
 
 P.example.restricted = () ->
   return hello: @user._id

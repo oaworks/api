@@ -4,17 +4,18 @@
 
 _xref_hdr = {'User-Agent': S.name + '; mailto:' + S.mail?.to}
 
-P.src.crossref ?= {}
+P.src.crossref = () ->
+  return 'Crossref API wrapper'
 
 P.src.crossref.journals = (issn) ->
   # by being an index, should default to a search of the index, then run this query if not present, which should get saved to the index
   issn ?= @params.journals ? @.params.issn
-  isq = @index._q issn
+  isissn = typeof issn is 'string' and issn.length is 9 and issn.split('-').length is 2 and issn.indexOf('-') is 4
   #url = 'https://api.crossref.org/journals?query=' + issn
-  url = 'https://dev.api.cottagelabs.com/use/crossref/journals' + if isq then '?q=' + issn else '/' + issn
+  url = 'https://dev.api.cottagelabs.com/use/crossref/journals' + (if isissn then '/' + issn else '?q=') + issn
   res = await @fetch url #, {headers: _xref_hdr} # TODO check how headers get sent by fetch
   #return if res?.message?['total-results']? and res.message['total-results'].length then res.message['total-results'][0] else undefined
-  return if isq then res else if res?.ISSN? then res else undefined
+  return if isissn then (if res?.ISSN? then res else undefined) else res
 
 #P.src.crossref.journals._index = true
 #P.src.crossref.journals._key = 'ISSN'
@@ -30,8 +31,8 @@ P.src.crossref.journals.doi = (issn) ->
   catch
     return undefined
 
-P.src.crossref.works = (doi) ->
-  doi ?= @params.works ? @params.doi ? @params.title or @params.q
+P.src.crossref.works = (doi, opts) ->
+  doi ?= @params.works ? @params.doi ? @params.title ? @params.q
   if typeof doi is 'string'
     if doi.indexOf('10.') isnt 0
       res = await @src.crossref.works.title doi
@@ -44,11 +45,16 @@ P.src.crossref.works = (doi) ->
       url = 'https://dev.api.cottagelabs.com/use/crossref/works?doi=' + doi
       res = await @fetch url #, {headers: _xref_hdr}
 
-  if res?.DOI? #res?.message?.DOI?
-    rec = await @src.crossref.works._prep res #res.data.message
-    return rec
+    if res?.DOI? #res?.message?.DOI?
+      rec = await @src.crossref.works._prep res #res.data.message
+      return rec
   else
-    return undefined
+    # for now just get from old system instead of crossref
+    #url = 'https://api.crossref.org/works/' + doi
+    url = 'https://dev.api.cottagelabs.com/use/crossref/works?q=' + doi
+    return await @fetch url, params: opts #, {headers: _xref_hdr}
+    
+  return undefined
 
 #P.src.crossref.works._kv = false
 P.src.crossref.works._index = settings: number_of_shards: 9

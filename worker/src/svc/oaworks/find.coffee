@@ -139,9 +139,9 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
     try
       mct = unidecode(metadata.title.toLowerCase()).replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' ')
       bong = await @src.microsoft.bing.search mct
-      if bong?.data? and bong.data.length
+      if bong?.data
         bct = unidecode(bong.data[0].name.toLowerCase()).replace('(pdf)','').replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' ')
-        if mct.replace(/ /g,'').indexOf(bct.replace(/ /g,'')) is 0 and not await @svc.oaworks.blacklist bong.data[0].url
+        if mct.replace(/ /g,'').indexOf(bct.replace(/ /g,'')) is 0 #and not await @svc.oaworks.blacklist bong.data[0].url
           # if the URL is usable and tidy bing title is a partial match to the start of the provided title, try using it
           options.url = bong.data[0].url.replace /"/g, ''
           metadata.pmid = options.url.replace(/\/$/,'').split('/').pop() if typeof options.url is 'string' and options.url.indexOf('pubmed.ncbi') isnt -1
@@ -461,8 +461,8 @@ P.svc.oaworks.availability = (params, v2) ->
             qry = 'title.exact:"' + afnd.v2.metadata.title + '"'
           else
             qry = 'url.exact:"' + (if Array.isArray(afnd.v2.metadata.url) then afnd.v2.metadata.url[0] else afnd.v2.metadata.url) + '"'
-          if qry
-            resp = await @fetch 'https://' + (if @S.dev then 'dev.' else '') + 'api.cottagelabs.com/service/oab/requests?q=' + qry + ' AND type:article&sort=createdAt:desc'
+          if qry # ' + (if @S.dev then 'dev.' else '') + '
+            resp = await @fetch 'https://api.cottagelabs.com/service/oab/requests?q=' + qry + ' AND type:article&sort=createdAt:desc'
             if resp?.hits?.total
               request = resp.hits.hits[0]._source
               rq = type: 'article', _id: request._id
@@ -471,4 +471,4 @@ P.svc.oaworks.availability = (params, v2) ->
     afnd.data.accepts.push({type:'article'}) if afnd.data.availability.length is 0 and afnd.data.requests.length is 0
     return afnd
 
-P.svc.oaworks.availability._hidden = true
+P.svc.oaworks.availability._hide = true

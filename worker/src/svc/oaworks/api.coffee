@@ -9,13 +9,15 @@ P.svc.oaworks = () ->
     return status: 404
   else
     return
-      name: 'OA.Works API'
+      name: 'OA.Works Paradigm API'
       version: @S.version
       base: if @S.dev then @base else undefined
-      built: @S.built
+      built: if @S.dev then @S.built else undefined
+      user: if @user?.email then @user.email else undefined
+      routes: await @_subroutes 'svc.oaworks'
 
 
-P.svc.oaworks.templates = _key: 'name', _sheet: '16Qm8n3Rmx3QyttFpSGj81_7T6ehfLAtYRSvmDf3pAzg/1'
+P.svc.oaworks.templates = _key: 'name', _sheet: '16Qm8n3Rmx3QyttFpSGj81_7T6ehfLAtYRSvmDf3pAzg/1', _hide: true
 
 # oab status and stats
 # make all request admin via sheet somehow

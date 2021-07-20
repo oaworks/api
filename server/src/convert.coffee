@@ -3,7 +3,7 @@ P.convert ?= {}
 
 P.convert._gz2txt = (fn) ->
   gunzip = zlib.createGunzip()
-  stream = fs.createReadStream fn # TODO unless check if fn is already a stream
+  stream = await fs.createReadStream fn # TODO unless check if fn is already a stream - ALSO check if fs.promises supports this
   #txt = await @convert.stream2txt stream
   #return zlib.gunzip txt
   chunks = []

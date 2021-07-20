@@ -1,7 +1,7 @@
 
 
 # this should default to a search of ILLs as well... with a restrict
-# restrict = @auth.role('openaccessbutton.admin', @user) and this.queryParams.all then [] else [{term:{from:@user?._id}}]
+# restrict = @auth.role('openaccessbutton.admin') and this.queryParams.all then [] else [{term:{from:@user?._id}}]
 P.svc.oaworks.ill = (opts) -> # only worked on POST with optional auth
   if not opts?
     opts = @copy @params
@@ -72,7 +72,6 @@ P.svc.oaworks.ill = (opts) -> # only worked on POST with optional auth
   @waitUntil @mail svc: 'oaworks', vars: vars, template: tmpl, from: "InstantILL <InstantILL@openaccessbutton.org>", subject: "ILL CREATED " + opts._id, to: 'mark@cottagelabs.com' # ['joe@openaccessbutton.org']
   return opts
 
-#P.svc.oaworks.ill._kv = true
 P.svc.oaworks.ill._index = true
 
 
@@ -87,6 +86,9 @@ P.svc.oaworks.ill.collect = (params) ->
   @waitUntil @fetch url
   @waitUntil @svc.rscvd params
   return true
+
+P.svc.oaworks.ill.collect._hide = true
+
 
 P.svc.oaworks.ill.openurl = (config, meta) ->
   # Will eventually redirect after reading openurl params passed here, somehow. 
@@ -136,6 +138,19 @@ P.svc.oaworks.ill.openurl = (config, meta) ->
 
 
 P.svc.oaworks.ill.subscription = (config, meta) ->
+  if not config and not meta and (@params.sub or @params.subscription) # assume values are being passed directly on GET request
+    config = @copy @params
+    config.subscription = config.sub if config.sub
+    if @params.meta
+      meta = @params.meta
+      delete config.meta
+    else if config.doi and @keys(config).length is 2
+      console.log config.doi
+      meta = await @svc.oaworks.metadata config.doi
+      delete config.doi
+    else
+      meta = @copy config
+      delete config.doi
   config ?= @params.config ? {}
   if typeof config is 'string'
     config = await @fetch 'https://api.cottagelabs.com/service/oab/ill/config?uid=' + config
@@ -275,7 +290,7 @@ P.svc.oaworks.ill.subscription = (config, meta) ->
         else if subtype is 'serialssolutions' or url.indexOf('serialssolutions.') isnt -1
           res.error.push 'serialssolutions' if error
           if spg.indexOf('<ssopenurl:url type="article">') isnt -1
-            fnd = spg.split('<ssopenurl:url type="article">')[1].split('</ssopenurl:url>')[0].trim() # this gets us something that has an empty accountid param - do we need that for it to work?
+            fnd = spg.split('<ssopenurl:url type="article">')[1].split('</ssopenurl:url>')[0].trim().replace(/&amp;/g, '&') # this gets us something that has an empty accountid param - do we need that for it to work?
             if fnd.length
               res.url = fnd
               res.findings.serials = res.url
@@ -298,7 +313,7 @@ P.svc.oaworks.ill.subscription = (config, meta) ->
                 surl = url.split('?')[0] + '?ShowSupressedLinks' + pg.split('?ShowSupressedLinks')[1].split('">')[0]
                 npg = await @puppet surl # would this still need proxy?
                 if npg.indexOf('ArticleCL') isnt -1 and npg.split('DatabaseCL')[0].indexOf('href="./log') isnt -1
-                  res.url = surl.split('?')[0] + npg.split('ArticleCL')[1].split('DatabaseCL')[0].split('href="')[1].split('">')[0]
+                  res.url = surl.split('?')[0] + npg.split('ArticleCL')[1].split('DatabaseCL')[0].split('href="')[1].split('">')[0].replace(/&amp;/g, '&')
                   res.findings.serials = res.url
                   if res.url?
                     if res.url.indexOf('getitnow') is -1

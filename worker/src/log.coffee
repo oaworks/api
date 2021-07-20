@@ -1,10 +1,25 @@
 
 S.log ?= {}
 
-# it would also be good to log every fetch, and what was sent with it too, although if it was a big file or something like that, then not that
-# what about a param to pass to avoid logging?
+_bg_log_batch = []
+_bg_log_batch_timeout = false
 
 P.log = (msg, store) ->
+
+  _save_batch = () =>
+    # TODO may be worth generalising this into index functionality and having an option to bulk any index
+    # then index calls that are writing data should route to the bg /index functions instead of 
+    # direct to the index, so that they can be temporarily stored and handled in bulk (only suitable for when they can be lost too)
+    _batch = []
+    while _batch.length < 400 and _bg_log_batch.length
+      _batch.push _bg_log_batch.shift()
+    if _batch.length
+      console.log('Writing ' + _batch.length + ' logs to index') if @S.dev and @S.bg is true
+      if not indexed = await @index 'logs', _batch
+        await @index 'logs', {}
+        await @index 'logs', _batch
+      _batch = []
+
   if @S.log isnt false
     store = not msg? if store isnt true # an empty call to log stores everything in the _logs list
     
@@ -19,10 +34,16 @@ P.log = (msg, store) ->
   
     if not msg?
       if @parts.length is 1 and @parts[0] is 'log' # should a remote log be allowed to send to a sub-route URL as an ID? maybe with particular auth?
-        # receive a remote log
-        msg = if typeof @body is 'object' then {logs: @body} else @params # bunch of logs sent in as POST body, or else just params
-        msg.fn ?= @params.log # the fn, if any, would be in params.log (because @fn would just be log)
+        if @system
+          _bg_log_batch.push @body
+          _bg_log_batch_timeout = setTimeout(_save_batch, 60000) if _bg_log_batch_timeout is false
+          return true # end here, just saving a log received from remote with system credential
+        else
+          # receive a remote log - what permissions should be required?
+          msg = if typeof @body is 'object' then @body else @params # bunch of logs sent in as POST body, or else just params
+          msg = {logs: msg} if Array.isArray msg
       msg ?= {}
+      
       try
         msg.request =
           url: @request.url
@@ -54,10 +75,12 @@ P.log = (msg, store) ->
       try msg.apikey = @headers.apikey? or @headers['x-apikey']? # only record if apikey was provided or not
       try msg.user = @user._id if @user?._id?
       msg.unauthorised = true if @unauthorised
+
     else if typeof msg is 'object' and msg.res and msg.args # this indicates the fn had _diff true
       try # find a previous log for the same thing and if it's different add a diff: true to the log of this one. Or diff: false if same, to track that it was diffed
-        prev = await @index 'log', 'args:"' + msg.args # TODO what if it was a diff on a main log event though? do all log events have child log events now? check. and check what args/params should be compared for diff
-        msg.diff = prev.hits.hits[0]._source.res isnt msg.res
+        prevs = await @index 'logs', 'args:"' + msg.args + '"' # TODO what if it was a diff on a main log event though? do all log events have child log events now? check. and check what args/params should be compared for diff
+        prev = prevs.hits.hits[0]._source
+        msg.diff = if msg.checksum and prev.checksum then (msg.checksum isnt prev.checksum) else (msg.res isnt prev.res)
         # if msg.diff, send an email alert? Or have schedule pick up on those later?
 
     if store
@@ -80,23 +103,36 @@ P.log = (msg, store) ->
       try
         msg.started = @started
         msg.took = Date.now() - @started
-      mid = 'log/' + (@rid ? await @uid())
-      if @S.bg is true or @S.kv is false
-        if not indexed = await @index mid, msg
-          await @index 'log', {}
-          @index mid, msg
+      msg._id = @rid
+      if @S.index?.url?
+        if @S.bg is true
+          _bg_log_batch.push msg
+          if (typeof @S.log is 'object' and @S.log.batch is false) or _bg_log_batch.length > 300
+            _save_batch()
+          else
+            clearTimeout(_bg_log_batch_timeout) if _bg_log_batch_timeout isnt false
+            _bg_log_batch_timeout = setTimeout _save_batch, 60000
+        else if typeof @S.bg isnt 'string' or (typeof @S.log is 'object' and @S.log.batch is false)
+          _bg_log_batch.push msg
+          @waitUntil _save_batch()
+        else
+          @waitUntil @fetch @S.bg + '/log', body: msg
       else
-        @kv mid, msg
+        try
+          @kv 'logs/' + msg._id, msg
+        catch
+          console.log 'Logging unable to save to kv or index'
+          consolg.log msg
     else
       @_logs.push msg
   else if @S.dev and @S.bg is true
     console.log msg
 
-P.log.clear = () ->
-  # this is just for manual log removal on dev
-  if @S.dev
-    @kv._each 'log', ''
-P.log.clear._hidden = true
+  return true
+
+P.log._hide = true
+
+P.logs = _index: true, _hide: true, _auth: 'system'
 
 
 # a user should be able to set a list of endpoints they want to receive notifications for
@@ -121,13 +157,13 @@ P.log.monitor._schedule = () ->
   notify = {}
   chat = []
   counter = 0
-  await @index._each 'log_monitor', '*', (rec) ->
+  await @index.each 'log_monitor', '*', (rec) ->
     if not rec.notified or rec.notified + (rec.frequency * 60000) < @started
       rec.notified = @started
       @waitUntil @index 'log_monitor/' + rec._id, @copy rec
       q = if typeof rec.q is 'string' and rec.q.startsWith('{') then JSON.parse(rec.q) else rec.q
       q = await @index.translate q, { newest: true, restrict: [{query_string: {query: 'createdAt:>' + (@started - (rec.frequency * 60000))}}]}
-      count = await @index.count 'log', undefined, q
+      count = await @index.count 'logs', undefined, q
       if count
         counter += count
         rec.dq = q

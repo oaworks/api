@@ -46,10 +46,10 @@ P.convert.json2csv = (recs, params) ->
         records += quote
         if rec[h]?
           try rec[h] = rec[h][0] if Array.isArray(rec[h]) and rec[h].length is 1 and Array.isArray rec[h][0]
-          try rec[h] = rec[h].join(', ') if Array.isArray(rec[h]) and rec[h].length and typeof rec[h][0] is 'string'
+          try rec[h] = rec[h].join(',') if Array.isArray(rec[h]) and rec[h].length and typeof rec[h][0] isnt 'object'
           try rec[h] = JSON.stringify(rec[h]) if typeof rec[h] is 'object'
-          try rec[h] = rec[h].replace /"/g, quote + quote
-          try rec[h] = rec[h].replace /,,/g, separator # TODO change this for a regex of the separator
+          try rec[h] = rec[h].replace(/"/g, quote + quote) if quote is '"' and rec[h].indexOf(quote) isnt -1 # escape quotes with another quote
+          #try rec[h] = rec[h].replace /,,/g, separator # TODO change this for a regex of the separator
           try rec[h] = rec[h].replace /\n/g, ' '
           try rec[h] = rec[h].replace /\s\s/g, ' '
           try records += rec[h]
@@ -57,39 +57,43 @@ P.convert.json2csv = (recs, params) ->
     return quote + headers.join(quote + separator + quote) + quote + '\n' + records
 
 P.convert.csv2json = (csv, params) ->
-  csv ?= @body ? @params.csv
-  if @params.url
-    csv = await @fetch url
   params ?= @params
-  quote = params.quote ? '"'
-  separator = params.separator ? ','
-  newline = params.newline ? '\n'
-  csv = csv.replace /""/g, 'XXX_QUOTER_GOES_HERE_XXX' # TODO change this for a regex of whatever the quote char is
+  csv ?= @body ? @params.csv
+  if params.url or (typeof csv is 'string' and csv.startsWith 'http')
+    csv = await @fetch params.url ? csv
   res = []
   if typeof csv is 'string' and csv.length
+    quote = params.quote ? '"'
+    separator = params.separator ? ','
+    newline = params.newline ? '\n'
     lines = csv.split newline
     if lines.length
       headers = lines.shift().split quote + separator
-      # TODO add handling for flattened object headers eg metadata.author.0.name
-      # should do this by making an unflatten utility that goes through the object and rebuilds
-      for header in headers
-        header = header.replace(quote, '') if header.indexOf(quote) is 0
+      # TODO add handling for flattened object headers eg metadata.author.0.name via a utility for it
+      pl = ''
       for line in lines
-        row = {}
-        vals = line.split quote + separator
-        for h in headers
-          if vals.length
-            row[h] = vals.shift()
-            if row[h]
-              row[h] = row[h].replace(/^"/, '').replace(/"$/, '').replace /XXX_QUOTER_GOES_HERE_XXX/g, quote
-              try row[h] = JSON.parse row[h]
-        res.push row
+        pl += (if pl then newline else '') + line
+        vals = pl.split quote + separator
+        if vals.length is headers.length and (not quote or line.endsWith quote)
+          pl = ''
+          row = {}
+          for h in headers
+            h = h.replace(quote, '') if h.startsWith quote
+            h = h.substring(0, h.length-1) if h.endsWith quote
+            if vals.length
+              row[h] = vals.shift()
+              if row[h]
+                row[h] = row[h].replace(quote, '') if row[h].startsWith quote
+                row[h] = row[h].substring(0, row[h].length-1) if not vals.length and row[h].endsWith quote # strip the end quote from the last one
+                try row[h] = JSON.parse row[h]
+          res.push row
   return res
 
-P.convert.csv2html = (csv) ->
+P.convert.csv2html = (csv, params) ->
   csv ?= @body ? @params.csv
-  if @params.url
-    csv = await @fetch url
+  params ?= @params
+  if params.url or (typeof csv is 'string' and csv.startsWith 'http')
+    csv = await @fetch params.url ? csv
   quote = '"'
   separator = ','
   newline = '\n'
@@ -150,19 +154,14 @@ P.convert.json2html = (recs, params) ->
         recs = recs[part]
       else
         break
-  if Array.isArray(recs) or (recs?.hits?.hits and params.es isnt false)
-    params.subset = parts.join('.') if parts?
-    tbl = await @convert.csv2html await @convert.json2csv recs, params
-    return tbl
+  if Array.isArray(recs) or (recs?.hits?.hits? and params.es isnt false)
+    if params.search
+      return '<script type="text/javascript" src="/client/pradmSearch.min.js"></script><script>P.search()</script>'
+    else
+      params.subset = parts.join('.') if parts?
+      return @convert.csv2html await @convert.json2csv recs, params
   else
     res = '<div>'
-    if params.edit # extras only for rscvd for now but should be any management fields to add and not yet present
-      res += '<div style="clear:both; margin:-1px 0px;"><div style="float:left;width: 150px; overflow: scroll;"><b><p>status</p></b></div>'
-      res += '<div style="float:left;"><select class="pradmForm" id="status" style="margin-top:15px;margin-bottom:0px;min-width:180px;">'
-      for st in ['', 'Verified', 'Denied', 'Progressing', 'Overdue', 'Provided', 'Cancelled', 'Done']
-        res += '<option' + (if recs.status is st then ' selected="selected"' else '') + '>' + st + '</option>'
-      delete recs.status
-      res += '</select></div>'
     if params.flatten
       recs = await @flatten recs
       res += '<input type="hidden" id="options_flatten" value="true">'
@@ -182,7 +181,7 @@ P.convert.json2html = (recs, params) ->
         if rec[k]? and (not Array.isArray(rec[k]) or rec[k].length) and (not params.keys or k in params.keys)
           res += '<div style="clear:both; ' + (if not params.edit then 'border:1px solid #ccc; ' else '') + 'margin:-1px 0px;"><div style="float:left;width: 150px; overflow: scroll;"><b><p>' + k + '</p></b></div>'
           res += '<div style="float:left;">'
-          res += if params.edit then '<textarea class="pradmForm" id="' + k + '" style="min-height:80px;width:100%;margin-bottom:5px;">' else ''
+          res += if params.edit then '<textarea class="PForm" id="' + k + '" style="min-height:80px;width:100%;margin-bottom:5px;">' else ''
           if Array.isArray rec[k]
             if typeof rec[k][0] is 'object'
               for ok in rec[k]
@@ -205,8 +204,8 @@ P.convert.json2html = (recs, params) ->
     _draw recs
     res += '</div>'
     if params.edit
-      res = '<script type="text/javascript" src="/client/pradm.js"></script><script type="text/javascript" src="/client/pradmEdit.js"></script>' + res
-      res += '<script type="text/javascript">pradm.edit()</script>'
+      res = '<script type="text/javascript" src="/client/pradm.min.js"></script><script type="text/javascript" src="/client/pradmEdit.min.js"></script>' + res
+      res += '<script type="text/javascript">P.edit()</script>'
     return res
 
 P.convert.json2txt = (content) ->

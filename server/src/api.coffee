@@ -4,18 +4,18 @@ import crypto from 'crypto' # used in utilities for hash generation
 import http from 'http'
 import https from 'https' # allows fetch to control https security for local connections
 import Busboy from 'busboy'
-import fs from 'fs'
+import {promises as fs} from 'fs'
 import tar from 'tar' # for DOAJ data dumps, possibly others
 import zlib from 'zlib' # for reading/converting gz files
 
 
 server = http.createServer (req, res) ->
   try
-    if req.headers?['content-type']?.match /^multipart\/form\-data/
+    ct = req.headers?['content-type'] ? req.headers?['Content-Type'] ? ''
+    if ct.includes 'form'
       # example: curl -X POST 'https://example.com/convert?from=xls&to=csv' -F file=@anexcelfile.xlsx
       busboy = new Busboy headers: req.headers
       req.files = []
-      req.body ?= {}
       waiting = true
       busboy.on 'file', (fieldname, file, filename, encoding, mimetype) ->
         uf = {
@@ -31,24 +31,37 @@ server = http.createServer (req, res) ->
         file.on 'end', () ->
           uf.data = Buffer.concat buffers
           req.files.push uf
-      busboy.on 'field', (fieldname, value) -> req.body[fieldname] = value
+      busboy.on 'field', (fieldname, value) -> 
+        if fieldname.startsWith('{') and fieldname.endsWith('}')
+          try jp = JSON.parse fieldname # someone prob sent json without encoding it properly
+        if jp?
+          req.body = jp
+        else
+          req.body ?= {}
+          req.body[fieldname] = value
       busboy.on 'finish', () -> waiting = false
       req.pipe busboy
       while waiting
         await new Promise (resolve) => setTimeout resolve, 100
     else if req.method in ['POST', 'PUT']
       waiting = true
-      req.body = ''
-      req.on 'data', (d) -> req.body += d
+      haddata = false
+      bd = ''
+      req.on 'data', (d) -> 
+        haddata = true
+        bd += d
       req.on 'end', () -> waiting = false
       while waiting
         await new Promise (resolve) => setTimeout resolve, 100
-
+      if haddata
+        req.body = bd
+  
+  #try console.log(req.body) if S.dev and req.body?
   try
     try console.log(req.method + ' ' + req.url) if S.dev
     pr = await P.call request: req
     try console.log(pr.status) if S.dev
-    try pr.headers['x-' + S.name + '-bg'] = true
+    try pr.headers['x-' + S.name.toLowerCase() + '-bg'] = true
     if req.url is '/'
       try
         pb = JSON.parse pr.body
@@ -60,7 +73,7 @@ server = http.createServer (req, res) ->
   catch err
     try console.log err
     headers = {}
-    headers['x-' + S.name + '-bg'] = true
+    headers['x-' + S.name.toLowerCase() + '-bg'] = true
     res.writeHead 405, headers # where would these be in a Response object from P?
     res.end '405'
 

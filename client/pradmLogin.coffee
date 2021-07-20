@@ -1,136 +1,143 @@
 
-@pradm ?= {}
-pradm.service ?= undefined # optionally set the name of the service using the login
-pradm.api ?= window.location.host # set this elsewhere if not on the current host
-pradm.oauthRedirectUri = undefined # this can be set, but if not, current page will be used (whatever is used has to be authorised as a redirect URI with the oauth provider)
-pradm.oauthGoogleClientId = undefined # this must be provided for oauth to work
-pradm.account = undefined # set to the account object once retrieved
+P.service ?= undefined # optionally set the name of the service using the login
+P.api ?= @api ? '//' + window.location.host
+P.oauthRedirectUri = undefined # this can be set, but if not, current page will be used (whatever is used has to be authorised as a redirect URI with the oauth provider)
+P.oauthGoogleClientId = undefined # this must be provided for oauth to work
+P.account = undefined # set to the account object once retrieved
 
-pradm.getCookie = (name) ->
-  name ?= 'pradm'
-  for c in document.cookie.split ';'
-    c = c.substring(1) while c.charAt(0) is ' '
-    return JSON.parse(decodeURIComponent(c.substring(name.length + 1, c.length))) if c.indexOf(name + '=') isnt -1
-  return false
-pradm.setCookie = (name, values, options) ->
-  name ?= 'pradm'
-  text = name + '='
-  text += encodeURIComponent(JSON.stringify(values)) if values
-  options ?= {}
-  date = options.expires ? 180
-  if typeof date is 'number'
-    date = new Date()
-    date.setDate date.getDate() + options.expires
-  text += '; expires=' + new Date(date).toUTCString() if date instanceof Date
-  text += '; domain=' + options.domain if typeof options.domain is 'string' and options.domain isnt ''
-  text += '; path=' + if typeof options.path is 'string' and options.path isnt '' then options.path else '/'
-  text += '; secure' if options.secure isnt false # default to secure
-  text += '; HttpOnly' if options.httponly
-  document.cookie = text
-  return text
-pradm.removeCookie = (name, domain) -> pradm.setCookie name, undefined, {domain: domain, expires:-1}
-
-pradm.token = (e) ->
+P.token = (e) ->
   try e.preventDefault()
-  pradm.removeCookie()
+  P.cookie false
   # TODO add a validation of the email val if email not already set?
-  if not email = pradm.get '#pradmEmail'
-    pradm.css '#pradmEmail', 'border-color', '#f04717'
-    pradm.focus '#pradmEmail'
+  if not email = P.val '#PEmail'
+    P.css '#PEmail', 'border-color', '#f04717'
+    P.focus '#PEmail'
     return
-  pradm.hide '.pradmEmail'
-  pradm.show '.pradmLoading'
-  pradm.show '.pradmToken'
+  P.hide '.PEmail'
+  P.show '.PLoading'
+  P.show '.PToken'
   opts =
     success: (data) ->
-      pradm.hide '.pradmLoading'
-      pradm.focus '#pradmToken'
+      P.hide '.PLoading'
+      P.focus '#PToken'
+      P._loggingin = setInterval () ->
+        P.loginSuccess() if P.loggedin()
+      , 2000
     data:
       email: email
       url: window.location.protocol + '//' + window.location.host + window.location.pathname
-      service: pradm.service
-  pradm.ajax '/auth/token', opts
+      service: P.service
+  P.ajax '/auth/token', opts
 
-pradm.loginSuccess = (data) ->
-  pradm.hide '.pradmLogin'
-  pradm.hide '.pradmLoading'
-  pradm.hide '.pradmToken'
-  if data?
-    pradm.account = data
-    pradm.setCookie undefined, data
-  if pradm.next or window.location.href.indexOf('next=') isnt -1
-    if pradm.next is true
+P.loginSuccess = (data) ->
+  if P._loggingin
+    clearInterval P._loggingin
+    delete P._loggingin
+  P.hide '.PLogin'
+  P.hide '.PLoading'
+  P.hide '.PToken'
+  if typeof data is 'object'
+    P.account = data
+    P.cookie data
+  if P.account?.email and P '.PWelcome'
+    ph = P.html '.PWelcome'
+    ph = if ph.length then ph + ' ' + P.account.email.split('@')[0] else P.account.email
+    P.html '.PWelcome', ph
+    P.show '.PWelcome'
+  if not P.loginNext and window.location.search.indexOf('next=') isnt -1
+    P.loginNext = decodeURIComponent window.location.search.split('next=')[1].split('&')[0]
+  else if not P.loginNext and window.location.search.startsWith '?next'
+    P.loginNext = true
+  if P.loginNext
+    if P.loginNext is true
       location.reload()
     else
-      window.location = pradm.next ? decodeURIComponent(window.location.href.split('next=')[1].split('&')[0])
+      window.location = P.loginNext
   else
     try
-      pradm.show '.pradmLogout'
-      pradm.listen 'click', '#pradmLogout', pradm.logout
+      P.show '.PLogout'
+      P.on 'click', '#PLogout', P.logout
+    try
+      P.afterLogin() if typeof P.afterLogin is 'function'
 
-pradm.loginError = (err) ->
+P.loginError = (err, xhr) ->
+  console.log 'Login error'
   console.log err # and log an error to backend somewhere...
-  pradm.removeCookie()
-  pradm.account = undefined
-  pradm.hide '.pradmLoading'
-  pradm.hide '.pradmToken'
-  pradm.set '#pradmEmail', 'placeholder', 'Login error, please try your email address again'
-  pradm.show '.pradmEmail'
-  pradm.show '.pradmLogin'
+  console.log xhr # paradigm API may have xhr.response with a follow-up option such as a way to request access or permission
+  if P._loggingin
+    clearInterval P._loggingin
+    delete P._loggingin
+  P.cookie false
+  P.account = undefined
+  P.hide '.PLoading'
+  P.hide '.PToken'
+  P.set '#PEmail', ''
+  P.set '#PEmail', 'placeholder', 'error, enter your email to try again'
+  P.show '.PEmail'
+  P.show '.PLogin'
   
-pradm.login = (e) ->
+P.login = (e) ->
   try e.preventDefault()
   opts =
-    success: pradm.loginSuccess
-    error: pradm.loginError
-    data: service: pradm.service
+    success: P.loginSuccess
+    error: P.loginError
+    data: service: P.service
 
-  pt = pradm.get '#pradmToken'
+  pt = P.val '#PToken'
   if window.location.hash.indexOf('access_token=') isnt -1
     opts.data.oauth = {}
     for p of pts = window.location.hash.replace('#','').split '&'
       [k, v] = pts[p].split '='
       opts.data.oauth[k] = v
-    oauthcookie = pradm.getCookie 'poauth'
-    pradm.removeCookie 'poauth'
+    oauthcookie = P.cookie 'poauth'
+    P.cookie 'poauth', false
   else if window.location.hash.replace('#','').length is 8
     opts.data.token = window.location.hash.replace '#', ''
     try window.history.pushState "", "", window.location.pathname
   else if typeof pt is 'string' and pt.length is 8
     opts.data.token = pt
-  else if account = pradm.loggedin()
+  else if account = P.loggedin()
     opts.data.email = account.email
     opts.data.resume = account.resume
 
-  if (opts.data.email and opts.data.resume) or opts.data.hash or opts.data.token or opts.data.oauth.state is oauthcookie?.state
-    pradm.hide '.pradmEmail'
-    pradm.hide '.pradmToken'
-    pradm.show '.pradmLoading'
-    pradm.ajax '/auth', opts
+  if (opts.data.email and opts.data.resume) or opts.data.hash or opts.data.token or opts.data.oauth?.state is oauthcookie?.state
+    P.hide '.PEmail'
+    P.hide '.PToken'
+    P.show '.PLoading'
+    P.ajax '/auth', opts
 
-pradm.loggedin = () ->
-  pradm.account ?= pradm.getCookie()
-  return pradm.account
-pradm.logout = (e) ->
+P.loggedin = () ->
+  if p = P.cookie()
+    P.account = p if typeof p is 'object' and JSON.stringify(p) isnt '{}'
+  return P.account
+
+P.logout = (e) ->
   try e.preventDefault()
-  if account = pradm.loggedin()
-    pradm.ajax '/auth/logout' + if pradm.api.indexOf(window.location.host) is -1 then '?apikey=' + account.apikey else ''
-  pradm.account = undefined
-  pradm.removeCookie()
-  if pradm.next
-    if pradm.next is true
-      location.reload()
-    else
-      window.location = pradm.next
+  P.show '.PLoading'
+  if account = P.loggedin()
+    P.ajax '/auth/logout' + (if P.api.indexOf(window.location.host) is -1 then '?apikey=' + account.apikey else ''), success: () ->
+      P.account = undefined
+      P.cookie false
+      P.hide '.PLoading' # just in case anything made this visible
+      if P.loginNext is true
+        location.reload()
+      else if P.loginNext
+        window.location = P.loginNext
+      else if typeof P.afterLogout is 'function'
+        try P.afterLogout()
 
-pradm.listen 'enter', '#pradmEmail', pradm.token
-try pradm.listen 'keyup', '#pradmToken', (e) -> pradm.login() if pradm.get('#pradmToken').length is 8
-try
-  if pradm.get('#pradmOauthGoogle').length and pradm.oauthGoogleClientId
-    state = Math.random().toString(36).substring(2,8)
-    grl = 'https://accounts.google.com/o/oauth2/v2/auth?response_type=token&include_granted_scopes=true&scope=https://www.googleapis.com/auth/userinfo.email+https://www.googleapis.com/auth/userinfo.profile'
-    grl += '&state=' + state + '&redirect_uri=' + (pradm.oauthRedirectUri ? window.location.href.split('#')[0].split('?')[0]) + '&client_id=' + pradm.oauthGoogleClientId
-    pradm.set '#pradmOauthGoogle', 'href', grl
-    pradm.listen 'click', '#pradmOauthGoogle', () -> pradm.setCookie 'poauth', {state:state}, {expires:1}
-
-pradm.login() if pradm.loggedin() or (typeof window.location.hash is 'string' and window.location.hash and window.location.hash.replace('#', '').length is 8)
+P.ready () ->
+  P.on 'enter', '#PEmail', P.token
+  try P.on 'keyup', '#PToken', (e) -> P.login() if P.val('#PToken').length is 8
+  try
+    if P.val('#POauthGoogle').length and P.oauthGoogleClientId
+      state = Math.random().toString(36).substring(2,8)
+      grl = 'https://accounts.google.com/o/oauth2/v2/auth?response_type=token&include_granted_scopes=true&scope=https://www.googleapis.com/auth/userinfo.email+https://www.googleapis.com/auth/userinfo.profile'
+      grl += '&state=' + state + '&redirect_uri=' + (P.oauthRedirectUri ? window.location.href.split('#')[0].split('?')[0]) + '&client_id=' + P.oauthGoogleClientId
+      P.set '#POauthGoogle', 'href', grl
+      P.on 'click', '#POauthGoogle', () -> P.cookie 'poauth', {state:state}, {expires:1}
+  
+  loggedin = P.loggedin()
+  if loggedin or (typeof window.location.hash is 'string' and window.location.hash and window.location.hash.replace('#', '').length is 8)
+    P.loginNext = undefined if loggedin # don't go to next if already logged in
+    P.login() # will it be worth doing this on every page load, or only those with a login token hash?

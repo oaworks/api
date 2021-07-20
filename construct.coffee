@@ -10,7 +10,10 @@ fs = require 'fs'
 coffee = require 'coffeescript'
 https = require 'https'
 {exec} = require 'child_process'
-crypto = require "crypto"
+crypto = require 'crypto'
+# uglify-js (2.x, such as 2.8.29) and uglifycss are also required for client transforms
+# see below in the client section where it will attempt to require them
+
 
 ENV = '' # if env is provided, look in usual secrets folders for files prefixed with ENV_ and prefer them, but if not present, use whatever else is there
 GROUP = '' # if group is provided look for secrets folders prefixed with GROUP_ and ONLY use those. If they're not present don't use the default ones.
@@ -113,7 +116,7 @@ _walk = (drt, names=[]) ->
   # list all files in a dir, including subdirs, sorted alpbabetically / hierarchically
   dirs = []
   for n in fs.readdirSync(drt).sort()
-    if n.indexOf('.') is -1 or n.split('.').pop() in ['js', 'coffee', 'json']
+    if n.indexOf('.') is -1 or n.split('.').pop() in ['js', 'coffee', 'json', 'css']
       if fs.lstatSync(drt + '/' + n).isDirectory()
         dirs.push drt + '/' + n
       else
@@ -139,7 +142,7 @@ _w = () ->
         console.log fl
         if fl.endsWith '.coffee'
           wfl += coffee.compile fs.readFileSync(fl).toString(), bare: true
-        else
+        else if fl.endsWith '.js'
           wfl += fs.readFileSync(fl).toString()
         wfl += '\n'
       wfl += '\nS.built = \"' + DATE + '\";'
@@ -174,25 +177,57 @@ _w = () ->
         console.log fl
         if fl.endsWith '.coffee'
           sfl += coffee.compile fs.readFileSync(fl).toString(), bare: true
-        else
+        else if fl.endsWith '.js'
           sfl += fs.readFileSync(fl).toString()
         sfl += '\n'
       if wfl
+        adds = []
         for line in sfl.split '\n'
-          if line.startsWith('P.') and (line.indexOf('function') isnt -1 or line.indexOf('{}') isnt -1)
-            bgp = line.split(' ')[0]
-            if wfl.indexOf('\n' + bgp) is -1
-              console.log 'adding ' + bgp + ' bg stub to worker'
-              wfl += '\n' + bgp + ' = ' + (if line.indexOf('{}') isnt -1 then '{}' else '{_bg: true}') + '// added by constructor\n'
+          if line.startsWith('P.') and (line.indexOf('function') isnt -1 or line.replace(/\s/g, '').indexOf('={') isnt -1 or line.indexOf('._') isnt -1) and line.indexOf('->') is -1 # avoid commented out coffeescript definitions, by the time they're converted to js these would not be defined with -> functions
+            bgp = line.split('=')[0].split('._')[0].replace(/\s/g, '')
+            if wfl.indexOf('\n' + bgp) is -1 or bgp in adds
+              adds.push(bgp) if bgp not in adds
+              if line.indexOf('function') is -1
+                console.log 'adding ' + line + ' to worker stub'
+                wfl += '\n' + line + '// added by constructor\n'
+              else
+                console.log 'adding ' + bgp + ' bg stub to worker'
+                wfl += '\n' + bgp + ' = {_bg: true}' + '// added by constructor\n'
 
-    if 'client' in args
-      # TODO add a browser build of the main app too, at least all parts that can run browser-side
-      console.log "Building client files"
-      for fl in await _walk './client'
-        if fl.endsWith '.coffee'
+  if 'client' in args
+    # TODO add a browser build of the main app too, at least all parts that can run browser-side
+    console.log "Building client files"
+    for fl in await _walk './client'
+      if fl.endsWith '.coffee'
+        console.log fl
+        cpl = coffee.compile fs.readFileSync(fl).toString(), bare: true
+        fs.writeFileSync fl.replace('.coffee', '.js'), cpl
+        try
+          uglifyjs = require 'uglify-js'
+          uglyjs = uglifyjs.minify flj: cpl
+          fs.writeFileSync fl.replace('.coffee', '.min.js'), uglyjs.code
+          # this can also be used to build bundles, given an object of filenames and their contents
+          # secrets/construct.json could be extended to define bundle lists, if that becomes useful in future
+          #jshashname = 'pradm_' + crypto.createHash('md5').update(uglyjs.code).digest('hex')
+        catch
+          console.log 'Could not minify - maybe uglify-js needs to be installed'
+      else if fl.endsWith('.js') and not fl.endsWith('.min.js') and not fs.existsSync fl.replace '.js', '.coffee'
+        try
           console.log fl
-          cpl = coffee.compile fs.readFileSync(fl).toString(), bare: true
-          fs.writeFileSync fl.replace('.coffee', '.js'), cpl
+          uglifyjs = require 'uglify-js'
+          uglyjs = uglifyjs.minify fl: cpl
+          fs.writeFileSync fl.replace('.js', '.min.js'), uglyjs.code
+        catch
+          console.log 'Could not minify - maybe uglify-js needs to be installed'
+      else if fl.endsWith('.css') and not fl.endsWith '.min.css'
+        try
+          console.log fl
+          uglifycss = require 'uglifycss'
+          uglycss = uglifycss.processFiles [fl] # this can also be used to bundle a list of filenames
+          #csshashname = 'pradm_' + crypto.createHash('md5').update(uglycss).digest('hex')
+          fs.writeFileSync fl.replace('.css', '.min.css'), uglycss
+        catch
+          console.log 'Could not minify - maybe uglifycss needs to be installed'
 
   if 'server' in args
     if fs.existsSync './server/' + GROUP + 'secrets'

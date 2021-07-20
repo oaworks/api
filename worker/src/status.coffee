@@ -5,12 +5,17 @@ P.status = ->
     try res[k] ?= @[k]
   res.bg = true if @S.bg is true
   res.kv = if typeof @S.kv is 'string' and global[@S.kv] then @S.kv else if typeof @S.kv is 'string' then @S.kv else false
-  res.index = true if await @index ''
+  try res.index = await @index.status()
   if S.dev
+    res.bg = @S.bg
     if @S.bg isnt true
       try res.request = @request
-    for k in ['headers', 'cookie', 'user']
+    for k in ['headers', 'cookie', 'user', 'body']
       try res[k] ?= @[k]
+  else
+    try res.index = res.index.status
+    res.kv = true if res.kv
+    res.user = @user.email if @user?.email
       
   # maybe useful things like how many accounts, how many queued jobs etc - prob just get those from status endpoints on the stack
   # maybe some useful info from the recent logs too
@@ -31,7 +36,7 @@ P.structure = (src) ->
   method = {}
   incomment = false
   inroute = false
-  for l of lns = fs.readFileSync(src).toString().replace(/\r\n/g,'\n').split '\n'
+  for l of lns = (await fs.readFile src).toString().replace(/\r\n/g,'\n').split '\n'
     line = lns[l].replace /\t/g, '  '
     if JSON.stringify(method) isnt '{}' and (l is '0' or parseInt(l) is lns.length-1 or (line.indexOf('P.') is 0 and line.indexOf('>') isnt -1))
       method.code = method.code.trim()
