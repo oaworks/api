@@ -20,7 +20,7 @@ P.log = (msg, store) ->
         await @index 'logs', _batch
       _batch = []
 
-  if @S.log isnt false
+  if @S.log isnt false and @nolog isnt true
     store = not msg? if store isnt true # an empty call to log stores everything in the _logs list
     
     if typeof msg is 'string'

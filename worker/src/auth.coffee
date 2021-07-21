@@ -90,14 +90,15 @@ P.auth.token = (email, from, subject, text, html, template, url) ->
   if email
     email = email.trim().toLowerCase()
     from ?= S.auth?.from ? 'login@example.com'
-    subject ?= S.auth?.subject ? 'Complete your login to ' + (if @base then @base.replace('bg.', '(bg) ') else @S.name)
     token = @uid 8
     console.log(email, token) if @S.dev and @S.bg is true
     url ?= @params.url
     if url
       url += '#' + token
+      subject ?= 'Complete your login to ' + (if url.includes('//') then url.split('//')[1] else url).split('/')[0]
     else
       url = @base + '/' + @route.replace '/token', '/' + token
+      subject ?= 'Complete your login to ' + (if @base then @base.replace('bg.', '(bg) ') else @S.name)
     @kv 'auth/token/' + token, email, 1200 # create a token that expires in 20 minutes
     @waitUntil @mail
       from: from
@@ -137,7 +138,7 @@ P.auth.role = (grl, user) ->
   return false
 
 
-# /auth/:uid/roles/:grl
+# /auth/:uid/add/:grl
 # add a user to a role, or remove, or deny
 # deny meaning automatically not allowed any other role on the group
 # whereas otherwise a user (or system on behalf of) should be able to request a role (TODO)
@@ -179,11 +180,11 @@ P.auth.add = (grl, user, remove, deny) ->
 
 P.auth.remove = (grl, user) ->
   grl ?= @params.remove
-  return @auth.permit grl, user, true
+  return @auth.add grl, user, true
 
 P.auth.deny = (grl, user) ->
   grl ?= @params.deny
-  return @auth.permit grl, user, undefined, true
+  return @auth.add grl, user, undefined, true
   
 
 P.auth.logout = (user) -> # how about triggering a logout on a different user account

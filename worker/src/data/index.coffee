@@ -322,6 +322,9 @@ P.index._each = (route, q, opts, fn) ->
     fn = opts
     opts = undefined
   opts ?= {}
+  if typeof opts is 'string'
+    action = opts
+    opts = undefined
   if opts?.action
     action = opts.action
     delete opts.action

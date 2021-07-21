@@ -28,7 +28,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
     # _async
     if typeof @params._async in ['string', 'number']
       if res = await @kv 'async/' + @params._async, ''
-        if typeof res is 'string' and res.includes('/') and not res.includes(' ') and not res.startsWith('10.') and res.split('/').length is 2
+        if typeof res is 'string' and res.includes('/') and not res.includes(' ') and not res.includes(':') and not res.startsWith('10.') and res.split('/').length is 2
           try res = await @kv(res) if f._kv
           try res = await @index(res) if not res? and f._index # async stored the _id for the result
         try res = JSON.parse(res) if typeof res is 'string' and (res.startsWith('{') or res.startsWith('['))
@@ -58,29 +58,32 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
     else if f._index or f._kv and (not f._sheet or @fn isnt n or not @refresh)
       if arguments.length is 1
         rec = if f._kv or (f._index and (arguments[0] is '' or typeof arguments[0] is 'object')) then arguments[0] else undefined
-      else if arguments.length is 2 and typeof arguments[0] is 'string' and arguments[0].length
+      else if arguments.length is 2 and typeof arguments[0] is 'string' and arguments[0].length and (arguments[1] is '' or typeof arguments[1] is 'object' or f._kv)
         rec = arguments[1]
       else if @fn is n and ((@request.method is 'DELETE' or @params._delete) or (@request.method in ['POST', 'PUT'] and @body? and JSON.stringify(@body) isnt '{}'))
         rec = if @request.method is 'DELETE' or @params._delete then '' else @body # TODO an auth check has to occur somewhere if this is a delete from the API
       if f._index and (@fn isnt n or @request.method isnt 'PUT') and arguments[0] isnt '' and arguments[1] isnt '' # check in case rec is actually a query
         qry = if arguments.length then await @index.translate(arguments[0], arguments[1]) else if rec? or JSON.stringify(@params) isnt '{}' then await @index.translate(rec ? @params) else undefined
-        rec = undefined if qry? and (arguments.length or @fn is n)
-      lg.key = if typeof arguments[0] is 'string' and arguments[0] isnt rec then arguments[0] else if @fn is n and @fn.replace(/\./g, '/') isnt @route then @route.split(n.split('.').pop()).pop() else undefined
+        if qry?
+          rec = undefined if arguments.length or @fn is n
+        else
+          lg.key = if typeof arguments[0] is 'string' and arguments[0] isnt rec then arguments[0] else if @fn is n and @fn.replace(/\./g, '/') isnt @route then @route.split(n.split('.').pop()).pop() else undefined
       lg.key = lg.key.replace(/\//g, '_').replace(/^_/,'').replace(/_$/,'') if lg.key
       if typeof rec is 'object' and not Array.isArray(rec) and not rec._id
         rec._id = lg.key ? rec[f._key] ? @uid()
       if f._kv and not qry? and lg.key
         res = await @kv rt + (if lg.key then '/' + lg.key else ''), rec
         lg.cached = @cached = 'kv' if res? and not rec?
+      console.log(lg.key, rec, JSON.stringify qry) if @S.dev and @S.bg is true
       if f._index and (rec? or not res?) and (rec? or not @refresh or typeof f isnt 'function')
         res = await @index rt + (if lg.key and (rec? or not qry?) then '/' + lg.key else ''), (rec ? (if not lg.key then qry else undefined))
         if not res? and (not lg.key or not rec?) # this happens if the index does not exist yet, so create it (otherwise res would be a search result object)
           await @index rt, if typeof f._index isnt 'object' then {} else {settings: f._index.settings, mappings: f._index.mappings, aliases: f._index.aliases}
           res = await @index rt + (if lg.key then '/' + lg.key else ''), (rec ? (if not lg.key then qry else undefined))
         res = undefined if not rec? and typeof res is 'object' and not Array.isArray(res) and res.hits?.total is 0 and typeof f is 'function' and lg.key # allow the function to run to try to retrieve or create the record from remote
-        if res?.hits?.total isnt 1 and qry? and lg.key and ((@fn is n and @fn.replace(/\./g, '/') is @route) or arguments.length is 1) and not lg.key.includes ' '
+        if res?.hits?.total isnt 1 and qry? and lg.key and ((@fn is n and @fn.replace(/\./g, '/') is @route) or arguments.length is 1) and not lg.key.includes(' ') and not lg.key.includes ':'
           res = await @index rt, qry # if direct lookup didn't work try a search
-        if res? and qry? and qry.query?.bool?.must and qry.query.bool.must.length is 1 and (qry.size is 1 or (res.hits.total is 1 and ((@fn isnt n and typeof arguments[0] is 'string' and not arguments[0].includes(' ') and not arguments[0].includes('*')) or not @params.q?)))
+        if res? and qry? and qry.query?.bool?.must and qry.query.bool.must.length is 1 and (qry.size is 1 or (res.hits.total is 1 and ((@fn isnt n and typeof arguments[0] is 'string' and not arguments[0].includes(' ') and not arguments[0].includes(':') and not arguments[0].includes('*')) or not @params.q?)))
           res.hits.hits[0]._source._id = res.hits.hits[0]._id if res.hits.hits[0]._source? and not res.hits.hits[0]._source._id?
           res = res.hits.hits[0]._source ? res.hits.hits[0].fields # return 1 record instead of a search result. is fields instead of _source still possible in ES7.x?
         lg.cached = @cached = 'index' if res? and not rec?

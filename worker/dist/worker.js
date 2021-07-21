@@ -368,7 +368,7 @@ P = async function(scheduled) {
       }
     }
   }
-  if (this.S.dev) { //and @S.bg is true
+  if (this.S.dev && this.S.bg === true) {
     console.log(this.request.method, this.base, this.domain, typeof this.body);
   }
   this.route = this.parts.join('/');
@@ -378,6 +378,11 @@ P = async function(scheduled) {
     this.scheduled = true;
   }
   this._logs = []; // place for a running request to dump multiple logs, which will combine and save at the end of the overall request
+  this.nolog = false; // if any function sets nolog to true, the log will not be saved.
+  if (this.params.nolog) { // the request may also disable logging with a nolog param matching a unique key in settings (e.g. to not log test calls)
+    this.nolog = this.S.nolog && this.params.nolog === this.S.nolog;
+    delete this.params.nolog;
+  }
   if (this.route === '') { //don't bother doing anything, just serve a direct P._response with the API details
     return P._response.call(this, (ref10 = this.request.method) === 'HEAD' || ref10 === 'OPTIONS' ? '' : {
       name: this.S.name,
@@ -445,8 +450,8 @@ P = async function(scheduled) {
             }
           }
           if (p[k]._index) { // add index functions to index endpoints
-            ref12 = ['keys', 'terms', 'suggest', 'count', 'min', 'max', 'range', 'mapping', 'history', '_for'];
-            //, '_each', '_bulk', '_refresh'] # of P.index
+            ref12 = ['keys', 'terms', 'suggest', 'count', 'min', 'max', 'range', 'mapping', 'history', '_for', '_each', '_bulk', '_refresh'];
+            // of P.index
             for (o = 0, len3 = ref12.length; o < len3; o++) {
               ik = ref12[o];
               if ((base13 = p[k])[ik] == null) {
@@ -570,7 +575,10 @@ P = async function(scheduled) {
     res = '';
   }
   resp = typeof res === 'object' && !Array.isArray(res) && typeof ((ref14 = res.headers) != null ? ref14.append : void 0) === 'function' ? res : (await this._response(res, fn));
-  // what about if scheduled? log?
+  if (this.system && this.S.dev && this.S.bg === true) {
+    // what about if scheduled? log?
+    console.log('system');
+  }
   if (this.parts.length && ((ref15 = this.parts[0]) !== 'log' && ref15 !== 'status') && (!this.system || ((ref16 = this.parts[0]) !== 'kv' && ref16 !== 'index')) && ((ref17 = this.request.method) !== 'HEAD' && ref17 !== 'OPTIONS') && (res != null) && res !== '') {
     if (this.completed && fn._cache !== false && resp.status === 200 && (typeof res !== 'object' || Array.isArray(res) || ((ref18 = res.hits) != null ? ref18.total : void 0) !== 0) && (typeof res !== 'number' || !this.refresh)) {
       si = fn._cache; // fn._cache can be a number of seconds for cache to live, so pass it to cache to use if suitable
@@ -818,7 +826,7 @@ P.auth = async function(key) {
 };
 
 P.auth.token = function(email, from, subject, text, html, template, url) {
-  var ref, ref1, ref2, ref3, token;
+  var ref, ref1, token;
   if (email == null) {
     email = this.params.email;
   }
@@ -826,9 +834,6 @@ P.auth.token = function(email, from, subject, text, html, template, url) {
     email = email.trim().toLowerCase();
     if (from == null) {
       from = (ref = (ref1 = S.auth) != null ? ref1.from : void 0) != null ? ref : 'login@example.com';
-    }
-    if (subject == null) {
-      subject = (ref2 = (ref3 = S.auth) != null ? ref3.subject : void 0) != null ? ref2 : 'Complete your login to ' + (this.base ? this.base.replace('bg.', '(bg) ') : this.S.name);
     }
     token = this.uid(8);
     if (this.S.dev && this.S.bg === true) {
@@ -839,8 +844,14 @@ P.auth.token = function(email, from, subject, text, html, template, url) {
     }
     if (url) {
       url += '#' + token;
+      if (subject == null) {
+        subject = 'Complete your login to ' + (url.includes('//') ? url.split('//')[1] : url).split('/')[0];
+      }
     } else {
       url = this.base + '/' + this.route.replace('/token', '/' + token);
+      if (subject == null) {
+        subject = 'Complete your login to ' + (this.base ? this.base.replace('bg.', '(bg) ') : this.S.name);
+      }
     }
     this.kv('auth/token/' + token, email, 1200); // create a token that expires in 20 minutes
     this.waitUntil(this.mail({
@@ -907,7 +918,7 @@ P.auth.role = async function(grl, user) {
   return false;
 };
 
-// /auth/:uid/roles/:grl
+// /auth/:uid/add/:grl
 // add a user to a role, or remove, or deny
 // deny meaning automatically not allowed any other role on the group
 // whereas otherwise a user (or system on behalf of) should be able to request a role (TODO)
@@ -964,14 +975,14 @@ P.auth.remove = function(grl, user) {
   if (grl == null) {
     grl = this.params.remove;
   }
-  return this.auth.permit(grl, user, true);
+  return this.auth.add(grl, user, true);
 };
 
 P.auth.deny = function(grl, user) {
   if (grl == null) {
     grl = this.params.deny;
   }
-  return this.auth.permit(grl, user, void 0, true);
+  return this.auth.add(grl, user, void 0, true);
 };
 
 P.auth.logout = async function(user) { // how about triggering a logout on a different user account
@@ -2199,7 +2210,7 @@ P.log = async function(msg, store) {
       return _batch = [];
     }
   };
-  if (this.S.log !== false) {
+  if (this.S.log !== false && this.nolog !== true) {
     if (store !== true) { // an empty call to log stores everything in the _logs list
       store = msg == null;
     }
@@ -3905,7 +3916,7 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
     // _async
     if ((ref = typeof this.params._async) === 'string' || ref === 'number') {
       if (res = (await this.kv('async/' + this.params._async, ''))) {
-        if (typeof res === 'string' && res.includes('/') && !res.includes(' ') && !res.startsWith('10.') && res.split('/').length === 2) {
+        if (typeof res === 'string' && res.includes('/') && !res.includes(' ') && !res.includes(':') && !res.startsWith('10.') && res.split('/').length === 2) {
           try {
             if (f._kv) {
               res = (await this.kv(res));
@@ -3955,18 +3966,21 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
     } else if (f._index || f._kv && (!f._sheet || this.fn !== n || !this.refresh)) {
       if (arguments.length === 1) {
         rec = f._kv || (f._index && (arguments[0] === '' || typeof arguments[0] === 'object')) ? arguments[0] : void 0;
-      } else if (arguments.length === 2 && typeof arguments[0] === 'string' && arguments[0].length) {
+      } else if (arguments.length === 2 && typeof arguments[0] === 'string' && arguments[0].length && (arguments[1] === '' || typeof arguments[1] === 'object' || f._kv)) {
         rec = arguments[1];
       } else if (this.fn === n && ((this.request.method === 'DELETE' || this.params._delete) || (((ref1 = this.request.method) === 'POST' || ref1 === 'PUT') && (this.body != null) && JSON.stringify(this.body) !== '{}'))) {
         rec = this.request.method === 'DELETE' || this.params._delete ? '' : this.body; // TODO an auth check has to occur somewhere if this is a delete from the API
       }
       if (f._index && (this.fn !== n || this.request.method !== 'PUT') && arguments[0] !== '' && arguments[1] !== '') { // check in case rec is actually a query
         qry = arguments.length ? (await this.index.translate(arguments[0], arguments[1])) : (rec != null) || JSON.stringify(this.params) !== '{}' ? (await this.index.translate(rec != null ? rec : this.params)) : void 0;
-        if ((qry != null) && (arguments.length || this.fn === n)) {
-          rec = void 0;
+        if (qry != null) {
+          if (arguments.length || this.fn === n) {
+            rec = void 0;
+          }
+        } else {
+          lg.key = typeof arguments[0] === 'string' && arguments[0] !== rec ? arguments[0] : this.fn === n && this.fn.replace(/\./g, '/') !== this.route ? this.route.split(n.split('.').pop()).pop() : void 0;
         }
       }
-      lg.key = typeof arguments[0] === 'string' && arguments[0] !== rec ? arguments[0] : this.fn === n && this.fn.replace(/\./g, '/') !== this.route ? this.route.split(n.split('.').pop()).pop() : void 0;
       if (lg.key) {
         lg.key = lg.key.replace(/\//g, '_').replace(/^_/, '').replace(/_$/, '');
       }
@@ -3978,6 +3992,9 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
         if ((res != null) && (rec == null)) {
           lg.cached = this.cached = 'kv';
         }
+      }
+      if (this.S.dev && this.S.bg === true) {
+        console.log(lg.key, rec, JSON.stringify(qry));
       }
       if (f._index && ((rec != null) || (res == null)) && ((rec != null) || !this.refresh || typeof f !== 'function')) {
         res = (await this.index(rt + (lg.key && ((rec != null) || (qry == null)) ? '/' + lg.key : ''), rec != null ? rec : (!lg.key ? qry : void 0)));
@@ -3992,10 +4009,10 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
         if ((rec == null) && typeof res === 'object' && !Array.isArray(res) && ((ref4 = res.hits) != null ? ref4.total : void 0) === 0 && typeof f === 'function' && lg.key) { // allow the function to run to try to retrieve or create the record from remote
           res = void 0;
         }
-        if ((res != null ? (ref5 = res.hits) != null ? ref5.total : void 0 : void 0) !== 1 && (qry != null) && lg.key && ((this.fn === n && this.fn.replace(/\./g, '/') === this.route) || arguments.length === 1) && !lg.key.includes(' ')) {
+        if ((res != null ? (ref5 = res.hits) != null ? ref5.total : void 0 : void 0) !== 1 && (qry != null) && lg.key && ((this.fn === n && this.fn.replace(/\./g, '/') === this.route) || arguments.length === 1) && !lg.key.includes(' ') && !lg.key.includes(':')) {
           res = (await this.index(rt, qry)); // if direct lookup didn't work try a search
         }
-        if ((res != null) && (qry != null) && ((ref6 = qry.query) != null ? (ref7 = ref6.bool) != null ? ref7.must : void 0 : void 0) && qry.query.bool.must.length === 1 && (qry.size === 1 || (res.hits.total === 1 && ((this.fn !== n && typeof arguments[0] === 'string' && !arguments[0].includes(' ') && !arguments[0].includes('*')) || (this.params.q == null))))) {
+        if ((res != null) && (qry != null) && ((ref6 = qry.query) != null ? (ref7 = ref6.bool) != null ? ref7.must : void 0 : void 0) && qry.query.bool.must.length === 1 && (qry.size === 1 || (res.hits.total === 1 && ((this.fn !== n && typeof arguments[0] === 'string' && !arguments[0].includes(' ') && !arguments[0].includes(':') && !arguments[0].includes('*')) || (this.params.q == null))))) {
           if ((res.hits.hits[0]._source != null) && (res.hits.hits[0]._source._id == null)) {
             res.hits.hits[0]._source._id = res.hits.hits[0]._id;
           }
@@ -4911,6 +4928,10 @@ P.index._each = async function(route, q, opts, fn) {
   }
   if (opts == null) {
     opts = {};
+  }
+  if (typeof opts === 'string') {
+    action = opts;
+    opts = void 0;
   }
   if (opts != null ? opts.action : void 0) {
     action = opts.action;
@@ -12338,7 +12359,7 @@ P.svc.rscvd = {
 };
 
 P.svc.rscvd.form = async function() {
-  var ad, av, rec, ref, ref1, ref2, rq, txt;
+  var av, rec, ref, ref1, ref2, ref3, rq, txt;
   if (this.keys(this.params).length > 1) {
     rec = this.copy(this.params);
     delete rec.form;
@@ -12346,22 +12367,26 @@ P.svc.rscvd.form = async function() {
     if (rq = (await this.svc.rscvd.requestees('email:"' + rec.email + '"'))) {
       if ((rq != null ? rq.verified : void 0) || (rq != null ? rq.verification : void 0) === 'Approved') {
         rec.status = 'Verified';
+        rec.verified = true;
       } else if ((rq != null ? rq.denied : void 0) || (rq != null ? rq.verification : void 0) === 'Denied') {
         rec.status = 'Denied';
+        rec.verified = false;
       }
     }
-    // TODO check the pre-verified list for rec.email and also look for any already verified emails from that user
     if (rec.status === 'Awaiting verification') { // not yet found in pre-verified list
-      av = (await this.svc.rscvd('verified:true AND email:"' + rec.email + '"'));
-      if (av.hits.total) {
+      av = (await this.svc.rscvd('email:"' + rec.email + '"'));
+      if (av == null) {
+        av = (await this.svc.rscvd.preverified('email:"' + rec.email + '"'));
+      }
+      if (av != null ? (ref = av.hits) != null ? ref.hits : void 0 : void 0) {
+        av = av.hits.hits[0]._source;
+      }
+      if ((av != null ? av.verified : void 0) === 'Verified' || (av != null ? av.verification : void 0) === 'Approved') {
         rec.status = 'Verified';
         rec.verified = true;
-      } else {
-        ad = (await this.svc.rscvd('verified:false AND email:"' + rec.email + '"'));
-        if (ad.hits.total) {
-          rec.status = 'Denied';
-          rec.verified = false;
-        }
+      } else if ((av != null ? av.verified : void 0) === false || (av != null ? av.verification : void 0) === 'Denied') {
+        rec.status = 'Denied';
+        rec.verified = false;
       }
     }
     if (rec.type == null) {
@@ -12375,7 +12400,7 @@ P.svc.rscvd.form = async function() {
     } catch (error) {}
     rec._id = (await this.svc.rscvd(rec));
     try {
-      txt = 'Hi ' + rec.name + ',<br><br>We got your request:<br><br>Title: ' + ((ref = (ref1 = rec.atitle) != null ? ref1 : rec.title) != null ? ref : 'Unknown') + '\nReference (if provided): ' + ((ref2 = rec.reference) != null ? ref2 : '') + '<br><br>';
+      txt = 'Hi ' + rec.name + ',<br><br>We got your request:<br><br>Title: ' + ((ref1 = (ref2 = rec.atitle) != null ? ref2 : rec.title) != null ? ref1 : 'Unknown') + '\nReference (if provided): ' + ((ref3 = rec.reference) != null ? ref3 : '') + '<br><br>';
       txt += 'If at any point you no longer need this item, please <a href="https://' + (this.S.dev ? 'dev.' : '') + 'rscvd.org/cancel?id=' + rec._id + '">cancel your request</a>, it only takes a second.<br><br>';
       txt += 'Our team of volunteers will try and fill your request as soon as possible. If you would like to thank us, please consider <a href="https://rscvd.org/volunteer">joining us in helping supply requests</a>.<br><br>';
       txt += 'Yours,<br><br>RSCVD team';
@@ -12396,6 +12421,11 @@ P.svc.rscvd.requestees = {
   _index: true,
   _hide: true,
   _auth: true
+};
+
+P.svc.rscvd.preverified = {
+  _sheet: '1GuIH-Onf0A0dXFokH6Ma0cS0TRbbpAeOyhDVpmDNDNw',
+  _prefix: false
 };
 
 P.svc.rscvd.resolves = async function(rid, resolver) {
@@ -12494,7 +12524,7 @@ P.svc.rscvd.verify = async function(email, verify = true) {
     }
     this.waitUntil(this.svc.rscvd.requestees(re));
   }
-  await this.index._each('svc_rscvd', 'email:"' + email + '"', {
+  await this.svc.rscvd._each('email:"' + email + '"', {
     action: 'index'
   }, function(rec) {
     if (!rec.status || rec.status === 'Awaiting verification') {
@@ -12650,8 +12680,8 @@ P.svc.rscvd.overdue = async function() {
 };
 
 
-S.built = "Tue Jul 20 2021 04:22:22 GMT+0100";
-S.system = "2b6fbaafeeba151c8b08654aeb884bc5c33553af307f6e9a41a979931bc51916";
+S.built = "Wed Jul 21 2021 04:51:50 GMT+0100";
+S.system = "9e8a538c9e30070087ee4a9a7cf4aef41bf308e1fc31a17091487aa35fcf85c0";
 P.puppet = {_bg: true}// added by constructor
 
 P.puppet._auth = 'system';// added by constructor
