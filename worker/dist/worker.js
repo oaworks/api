@@ -12364,30 +12364,28 @@ P.svc.rscvd.form = async function() {
     rec = this.copy(this.params);
     delete rec.form;
     rec.status = 'Awaiting verification';
-    if (rq = (await this.svc.rscvd.requestees('email:"' + rec.email + '"'))) {
-      if ((rq != null ? rq.verified : void 0) || (rq != null ? rq.verification : void 0) === 'Approved') {
-        rec.status = 'Verified';
-        rec.verified = true;
-      } else if ((rq != null ? rq.denied : void 0) || (rq != null ? rq.verification : void 0) === 'Denied') {
-        rec.status = 'Denied';
-        rec.verified = false;
+    try {
+      if (rq = (await this.svc.rscvd.requestees('email:"' + rec.email + '"'))) {
+        if ((rq != null ? rq.verified : void 0) || (rq != null ? rq.verification : void 0) === 'Approved') {
+          rec.status = 'Verified';
+          rec.verified = true;
+        } else if ((rq != null ? rq.denied : void 0) || (rq != null ? rq.verification : void 0) === 'Denied') {
+          rec.status = 'Denied';
+          rec.verified = false;
+        }
       }
-    }
+    } catch (error) {}
     if (rec.status === 'Awaiting verification') { // not yet found in pre-verified list
-      av = (await this.svc.rscvd('email:"' + rec.email + '"'));
-      if (av == null) {
-        av = (await this.svc.rscvd.preverified('email:"' + rec.email + '"'));
-      }
-      if (av != null ? (ref = av.hits) != null ? ref.hits : void 0 : void 0) {
-        av = av.hits.hits[0]._source;
-      }
-      if ((av != null ? av.verified : void 0) === 'Verified' || (av != null ? av.verification : void 0) === 'Approved') {
-        rec.status = 'Verified';
-        rec.verified = true;
-      } else if ((av != null ? av.verified : void 0) === false || (av != null ? av.verification : void 0) === 'Denied') {
-        rec.status = 'Denied';
-        rec.verified = false;
-      }
+      try {
+        av = (await this.svc.rscvd('email:"' + rec.email + '" AND verified:*'));
+        if ((av != null ? (ref = av.hits) != null ? ref.hits : void 0 : void 0) && av.hits.hits[0]._source.verified === true) {
+          rec.status = 'Verified';
+          rec.verified = true;
+        } else if (av.hits.hits[0]._source.verified === false) {
+          rec.status = 'Denied';
+          rec.verified = false;
+        }
+      } catch (error) {}
     }
     if (rec.type == null) {
       rec.type = 'paper';
@@ -12420,12 +12418,9 @@ P.svc.rscvd.form = async function() {
 P.svc.rscvd.requestees = {
   _index: true,
   _hide: true,
-  _auth: true
-};
-
-P.svc.rscvd.preverified = {
-  _sheet: '1GuIH-Onf0A0dXFokH6Ma0cS0TRbbpAeOyhDVpmDNDNw',
-  _prefix: false
+  _auth: true,
+  _prefix: false,
+  _sheet: '1GuIH-Onf0A0dXFokH6Ma0cS0TRbbpAeOyhDVpmDNDNw'
 };
 
 P.svc.rscvd.resolves = async function(rid, resolver) {
@@ -12510,20 +12505,18 @@ P.svc.rscvd.verify = async function(email, verify = true) {
   if (!email) {
     return void 0;
   }
-  if (!(await this.svc.rscvd.requestees('email:"' + email + '"'))) {
-    re = {
-      email: email,
-      createdAt: Date.now()
-    };
-    if (verify) {
-      re.verified = true;
-      re.verified_by = this.user.email;
-    } else {
-      re.denied = true;
-      re.denied_by = this.user.email;
-    }
-    this.waitUntil(this.svc.rscvd.requestees(re));
+  re = {
+    email: email,
+    createdAt: Date.now()
+  };
+  if (verify) {
+    re.verified = true;
+    re.verified_by = this.user.email;
+  } else {
+    re.denied = true;
+    re.denied_by = this.user.email;
   }
+  this.waitUntil(this.svc.rscvd.requestees(re));
   await this.svc.rscvd._each('email:"' + email + '"', {
     action: 'index'
   }, function(rec) {
@@ -12680,8 +12673,7 @@ P.svc.rscvd.overdue = async function() {
 };
 
 
-S.built = "Wed Jul 21 2021 04:51:50 GMT+0100";
-S.system = "9e8a538c9e30070087ee4a9a7cf4aef41bf308e1fc31a17091487aa35fcf85c0";
+S.built = "Wed Jul 21 2021 05:14:24 GMT+0100";
 P.puppet = {_bg: true}// added by constructor
 
 P.puppet._auth = 'system';// added by constructor
