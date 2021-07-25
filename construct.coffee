@@ -256,9 +256,10 @@ _w = () ->
         if ENV is '' or WF.indexOf(ENV) is 0 or (WF.indexOf('_') is -1 and not fs.existsSync './worker/' + GROUP + 'secrets/' + ENV + WF)
           SECRETS_DATA = JSON.parse fs.readFileSync('./worker/' + GROUP + 'secrets/' + WF).toString()
           SECRETS_NAME = 'SECRETS_' + WF.split('.')[0].toUpperCase().replace ENV + '_', ''
-          try
-            if (if WF.includes('_') then WF.split('_').pop() else WF).toLowerCase() is 'settings' and not SECRETS_DATA.system
-              SECRETS_DATA.system = SYSTOKEN
+          console.log WF
+          if (if WF.includes('_') then WF.split('_').pop() else WF).split('.')[0].toLowerCase() is 'settings' and not SECRETS_DATA.system
+            console.log 'Adding system token', SYSTOKEN
+            SECRETS_DATA.system = SYSTOKEN
           if 'worker' in args
             if 'secrets' in args
               if not CNS.length

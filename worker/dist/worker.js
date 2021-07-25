@@ -888,7 +888,7 @@ P.auth.role = async function(grl, user) {
     return 'root';
   }
   if ((user != null ? user.roles : void 0) != null) {
-    ref1 = (typeof grl === 'string' ? grl.split(',') : grl);
+    ref1 = (typeof grl === 'string' ? grl.split(',') : grl ? grl : []);
     for (i = 0, len = ref1.length; i < len; i++) {
       g = ref1[i];
       [group, role] = g.replace('/', '.').split('.');
@@ -2710,11 +2710,11 @@ if (S.mail == null) {
 }
 
 if ((base = S.mail).from == null) {
-  base.from = "alert@cottagelabs.com";
+  base.from = "system@oa.works";
 }
 
 if ((base1 = S.mail).to == null) {
-  base1.to = "mark@cottagelabs.com";
+  base1.to = "mark@oa.works";
 }
 
 if ((base2 = S.src).google == null) {
@@ -9184,7 +9184,7 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
       _oad = async() => {
         var oad;
         oad = (await this.src.oadoi(metadata.doi));
-        if ((oad != null ? oad.doi : void 0) && (oad != null ? oad.doi.toLowerCase() : void 0) === metadata.doi.toLowerCase()) {
+        if ((oad != null ? oad.doi : void 0) && (metadata != null ? metadata.doi : void 0) && oad.doi.toLowerCase() === metadata.doi.toLowerCase()) { // check again for doi in case removed by failed crossref lookup
           await _metadata(oad);
         }
         return true;
@@ -12590,7 +12590,7 @@ P.svc.rscvd.overdue = async function() {
 };
 
 
-S.built = "Sun Jul 25 2021 06:52:59 GMT+0100";
+S.built = "Sun Jul 25 2021 09:15:22 GMT+0100";
 P.puppet = {_bg: true}// added by constructor
 
 P.puppet._auth = 'system';// added by constructor
