@@ -116,7 +116,7 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
         return true
       _oad = () =>
         oad = await @src.oadoi metadata.doi
-        await _metadata(oad) if oad?.doi and oad?.doi.toLowerCase() is metadata.doi.toLowerCase()
+        await _metadata(oad) if oad?.doi and metadata?.doi and oad.doi.toLowerCase() is metadata.doi.toLowerCase() # check again for doi in case removed by failed crossref lookup
         return true
       _crd = () =>
         cr = await @src.crossref.works metadata.doi
