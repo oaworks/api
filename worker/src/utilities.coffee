@@ -224,6 +224,27 @@ P.template = (content, vars) ->
 
 #P._templates = _index: true # an index to store templates in - although generally should be handled at the individual function/service level
 
+P.device = () ->
+  # make a simple device hash, not enough to uniquely identify a user, 
+  # but useful for discerning user across devices, so can help user manage
+  # login across devices and possibly identify unexpected usage
+  # use user-agent and accept headers, possibly others, and could use geo-ip too (see server utilities file)
+  res = {}
+  try
+    cf = @request.cf
+    res.colo = cf.colo
+    res.city = cf.city
+    res.lat = cf.latitude
+    res.lon = cf.longitude
+  res.ip = @headers.ip
+  res.country = @headers['cf-ipcountry']
+  res.accept = @headers['accept']
+  res['accept-language'] = @headers['accept-language']
+  res['user-agent'] = @headers['user-agent']
+  res['user-agent-hash'] = @hashhex @headers['user-agent'] #+ @headers['accept'] + @headers['accept-language']
+  return res
+P.device._cache = false
+
 P.date = (rt, timed) ->
   rt ?= @params.date ? Date.now()
   timed ?= @params.time
@@ -256,14 +277,21 @@ P.date = (rt, timed) ->
 
 P.datetime = () -> return @date @params.datetime, @params.time ? true
 P.epoch = (epoch) ->
+  epoch = epoch.toString() if typeof epoch is 'number'
   epoch ?= @params.epoch
   if not epoch
     return Date.now()
+  else if epoch.includes('+') or epoch.includes '-'
+    epoch = Date.now() + epoch if epoch.startsWith('+') or epoch.startsWith '-'
+    if epoch.includes '+'
+      [epoch, add] = epoch.replace('/', '').split '+'
+      return (parseInt(epoch) + parseInt add).toString()
+    else if epoch.includes '-'
+      [epoch, subtract] = epoch.replace('/', '').split '-'
+      return (parseInt(epoch) - parseInt subtract).toString()
+  else if epoch.length > 8 and not isNaN parseInt epoch
+    return @date epoch, @params.time ? true
   else
-    try
-      if epoch.length > 8 and typeof epoch is 'number'
-        return @date @params.epoch, @params.time ? true
-    epoch = epoch.toString() if typeof epoch is 'number'
     epoch += '-01' if epoch.length is 4
     epoch += '-01' if epoch.split('-').length < 3
     epoch += 'T' if epoch.indexOf('T') is -1

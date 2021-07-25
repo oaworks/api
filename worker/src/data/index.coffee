@@ -285,7 +285,7 @@ P.index.history = (route, key) ->
   return []
 
 
-# use this like: for rec from @index._for route, q, opts
+# use this like: for await rec from @index._for route, q, opts
 # see index._each below for example of how to call this for/yield generator
 P.index._for = (route, q, opts) ->
   if opts?.scroll
@@ -301,14 +301,20 @@ P.index._for = (route, q, opts) ->
   # https://www.elastic.co/guide/en/elasticsearch/reference/7.10/paginate-search-results.html#search-after
   res = await @index route + '?scroll=' + scroll, qy
   delete res._scroll_id if res?.hits?.total? and res.hits.total is res.hits.hits.length
+  counter = 0
   loop
-    if (not res?.hits?.hits or not res?.hits?.hits.length) and res?._scroll_id
+    if not res?.hits?.hits and res?._scroll_id
       res = await @index '/_search/scroll?scroll=' + scroll + '&scroll_id=' + res._scroll_id
     if res?.hits?.hits? and res.hits.hits.length
+      console.log('for', route, counter) if @S.dev and @S.bg is true
+      counter += 1
       r = res.hits.hits.shift()
       ret = r._source ? r.fields
       ret._id ?= r._id
       yield ret
+    else
+      console.log('for', route, 'done') if @S.dev and @S.bg is true
+      return
   return
 
 P.index._each = (route, q, opts, fn) ->
@@ -341,8 +347,8 @@ P.index._each = (route, q, opts, fn) ->
 
   processed = 0
   updates = []
-  for rec from @index._for route, (qy ? q), opts # TODO check if this needs await
-    fr = await fn.apply this, rec
+  for await rec from @index._for route, (qy ? q), opts # TODO check if this needs await
+    fr = await fn.call this, rec
     processed += 1
     updates.push(fr) if fr? and (typeof fr is 'object' or typeof fr is 'string')
     if action and updates.length > sz
@@ -427,9 +433,9 @@ P.index.kv._bg = true
 #  'statement:"A more complex" AND difficult string' - which will be used as is to ES as a query string
 #  '?q=query params directly as string'
 #  {"q":"object of query params"} - must contain at least q or source as keys to be identified as such
-#  {"must": []} - a list of must queries, in full ES syntax, which will be dropped into the query filter (works for "should" as well)
-#  ["list","of strings to OR match on"] - this is an OR query strings match UNLESS strings contain : then mapped to terms matches
-#  [{"list":"of objects to OR match"}] - so a set of OR terms matches. If objects are not key: string they are assumed to be full ES queries that can drop into the bool
+#  {"must": []} - a list of must queries, in full ES syntax, which will be dropped into the query filter (works for "must_not", "filter", "should" as well)
+#  also works for: filter (restrict), must (and), must_not (not), should (or)
+#  values can be (singular or lists of) strings, or objects with one key with a string value indicating a term query, or properly structured query parts
 #
 #  Keys can use dot notation
 #  If opts is true, the query will be adjusted to sort by createdAt descending, so returning the newest first (it sets newest:true, see below)
@@ -445,150 +451,69 @@ P.index.kv._bg = true
 #  Filter acts like a must but without scoring. Whereas normal must does score.
 #  must_not does not affect score. Not sure about should
 #  Default empty query: {query: {bool: {must: [], filter: []}}, size: 10}
-P.index.translate = (q, opts={}) ->
-  q ?= this?.params # return undefined if q isnt a string or object that can become a valid query
+P.index.translate = (q, opts) ->
+  q ?= this?.params if this?.route and this.route.startsWith 'index' # return undefined if q isnt a string or object that can become a valid query
   if typeof q is 'string'
     return undefined if q is '' or q.indexOf('\n') isnt -1 # this would likely be a bulk load string
-    maybe_route_or_id = q.length > 8 and q.split('/').pop().length < 34 and q.length is q.replace(/\s\:\*~()\?=%/g, '').length
-    return undefined if maybe_route_or_id and q.split('/').length is 2 # a route / ID to discern from a route
   else
-    return undefined if typeof q isnt 'object'
-    if Array.isArray q
-      return undefined if not q.length
-    else
-      for k in ['settings', 'aliases', 'mappings', 'index']
-        return undefined if q[k]?
-      return undefined if JSON.stringify(q) isnt '{}' and not q.q? and not q.query? and not q.source? #and not q.must? and not q.should? and not q.aggs? and not q.aggregations?
+    return undefined if typeof q isnt 'object' or Array.isArray q
+    for k in ['settings', 'aliases', 'mappings', 'index', '_id']
+      return undefined if q[k]?
+    return undefined if JSON.stringify(q) isnt '{}' and not q.q? and not q.query? and not q.source? and not q.must? and not q.should? and not q.must_not? and not q.filter? and not q.aggs? and not q.aggregations?
 
-  try q = @copy(q) if typeof q is 'object' # copy objects so don't interfere with what was passed in
-  try opts = @copy(opts) if typeof opts is 'object'
-  opts = {random:true} if opts is 'random'
-  opts = {size:opts} if typeof opts is 'number'
-  opts = {newest: true} if opts is true
-  opts = {newest: false} if opts is false
-  qry = opts?.query ? {}
-  qry.query ?= {}
-  _structure = (sq) =>
-    sq.query ?= bool: must: [], filter: []
-    if sq.query?.filtered?.query? # simple convenience catch for old-style queries - NOT complete
-      fq = @copy sq
-      sq.query = fq.query.filtered.query # should be a bool must for this convenience
-      sq.query.bool.filter = fq.query.filtered.filter
-    if not sq.query.bool?
-      ms = []
-      ms.push(sq.query) if JSON.stringify(sq.query) isnt '{}'
-      sq.query = bool: must: ms, filter: []
-    sq.query.bool.must ?= []
-    sq.query.bool.filter ?= []
-    return sq
-  qry = _structure qry
-  if typeof q is 'object'
-    delete q[dk] for dk in ['apikey', '_', 'callback', 'refresh', 'key', 'counts', 'index', 'search']
-    for ok in ['random','seed'] # is this necessary or is the general push of things other than q to opts good enough?
-      opts[ok] = q[ok]
-      delete q[ok]
-    # some URL params that may be commonly used in this API along with valid ES URL query params will be removed here by default too
-    # this makes it easy to handle them in routes whilst also just passing the whole queryParams object into this translation method and still get back a valid ES query
-    if JSON.stringify(q).indexOf('[') is 0
-      qry.query.bool.should ?= []
-      for m in q
-        if typeof m is 'object' and m?
-          for k of m
-            if typeof m[k] is 'string'
-              tobj = term:{}
-              tobj.term[k] = m[k] #TODO check how a term query on a text string works on newer ES. Does it require the term query to be in .keyword?
-              qry.query.bool.should.push tobj
-            else if typeof m[k] in ['number','boolean']
-              qry.query.bool.should.push {query_string:{query:k + ':' + m[k]}}
-            else if m[k]?
-              qry.query.bool.should.push m[k]
-        else if typeof m is 'string'
-          qry.query.bool.should.push query_string: query: m
-    else if q.query?
-      qry = q # assume already a query
-    else if q.source?
-      qry = JSON.parse(q.source) if typeof q.source is 'string'
-      qry = q.source if typeof q.source is 'object'
-      opts ?= {}
-      for o of q
-        opts[o] ?= q[o] if o not in ['source']
-    else if q.q?
-      if q.prefix? and q.q.indexOf(':') isnt -1
-        delete q.prefix
-        pfx = {}
-        qpts = q.q.split ':'
-        pfx[qpts[0]] = qpts[1]
-        qry.query.bool.must.push prefix: pfx
+  try
+    try q = @copy(q) if typeof q is 'object' # copy objects so don't interfere with what was passed in
+    try opts = @copy(opts) if typeof opts is 'object'
+    opts ?= {}
+    opts = {random: true} if opts is 'random'
+    opts = {size: opts} if typeof opts is 'number'
+    opts = {newest: true} if opts is true
+    opts = {newest: false} if opts is false
+    qry = opts?.query ? {}
+    qry.query ?= {}
+    qry.query.bool ?= must: [], filter: []
+  
+    if typeof q is 'string'
+      qry.query.bool.filter.push query_string: query: q
+    else if typeof q is 'object'
+      if q.query?
+        qry = q # assume already a query
       else
-        qry.query.bool.must.push query_string: query: decodeURIComponent q.q
-      opts ?= {}
-      for o of q
-        opts[o] ?= q[o] if o not in ['q']
-    else
-      for bt in ['must', 'must_not', 'filter', 'should']
-        qry.query.bool[bt] = q[bt] if q[bt]?
-      for y of q # an object where every key is assumed to be an AND term search if string, or a named search object to go in to ES
-        if (y is 'fields') or (y is 'sort' and typeof q[y] is 'string' and q[y].indexOf(':') isnt -1) or (y in ['from','size'] and (typeof q[y]is 'number' or not isNaN parseInt q[y]))
-          opts ?= {}
-          opts[y] = q[y]
-        else if y not in ['must', 'must_not', 'filter', 'should']
-          if typeof q[y] is 'string'
-            tobj = term:{}
-            tobj.term[y] = q[y]
-            qry.query.bool.filter.push tobj
-          else if typeof q[y] in ['number','boolean']
-            qry.query.bool.filter.push {query_string:{query:y + ':' + q[y]}}
-          else if typeof q[y] is 'object'
-            qobj = {}
-            qobj[y] = q[y]
-            qry.query.bool.filter.push qobj
-          else if q[y]?
-            qry.query.bool.filter.push q[y]
-  else if typeof q is 'string'
-    if q.indexOf('?') is 0
-      qry = q # assume URL query params and just use them as such?
-    else if q?
-      q = '*' if q is ''
-      qry.query.bool.must.push query_string: query: q
-  qry = _structure qry # do this again to make sure valid structure is present after above changes, and before going through opts which require expected structure
-  if opts?
+        if q.source?
+          qry = JSON.parse(decodeURIComponent q.source) if typeof q.source is 'string'
+          qry = q.source if typeof q.source is 'object'
+        else if q.q?
+          if typeof q.q is 'object'
+            qry.query = q.q # if an object assume it's a correct one
+          else
+            q.q = decodeURIComponent q.q
+            if q.prefix? and q.q.indexOf(':') isnt -1
+              delete q.prefix
+              pfx = {}
+              qpts = q.q.split ':'
+              pfx[qpts[0]] = qpts[1]
+              qry.query.bool.must.push prefix: pfx # TODO check if prefix can still be used in ES7.x and if it can go in filter instead of must
+            else
+              qry.query.bool.filter.push query_string: query: q.q
+        opts[o] ?= q[o] for o of q
+  
+    if qry.query? and not qry.query.bool? and JSON.stringify qry.query isnt '{}'
+      qry.query = bool: must: [], filter: [qry.query]
+    qry.query ?= bool: must: [], filter: []
+    qry.query.bool ?= must: [], filter: []
+    qry.query.bool.filter ?= []
+    if qry.query?.filtered?.query?.bool? # simple convenience catch for old-style queries - NOT complete, only works if they were bool queries
+      qry.query.filtered.query.bool.filter = qry.query.filtered.filter
+      qry.query = qry.query.filtered.query
+  
     if opts.newest is true
       delete opts.newest
-      opts.sort = {createdAt:{order:'desc'}}
+      opts.sort = {createdAt: {order:'desc'}}
     else if opts.newest is false
       delete opts.newest
-      opts.sort = {createdAt:{order:'asc'}}
-    delete opts._ # delete anything that may have come from query params but are not handled by ES
-    delete opts.apikey
-    if opts.fields and typeof opts.fields is 'string' and opts.fields.indexOf(',') isnt -1
-      opts.fields = opts.fields.split(',')
-    if opts.random
-      fq = {function_score: {random_score: {}}}
-      fq.function_score.random_score.seed = seed if opts.seed?
-      fq.function_score.query = qry.query
-      qry.query = fq # TODO check how function_score and random seed work now in ES7.x
-      delete opts.random
-      delete opts.seed
-    if opts._include? or opts.include? or opts._includes? or opts.includes? or opts._exclude? or opts.exclude? or opts._excludes? or opts.excludes?
-      qry._source ?= {}
-      inc = if opts._include? then '_include' else if opts.include? then 'include' else if opts._includes? then '_includes' else 'includes'
-      includes = opts[inc]
-      if includes?
-        includes = includes.split(',') if typeof includes is 'string'
-        qry._source.includes = includes
-        delete opts[inc]
-      exc = if opts._exclude? then '_exclude' else if opts.exclude? then 'exclude' else if opts._excludes? then '_excludes' else 'excludes'
-      excludes = opts[exc]
-      if excludes?
-        excludes = excludes.split(',') if typeof excludes is 'string'
-        for i in includes ? []
-          delete excludes[i] if i in excludes
-        qry._source.excludes = excludes
-        delete opts[exc]
-    if opts.and?
-      qry.query.bool.filter.push a for a in opts.and
-      delete opts.and
+      opts.sort = {createdAt: {order:'asc'}}
     if opts.sort?
+      # (y is 'sort' and typeof q[y] is 'string' and q[y].indexOf(':') isnt -1)
       if typeof opts.sort is 'string' and opts.sort.indexOf(',') isnt -1
         if opts.sort.indexOf(':') isnt -1
           os = []
@@ -603,24 +528,37 @@ P.index.translate = (q, opts={}) ->
         os = {}
         os[opts.sort.split(':')[0]] = {order:opts.sort.split(':')[1]}
         opts.sort = os
-    if opts.restrict? or opts.filter?
-      qry.query.bool.filter.push(rs) for rs in (opts.restrict ? opts.filter)
-      delete opts.restrict
-    if opts.not? or opts.must_not?
-      tgt = if opts.not? then 'not' else 'must_not'
-      if Array.isArray opts[tgt]
-        qry.query.bool.must_not = opts[tgt]
-      else
-        qry.query.bool.must_not ?= []
-        qry.query.bool.must_not.push(nr) for nr in opts[tgt]
-      delete opts[tgt]
-    if opts.should?
-      if Array.isArray opts.should
-        qry.query.bool.should = opts.should
-      else
-        qry.query.bool.should ?= []
-        qry.query.bool.should.push(sr) for sr in opts.should
-      delete opts.should
+  
+    if opts.random
+      fq = {function_score: {random_score: {}}}
+      fq.function_score.random_score.seed = seed if opts.seed?
+      fq.function_score.query = qry.query
+      qry.query = fq # TODO check how function_score and random seed work now in ES7.x
+      delete opts.random
+      delete opts.seed
+    if inc = opts._include ? opts.include ? opts._includes ? opts.includes
+      qry._source ?= {}
+      qry._source.includes = if typeof inc is 'string' then inc.split(',') else inc
+    if exc = opts._exclude ? opts.exclude ? opts._excludes ? opts.excludes
+        excludes = exc.split(',') if typeof exc is 'string'
+        for i in qry._source?.includes ? []
+          delete exc[i] if i in excludes
+        qry._source.excludes = exc
+        
+    for tp in ['filter', 'restrict', 'must', 'and', 'must_not', 'not', 'should', 'or']
+      if opts[tp]?
+        ls = if Array.isArray(opts[tp]) then opts[tp] else [opts[tp]]
+        delete opts[tp]
+        etp = if tp in ['filter', 'restrict', 'must', 'and'] then 'filter' else if tp in ['must_not', 'not'] then 'must_not' else 'should'
+        qr.query.bool[etp] ?= []
+        for rs in ls
+          if typeof rs is 'object'
+            rkeys = @keys rs
+            rs = {term: rs} if rkeys.length is 1 and typeof rs[rkeys[0]] isnt 'object'
+          else
+            rs = {query_string: {query: rs}}
+          qr.query.bool[etp].push rs
+  
     if opts.terms?
       try opts.terms = opts.terms.split(',')
       qry.aggregations ?= {}
@@ -632,19 +570,32 @@ P.index.translate = (q, opts={}) ->
         qry[af] ?= {}
         qry[af][f] = opts[af][f] for f of opts[af]
         delete opts[af]
-    qry[k] = v for k, v of opts
-  # no filter query or no main query can cause issues on some queries especially if certain aggs/terms are present, so insert some default searches if necessary
-  #qry.query = { match_all: {} } if typeof qry is 'object' and qry.query? and JSON.stringify(qry.query) is '{}'
-  # clean slashes out of query strings
-  if qry.query?.bool?
-    for bm of qry.query.bool
-      for b of qry.query.bool[bm]
-        if typeof qry.query.bool[bm][b].query_string?.query is 'string' and qry.query.bool[bm][b].query_string.query.indexOf('/') isnt -1 and qry.query.bool[bm][b].query_string.query.indexOf('"') is -1
-          qry.query.bool[bm][b].query_string.query = '"' + qry.query.bool[bm][b].query_string.query + '"'
-  delete qry._source if qry._source? and qry.fields?
-  return qry
+  
+    for k, v of opts
+      v = v.split(',') if k in ['fields'] and typeof v is 'string' and v.indexOf(',') isnt -1
+      if k in ['from', 'size'] and typeof v isnt 'number'
+        try
+          v = parseInt v
+          v = undefined if isNaN v
+      # some URL params that may be commonly used in this API along with valid ES URL query params will be removed here by default too
+      # this makes it easy to handle them in routes whilst also just passing the whole params here and still get back a valid ES query
+      qry[k] = v if v? and k not in ['apikey', '_', 'callback', 'refresh', 'key', 'counts', 'index', 'search', 'source', 'q'] and k.replace('_', '').replace('s', '') not in ['include', 'exclude']
+       
+    # no filter query or no main query can cause issues on some queries especially if certain aggs/terms are present, so insert some default searches if necessary
+    #qry.query = { match_all: {} } if typeof qry is 'object' and qry.query? and JSON.stringify(qry.query) is '{}'
+    # clean slashes out of query strings
+    if qry.query?.bool?
+      for bm of qry.query.bool
+        for b of qry.query.bool[bm]
+          if typeof qry.query.bool[bm][b].query_string?.query is 'string' and qry.query.bool[bm][b].query_string.query.indexOf('/') isnt -1 and qry.query.bool[bm][b].query_string.query.indexOf('"') is -1
+            qry.query.bool[bm][b].query_string.query = '"' + qry.query.bool[bm][b].query_string.query + '"'
+    delete qry._source if qry._source? and qry.fields?
+    return qry
 
+  catch
+    return undefined
 
+P.index.translate._auth = false
 
 # calling this should be given a correct URL route for ES7.x, domain part of the URL is optional though.
 # call the above to have the route constructed. method is optional and will be inferred if possible (may be removed)

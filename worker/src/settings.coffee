@@ -1,6 +1,6 @@
 S.mail ?= {}
-S.mail.from ?= "alert@cottagelabs.com"
-S.mail.to ?= "mark@cottagelabs.com"
+S.mail.from ?= "system@oa.works"
+S.mail.to ?= "mark@oa.works"
 
 S.src.google ?= {}
 try S.src.google.secrets = JSON.parse SECRETS_GOOGLE

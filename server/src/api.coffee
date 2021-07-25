@@ -1,11 +1,11 @@
 
-import fetch from 'node-fetch' # used in fetch - does this expose wide enough scope or does it need hoisted?
+import fetch from 'node-fetch' # used in fetch
 import crypto from 'crypto' # used in utilities for hash generation
 import http from 'http'
 import https from 'https' # allows fetch to control https security for local connections
 import Busboy from 'busboy'
 import {promises as fs} from 'fs'
-import tar from 'tar' # for DOAJ data dumps, possibly others
+import tar from 'tar' # for tar file conversion
 import zlib from 'zlib' # for reading/converting gz files
 
 
@@ -58,9 +58,9 @@ server = http.createServer (req, res) ->
   
   #try console.log(req.body) if S.dev and req.body?
   try
-    try console.log(req.method + ' ' + req.url) if S.dev
+    try console.log('=== BG ' + req.method + ' ===', req.url) if S.dev
     pr = await P.call request: req
-    try console.log(pr.status) if S.dev
+    try console.log('=== BG ' + req.method + ' DONE ===', pr.status) if S.dev
     try pr.headers['x-' + S.name.toLowerCase() + '-bg'] = true
     if req.url is '/'
       try

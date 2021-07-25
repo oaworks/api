@@ -54,81 +54,53 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
       res = await @index[f._indexed] ...args
       
     # index / kv should first be checked if configured
+    # for index, to create a new record with a specified ID, ONLY specify it as _id in the object as first argument and no second argument
+    # updating / deleting can be done providing key in first argument and object / empty string in second argument
+    # for kv, create can be done with ID string as first argument and record/value as second argument
     # _index, _kv
-    else if f._index or f._kv and (not f._sheet or @fn isnt n or not @refresh)
-      if arguments.length is 1
-        rec = if f._kv or (f._index and (arguments[0] is '' or typeof arguments[0] is 'object')) then arguments[0] else undefined
-      else if arguments.length is 2 and typeof arguments[0] is 'string' and arguments[0].length and (arguments[1] is '' or typeof arguments[1] is 'object' or f._kv)
-        rec = arguments[1]
-      else if @fn is n and ((@request.method is 'DELETE' or @params._delete) or (@request.method in ['POST', 'PUT'] and @body? and JSON.stringify(@body) isnt '{}'))
-        rec = if @request.method is 'DELETE' or @params._delete then '' else @body # TODO an auth check has to occur somewhere if this is a delete from the API
-      if f._index and (@fn isnt n or @request.method isnt 'PUT') and arguments[0] isnt '' and arguments[1] isnt '' # check in case rec is actually a query
-        qry = if arguments.length then await @index.translate(arguments[0], arguments[1]) else if rec? or JSON.stringify(@params) isnt '{}' then await @index.translate(rec ? @params) else undefined
-        if qry?
-          rec = undefined if arguments.length or @fn is n
-        else
-          lg.key = if typeof arguments[0] is 'string' and arguments[0] isnt rec then arguments[0] else if @fn is n and @fn.replace(/\./g, '/') isnt @route then @route.split(n.split('.').pop()).pop() else undefined
-      lg.key = lg.key.replace(/\//g, '_').replace(/^_/,'').replace(/_$/,'') if lg.key
-      if typeof rec is 'object' and not Array.isArray(rec) and not rec._id
-        rec._id = lg.key ? rec[f._key] ? @uid()
-      if f._kv and not qry? and lg.key
-        res = await @kv rt + (if lg.key then '/' + lg.key else ''), rec
-        lg.cached = @cached = 'kv' if res? and not rec?
-      console.log(lg.key, rec, JSON.stringify qry) if @S.dev and @S.bg is true
-      if f._index and (rec? or not res?) and (rec? or not @refresh or typeof f isnt 'function')
-        res = await @index rt + (if lg.key and (rec? or not qry?) then '/' + lg.key else ''), (rec ? (if not lg.key then qry else undefined))
-        if not res? and (not lg.key or not rec?) # this happens if the index does not exist yet, so create it (otherwise res would be a search result object)
-          await @index rt, if typeof f._index isnt 'object' then {} else {settings: f._index.settings, mappings: f._index.mappings, aliases: f._index.aliases}
-          res = await @index rt + (if lg.key then '/' + lg.key else ''), (rec ? (if not lg.key then qry else undefined))
-        res = undefined if not rec? and typeof res is 'object' and not Array.isArray(res) and res.hits?.total is 0 and typeof f is 'function' and lg.key # allow the function to run to try to retrieve or create the record from remote
-        if res?.hits?.total isnt 1 and qry? and lg.key and ((@fn is n and @fn.replace(/\./g, '/') is @route) or arguments.length is 1) and not lg.key.includes(' ') and not lg.key.includes ':'
-          res = await @index rt, qry # if direct lookup didn't work try a search
-        if res? and qry? and qry.query?.bool?.must and qry.query.bool.must.length is 1 and (qry.size is 1 or (res.hits.total is 1 and ((@fn isnt n and typeof arguments[0] is 'string' and not arguments[0].includes(' ') and not arguments[0].includes(':') and not arguments[0].includes('*')) or not @params.q?)))
-          res.hits.hits[0]._source._id = res.hits.hits[0]._id if res.hits.hits[0]._source? and not res.hits.hits[0]._source._id?
-          res = res.hits.hits[0]._source ? res.hits.hits[0].fields # return 1 record instead of a search result. is fields instead of _source still possible in ES7.x?
-        lg.cached = @cached = 'index' if res? and not rec?
+    else if (f._index or f._kv) and (not f._sheet or @fn isnt n or not @refresh)
+      if @fn is n
+        lg.key = @route.split(n.split('.').pop()).pop().replace(/\//g, '_').replace(/^_/,'').replace(/_$/,'') if @fn.replace(/\./g, '/') isnt @route # action on a specific keyed record
+        # TODO who should be allowed to submit a record remotely?
+        #rec = if @request.method is 'PUT' or (lg.key and @request.method is 'POST') then @body else if @request.method is 'DELETE' or @params._delete then '' else undefined
+        if not lg.key and f._index #and not rec?
+          qry = await @index.translate(if @request.method is 'POST' then @body else @params) # and if there is @params._delete, delete by query?
+      else if arguments.length # could be a key string and record or could be a query and options (and query could look like a key)
+        lg.key = arguments[0].replace(/\//g, '_') if typeof arguments[0] is 'string' and arguments[0].length and not arguments[0].includes '\n' # could be key or query string
+        delete lg.key if lg.key and lg.key.length isnt lg.key.replace(/[\s\:\*~()\?=%]/g, '').length # only keep if it could be a valid key
+        if f._index and arguments[0] isnt '' and arguments[1] isnt '' and qry = await @index.translate arguments[0], arguments[1] # check if it can be a query
+          qry = undefined if lg.key and (arguments.length is 1 or typeof arguments[1] is 'object') and exists = await @index rt + '/' + lg.key # it was a record key, not a query
+        rec = if qry? then undefined else if lg.key then arguments[1] else if f._index then arguments[0] else undefined
 
-      '''lg.key = @route.split(n.split('.').pop()).pop() if @fn is n
-      if not lg.key and f._index and (@fn isnt n or @request.method in ['GET', 'POST']) and ((arguments.length in [1,2] and arguments[1] isnt '' and qr = await @index.translate arguments[0], arguments[1]) or (not arguments.length and qr = await @index.translate @params))
-        lg.qry = qr
-      else
-        if (arguments.length is 1 and arguments[0] is '') or (@fn is n and @request.method is 'DELETE')
-          rec = ''
-        else if (typeof arguments[0] is 'string' and arguments[0].length) or typeof arguments[0] is 'object'
-          rec = arguments[1] ? arguments[0]
-          lg.key = arguments[0] if typeof arguments[0] is 'string'
-          rec = undefined if rec is lg.key and arguments.length < 2
-        else if @fn is n
-          rec = if @request.method in ['POST', 'PUT'] then @body else @copy @params
-          delete rec[c] for c in @parts
-          rec = undefined if JSON.stringify(rec) is '{}'
-        if typeof rec is 'object' and not Array.isArray rec
-          rec._id ?= rec[f._key] ? @uid()
-          lg.key ?= rec._id
-        if f._kv and lg.key
-          lg.key = lg.key.replace(/\//g, '_').replace(/^_/,'').replace(/_$/,'')
-          res = await @kv rt + '/' + lg.key, rec
-          lg.cached = 'kv' if res? and not rec?
-      if f._index and (not res? or rec? or lg.key)
-        lg.key = lg.key.replace(/\//g, '_').replace(/^_/,'').replace(/_$/,'') if lg.key
-        if not f._sheet or @fn isnt n or not @refresh # try either putting the record, or getting a key, or searching
-          res = await @index rt + (if lg.key then '/' + lg.key else ''), (if rec? then rec else if lg.key then undefined else lg.qry)
-        if not res? and not lg.key # anything apart from a direct record lookup for a record that doesn't exist should at least return an empty search result or an ES response, so if nothing back, create the index and try again
-          await @index rt, if typeof f._index isnt 'object' then {} else {settings: f._index.settings, mappings: f._index.mappings, aliases: f._index.aliases}
-          if not f._sheet or @fn isnt n or not @refresh # try again now that the index has been created
-            res = await @index rt + (if lg.key then '/' + lg.key else ''), (if rec? then rec else if lg.key then undefined else lg.qry)
-        if res? and typeof res is 'object' and res.hits? and not rec? and lg.qry?
-          if res.hits.total isnt 1 and lg.qry? and typeof arguments[0] is 'string' and arguments[0].length and not arguments[0].includes ' '
-            try res = await @index rt, lg.qry # if direct lookup didn't work try a search
-          if res.hits?.total is 0 and typeof f is 'function' and (lg.key or arguments[0])
-            res = undefined # allow the function to run to try to retrieve or create the record from remote
-          else if res.hits?.total? and res.hits.hits?
-            lg.cached = 'index'
-            if ((lg.key or (typeof lg.qry is 'object' and lg.qry.query?.bool?.must and lg.qry.query.bool.must.length is 1 and lg.qry.query.bool.must[0].query_string?.query)) and res.hits.total is 1) or (res.hits.hits and lg.qry?.size is 1)
-              rd = res.hits.hits[0]._id
-              res = res.hits.hits[0]._source ? res.hits.hits[0].fields
-              res._id ?= rd
-      @cached = lg.cached'''
+      if typeof rec is 'object' and not Array.isArray rec
+        rec._id ?= lg.key ? rec[f._key] ? @uid()
+        lg.key ?= rec._id
+      #console.log(n, lg.key, JSON.stringify(rec), JSON.stringify qry) if @S.dev and @S.bg is true
+      
+      if qry?
+        res = await @index rt, qry
+        lg.qry = JSON.stringify qry
+      if rec? or not @refresh or typeof f isnt 'function'
+        if f._kv and lg.key and (rec? or not exists?)
+          res = await @kv rt + '/' + lg.key, rec # there may or may not be a rec, as it could just be getting the keyed record
+          lg.cached = @cached = 'kv' if res? and not rec? and @fn is n
+        if f._index and (rec? or not res?)
+          res = if exists? and not rec? then exists else await @index rt + (if lg.key and (rec? or not qry?) then '/' + lg.key else ''), (rec ? (if not lg.key then qry else undefined))
+          if not res? and (not lg.key or not rec?) # this happens if the index does not exist yet, so create it (otherwise res would be a search result object)
+            await @index rt, if typeof f._index isnt 'object' then {} else {settings: f._index.settings, mappings: f._index.mappings, aliases: f._index.aliases}
+            res = await @index rt + (if lg.key then '/' + lg.key else ''), (rec ? (if not lg.key then qry else undefined))
+      try res = undefined if not rec? and res.hits.total is 0 and typeof f is 'function' and lg.key # allow the function to run to try to retrieve or create the record from remote
+      try
+        if qry.query.bool? and (qry.size is 1 or (res.hits.total is 1 and lg.key)) # return 1 record instead of a search result.
+          res.hits.hits[0]._source._id = res.hits.hits[0]._id if res.hits.hits[0]._source? and not res.hits.hits[0]._source._id?
+          res = res.hits.hits[0]._source ? res.hits.hits[0].fields # is fields instead of _source still possible in ES7.x?
+      lg.cached = @cached = 'index' if res? and not rec? and not lg.cached and @fn is n
+
+    # if _history is required, record more about the incoming record change, if that's what happened
+    # _history
+    if f._history and typeof rec is 'object' and not Array.isArray(rec) and rec._id
+      lg.history = rec._id
+      lg.rec = JSON.stringify rec # record the incoming rec to record a history of changes to the record
 
     # if nothing yet, send to bg for _bg or _sheet functions, if bg is available and not yet on bg
     # _bg, _sheet
@@ -202,15 +174,8 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
       lg.res = JSON.stringify res # what if this is huge? just checksum it?
       try lg.checksum = @shorthash lg.res
 
-    # if _history is required, record more about the incoming record change, if that's what happened
-    # _history
-    if f._history and typeof rec is 'object' and not Array.isArray(rec) and rec._id
-      lg.history = rec._id
-      lg.rec = JSON.stringify rec # record the incoming rec to record a history of changes to the record
-
     # _log
     if f._log isnt false
-      lg.qry = JSON.stringify(qry) if qry
       lg.took = Date.now() - started
       @log lg
 

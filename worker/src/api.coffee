@@ -136,6 +136,7 @@ P = (scheduled) ->
   catch
     try
       @headers[hk.toLowerCase()] = @request.headers[hk] for hk of @request.headers # backend server passes a normal object, so just use that if not set above
+  @headers.ip ?= @headers['x-real-ip'] ? @headers['x-forwarded-for']
 
   ct = @headers['content-type'] ? ''
   if @S.bg is true
@@ -167,10 +168,8 @@ P = (scheduled) ->
   
   # set some request and user IDs / keys in @rid, @apikey, and @refresh
   @rid = @headers['x-' + @S.name.toLowerCase() + '-async']
-  try @rid ?= @headers['cf-ray'].slice 0, -4
+  try @rid ?= @headers['cf-ray'] #.slice 0, -4
   @rid ?= P.uid() # @uid is not defined yet
-  # how / when to remove various auth headers before logging / matching cache?
-  # e.g apikey, resume, token, access_token, email?
   try @apikey = @headers['x-apikey'] ? @headers.apikey ? @params.apikey
   for rk in ['x-apikey', 'apikey']
     delete @headers[rk] if @headers[rk]?
@@ -216,21 +215,24 @@ P = (scheduled) ->
         @parts = [...@S.domains[d].parts, ...@parts]
         break
 
-  console.log(@request.method, @base, @domain, typeof @body) if @S.dev and @S.bg is true
+  shn = 'x-' + @S.name.toLowerCase() + '-system'
+  if @S.name and @S.system and @headers[shn] is @S.system
+    delete @headers[shn]
+    @system = true
 
-  @route = @parts.join '/'
-  @routes = []
-  @fn = '' # the function name that was mapped to by the URL routes in the request will be stored here
-  @scheduled = true if scheduled or @route is '_schedule' # and restrict this to root, or disable URL route to it
   @_logs = [] # place for a running request to dump multiple logs, which will combine and save at the end of the overall request
   @nolog = false # if any function sets nolog to true, the log will not be saved.
   if @params.nolog # the request may also disable logging with a nolog param matching a unique key in settings (e.g. to not log test calls)
     @nolog = @S.nolog and @params.nolog is @S.nolog
     delete @params.nolog
 
+  @route = @parts.join '/'
+  @routes = []
+  @fn = '' # the function name that was mapped to by the URL routes in the request will be stored here
+  @scheduled = true if scheduled or @route is '_schedule' # and restrict this to root, or disable URL route to it
+
   if @route is '' #don't bother doing anything, just serve a direct P._response with the API details
     return P._response.call @, if @request.method in ['HEAD', 'OPTIONS'] then '' else name: @S.name, version: @S.version, base: (if @S.dev then @base else undefined), built: (if @S.dev then @S.built else undefined)
-
 
   # TODO add a way to identify and iterate multiple functions either parallel or serial, adding to results
   # e.g. split url at // for multi functions. Params parallel gives on obj of named results
@@ -268,7 +270,7 @@ P = (scheduled) ->
           p[k]._index ?= true if p[k]._sheet
           if p[k]._index # add index functions to index endpoints
             for ik in ['keys', 'terms', 'suggest', 'count', 'min', 'max', 'range', 'mapping', 'history', '_for', '_each', '_bulk', '_refresh'] # of P.index
-              p[k][ik] ?= {_indexed: ik, _auth: (if ik in [] then 'system' else p[k]._auth)}
+              p[k][ik] ?= {_indexed: ik, _auth: (if ik.startsWith('_') then 'system' else p[k]._auth)}
           for sk of fs = P.dot @S, n
             p[k][sk] = fs[sk] if sk.startsWith '_' # try to find anything in settings and treat it as an override
           if typeof p[k] is 'function' and not p[k]._index and not p[k]._indexed and not p[k]._kv and not p[k]._bg and (nd.indexOf('.') is -1 or p[k]._wrap is false or nd.split('.').pop().indexOf('_') is 0)
@@ -292,9 +294,11 @@ P = (scheduled) ->
     @params[pk] = if @params[pk] then @params[pk] + '/' + prs.join('/') else prs.join('/')
   # TODO should url params get some auto-processing like query params do above? Could be numbers, lists, bools...
 
+  console.log('=== ' + (if @system then 'SYSTEM ' else '') + @request.method + ' ===', @base, @fn, @domain, typeof @body) if @S.dev and @S.bg is true
+
   if @scheduled
     for fs in schedule
-      console.log('scheduled', fs._fn) if @S.dev
+      console.log('scheduled', fs._fn) if @S.dev and @S.bg is true
       try
         if typeof fs._schedule is 'function'
           @waitUntil fs._schedule.apply @
@@ -316,7 +320,7 @@ P = (scheduled) ->
       authd = true
 
     # TODO check the blacklist
-    if authd
+    if authd or @system
       @format ?= fn._format if typeof fn._format is 'string' and fn._format in @S.formats
       if @request.method in ['HEAD', 'OPTIONS']
         res = ''
@@ -341,7 +345,6 @@ P = (scheduled) ->
   res = '' if (not res? or (typeof res is 'object' and res.status is 404)) and @url.replace('.ico','').replace('.gif','').replace('.png','').endsWith 'favicon'
   resp = if typeof res is 'object' and not Array.isArray(res) and typeof res.headers?.append is 'function' then res else await @_response res, fn
   # what about if scheduled? log?
-  console.log('system') if @system and @S.dev and @S.bg is true
   if @parts.length and @parts[0] not in ['log','status'] and (not @system or @parts[0] not in ['kv', 'index']) and @request.method not in ['HEAD', 'OPTIONS'] and res? and res isnt ''
     if @completed and fn._cache isnt false and resp.status is 200 and (typeof res isnt 'object' or Array.isArray(res) or res.hits?.total isnt 0) and (typeof res isnt 'number' or not @refresh)
       si = fn._cache # fn._cache can be a number of seconds for cache to live, so pass it to cache to use if suitable

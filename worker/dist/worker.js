@@ -138,7 +138,7 @@ try {
 } catch (error) {}
 
 P = async function(scheduled) {
-  var _lp, authd, base, base1, base2, bd, cp, ct, d, du, entry, exclusive, fd, fn, fs, hd, hk, i, j, kp, kpn, l, len, len1, len2, len3, name, o, pf, pk, pkp, pp, prs, qp, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, resp, rk, schedule, si, tp;
+  var _lp, authd, base, base1, base2, base3, bd, cp, ct, d, du, entry, exclusive, fd, fn, fs, hd, hk, i, j, kp, kpn, l, len, len1, len2, len3, name, o, pf, pk, pkp, pp, prs, qp, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, resp, rk, schedule, shn, si, tp;
   // the context here is the fetch event
   this.started = Date.now(); // not strictly accurate in a workers environment, but handy nevertheless, used for comparison when logs are finally written
   try {
@@ -217,7 +217,10 @@ P = async function(scheduled) {
       }
     } catch (error) {}
   }
-  ct = (ref2 = this.headers['content-type']) != null ? ref2 : '';
+  if ((base2 = this.headers).ip == null) {
+    base2.ip = (ref2 = this.headers['x-real-ip']) != null ? ref2 : this.headers['x-forwarded-for'];
+  }
+  ct = (ref3 = this.headers['content-type']) != null ? ref3 : '';
   if (this.S.bg === true) {
     if (this.request.body != null) {
       this.body = this.request.body;
@@ -243,7 +246,7 @@ P = async function(scheduled) {
       this.body = bd;
     }
   }
-  if ((this.body == null) && ((ref3 = this.request.method) === 'POST' || ref3 === 'PUT' || ref3 === 'DELETE')) {
+  if ((this.body == null) && ((ref4 = this.request.method) === 'POST' || ref4 === 'PUT' || ref4 === 'DELETE')) {
     try {
       // TODO get worker to hand off to bg if available, if receiving any sort of file
       bd = (await this.request.text()); // NOTE this will always be at least an empty string when request method isnt GET
@@ -261,34 +264,32 @@ P = async function(scheduled) {
   if (typeof this.body === 'object' && !Array.isArray(this.body)) {
     for (qp in this.body) {
       if (qp) {
-        if ((base2 = this.params)[qp] == null) {
-          base2[qp] = this.body[qp];
+        if ((base3 = this.params)[qp] == null) {
+          base3[qp] = this.body[qp];
         }
       }
     }
   }
   try {
-    this.cookie = (ref4 = this.headers.Cookie) != null ? ref4 : this.headers.cookie;
+    this.cookie = (ref5 = this.headers.Cookie) != null ? ref5 : this.headers.cookie;
   } catch (error) {}
   
   // set some request and user IDs / keys in @rid, @apikey, and @refresh
   this.rid = this.headers['x-' + this.S.name.toLowerCase() + '-async'];
   try {
     if (this.rid == null) {
-      this.rid = this.headers['cf-ray'].slice(0, -4);
+      this.rid = this.headers['cf-ray'];
     }
   } catch (error) {}
   if (this.rid == null) {
     this.rid = P.uid(); // @uid is not defined yet
   }
   try {
-    // how / when to remove various auth headers before logging / matching cache?
-    // e.g apikey, resume, token, access_token, email?
-    this.apikey = (ref5 = (ref6 = this.headers['x-apikey']) != null ? ref6 : this.headers.apikey) != null ? ref5 : this.params.apikey;
+    this.apikey = (ref6 = (ref7 = this.headers['x-apikey']) != null ? ref7 : this.headers.apikey) != null ? ref6 : this.params.apikey;
   } catch (error) {}
-  ref7 = ['x-apikey', 'apikey'];
-  for (l = 0, len2 = ref7.length; l < len2; l++) {
-    rk = ref7[l];
+  ref8 = ['x-apikey', 'apikey'];
+  for (l = 0, len2 = ref8.length; l < len2; l++) {
+    rk = ref8[l];
     if (this.headers[rk] != null) {
       delete this.headers[rk];
     }
@@ -337,10 +338,10 @@ P = async function(scheduled) {
       this.parts[this.parts.length - 1] = this.parts[this.parts.length - 1].replace('.' + pf, '');
     }
   }
-  if (typeof this.S.bg === 'string' && Array.isArray(this.S.pass) && this.parts.length && (ref8 = this.parts[0], indexOf.call(this.S.pass, ref8) >= 0)) {
+  if (typeof this.S.bg === 'string' && Array.isArray(this.S.pass) && this.parts.length && (ref9 = this.parts[0], indexOf.call(this.S.pass, ref9) >= 0)) {
     throw new Error(); // send to backend to handle requests for anything that should be served from folders on disk
   }
-  for (d in (ref9 = this.S.domains) != null ? ref9 : {}) {
+  for (d in (ref10 = this.S.domains) != null ? ref10 : {}) {
     if (Array.isArray(this.S.domains[d])) {
       this.S.domains[d] = {
         parts: this.S.domains[d],
@@ -368,14 +369,10 @@ P = async function(scheduled) {
       }
     }
   }
-  if (this.S.dev && this.S.bg === true) {
-    console.log(this.request.method, this.base, this.domain, typeof this.body);
-  }
-  this.route = this.parts.join('/');
-  this.routes = [];
-  this.fn = ''; // the function name that was mapped to by the URL routes in the request will be stored here
-  if (scheduled || this.route === '_schedule') { // and restrict this to root, or disable URL route to it
-    this.scheduled = true;
+  shn = 'x-' + this.S.name.toLowerCase() + '-system';
+  if (this.S.name && this.S.system && this.headers[shn] === this.S.system) {
+    delete this.headers[shn];
+    this.system = true;
   }
   this._logs = []; // place for a running request to dump multiple logs, which will combine and save at the end of the overall request
   this.nolog = false; // if any function sets nolog to true, the log will not be saved.
@@ -383,8 +380,14 @@ P = async function(scheduled) {
     this.nolog = this.S.nolog && this.params.nolog === this.S.nolog;
     delete this.params.nolog;
   }
+  this.route = this.parts.join('/');
+  this.routes = [];
+  this.fn = ''; // the function name that was mapped to by the URL routes in the request will be stored here
+  if (scheduled || this.route === '_schedule') { // and restrict this to root, or disable URL route to it
+    this.scheduled = true;
+  }
   if (this.route === '') { //don't bother doing anything, just serve a direct P._response with the API details
-    return P._response.call(this, (ref10 = this.request.method) === 'HEAD' || ref10 === 'OPTIONS' ? '' : {
+    return P._response.call(this, (ref11 = this.request.method) === 'HEAD' || ref11 === 'OPTIONS' ? '' : {
       name: this.S.name,
       version: this.S.version,
       base: (this.S.dev ? this.base : void 0),
@@ -406,7 +409,7 @@ P = async function(scheduled) {
   prs = [...this.parts];
   pk = void 0;
   _lp = (p, a, n, hides, auths, wraps, caches) => {
-    var base10, base11, base12, base13, base3, base4, base5, base6, base7, base8, base9, fs, ik, len3, nd, o, ref11, ref12, results, sk, uk;
+    var base10, base11, base12, base13, base14, base4, base5, base6, base7, base8, base9, fs, ik, len3, nd, o, ref12, ref13, results, sk, uk;
     if (pk && this.fn.indexOf(n) === 0) {
       while (prs.length && (p[prs[0]] == null)) {
         this.params[pk] = (this.params[pk] ? this.params[pk] + '/' : '') + prs.shift();
@@ -414,18 +417,18 @@ P = async function(scheduled) {
     }
     results = [];
     for (k in p) {
-      if ((ref11 = typeof p[k]) !== 'function' && ref11 !== 'object') {
+      if ((ref12 = typeof p[k]) !== 'function' && ref12 !== 'object') {
         results.push(a[k] = p[k]);
       } else if (p[k] != null) {
         nd = n + (n ? '.' : '') + k;
         if (typeof p[k] === 'object' && !p[k]._index && !p[k]._indexed && !p[k]._kv && !p[k]._bg) { // index, kv, or bg could be objects that need wrapped
           a[k] = JSON.parse(JSON.stringify(p[k]));
         } else {
-          if ((base3 = p[k])._hide == null) {
-            base3._hide = (base4 = p[k])._hides != null ? base4._hides : base4._hides = hides;
+          if ((base4 = p[k])._hide == null) {
+            base4._hide = (base5 = p[k])._hides != null ? base5._hides : base5._hides = hides;
           }
-          if ((base5 = p[k])._auth == null) {
-            base5._auth = (base6 = p[k])._auths != null ? base6._auths : base6._auths = auths;
+          if ((base6 = p[k])._auth == null) {
+            base6._auth = (base7 = p[k])._auths != null ? base7._auths : base7._auths = auths;
           }
           if (Array.isArray(p[k]._auths) && p[k]._auths.length === 0) { // an empty auth array defaults to group names corresponding to the function subroutes
             p[k]._auths = nd.split('.');
@@ -433,31 +436,31 @@ P = async function(scheduled) {
           if (Array.isArray(p[k]._auth) && p[k]._auth.length === 0) { // an empty auth array defaults to group names corresponding to the function subroutes
             p[k]._auth = nd.split('.');
           }
-          if ((base7 = p[k])._wrap == null) {
-            base7._wrap = (base8 = p[k])._wraps != null ? base8._wraps : base8._wraps = wraps;
+          if ((base8 = p[k])._wrap == null) {
+            base8._wrap = (base9 = p[k])._wraps != null ? base9._wraps : base9._wraps = wraps;
           }
-          if ((base9 = p[k])._cache == null) {
-            base9._cache = (base10 = p[k])._caches != null ? base10._caches : base10._caches = caches;
+          if ((base10 = p[k])._cache == null) {
+            base10._cache = (base11 = p[k])._caches != null ? base11._caches : base11._caches = caches;
           }
           if (nd.startsWith('auth')) {
-            if ((base11 = p[k])._cache == null) {
-              base11._cache = false;
+            if ((base12 = p[k])._cache == null) {
+              base12._cache = false;
             }
           }
           if (p[k]._sheet) {
-            if ((base12 = p[k])._index == null) {
-              base12._index = true;
+            if ((base13 = p[k])._index == null) {
+              base13._index = true;
             }
           }
           if (p[k]._index) { // add index functions to index endpoints
-            ref12 = ['keys', 'terms', 'suggest', 'count', 'min', 'max', 'range', 'mapping', 'history', '_for', '_each', '_bulk', '_refresh'];
+            ref13 = ['keys', 'terms', 'suggest', 'count', 'min', 'max', 'range', 'mapping', 'history', '_for', '_each', '_bulk', '_refresh'];
             // of P.index
-            for (o = 0, len3 = ref12.length; o < len3; o++) {
-              ik = ref12[o];
-              if ((base13 = p[k])[ik] == null) {
-                base13[ik] = {
+            for (o = 0, len3 = ref13.length; o < len3; o++) {
+              ik = ref13[o];
+              if ((base14 = p[k])[ik] == null) {
+                base14[ik] = {
                   _indexed: ik,
-                  _auth: (indexOf.call([], ik) >= 0 ? 'system' : p[k]._auth)
+                  _auth: (ik.startsWith('_') ? 'system' : p[k]._auth)
                 };
               }
             }
@@ -509,11 +512,14 @@ P = async function(scheduled) {
   if (pk && prs.length) { // catch any remaining url params beyond the max depth of P
     this.params[pk] = this.params[pk] ? this.params[pk] + '/' + prs.join('/') : prs.join('/');
   }
-  // TODO should url params get some auto-processing like query params do above? Could be numbers, lists, bools...
+  if (this.S.dev && this.S.bg === true) {
+    // TODO should url params get some auto-processing like query params do above? Could be numbers, lists, bools...
+    console.log('=== ' + (this.system ? 'SYSTEM ' : '') + this.request.method + ' ===', this.base, this.fn, this.domain, typeof this.body);
+  }
   if (this.scheduled) {
     for (o = 0, len3 = schedule.length; o < len3; o++) {
       fs = schedule[o];
-      if (this.S.dev) {
+      if (this.S.dev && this.S.bg === true) {
         console.log('scheduled', fs._fn);
       }
       try {
@@ -524,7 +530,7 @@ P = async function(scheduled) {
         }
       } catch (error) {}
     }
-  } else if (((ref11 = typeof fn) === 'object' || ref11 === 'function') && fn._bg && typeof this.S.bg === 'string' && this.S.bg.startsWith('http')) {
+  } else if (((ref12 = typeof fn) === 'object' || ref12 === 'function') && fn._bg && typeof this.S.bg === 'string' && this.S.bg.startsWith('http')) {
     throw new Error();
   } else if (typeof fn === 'function') {
     authd = this.fn === 'auth' ? void 0 : (await this.auth());
@@ -541,13 +547,13 @@ P = async function(scheduled) {
       authd = true;
     }
     // TODO check the blacklist
-    if (authd) {
-      if (typeof fn._format === 'string' && (ref12 = fn._format, indexOf.call(this.S.formats, ref12) >= 0)) {
+    if (authd || this.system) {
+      if (typeof fn._format === 'string' && (ref13 = fn._format, indexOf.call(this.S.formats, ref13) >= 0)) {
         if (this.format == null) {
           this.format = fn._format;
         }
       }
-      if ((ref13 = this.request.method) === 'HEAD' || ref13 === 'OPTIONS') {
+      if ((ref14 = this.request.method) === 'HEAD' || ref14 === 'OPTIONS') {
         res = '';
       } else if (fn._cache !== false && !this.refresh && (this.request.method === 'GET' || (this.request.method === 'POST' && (await this.index.translate(this.params)))) && (res = (await this.cache()))) { // this will return empty if nothing relevant was ever put in there anyway
         // how about caching of responses to logged in users, by param or header?
@@ -574,26 +580,23 @@ P = async function(scheduled) {
   if (((res == null) || (typeof res === 'object' && res.status === 404)) && this.url.replace('.ico', '').replace('.gif', '').replace('.png', '').endsWith('favicon')) {
     res = '';
   }
-  resp = typeof res === 'object' && !Array.isArray(res) && typeof ((ref14 = res.headers) != null ? ref14.append : void 0) === 'function' ? res : (await this._response(res, fn));
-  if (this.system && this.S.dev && this.S.bg === true) {
-    // what about if scheduled? log?
-    console.log('system');
-  }
-  if (this.parts.length && ((ref15 = this.parts[0]) !== 'log' && ref15 !== 'status') && (!this.system || ((ref16 = this.parts[0]) !== 'kv' && ref16 !== 'index')) && ((ref17 = this.request.method) !== 'HEAD' && ref17 !== 'OPTIONS') && (res != null) && res !== '') {
-    if (this.completed && fn._cache !== false && resp.status === 200 && (typeof res !== 'object' || Array.isArray(res) || ((ref18 = res.hits) != null ? ref18.total : void 0) !== 0) && (typeof res !== 'number' || !this.refresh)) {
+  resp = typeof res === 'object' && !Array.isArray(res) && typeof ((ref15 = res.headers) != null ? ref15.append : void 0) === 'function' ? res : (await this._response(res, fn));
+  // what about if scheduled? log?
+  if (this.parts.length && ((ref16 = this.parts[0]) !== 'log' && ref16 !== 'status') && (!this.system || ((ref17 = this.parts[0]) !== 'kv' && ref17 !== 'index')) && ((ref18 = this.request.method) !== 'HEAD' && ref18 !== 'OPTIONS') && (res != null) && res !== '') {
+    if (this.completed && fn._cache !== false && resp.status === 200 && (typeof res !== 'object' || Array.isArray(res) || ((ref19 = res.hits) != null ? ref19.total : void 0) !== 0) && (typeof res !== 'number' || !this.refresh)) {
       si = fn._cache; // fn._cache can be a number of seconds for cache to live, so pass it to cache to use if suitable
-      if ((si == null) && typeof res === 'object' && !Array.isArray(res) && (((ref19 = res.hits) != null ? ref19.hits : void 0) != null)) { // if this is a search result, cache only 1 minute max if nothing else was set for it
+      if ((si == null) && typeof res === 'object' && !Array.isArray(res) && (((ref20 = res.hits) != null ? ref20.hits : void 0) != null)) { // if this is a search result, cache only 1 minute max if nothing else was set for it
         si = 60;
       }
       this.cache(void 0, resp, si);
     } else if (this.refresh) {
       this.cache(void 0, '');
     }
-    if (((ref20 = typeof fn) !== 'object' && ref20 !== 'function') || fn._log !== false) {
+    if (((ref21 = typeof fn) !== 'object' && ref21 !== 'function') || fn._log !== false) {
       this.log();
     }
   }
-  if (!this.completed && !this.cached && !this.unauthorised && !this.scheduled && this.S.pass !== false && typeof this.S.bg === 'string' && ((ref21 = this.request.method) !== 'HEAD' && ref21 !== 'OPTIONS')) {
+  if (!this.completed && !this.cached && !this.unauthorised && !this.scheduled && this.S.pass !== false && typeof this.S.bg === 'string' && ((ref22 = this.request.method) !== 'HEAD' && ref22 !== 'OPTIONS')) {
     throw new Error(); // TODO check for functions that often timeout and set them to _bg by default
   } else {
     return resp;
@@ -725,15 +728,7 @@ P._response = async function(res, fn) {
 var indexOf = [].indexOf;
 
 P.auth = async function(key) {
-  var cookie, email, oauth, ref, ref1, ref2, ref3, ref4, ref5, restok, resume, ret, shn, uid, user;
-  shn = 'x-' + this.S.name.toLowerCase() + '-system';
-  if (this.S.name && this.S.system && this.headers[shn] === this.S.system) {
-    delete this.headers[shn];
-    this.system = true;
-  }
-  if (this.system) {
-    return true;
-  }
+  var cookie, email, oauth, ref, ref1, ref2, ref3, ref4, ref5, restok, resume, ret, uid, user;
   // if params.auth, someone looking up the URL route for this acc. Who would have the right to see that?
   if (typeof key === 'string') {
     return this.users._get(key);
@@ -782,8 +777,11 @@ P.auth = async function(key) {
       this.users._update(user);
     }
     if ((user.resume == null) && !this.apikey) {
-      user.resume = this.uid();
-      this.kv('auth/resume/' + user._id + '/' + user.resume, Date.now(), 7890000); // resume token lasts three months (could make six at 15768000)
+      user.resume = this.uid(); // could add extra info to resume object like machine logged in on etc to enable device management
+      this.kv('auth/resume/' + user._id + '/' + user.resume, {
+        createdAt: Date.now(),
+        device: this.device()
+      }, 7890000); // resume token lasts three months (could make six at 15768000)
     }
     if ((await this.auth.role('root', this.user))) {
       this.log({
@@ -2236,7 +2234,7 @@ P.log = async function(msg, store) {
         if (this.system) {
           _bg_log_batch.push(this.body);
           if (_bg_log_batch_timeout === false) {
-            _bg_log_batch_timeout = setTimeout(_save_batch, 60000);
+            _bg_log_batch_timeout = setTimeout(_save_batch, 30000);
           }
           return true; // end here, just saving a log received from remote with system credential
         } else {
@@ -2374,7 +2372,7 @@ P.log = async function(msg, store) {
             if (_bg_log_batch_timeout !== false) {
               clearTimeout(_bg_log_batch_timeout);
             }
-            _bg_log_batch_timeout = setTimeout(_save_batch, 60000);
+            _bg_log_batch_timeout = setTimeout(_save_batch, 30000);
           }
         } else if (typeof this.S.bg !== 'string' || (typeof this.S.log === 'object' && this.S.log.batch === false)) {
           _bg_log_batch.push(msg);
@@ -2396,7 +2394,7 @@ P.log = async function(msg, store) {
       this._logs.push(msg);
     }
   } else if (this.S.dev && this.S.bg === true) {
-    console.log(msg);
+    console.log('NOT logging', msg);
   }
   return true;
 };
@@ -3653,6 +3651,31 @@ P.template = async function(content, vars) {
 
 
 //P._templates = _index: true # an index to store templates in - although generally should be handled at the individual function/service level
+P.device = function() {
+  var cf, res;
+  // make a simple device hash, not enough to uniquely identify a user, 
+  // but useful for discerning user across devices, so can help user manage
+  // login across devices and possibly identify unexpected usage
+  // use user-agent and accept headers, possibly others, and could use geo-ip too (see server utilities file)
+  res = {};
+  try {
+    cf = this.request.cf;
+    res.colo = cf.colo;
+    res.city = cf.city;
+    res.lat = cf.latitude;
+    res.lon = cf.longitude;
+  } catch (error) {}
+  res.ip = this.headers.ip;
+  res.country = this.headers['cf-ipcountry'];
+  res.accept = this.headers['accept'];
+  res['accept-language'] = this.headers['accept-language'];
+  res['user-agent'] = this.headers['user-agent'];
+  res['user-agent-hash'] = this.hashhex(this.headers['user-agent']);
+  return res;
+};
+
+P.device._cache = false;
+
 P.date = function(rt, timed) {
   var k, pts, ref, ref1, ret;
   if (rt == null) {
@@ -3720,21 +3743,29 @@ P.datetime = function() {
 };
 
 P.epoch = function(epoch) {
-  var end, ref, start;
+  var add, end, ref, start, subtract;
+  if (typeof epoch === 'number') {
+    epoch = epoch.toString();
+  }
   if (epoch == null) {
     epoch = this.params.epoch;
   }
   if (!epoch) {
     return Date.now();
-  } else {
-    try {
-      if (epoch.length > 8 && typeof epoch === 'number') {
-        return this.date(this.params.epoch, (ref = this.params.time) != null ? ref : true);
-      }
-    } catch (error) {}
-    if (typeof epoch === 'number') {
-      epoch = epoch.toString();
+  } else if (epoch.includes('+') || epoch.includes('-')) {
+    if (epoch.startsWith('+') || epoch.startsWith('-')) {
+      epoch = Date.now() + epoch;
     }
+    if (epoch.includes('+')) {
+      [epoch, add] = epoch.replace('/', '').split('+');
+      return (parseInt(epoch) + parseInt(add)).toString();
+    } else if (epoch.includes('-')) {
+      [epoch, subtract] = epoch.replace('/', '').split('-');
+      return (parseInt(epoch) - parseInt(subtract)).toString();
+    }
+  } else if (epoch.length > 8 && !isNaN(parseInt(epoch))) {
+    return this.date(epoch, (ref = this.params.time) != null ? ref : true);
+  } else {
     if (epoch.length === 4) {
       epoch += '-01';
     }
@@ -3891,7 +3922,7 @@ P._passphrase_words = ["ability", "able", "aboard", "about", "above", "accept", 
 // the wrapepr logs the function call (whether it was the main API call or subsequent)
 P._wrapper = function(f, n) { // the function to wrap and the string name of the function
   return async function() {
-    var _as, args, bup, exists, lg, limited, qry, rec, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, res, rt, sht, started;
+    var _as, args, bup, exists, lg, limited, qry, rec, ref, ref1, ref2, ref3, res, rt, sht, started;
     started = Date.now(); // not accurate in a workers environment, but close enough
     rt = n.replace(/\./g, '_');
     lg = {
@@ -3962,108 +3993,90 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
       res = (await this.index[f._indexed](...args));
     
     // index / kv should first be checked if configured
+    // for index, to create a new record with a specified ID, ONLY specify it as _id in the object as first argument and no second argument
+    // updating / deleting can be done providing key in first argument and object / empty string in second argument
+    // for kv, create can be done with ID string as first argument and record/value as second argument
     // _index, _kv
-    } else if (f._index || f._kv && (!f._sheet || this.fn !== n || !this.refresh)) {
-      if (arguments.length === 1) {
-        rec = f._kv || (f._index && (arguments[0] === '' || typeof arguments[0] === 'object')) ? arguments[0] : void 0;
-      } else if (arguments.length === 2 && typeof arguments[0] === 'string' && arguments[0].length && (arguments[1] === '' || typeof arguments[1] === 'object' || f._kv)) {
-        rec = arguments[1];
-      } else if (this.fn === n && ((this.request.method === 'DELETE' || this.params._delete) || (((ref1 = this.request.method) === 'POST' || ref1 === 'PUT') && (this.body != null) && JSON.stringify(this.body) !== '{}'))) {
-        rec = this.request.method === 'DELETE' || this.params._delete ? '' : this.body; // TODO an auth check has to occur somewhere if this is a delete from the API
-      }
-      if (f._index && (this.fn !== n || this.request.method !== 'PUT') && arguments[0] !== '' && arguments[1] !== '') { // check in case rec is actually a query
-        qry = arguments.length ? (await this.index.translate(arguments[0], arguments[1])) : (rec != null) || JSON.stringify(this.params) !== '{}' ? (await this.index.translate(rec != null ? rec : this.params)) : void 0;
-        if (qry != null) {
-          if (arguments.length || this.fn === n) {
-            rec = void 0;
+    } else if ((f._index || f._kv) && (!f._sheet || this.fn !== n || !this.refresh)) {
+      if (this.fn === n) {
+        if (this.fn.replace(/\./g, '/') !== this.route) { // action on a specific keyed record
+          lg.key = this.route.split(n.split('.').pop()).pop().replace(/\//g, '_').replace(/^_/, '').replace(/_$/, '');
+        }
+        // TODO who should be allowed to submit a record remotely?
+        //rec = if @request.method is 'PUT' or (lg.key and @request.method is 'POST') then @body else if @request.method is 'DELETE' or @params._delete then '' else undefined
+        if (!lg.key && f._index) { //and not rec?
+          qry = (await this.index.translate(this.request.method === 'POST' ? this.body : this.params)); // and if there is @params._delete, delete by query?
+        }
+      } else if (arguments.length) { // could be a key string and record or could be a query and options (and query could look like a key)
+        if (typeof arguments[0] === 'string' && arguments[0].length && !arguments[0].includes('\n')) { // could be key or query string
+          lg.key = arguments[0].replace(/\//g, '_');
+        }
+        if (lg.key && lg.key.length !== lg.key.replace(/[\s\:\*~()\?=%]/g, '').length) { // only keep if it could be a valid key
+          delete lg.key;
+        }
+        if (f._index && arguments[0] !== '' && arguments[1] !== '' && (qry = (await this.index.translate(arguments[0], arguments[1])))) {
+          if (lg.key && (arguments.length === 1 || typeof arguments[1] === 'object') && (exists = (await this.index(rt + '/' + lg.key)))) { // it was a record key, not a query
+            qry = void 0;
           }
-        } else {
-          lg.key = typeof arguments[0] === 'string' && arguments[0] !== rec ? arguments[0] : this.fn === n && this.fn.replace(/\./g, '/') !== this.route ? this.route.split(n.split('.').pop()).pop() : void 0;
+        }
+        rec = qry != null ? void 0 : lg.key ? arguments[1] : f._index ? arguments[0] : void 0;
+      }
+      if (typeof rec === 'object' && !Array.isArray(rec)) {
+        if (rec._id == null) {
+          rec._id = (ref1 = (ref2 = lg.key) != null ? ref2 : rec[f._key]) != null ? ref1 : this.uid();
+        }
+        if (lg.key == null) {
+          lg.key = rec._id;
         }
       }
-      if (lg.key) {
-        lg.key = lg.key.replace(/\//g, '_').replace(/^_/, '').replace(/_$/, '');
+      //console.log(n, lg.key, JSON.stringify(rec), JSON.stringify qry) if @S.dev and @S.bg is true
+      if (qry != null) {
+        res = (await this.index(rt, qry));
+        lg.qry = JSON.stringify(qry);
       }
-      if (typeof rec === 'object' && !Array.isArray(rec) && !rec._id) {
-        rec._id = (ref2 = (ref3 = lg.key) != null ? ref3 : rec[f._key]) != null ? ref2 : this.uid();
-      }
-      if (f._kv && (qry == null) && lg.key) {
-        res = (await this.kv(rt + (lg.key ? '/' + lg.key : ''), rec));
-        if ((res != null) && (rec == null)) {
-          lg.cached = this.cached = 'kv';
+      if ((rec != null) || !this.refresh || typeof f !== 'function') {
+        if (f._kv && lg.key && ((rec != null) || (exists == null))) {
+          res = (await this.kv(rt + '/' + lg.key, rec)); // there may or may not be a rec, as it could just be getting the keyed record
+          if ((res != null) && (rec == null) && this.fn === n) {
+            lg.cached = this.cached = 'kv';
+          }
+        }
+        if (f._index && ((rec != null) || (res == null))) {
+          res = (exists != null) && (rec == null) ? exists : (await this.index(rt + (lg.key && ((rec != null) || (qry == null)) ? '/' + lg.key : ''), rec != null ? rec : (!lg.key ? qry : void 0)));
+          if ((res == null) && (!lg.key || (rec == null))) { // this happens if the index does not exist yet, so create it (otherwise res would be a search result object)
+            await this.index(rt, typeof f._index !== 'object' ? {} : {
+              settings: f._index.settings,
+              mappings: f._index.mappings,
+              aliases: f._index.aliases
+            });
+            res = (await this.index(rt + (lg.key ? '/' + lg.key : ''), rec != null ? rec : (!lg.key ? qry : void 0)));
+          }
         }
       }
-      if (this.S.dev && this.S.bg === true) {
-        console.log(lg.key, rec, JSON.stringify(qry));
-      }
-      if (f._index && ((rec != null) || (res == null)) && ((rec != null) || !this.refresh || typeof f !== 'function')) {
-        res = (await this.index(rt + (lg.key && ((rec != null) || (qry == null)) ? '/' + lg.key : ''), rec != null ? rec : (!lg.key ? qry : void 0)));
-        if ((res == null) && (!lg.key || (rec == null))) { // this happens if the index does not exist yet, so create it (otherwise res would be a search result object)
-          await this.index(rt, typeof f._index !== 'object' ? {} : {
-            settings: f._index.settings,
-            mappings: f._index.mappings,
-            aliases: f._index.aliases
-          });
-          res = (await this.index(rt + (lg.key ? '/' + lg.key : ''), rec != null ? rec : (!lg.key ? qry : void 0)));
-        }
-        if ((rec == null) && typeof res === 'object' && !Array.isArray(res) && ((ref4 = res.hits) != null ? ref4.total : void 0) === 0 && typeof f === 'function' && lg.key) { // allow the function to run to try to retrieve or create the record from remote
+      try {
+        if ((rec == null) && res.hits.total === 0 && typeof f === 'function' && lg.key) { // allow the function to run to try to retrieve or create the record from remote
           res = void 0;
         }
-        if ((res != null ? (ref5 = res.hits) != null ? ref5.total : void 0 : void 0) !== 1 && (qry != null) && lg.key && ((this.fn === n && this.fn.replace(/\./g, '/') === this.route) || arguments.length === 1) && !lg.key.includes(' ') && !lg.key.includes(':')) {
-          res = (await this.index(rt, qry)); // if direct lookup didn't work try a search
-        }
-        if ((res != null) && (qry != null) && ((ref6 = qry.query) != null ? (ref7 = ref6.bool) != null ? ref7.must : void 0 : void 0) && qry.query.bool.must.length === 1 && (qry.size === 1 || (res.hits.total === 1 && ((this.fn !== n && typeof arguments[0] === 'string' && !arguments[0].includes(' ') && !arguments[0].includes(':') && !arguments[0].includes('*')) || (this.params.q == null))))) {
+      } catch (error) {}
+      try {
+        if ((qry.query.bool != null) && (qry.size === 1 || (res.hits.total === 1 && lg.key))) { // return 1 record instead of a search result.
           if ((res.hits.hits[0]._source != null) && (res.hits.hits[0]._source._id == null)) {
             res.hits.hits[0]._source._id = res.hits.hits[0]._id;
           }
-          res = (ref8 = res.hits.hits[0]._source) != null ? ref8 : res.hits.hits[0].fields; // return 1 record instead of a search result. is fields instead of _source still possible in ES7.x?
+          res = (ref3 = res.hits.hits[0]._source) != null ? ref3 : res.hits.hits[0].fields; // is fields instead of _source still possible in ES7.x?
         }
-        if ((res != null) && (rec == null)) {
-          lg.cached = this.cached = 'index';
-        }
+      } catch (error) {}
+      if ((res != null) && (rec == null) && !lg.cached && this.fn === n) {
+        lg.cached = this.cached = 'index';
       }
-      `lg.key = @route.split(n.split('.').pop()).pop() if @fn is n
-if not lg.key and f._index and (@fn isnt n or @request.method in ['GET', 'POST']) and ((arguments.length in [1,2] and arguments[1] isnt '' and qr = await @index.translate arguments[0], arguments[1]) or (not arguments.length and qr = await @index.translate @params))
-  lg.qry = qr
-else
-  if (arguments.length is 1 and arguments[0] is '') or (@fn is n and @request.method is 'DELETE')
-    rec = ''
-  else if (typeof arguments[0] is 'string' and arguments[0].length) or typeof arguments[0] is 'object'
-    rec = arguments[1] ? arguments[0]
-    lg.key = arguments[0] if typeof arguments[0] is 'string'
-    rec = undefined if rec is lg.key and arguments.length < 2
-  else if @fn is n
-    rec = if @request.method in ['POST', 'PUT'] then @body else @copy @params
-    delete rec[c] for c in @parts
-    rec = undefined if JSON.stringify(rec) is '{}'
-  if typeof rec is 'object' and not Array.isArray rec
-    rec._id ?= rec[f._key] ? @uid()
-    lg.key ?= rec._id
-  if f._kv and lg.key
-    lg.key = lg.key.replace(/\//g, '_').replace(/^_/,'').replace(/_$/,'')
-    res = await @kv rt + '/' + lg.key, rec
-    lg.cached = 'kv' if res? and not rec?
-if f._index and (not res? or rec? or lg.key)
-  lg.key = lg.key.replace(/\//g, '_').replace(/^_/,'').replace(/_$/,'') if lg.key
-  if not f._sheet or @fn isnt n or not @refresh # try either putting the record, or getting a key, or searching
-    res = await @index rt + (if lg.key then '/' + lg.key else ''), (if rec? then rec else if lg.key then undefined else lg.qry)
-  if not res? and not lg.key # anything apart from a direct record lookup for a record that doesn't exist should at least return an empty search result or an ES response, so if nothing back, create the index and try again
-    await @index rt, if typeof f._index isnt 'object' then {} else {settings: f._index.settings, mappings: f._index.mappings, aliases: f._index.aliases}
-    if not f._sheet or @fn isnt n or not @refresh # try again now that the index has been created
-      res = await @index rt + (if lg.key then '/' + lg.key else ''), (if rec? then rec else if lg.key then undefined else lg.qry)
-  if res? and typeof res is 'object' and res.hits? and not rec? and lg.qry?
-    if res.hits.total isnt 1 and lg.qry? and typeof arguments[0] is 'string' and arguments[0].length and not arguments[0].includes ' '
-      try res = await @index rt, lg.qry # if direct lookup didn't work try a search
-    if res.hits?.total is 0 and typeof f is 'function' and (lg.key or arguments[0])
-      res = undefined # allow the function to run to try to retrieve or create the record from remote
-    else if res.hits?.total? and res.hits.hits?
-      lg.cached = 'index'
-      if ((lg.key or (typeof lg.qry is 'object' and lg.qry.query?.bool?.must and lg.qry.query.bool.must.length is 1 and lg.qry.query.bool.must[0].query_string?.query)) and res.hits.total is 1) or (res.hits.hits and lg.qry?.size is 1)
-        rd = res.hits.hits[0]._id
-        res = res.hits.hits[0]._source ? res.hits.hits[0].fields
-        res._id ?= rd
-@cached = lg.cached`;
     }
+    // if _history is required, record more about the incoming record change, if that's what happened
+    // _history
+    if (f._history && typeof rec === 'object' && !Array.isArray(rec) && rec._id) {
+      lg.history = rec._id;
+      lg.rec = JSON.stringify(rec); // record the incoming rec to record a history of changes to the record
+    }
+    
     // if nothing yet, send to bg for _bg or _sheet functions, if bg is available and not yet on bg
     // _bg, _sheet
     if ((res == null) && (f._bg || f._sheet) && typeof this.S.bg === 'string' && this.S.bg.indexOf('http') === 0) {
@@ -4124,7 +4137,7 @@ if f._index and (not res? or rec? or lg.key)
     // _async, _limit
     if ((res == null) && typeof f === 'function') {
       _as = async(rt, f, ar, notify) => {
-        var c, ends, i, id, len, r, ref10, ref9;
+        var c, ends, i, id, len, r, ref4, ref5;
         if (f._limit) {
           ends = f._limit === true ? 86400 : f._limit;
           await this.kv('limit/' + n, started + ends, ends); // max limit for one day
@@ -4139,7 +4152,7 @@ if f._index and (not res? or rec? or lg.key)
               }
             }
           }
-          id = Array.isArray(r) ? '' : '/' + ((ref9 = (ref10 = r[f._key]) != null ? ref10 : r._id) != null ? ref9 : this.uid()).replace(/\//g, '_').toLowerCase();
+          id = Array.isArray(r) ? '' : '/' + ((ref4 = (ref5 = r[f._key]) != null ? ref5 : r._id) != null ? ref4 : this.uid()).replace(/\//g, '_').toLowerCase();
           if (f._kv && !Array.isArray(r)) {
             this.kv(rt + id, res, f._kv);
           }
@@ -4181,18 +4194,8 @@ if f._index and (not res? or rec? or lg.key)
         lg.checksum = this.shorthash(lg.res);
       } catch (error) {}
     }
-    // if _history is required, record more about the incoming record change, if that's what happened
-    // _history
-    if (f._history && typeof rec === 'object' && !Array.isArray(rec) && rec._id) {
-      lg.history = rec._id;
-      lg.rec = JSON.stringify(rec); // record the incoming rec to record a history of changes to the record
-    }
-    
     // _log
     if (f._log !== false) {
-      if (qry) {
-        lg.qry = JSON.stringify(qry);
-      }
       lg.took = Date.now() - started;
       this.log(lg);
     }
@@ -4688,7 +4691,7 @@ P.index.terms = async function(route, key, qry, size = 1000, counts = true, orde
 };
 
 P.index.suggest = async function(route, key, qry, size, counts = false, order = "term") {
-  var j, k, l, len, len1, len2, n, ref1, ref2, ref3, ref4, ref5, res;
+  var j, k, l, len, len1, len2, m, ref1, ref2, ref3, ref4, ref5, res;
   if (key == null) {
     key = (ref1 = this.params.suggest) != null ? ref1 : this.params.key;
   }
@@ -4718,8 +4721,8 @@ P.index.suggest = async function(route, key, qry, size, counts = false, order = 
   }
   if (res.length === 0 && typeof qry === 'string' && !qry.startsWith('*')) {
     ref5 = (await this.index.terms(route, key, '*' + qry + '*', size, counts, order));
-    for (n = 0, len2 = ref5.length; n < len2; n++) {
-      k = ref5[n];
+    for (m = 0, len2 = ref5.length; m < len2; m++) {
+      k = ref5[m];
       if (k.toLowerCase().indexOf(qry.toLowerCase()) !== -1) {
         res.push(k);
       }
@@ -4872,10 +4875,10 @@ P.index.history = function(route, key) {
   return [];
 };
 
-// use this like: for rec from @index._for route, q, opts
+// use this like: for await rec from @index._for route, q, opts
 // see index._each below for example of how to call this for/yield generator
 P.index._for = async function*(route, q, opts) {
-  var qy, r, ref1, ref2, ref3, ref4, ref5, res, ret, scroll;
+  var counter, qy, r, ref1, ref2, ref3, ref4, res, ret, scroll;
   if (opts != null ? opts.scroll : void 0) {
     scroll = opts.scroll;
     if (typeof scroll === 'number' || !scroll.endsWith('m')) {
@@ -4898,17 +4901,27 @@ P.index._for = async function*(route, q, opts) {
   if (((res != null ? (ref1 = res.hits) != null ? ref1.total : void 0 : void 0) != null) && res.hits.total === res.hits.hits.length) {
     delete res._scroll_id;
   }
+  counter = 0;
   while (true) {
-    if ((!(res != null ? (ref2 = res.hits) != null ? ref2.hits : void 0 : void 0) || !(res != null ? (ref3 = res.hits) != null ? ref3.hits.length : void 0 : void 0)) && (res != null ? res._scroll_id : void 0)) {
+    if (!(res != null ? (ref2 = res.hits) != null ? ref2.hits : void 0 : void 0) && (res != null ? res._scroll_id : void 0)) {
       res = (await this.index('/_search/scroll?scroll=' + scroll + '&scroll_id=' + res._scroll_id));
     }
-    if (((res != null ? (ref4 = res.hits) != null ? ref4.hits : void 0 : void 0) != null) && res.hits.hits.length) {
+    if (((res != null ? (ref3 = res.hits) != null ? ref3.hits : void 0 : void 0) != null) && res.hits.hits.length) {
+      if (this.S.dev && this.S.bg === true) {
+        console.log('for', route, counter);
+      }
+      counter += 1;
       r = res.hits.hits.shift();
-      ret = (ref5 = r._source) != null ? ref5 : r.fields;
+      ret = (ref4 = r._source) != null ? ref4 : r.fields;
       if (ret._id == null) {
         ret._id = r._id;
       }
       yield ret;
+    } else {
+      if (this.S.dev && this.S.bg === true) {
+        console.log('for', route, 'done');
+      }
+      return;
     }
   }
 };
@@ -4955,8 +4968,8 @@ P.index._each = async function(route, q, opts, fn) {
   updates = [];
   ref3 = this.index._for(route, qy != null ? qy : q, opts);
   // TODO check if this needs await
-  for (rec of ref3) {
-    fr = (await fn.apply(this, rec));
+  for await (rec of ref3) {
+    fr = (await fn.call(this, rec));
     processed += 1;
     if ((fr != null) && (typeof fr === 'object' || typeof fr === 'string')) {
       updates.push(fr);
@@ -5077,9 +5090,9 @@ P.index.kv._bg = true`;
 //  'statement:"A more complex" AND difficult string' - which will be used as is to ES as a query string
 //  '?q=query params directly as string'
 //  {"q":"object of query params"} - must contain at least q or source as keys to be identified as such
-//  {"must": []} - a list of must queries, in full ES syntax, which will be dropped into the query filter (works for "should" as well)
-//  ["list","of strings to OR match on"] - this is an OR query strings match UNLESS strings contain : then mapped to terms matches
-//  [{"list":"of objects to OR match"}] - so a set of OR terms matches. If objects are not key: string they are assumed to be full ES queries that can drop into the bool
+//  {"must": []} - a list of must queries, in full ES syntax, which will be dropped into the query filter (works for "must_not", "filter", "should" as well)
+//  also works for: filter (restrict), must (and), must_not (not), should (or)
+//  values can be (singular or lists of) strings, or objects with one key with a string value indicating a term query, or properly structured query parts
 
 //  Keys can use dot notation
 //  If opts is true, the query will be adjusted to sort by createdAt descending, so returning the newest first (it sets newest:true, see below)
@@ -5095,256 +5108,151 @@ P.index.kv._bg = true`;
 //  Filter acts like a must but without scoring. Whereas normal must does score.
 //  must_not does not affect score. Not sure about should
 //  Default empty query: {query: {bool: {must: [], filter: []}}, size: 10}
-P.index.translate = function(q, opts = {}) {
-  var _structure, a, af, b, base2, base3, base4, bm, bt, dk, exc, excludes, f, fq, i, i1, inc, includes, j, j1, k, k1, l, l1, len, len1, len10, len11, len12, len2, len3, len4, len5, len6, len7, len8, len9, m, m1, maybe_route_or_id, n, nos, nr, o, ok, os, pfx, ps, qobj, qpts, qry, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rs, sr, t, tgt, tm, tobj, u, v, w, x, y, z;
-  if (q == null) {
-    q = this != null ? this.params : void 0; // return undefined if q isnt a string or object that can become a valid query
+P.index.translate = function(q, opts) {
+  var af, b, base2, base3, base4, base5, bm, etp, exc, excludes, f, fq, i, inc, j, k, l, len, len1, len2, len3, len4, len5, len6, ls, m, n, nos, o, os, pfx, ps, qpts, qry, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rkeys, rs, t, tm, tp, u, v, w;
+  if ((this != null ? this.route : void 0) && this.route.startsWith('index')) { // return undefined if q isnt a string or object that can become a valid query
+    if (q == null) {
+      q = this != null ? this.params : void 0;
+    }
   }
   if (typeof q === 'string') {
     if (q === '' || q.indexOf('\n') !== -1) { // this would likely be a bulk load string
       return void 0;
     }
-    maybe_route_or_id = q.length > 8 && q.split('/').pop().length < 34 && q.length === q.replace(/\s\:\*~()\?=%/g, '').length;
-    if (maybe_route_or_id && q.split('/').length === 2) { // a route / ID to discern from a route
-      return void 0;
-    }
   } else {
-    if (typeof q !== 'object') {
+    if (typeof q !== 'object' || Array.isArray(q)) {
       return void 0;
     }
-    if (Array.isArray(q)) {
-      if (!q.length) {
+    ref1 = ['settings', 'aliases', 'mappings', 'index', '_id'];
+    for (j = 0, len = ref1.length; j < len; j++) {
+      k = ref1[j];
+      if (q[k] != null) {
         return void 0;
       }
-    } else {
-      ref1 = ['settings', 'aliases', 'mappings', 'index'];
-      for (j = 0, len = ref1.length; j < len; j++) {
-        k = ref1[j];
-        if (q[k] != null) {
-          return void 0;
+    }
+    if (JSON.stringify(q) !== '{}' && (q.q == null) && (q.query == null) && (q.source == null) && (q.must == null) && (q.should == null) && (q.must_not == null) && (q.filter == null) && (q.aggs == null) && (q.aggregations == null)) {
+      return void 0;
+    }
+  }
+  try {
+    try {
+      if (typeof q === 'object') { // copy objects so don't interfere with what was passed in
+        q = this.copy(q);
+      }
+    } catch (error) {}
+    try {
+      if (typeof opts === 'object') {
+        opts = this.copy(opts);
+      }
+    } catch (error) {}
+    if (opts == null) {
+      opts = {};
+    }
+    if (opts === 'random') {
+      opts = {
+        random: true
+      };
+    }
+    if (typeof opts === 'number') {
+      opts = {
+        size: opts
+      };
+    }
+    if (opts === true) {
+      opts = {
+        newest: true
+      };
+    }
+    if (opts === false) {
+      opts = {
+        newest: false
+      };
+    }
+    qry = (ref2 = opts != null ? opts.query : void 0) != null ? ref2 : {};
+    if (qry.query == null) {
+      qry.query = {};
+    }
+    if ((base2 = qry.query).bool == null) {
+      base2.bool = {
+        must: [],
+        filter: []
+      };
+    }
+    if (typeof q === 'string') {
+      qry.query.bool.filter.push({
+        query_string: {
+          query: q
+        }
+      });
+    } else if (typeof q === 'object') {
+      if (q.query != null) {
+        qry = q; // assume already a query
+      } else {
+        if (q.source != null) {
+          if (typeof q.source === 'string') {
+            qry = JSON.parse(decodeURIComponent(q.source));
+          }
+          if (typeof q.source === 'object') {
+            qry = q.source;
+          }
+        } else if (q.q != null) {
+          if (typeof q.q === 'object') {
+            qry.query = q.q; // if an object assume it's a correct one
+          } else {
+            q.q = decodeURIComponent(q.q);
+            if ((q.prefix != null) && q.q.indexOf(':') !== -1) {
+              delete q.prefix;
+              pfx = {};
+              qpts = q.q.split(':');
+              pfx[qpts[0]] = qpts[1];
+              qry.query.bool.must.push({
+                prefix: pfx // TODO check if prefix can still be used in ES7.x and if it can go in filter instead of must
+              });
+            } else {
+              qry.query.bool.filter.push({
+                query_string: {
+                  query: q.q
+                }
+              });
+            }
+          }
+        }
+        for (o in q) {
+          if (opts[o] == null) {
+            opts[o] = q[o];
+          }
         }
       }
-      if (JSON.stringify(q) !== '{}' && (q.q == null) && (q.query == null) && (q.source == null)) { //and not q.must? and not q.should? and not q.aggs? and not q.aggregations?
-        return void 0;
-      }
     }
-  }
-  try {
-    if (typeof q === 'object') { // copy objects so don't interfere with what was passed in
-      q = this.copy(q);
+    if ((qry.query != null) && (qry.query.bool == null) && JSON.stringify(qry.query !== '{}')) {
+      qry.query = {
+        bool: {
+          must: [],
+          filter: [qry.query]
+        }
+      };
     }
-  } catch (error) {}
-  try {
-    if (typeof opts === 'object') {
-      opts = this.copy(opts);
-    }
-  } catch (error) {}
-  if (opts === 'random') {
-    opts = {
-      random: true
-    };
-  }
-  if (typeof opts === 'number') {
-    opts = {
-      size: opts
-    };
-  }
-  if (opts === true) {
-    opts = {
-      newest: true
-    };
-  }
-  if (opts === false) {
-    opts = {
-      newest: false
-    };
-  }
-  qry = (ref2 = opts != null ? opts.query : void 0) != null ? ref2 : {};
-  if (qry.query == null) {
-    qry.query = {};
-  }
-  _structure = (sq) => {
-    var base2, base3, fq, ms, ref3, ref4;
-    if (sq.query == null) {
-      sq.query = {
+    if (qry.query == null) {
+      qry.query = {
         bool: {
           must: [],
           filter: []
         }
       };
     }
-    if (((ref3 = sq.query) != null ? (ref4 = ref3.filtered) != null ? ref4.query : void 0 : void 0) != null) {
-      fq = this.copy(sq);
-      sq.query = fq.query.filtered.query; // should be a bool must for this convenience
-      sq.query.bool.filter = fq.query.filtered.filter; // simple convenience catch for old-style queries - NOT complete
-    }
-    if (sq.query.bool == null) {
-      ms = [];
-      if (JSON.stringify(sq.query) !== '{}') {
-        ms.push(sq.query);
-      }
-      sq.query = {
-        bool: {
-          must: ms,
-          filter: []
-        }
+    if ((base3 = qry.query).bool == null) {
+      base3.bool = {
+        must: [],
+        filter: []
       };
     }
-    if ((base2 = sq.query.bool).must == null) {
-      base2.must = [];
+    if ((base4 = qry.query.bool).filter == null) {
+      base4.filter = [];
     }
-    if ((base3 = sq.query.bool).filter == null) {
-      base3.filter = [];
+    if (((ref3 = qry.query) != null ? (ref4 = ref3.filtered) != null ? (ref5 = ref4.query) != null ? ref5.bool : void 0 : void 0 : void 0) != null) {
+      qry.query.filtered.query.bool.filter = qry.query.filtered.filter;
+      qry.query = qry.query.filtered.query; // simple convenience catch for old-style queries - NOT complete, only works if they were bool queries
     }
-    return sq;
-  };
-  qry = _structure(qry);
-  if (typeof q === 'object') {
-    ref3 = ['apikey', '_', 'callback', 'refresh', 'key', 'counts', 'index', 'search'];
-    for (l = 0, len1 = ref3.length; l < len1; l++) {
-      dk = ref3[l];
-      delete q[dk];
-    }
-    ref4 = ['random', 'seed'];
-    // is this necessary or is the general push of things other than q to opts good enough?
-    for (n = 0, len2 = ref4.length; n < len2; n++) {
-      ok = ref4[n];
-      opts[ok] = q[ok];
-      delete q[ok];
-    }
-    // some URL params that may be commonly used in this API along with valid ES URL query params will be removed here by default too
-    // this makes it easy to handle them in routes whilst also just passing the whole queryParams object into this translation method and still get back a valid ES query
-    if (JSON.stringify(q).indexOf('[') === 0) {
-      if ((base2 = qry.query.bool).should == null) {
-        base2.should = [];
-      }
-      for (t = 0, len3 = q.length; t < len3; t++) {
-        m = q[t];
-        if (typeof m === 'object' && (m != null)) {
-          for (k in m) {
-            if (typeof m[k] === 'string') {
-              tobj = {
-                term: {}
-              };
-              tobj.term[k] = m[k];
-              qry.query.bool.should.push(tobj);
-            } else if ((ref5 = typeof m[k]) === 'number' || ref5 === 'boolean') {
-              qry.query.bool.should.push({
-                query_string: {
-                  query: k + ':' + m[k]
-                }
-              });
-            } else if (m[k] != null) {
-              qry.query.bool.should.push(m[k]);
-            }
-          }
-        } else if (typeof m === 'string') {
-          qry.query.bool.should.push({
-            query_string: {
-              query: m
-            }
-          });
-        }
-      }
-    } else if (q.query != null) {
-      qry = q; // assume already a query
-    } else if (q.source != null) {
-      if (typeof q.source === 'string') {
-        qry = JSON.parse(q.source);
-      }
-      if (typeof q.source === 'object') {
-        qry = q.source;
-      }
-      if (opts == null) {
-        opts = {};
-      }
-      for (o in q) {
-        if (o !== 'source') {
-          if (opts[o] == null) {
-            opts[o] = q[o];
-          }
-        }
-      }
-    } else if (q.q != null) {
-      if ((q.prefix != null) && q.q.indexOf(':') !== -1) {
-        delete q.prefix;
-        pfx = {};
-        qpts = q.q.split(':');
-        pfx[qpts[0]] = qpts[1];
-        qry.query.bool.must.push({
-          prefix: pfx
-        });
-      } else {
-        qry.query.bool.must.push({
-          query_string: {
-            query: decodeURIComponent(q.q)
-          }
-        });
-      }
-      if (opts == null) {
-        opts = {};
-      }
-      for (o in q) {
-        if (o !== 'q') {
-          if (opts[o] == null) {
-            opts[o] = q[o];
-          }
-        }
-      }
-    } else {
-      ref6 = ['must', 'must_not', 'filter', 'should'];
-      for (u = 0, len4 = ref6.length; u < len4; u++) {
-        bt = ref6[u];
-        if (q[bt] != null) {
-          qry.query.bool[bt] = q[bt];
-        }
-      }
-// an object where every key is assumed to be an AND term search if string, or a named search object to go in to ES
-      for (y in q) {
-        if ((y === 'fields') || (y === 'sort' && typeof q[y] === 'string' && q[y].indexOf(':') !== -1) || ((y === 'from' || y === 'size') && (typeof q[y] === 'number' || !isNaN(parseInt(q[y]))))) {
-          if (opts == null) {
-            opts = {};
-          }
-          opts[y] = q[y];
-        } else if (y !== 'must' && y !== 'must_not' && y !== 'filter' && y !== 'should') {
-          if (typeof q[y] === 'string') {
-            tobj = {
-              term: {}
-            };
-            tobj.term[y] = q[y];
-            qry.query.bool.filter.push(tobj);
-          } else if ((ref7 = typeof q[y]) === 'number' || ref7 === 'boolean') {
-            qry.query.bool.filter.push({
-              query_string: {
-                query: y + ':' + q[y]
-              }
-            });
-          } else if (typeof q[y] === 'object') {
-            qobj = {};
-            qobj[y] = q[y];
-            qry.query.bool.filter.push(qobj);
-          } else if (q[y] != null) {
-            qry.query.bool.filter.push(q[y]);
-          }
-        }
-      }
-    }
-  } else if (typeof q === 'string') {
-    if (q.indexOf('?') === 0) {
-      qry = q; // assume URL query params and just use them as such?
-    } else if (q != null) {
-      if (q === '') {
-        q = '*';
-      }
-      qry.query.bool.must.push({
-        query_string: {
-          query: q
-        }
-      });
-    }
-  }
-  qry = _structure(qry); // do this again to make sure valid structure is present after above changes, and before going through opts which require expected structure
-  if (opts != null) {
     if (opts.newest === true) {
       delete opts.newest;
       opts.sort = {
@@ -5360,70 +5268,14 @@ P.index.translate = function(q, opts = {}) {
         }
       };
     }
-    delete opts._; // delete anything that may have come from query params but are not handled by ES
-    delete opts.apikey;
-    if (opts.fields && typeof opts.fields === 'string' && opts.fields.indexOf(',') !== -1) {
-      opts.fields = opts.fields.split(',');
-    }
-    if (opts.random) {
-      fq = {
-        function_score: {
-          random_score: {}
-        }
-      };
-      if (opts.seed != null) {
-        fq.function_score.random_score.seed = seed;
-      }
-      fq.function_score.query = qry.query;
-      qry.query = fq; // TODO check how function_score and random seed work now in ES7.x
-      delete opts.random;
-      delete opts.seed;
-    }
-    if ((opts._include != null) || (opts.include != null) || (opts._includes != null) || (opts.includes != null) || (opts._exclude != null) || (opts.exclude != null) || (opts._excludes != null) || (opts.excludes != null)) {
-      if (qry._source == null) {
-        qry._source = {};
-      }
-      inc = opts._include != null ? '_include' : opts.include != null ? 'include' : opts._includes != null ? '_includes' : 'includes';
-      includes = opts[inc];
-      if (includes != null) {
-        if (typeof includes === 'string') {
-          includes = includes.split(',');
-        }
-        qry._source.includes = includes;
-        delete opts[inc];
-      }
-      exc = opts._exclude != null ? '_exclude' : opts.exclude != null ? 'exclude' : opts._excludes != null ? '_excludes' : 'excludes';
-      excludes = opts[exc];
-      if (excludes != null) {
-        if (typeof excludes === 'string') {
-          excludes = excludes.split(',');
-        }
-        ref8 = includes != null ? includes : [];
-        for (w = 0, len5 = ref8.length; w < len5; w++) {
-          i = ref8[w];
-          if (indexOf.call(excludes, i) >= 0) {
-            delete excludes[i];
-          }
-        }
-        qry._source.excludes = excludes;
-        delete opts[exc];
-      }
-    }
-    if (opts.and != null) {
-      ref9 = opts.and;
-      for (x = 0, len6 = ref9.length; x < len6; x++) {
-        a = ref9[x];
-        qry.query.bool.filter.push(a);
-      }
-      delete opts.and;
-    }
     if (opts.sort != null) {
+      // (y is 'sort' and typeof q[y] is 'string' and q[y].indexOf(':') isnt -1)
       if (typeof opts.sort === 'string' && opts.sort.indexOf(',') !== -1) {
         if (opts.sort.indexOf(':') !== -1) {
           os = [];
-          ref10 = opts.sort.split(',');
-          for (z = 0, len7 = ref10.length; z < len7; z++) {
-            ps = ref10[z];
+          ref6 = opts.sort.split(',');
+          for (l = 0, len1 = ref6.length; l < len1; l++) {
+            ps = ref6[l];
             nos = {};
             nos[ps.split(':')[0]] = {
               order: ps.split(':')[1]
@@ -5443,44 +5295,68 @@ P.index.translate = function(q, opts = {}) {
         opts.sort = os;
       }
     }
-    if ((opts.restrict != null) || (opts.filter != null)) {
-      ref12 = (ref11 = opts.restrict) != null ? ref11 : opts.filter;
-      for (i1 = 0, len8 = ref12.length; i1 < len8; i1++) {
-        rs = ref12[i1];
-        qry.query.bool.filter.push(rs);
+    if (opts.random) {
+      fq = {
+        function_score: {
+          random_score: {}
+        }
+      };
+      if (opts.seed != null) {
+        fq.function_score.random_score.seed = seed;
       }
-      delete opts.restrict;
+      fq.function_score.query = qry.query;
+      qry.query = fq; // TODO check how function_score and random seed work now in ES7.x
+      delete opts.random;
+      delete opts.seed;
     }
-    if ((opts.not != null) || (opts.must_not != null)) {
-      tgt = opts.not != null ? 'not' : 'must_not';
-      if (Array.isArray(opts[tgt])) {
-        qry.query.bool.must_not = opts[tgt];
-      } else {
-        if ((base3 = qry.query.bool).must_not == null) {
-          base3.must_not = [];
-        }
-        ref13 = opts[tgt];
-        for (j1 = 0, len9 = ref13.length; j1 < len9; j1++) {
-          nr = ref13[j1];
-          qry.query.bool.must_not.push(nr);
-        }
+    if (inc = (ref7 = (ref8 = (ref9 = opts._include) != null ? ref9 : opts.include) != null ? ref8 : opts._includes) != null ? ref7 : opts.includes) {
+      if (qry._source == null) {
+        qry._source = {};
       }
-      delete opts[tgt];
+      qry._source.includes = typeof inc === 'string' ? inc.split(',') : inc;
     }
-    if (opts.should != null) {
-      if (Array.isArray(opts.should)) {
-        qry.query.bool.should = opts.should;
-      } else {
-        if ((base4 = qry.query.bool).should == null) {
-          base4.should = [];
-        }
-        ref14 = opts.should;
-        for (k1 = 0, len10 = ref14.length; k1 < len10; k1++) {
-          sr = ref14[k1];
-          qry.query.bool.should.push(sr);
+    if (exc = (ref10 = (ref11 = (ref12 = opts._exclude) != null ? ref12 : opts.exclude) != null ? ref11 : opts._excludes) != null ? ref10 : opts.excludes) {
+      if (typeof exc === 'string') {
+        excludes = exc.split(',');
+      }
+      ref15 = (ref13 = (ref14 = qry._source) != null ? ref14.includes : void 0) != null ? ref13 : [];
+      for (m = 0, len2 = ref15.length; m < len2; m++) {
+        i = ref15[m];
+        if (indexOf.call(excludes, i) >= 0) {
+          delete exc[i];
         }
       }
-      delete opts.should;
+      qry._source.excludes = exc;
+    }
+    ref16 = ['filter', 'restrict', 'must', 'and', 'must_not', 'not', 'should', 'or'];
+    for (n = 0, len3 = ref16.length; n < len3; n++) {
+      tp = ref16[n];
+      if (opts[tp] != null) {
+        ls = Array.isArray(opts[tp]) ? opts[tp] : [opts[tp]];
+        delete opts[tp];
+        etp = tp === 'filter' || tp === 'restrict' || tp === 'must' || tp === 'and' ? 'filter' : tp === 'must_not' || tp === 'not' ? 'must_not' : 'should';
+        if ((base5 = qr.query.bool)[etp] == null) {
+          base5[etp] = [];
+        }
+        for (t = 0, len4 = ls.length; t < len4; t++) {
+          rs = ls[t];
+          if (typeof rs === 'object') {
+            rkeys = this.keys(rs);
+            if (rkeys.length === 1 && typeof rs[rkeys[0]] !== 'object') {
+              rs = {
+                term: rs
+              };
+            }
+          } else {
+            rs = {
+              query_string: {
+                query: rs
+              }
+            };
+          }
+          qr.query.bool[etp].push(rs);
+        }
+      }
     }
     if (opts.terms != null) {
       try {
@@ -5489,9 +5365,9 @@ P.index.translate = function(q, opts = {}) {
       if (qry.aggregations == null) {
         qry.aggregations = {};
       }
-      ref15 = opts.terms;
-      for (l1 = 0, len11 = ref15.length; l1 < len11; l1++) {
-        tm = ref15[l1];
+      ref17 = opts.terms;
+      for (u = 0, len5 = ref17.length; u < len5; u++) {
+        tm = ref17[u];
         qry.aggregations[tm] = {
           terms: {
             field: tm + (tm.endsWith('.keyword') ? '' : '.keyword'),
@@ -5501,9 +5377,9 @@ P.index.translate = function(q, opts = {}) {
       }
       delete opts.terms;
     }
-    ref16 = ['aggs', 'aggregations'];
-    for (m1 = 0, len12 = ref16.length; m1 < len12; m1++) {
-      af = ref16[m1];
+    ref18 = ['aggs', 'aggregations'];
+    for (w = 0, len6 = ref18.length; w < len6; w++) {
+      af = ref18[w];
       if (opts[af] != null) {
         if (qry[af] == null) {
           qry[af] = {};
@@ -5516,26 +5392,46 @@ P.index.translate = function(q, opts = {}) {
     }
     for (k in opts) {
       v = opts[k];
-      qry[k] = v;
+      if ((k === 'fields') && typeof v === 'string' && v.indexOf(',') !== -1) {
+        v = v.split(',');
+      }
+      if ((k === 'from' || k === 'size') && typeof v !== 'number') {
+        try {
+          v = parseInt(v);
+          if (isNaN(v)) {
+            v = void 0;
+          }
+        } catch (error) {}
+      }
+      if ((v != null) && (k !== 'apikey' && k !== '_' && k !== 'callback' && k !== 'refresh' && k !== 'key' && k !== 'counts' && k !== 'index' && k !== 'search' && k !== 'source' && k !== 'q') && ((ref19 = k.replace('_', '').replace('s', '')) !== 'include' && ref19 !== 'exclude')) {
+        // some URL params that may be commonly used in this API along with valid ES URL query params will be removed here by default too
+        // this makes it easy to handle them in routes whilst also just passing the whole params here and still get back a valid ES query
+        qry[k] = v;
+      }
     }
-  }
-  // no filter query or no main query can cause issues on some queries especially if certain aggs/terms are present, so insert some default searches if necessary
-  //qry.query = { match_all: {} } if typeof qry is 'object' and qry.query? and JSON.stringify(qry.query) is '{}'
-  // clean slashes out of query strings
-  if (((ref17 = qry.query) != null ? ref17.bool : void 0) != null) {
-    for (bm in qry.query.bool) {
-      for (b in qry.query.bool[bm]) {
-        if (typeof ((ref18 = qry.query.bool[bm][b].query_string) != null ? ref18.query : void 0) === 'string' && qry.query.bool[bm][b].query_string.query.indexOf('/') !== -1 && qry.query.bool[bm][b].query_string.query.indexOf('"') === -1) {
-          qry.query.bool[bm][b].query_string.query = '"' + qry.query.bool[bm][b].query_string.query + '"';
+    
+    // no filter query or no main query can cause issues on some queries especially if certain aggs/terms are present, so insert some default searches if necessary
+    //qry.query = { match_all: {} } if typeof qry is 'object' and qry.query? and JSON.stringify(qry.query) is '{}'
+    // clean slashes out of query strings
+    if (((ref20 = qry.query) != null ? ref20.bool : void 0) != null) {
+      for (bm in qry.query.bool) {
+        for (b in qry.query.bool[bm]) {
+          if (typeof ((ref21 = qry.query.bool[bm][b].query_string) != null ? ref21.query : void 0) === 'string' && qry.query.bool[bm][b].query_string.query.indexOf('/') !== -1 && qry.query.bool[bm][b].query_string.query.indexOf('"') === -1) {
+            qry.query.bool[bm][b].query_string.query = '"' + qry.query.bool[bm][b].query_string.query + '"';
+          }
         }
       }
     }
+    if ((qry._source != null) && (qry.fields != null)) {
+      delete qry._source;
+    }
+    return qry;
+  } catch (error) {
+    return void 0;
   }
-  if ((qry._source != null) && (qry.fields != null)) {
-    delete qry._source;
-  }
-  return qry;
 };
+
+P.index.translate._auth = false;
 
 // calling this should be given a correct URL route for ES7.x, domain part of the URL is optional though.
 // call the above to have the route constructed. method is optional and will be inferred if possible (may be removed)
@@ -12505,10 +12401,13 @@ P.svc.rscvd.verify = async function(email, verify = true) {
   if (!email) {
     return void 0;
   }
-  re = {
-    email: email,
-    createdAt: Date.now()
-  };
+  re = (await this.svc.rscvd('email:"' + email + '"'));
+  if (re == null) {
+    re = {
+      email: email,
+      createdAt: Date.now()
+    };
+  }
   if (verify) {
     re.verified = true;
     re.verified_by = this.user.email;
@@ -12564,11 +12463,19 @@ P.svc.rscvd.status = async function() {
 
 P.svc.rscvd.status._auth = true;
 
-P.svc.rscvd.poll = async function() {
-  var base, base1, c, cc, cn, d, dn, ds, i, j, k, l, len, len1, len2, len3, len4, m, n, name, nn, poll, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, res, s, ss, st, v, vn, vs;
+P.svc.rscvd.poll = async function(poll, which) {
+  var base, base1, c, cc, cn, d, dn, ds, i, j, k, l, len, len1, len2, len3, len4, m, n, name, nn, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, res, s, ss, st, v, vn, vs;
   this.nolog = true;
-  this.svc.rscvd.overdue();
-  poll = (ref = this.params.poll) != null ? ref : Date.now() - 180000; // default to changes in last 3 mins
+  if (poll == null) {
+    poll = (ref = this.params.poll) != null ? ref : Date.now() - 180000; // default to changes in last 3 mins
+  }
+  which = (ref1 = this.params.which) != null ? ref1 : ['new', 'verify', 'deny', 'cancel', 'status', 'overdue'];
+  if (typeof which === 'string') {
+    which = which.split(',');
+  }
+  if (indexOf.call(which, 'overdue') >= 0) {
+    this.svc.rscvd.overdue();
+  }
   res = {
     new: [],
     verify: [],
@@ -12576,70 +12483,80 @@ P.svc.rscvd.poll = async function() {
     cancel: [],
     status: {}
   };
-  nn = (await this.svc.rscvd('(status:"Awaiting verification" OR status:"Verified") AND createdAt:>' + poll, 500));
-  ref3 = (ref1 = nn != null ? (ref2 = nn.hits) != null ? ref2.hits : void 0 : void 0) != null ? ref1 : [];
-  for (i = 0, len = ref3.length; i < len; i++) {
-    n = ref3[i];
-    if ((base = n._source)._id == null) {
-      base._id = n._id;
-    }
-    res.new.push(n._source);
-  }
-  vs = (await this.index('logs', 'createdAt:>' + poll + ' AND fn:"svc.rscvd.verify"', {
-    sort: {
-      createdAt: 'desc'
-    },
-    size: 500
-  }));
-  ref4 = vs.hits.hits;
-  for (j = 0, len1 = ref4.length; j < len1; j++) {
-    v = ref4[j];
-    vn = v._source.parts.pop();
-    if (indexOf.call(res.verify, vn) < 0) {
-      res.verify.push(vn);
+  if (indexOf.call(which, 'new') >= 0) {
+    nn = (await this.svc.rscvd('(status:"Awaiting verification" OR status:"Verified") AND createdAt:>' + poll, 500));
+    ref4 = (ref2 = nn != null ? (ref3 = nn.hits) != null ? ref3.hits : void 0 : void 0) != null ? ref2 : [];
+    for (i = 0, len = ref4.length; i < len; i++) {
+      n = ref4[i];
+      if ((base = n._source)._id == null) {
+        base._id = n._id;
+      }
+      res.new.push(n._source);
     }
   }
-  ds = (await this.index('logs', 'createdAt:>' + poll + ' AND fn:"svc.rscvd.deny"', {
-    sort: {
-      createdAt: 'desc'
-    },
-    size: 500
-  }));
-  ref5 = ds.hits.hits;
-  for (k = 0, len2 = ref5.length; k < len2; k++) {
-    d = ref5[k];
-    dn = d._source.parts.pop();
-    if (indexOf.call(res.deny, dn) < 0) {
-      res.deny.push(dn);
+  if (indexOf.call(which, 'verify') >= 0) {
+    vs = (await this.index('logs', 'createdAt:>' + poll + ' AND fn:"svc.rscvd.verify"', {
+      sort: {
+        createdAt: 'desc'
+      },
+      size: 500
+    }));
+    ref5 = vs.hits.hits;
+    for (j = 0, len1 = ref5.length; j < len1; j++) {
+      v = ref5[j];
+      vn = v._source.parts.pop();
+      if (indexOf.call(res.verify, vn) < 0) {
+        res.verify.push(vn);
+      }
     }
   }
-  cc = (await this.index('logs', 'createdAt:>' + poll + ' AND fn:"svc.rscvd.cancel"', {
-    sort: {
-      createdAt: 'desc'
-    },
-    size: 500
-  }));
-  ref6 = cc.hits.hits;
-  for (l = 0, len3 = ref6.length; l < len3; l++) {
-    c = ref6[l];
-    cn = c._source.parts.pop();
-    if (indexOf.call(res.cancel, cn) < 0) {
-      res.cancel.push(cn);
+  if (indexOf.call(which, 'deny') >= 0) {
+    ds = (await this.index('logs', 'createdAt:>' + poll + ' AND fn:"svc.rscvd.deny"', {
+      sort: {
+        createdAt: 'desc'
+      },
+      size: 500
+    }));
+    ref6 = ds.hits.hits;
+    for (k = 0, len2 = ref6.length; k < len2; k++) {
+      d = ref6[k];
+      dn = d._source.parts.pop();
+      if (indexOf.call(res.deny, dn) < 0) {
+        res.deny.push(dn);
+      }
+    }
+  }
+  if (indexOf.call(which, 'cancel') >= 0) {
+    cc = (await this.index('logs', 'createdAt:>' + poll + ' AND fn:"svc.rscvd.cancel"', {
+      sort: {
+        createdAt: 'desc'
+      },
+      size: 500
+    }));
+    ref7 = cc.hits.hits;
+    for (l = 0, len3 = ref7.length; l < len3; l++) {
+      c = ref7[l];
+      cn = c._source.parts.pop();
+      if (indexOf.call(res.cancel, cn) < 0) {
+        res.cancel.push(cn);
+      }
     }
   }
   // TODO need to track changes to Overdue status as well
-  ss = (await this.index('logs', 'createdAt:>' + poll + ' AND fn:"svc.rscvd.status"', {
-    sort: {
-      createdAt: 'desc'
-    },
-    size: 500
-  }));
-  ref7 = ss.hits.hits;
-  for (m = 0, len4 = ref7.length; m < len4; m++) {
-    s = ref7[m];
-    st = s._source.parts.pop();
-    if ((base1 = res.status)[name = s._source.parts.pop()] == null) {
-      base1[name] = st; // only return the most recent status change for a given record ID
+  if (indexOf.call(which, 'status') >= 0) {
+    ss = (await this.index('logs', 'createdAt:>' + poll + ' AND fn:"svc.rscvd.status"', {
+      sort: {
+        createdAt: 'desc'
+      },
+      size: 500
+    }));
+    ref8 = ss.hits.hits;
+    for (m = 0, len4 = ref8.length; m < len4; m++) {
+      s = ref8[m];
+      st = s._source.parts.pop();
+      if ((base1 = res.status)[name = s._source.parts.pop()] == null) {
+        base1[name] = st; // only return the most recent status change for a given record ID
+      }
     }
   }
   return res;
@@ -12673,7 +12590,7 @@ P.svc.rscvd.overdue = async function() {
 };
 
 
-S.built = "Wed Jul 21 2021 05:14:24 GMT+0100";
+S.built = "Sun Jul 25 2021 06:52:59 GMT+0100";
 P.puppet = {_bg: true}// added by constructor
 
 P.puppet._auth = 'system';// added by constructor

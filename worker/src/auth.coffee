@@ -9,11 +9,6 @@
 # and store users to the index as well if available
 
 P.auth = (key) ->
-  shn = 'x-' + @S.name.toLowerCase() + '-system'
-  if @S.name and @S.system and @headers[shn] is @S.system
-    delete @headers[shn]
-    @system = true
-  return true if @system
 
   # if params.auth, someone looking up the URL route for this acc. Who would have the right to see that?
   if typeof key is 'string'
@@ -51,8 +46,8 @@ P.auth = (key) ->
       @users._update user
 
     if not user.resume? and not @apikey
-      user.resume = @uid()
-      @kv 'auth/resume/' + user._id + '/' + user.resume, Date.now(), 7890000 # resume token lasts three months (could make six at 15768000)
+      user.resume = @uid() # could add extra info to resume object like machine logged in on etc to enable device management
+      @kv 'auth/resume/' + user._id + '/' + user.resume, {createdAt: Date.now(), device: @device()}, 7890000 # resume token lasts three months (could make six at 15768000)
 
     if await @auth.role 'root', @user
       @log msg: 'root login' #, notify: true

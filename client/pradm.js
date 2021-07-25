@@ -225,7 +225,7 @@ P.attr = function(els, a, v) {
 P.checked = function(els) {
   var r;
   r = void 0;
-  return P.each(els, function(el) {
+  P.each(els, function(el) {
     var ref1;
     if (r == null) {
       if (el instanceof HTMLInputElement) {
@@ -239,6 +239,7 @@ P.checked = function(els) {
       }
     }
   });
+  return r;
 };
 
 P.check = function(els) {

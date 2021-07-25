@@ -104,6 +104,7 @@ P.checked = (els) ->
           r = if el.checked then (el.value ? true) else false
       else
         r = false
+  return r
 P.check = (els) -> P.each els, (el) -> try el.checked = true # will work for radio buttons as well
 P.uncheck = (els) -> P.each els, (el) -> try el.checked = false
 

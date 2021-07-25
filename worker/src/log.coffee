@@ -36,7 +36,7 @@ P.log = (msg, store) ->
       if @parts.length is 1 and @parts[0] is 'log' # should a remote log be allowed to send to a sub-route URL as an ID? maybe with particular auth?
         if @system
           _bg_log_batch.push @body
-          _bg_log_batch_timeout = setTimeout(_save_batch, 60000) if _bg_log_batch_timeout is false
+          _bg_log_batch_timeout = setTimeout(_save_batch, 30000) if _bg_log_batch_timeout is false
           return true # end here, just saving a log received from remote with system credential
         else
           # receive a remote log - what permissions should be required?
@@ -111,7 +111,7 @@ P.log = (msg, store) ->
             _save_batch()
           else
             clearTimeout(_bg_log_batch_timeout) if _bg_log_batch_timeout isnt false
-            _bg_log_batch_timeout = setTimeout _save_batch, 60000
+            _bg_log_batch_timeout = setTimeout _save_batch, 30000
         else if typeof @S.bg isnt 'string' or (typeof @S.log is 'object' and @S.log.batch is false)
           _bg_log_batch.push msg
           @waitUntil _save_batch()
@@ -126,7 +126,7 @@ P.log = (msg, store) ->
     else
       @_logs.push msg
   else if @S.dev and @S.bg is true
-    console.log msg
+    console.log 'NOT logging', msg
 
   return true
 
