@@ -2198,7 +2198,7 @@ P.log = async function(msg, store) {
       _batch.push(_bg_log_batch.shift());
     }
     if (_batch.length) {
-      if (this.S.dev && this.S.bg === true) {
+      if (this.S.bg === true) {
         console.log('Writing ' + _batch.length + ' logs to index');
       }
       if (!(indexed = (await this.index('logs', _batch)))) {
@@ -3737,10 +3737,14 @@ P.date = function(rt, timed) {
   }
 };
 
+P.date._cache = false;
+
 P.datetime = function() {
   var ref;
   return this.date(this.params.datetime, (ref = this.params.time) != null ? ref : true);
 };
+
+P.datetime._cache = false;
 
 P.epoch = function(epoch) {
   var add, end, ref, start, subtract;
@@ -3795,6 +3799,8 @@ P.epoch = function(epoch) {
     return new Date(start + '.' + end).valueOf();
   }
 };
+
+P.epoch._cache = false;
 
 P._subroutes = function(top) {
   var _lp, subroutes;
@@ -3908,6 +3914,8 @@ P.passphrase = function(len, lowercase) {
   }
   return words.join('');
 };
+
+P.passphrase._cache = false;
 
 // the original xkcd password generator word list of 1949 common English words
 // https://preshing.com/20110811/xkcd-password-generator/
@@ -12590,7 +12598,7 @@ P.svc.rscvd.overdue = async function() {
 };
 
 
-S.built = "Sun Jul 25 2021 09:15:22 GMT+0100";
+S.built = "Sun Jul 25 2021 09:33:37 GMT+0100";
 P.puppet = {_bg: true}// added by constructor
 
 P.puppet._auth = 'system';// added by constructor

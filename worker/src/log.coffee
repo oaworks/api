@@ -14,7 +14,7 @@ P.log = (msg, store) ->
     while _batch.length < 400 and _bg_log_batch.length
       _batch.push _bg_log_batch.shift()
     if _batch.length
-      console.log('Writing ' + _batch.length + ' logs to index') if @S.dev and @S.bg is true
+      console.log('Writing ' + _batch.length + ' logs to index') if @S.bg is true
       if not indexed = await @index 'logs', _batch
         await @index 'logs', {}
         await @index 'logs', _batch
