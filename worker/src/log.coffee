@@ -3,6 +3,7 @@ S.log ?= {}
 
 _bg_log_batch = []
 _bg_log_batch_timeout = false
+_bg_last_log_batch = false
 
 P.log = (msg, store) ->
 
@@ -10,15 +11,21 @@ P.log = (msg, store) ->
     # TODO may be worth generalising this into index functionality and having an option to bulk any index
     # then index calls that are writing data should route to the bg /index functions instead of 
     # direct to the index, so that they can be temporarily stored and handled in bulk (only suitable for when they can be lost too)
+    clearTimeout(_bg_log_batch_timeout) if _bg_log_batch_timeout isnt false
+    _bg_log_batch_timeout = setTimeout _save_batch, 30000
+    _bg_last_log_batch = Date.now()
+    _last = (new Date(_bg_last_log_batch)).toISOString().replace('T',' ').split('.')[0]
     _batch = []
     while _batch.length < 400 and _bg_log_batch.length
       _batch.push _bg_log_batch.shift()
     if _batch.length
-      console.log('Writing ' + _batch.length + ' logs to index') if @S.bg is true
+      console.log('Writing ' + _batch.length + ' logs to index', _batch[0]._id, _batch[_batch.length-1]._id, _last) if @S.bg is true
       if not indexed = await @index 'logs', _batch
         await @index 'logs', {}
         await @index 'logs', _batch
       _batch = []
+    else if @S.bg is true
+      console.log 'Checked log batch but none to save', _last
 
   if @S.log isnt false and @nolog isnt true
     store = not msg? if store isnt true # an empty call to log stores everything in the _logs list
@@ -36,7 +43,7 @@ P.log = (msg, store) ->
       if @parts.length is 1 and @parts[0] is 'log' # should a remote log be allowed to send to a sub-route URL as an ID? maybe with particular auth?
         if @system
           _bg_log_batch.push @body
-          _bg_log_batch_timeout = setTimeout(_save_batch, 30000) if _bg_log_batch_timeout is false
+          _save_batch() if _bg_log_batch_timeout is false
           return true # end here, just saving a log received from remote with system credential
         else
           # receive a remote log - what permissions should be required?
@@ -107,11 +114,8 @@ P.log = (msg, store) ->
       if @S.index?.url?
         if @S.bg is true
           _bg_log_batch.push msg
-          if (typeof @S.log is 'object' and @S.log.batch is false) or _bg_log_batch.length > 300
+          if (typeof @S.log is 'object' and @S.log.batch is false) or _bg_log_batch.length > 300 or _bg_last_log_batch is false or Date.now() > (_bg_last_log_batch + 30000)
             _save_batch()
-          else
-            clearTimeout(_bg_log_batch_timeout) if _bg_log_batch_timeout isnt false
-            _bg_log_batch_timeout = setTimeout _save_batch, 30000
         else if typeof @S.bg isnt 'string' or (typeof @S.log is 'object' and @S.log.batch is false)
           _bg_log_batch.push msg
           @waitUntil _save_batch()

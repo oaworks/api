@@ -2176,7 +2176,7 @@ P.fetch._auth = 'system';
 
 P.fetch._hide = true;
 
-var _bg_log_batch, _bg_log_batch_timeout;
+var _bg_last_log_batch, _bg_log_batch, _bg_log_batch_timeout;
 
 if (S.log == null) {
   S.log = {};
@@ -2186,26 +2186,36 @@ _bg_log_batch = [];
 
 _bg_log_batch_timeout = false;
 
+_bg_last_log_batch = false;
+
 P.log = async function(msg, store) {
   var _save_batch, i, j, l, len, len1, p, prev, prevs, ref, ref1, ref2;
   _save_batch = async() => {
-    var _batch, indexed;
-    // TODO may be worth generalising this into index functionality and having an option to bulk any index
-    // then index calls that are writing data should route to the bg /index functions instead of 
-    // direct to the index, so that they can be temporarily stored and handled in bulk (only suitable for when they can be lost too)
+    var _batch, _last, indexed;
+    if (_bg_log_batch_timeout !== false) {
+      // TODO may be worth generalising this into index functionality and having an option to bulk any index
+      // then index calls that are writing data should route to the bg /index functions instead of 
+      // direct to the index, so that they can be temporarily stored and handled in bulk (only suitable for when they can be lost too)
+      clearTimeout(_bg_log_batch_timeout);
+    }
+    _bg_log_batch_timeout = setTimeout(_save_batch, 30000);
+    _bg_last_log_batch = Date.now();
+    _last = (new Date(_bg_last_log_batch)).toISOString().replace('T', ' ').split('.')[0];
     _batch = [];
     while (_batch.length < 400 && _bg_log_batch.length) {
       _batch.push(_bg_log_batch.shift());
     }
     if (_batch.length) {
       if (this.S.bg === true) {
-        console.log('Writing ' + _batch.length + ' logs to index');
+        console.log('Writing ' + _batch.length + ' logs to index', _batch[0]._id, _batch[_batch.length - 1]._id, _last);
       }
       if (!(indexed = (await this.index('logs', _batch)))) {
         await this.index('logs', {});
         await this.index('logs', _batch);
       }
       return _batch = [];
+    } else if (this.S.bg === true) {
+      return console.log('Checked log batch but none to save', _last);
     }
   };
   if (this.S.log !== false && this.nolog !== true) {
@@ -2234,7 +2244,7 @@ P.log = async function(msg, store) {
         if (this.system) {
           _bg_log_batch.push(this.body);
           if (_bg_log_batch_timeout === false) {
-            _bg_log_batch_timeout = setTimeout(_save_batch, 30000);
+            _save_batch();
           }
           return true; // end here, just saving a log received from remote with system credential
         } else {
@@ -2366,13 +2376,8 @@ P.log = async function(msg, store) {
       if (((ref2 = this.S.index) != null ? ref2.url : void 0) != null) {
         if (this.S.bg === true) {
           _bg_log_batch.push(msg);
-          if ((typeof this.S.log === 'object' && this.S.log.batch === false) || _bg_log_batch.length > 300) {
+          if ((typeof this.S.log === 'object' && this.S.log.batch === false) || _bg_log_batch.length > 300 || _bg_last_log_batch === false || Date.now() > (_bg_last_log_batch + 30000)) {
             _save_batch();
-          } else {
-            if (_bg_log_batch_timeout !== false) {
-              clearTimeout(_bg_log_batch_timeout);
-            }
-            _bg_log_batch_timeout = setTimeout(_save_batch, 30000);
           }
         } else if (typeof this.S.bg !== 'string' || (typeof this.S.log === 'object' && this.S.log.batch === false)) {
           _bg_log_batch.push(msg);
@@ -12598,7 +12603,7 @@ P.svc.rscvd.overdue = async function() {
 };
 
 
-S.built = "Sun Jul 25 2021 09:33:37 GMT+0100";
+S.built = "Sun Jul 25 2021 12:24:34 GMT+0100";
 P.puppet = {_bg: true}// added by constructor
 
 P.puppet._auth = 'system';// added by constructor
