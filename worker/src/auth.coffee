@@ -117,7 +117,7 @@ P.auth.role = (grl, user) ->
   return 'root' if user?.email and user.email in (if typeof @S.root is 'string' then [@S.root] else if Array.isArray(@S.root) then @S.root else [])
 
   if user?.roles?
-    for g in (if typeof grl is 'string' then grl.split(',') else grl)
+    for g in (if typeof grl is 'string' then grl.split(',') else if grl then grl else [])
       [group, role] = g.replace('/', '.').split '.'
 
       return 'owner' if group is user._id # user is owner on their own group
