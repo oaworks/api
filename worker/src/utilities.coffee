@@ -274,8 +274,10 @@ P.date = (rt, timed) ->
     return rt
   catch
     return undefined
+P.date._cache = false
 
 P.datetime = () -> return @date @params.datetime, @params.time ? true
+P.datetime._cache = false
 P.epoch = (epoch) ->
   epoch = epoch.toString() if typeof epoch is 'number'
   epoch ?= @params.epoch
@@ -303,6 +305,7 @@ P.epoch = (epoch) ->
     end += '0' while end.length < 3
     end += 'Z' if end.indexOf('Z') is -1
     return new Date(start + '.' + end).valueOf()
+P.epoch._cache = false
 
 P._subroutes = (top) ->
   subroutes = []
@@ -400,6 +403,7 @@ P.passphrase = (len, lowercase) ->
     w = P._passphrase_words[Math.floor((Math.random() * wl))]
     words.push if lowercase then w else w.substring(0,1).toUpperCase() + w.substring(1)
   return words.join ''
+P.passphrase._cache = false
 
 # the original xkcd password generator word list of 1949 common English words
 # https://preshing.com/20110811/xkcd-password-generator/
