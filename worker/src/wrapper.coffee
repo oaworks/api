@@ -67,7 +67,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
           qry = await @index.translate(if @request.method is 'POST' then @body else @params) # and if there is @params._delete, delete by query?
       else if arguments.length # could be a key string and record or could be a query and options (and query could look like a key)
         lg.key = arguments[0].replace(/\//g, '_') if typeof arguments[0] is 'string' and arguments[0].length and not arguments[0].includes '\n' # could be key or query string
-        delete lg.key if lg.key and lg.key.length isnt lg.key.replace(/[\s\:\*~()\?=%]/g, '').length # only keep if it could be a valid key
+        delete lg.key if lg.key and lg.key.length isnt lg.key.replace(/[\s\:\*~\?=%]/g, '').length # only keep if it could be a valid key
         if f._index and arguments[0] isnt '' and arguments[1] isnt '' and qry = await @index.translate arguments[0], arguments[1] # check if it can be a query
           qry = undefined if lg.key and (arguments.length is 1 or typeof arguments[1] is 'object') and exists = await @index rt + '/' + lg.key # it was a record key, not a query
         rec = if qry? then undefined else if lg.key then arguments[1] else if f._index then arguments[0] else undefined

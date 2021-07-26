@@ -4024,7 +4024,7 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
         if (typeof arguments[0] === 'string' && arguments[0].length && !arguments[0].includes('\n')) { // could be key or query string
           lg.key = arguments[0].replace(/\//g, '_');
         }
-        if (lg.key && lg.key.length !== lg.key.replace(/[\s\:\*~()\?=%]/g, '').length) { // only keep if it could be a valid key
+        if (lg.key && lg.key.length !== lg.key.replace(/[\s\:\*~\?=%]/g, '').length) { // only keep if it could be a valid key
           delete lg.key;
         }
         if (f._index && arguments[0] !== '' && arguments[1] !== '' && (qry = (await this.index.translate(arguments[0], arguments[1])))) {
@@ -12603,7 +12603,7 @@ P.svc.rscvd.overdue = async function() {
 };
 
 
-S.built = "Sun Jul 25 2021 12:24:34 GMT+0100";
+S.built = "Mon Jul 26 2021 02:27:22 GMT+0100";
 P.puppet = {_bg: true}// added by constructor
 
 P.puppet._auth = 'system';// added by constructor
