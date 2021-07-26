@@ -1826,6 +1826,10 @@ P.example = function() {
 
 P.example._hides = true;
 
+P.example.idx = {
+  _index: true
+};
+
 P.example.restricted = function() {
   return {
     hello: this.user._id
@@ -4042,7 +4046,7 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
           lg.key = rec._id;
         }
       }
-      //console.log(n, lg.key, JSON.stringify(rec), JSON.stringify qry) if @S.dev and @S.bg is true
+      //console.log(n, lg.key, JSON.stringify(rec), JSON.stringify(qry), res, @refresh, typeof f, exists) if @S.dev and @S.bg is true
       if (qry != null) {
         res = (await this.index(rt, qry));
         lg.qry = JSON.stringify(qry);
@@ -4354,7 +4358,7 @@ if (typeof S.bg === 'string') {
 // delete can only be achieved with '' internally, or by a request method of DELETE or URL param of _delete and suitable auth
 // delete by query can also work this way
 P.index = async function(route, data, opts, foreach) {
-  var c, chk, dni, i, ind, j, len, qr, ref1, ref2, ref3, ref4, ref5, res, ret, rex, rpl, rqp;
+  var c, chk, dni, i, j, len, qr, ref1, ref2, ref3, ref4, ref5, res, ret, rex, rpl, rqp;
   if (typeof route === 'object') {
     data = route;
     route = void 0;
@@ -4461,7 +4465,7 @@ P.index = async function(route, data, opts, foreach) {
         return this.index._bulk(route + rqp, data); // bulk create (TODO what about if wanting other bulk actions?)
       }
     } else if ((ref3 = typeof data) === 'object' || ref3 === 'string') {
-      if (qr = (await this.index.translate(data, opts))) {
+      if (JSON.stringify(data) !== '{}' && (qr = (await this.index.translate(data, opts)))) {
         return this.index._send(route + '/_search' + rqp, qr);
       } else if (typeof data === 'object') {
         chk = (this != null ? this.copy : void 0) != null ? this.copy(data) : P.copy(data);
@@ -4472,12 +4476,11 @@ P.index = async function(route, data, opts, foreach) {
         }
         if (JSON.stringify(chk) === '{}') {
           if (!(await this.index._send(route + rqp))) {
-            ind = !(await this.index.translate(data)) ? {
+            await this.index._send(route + rqp, {
               settings: data.settings,
               aliases: data.aliases,
-              mappings: data.mappings
-            } : {};
-            await this.index._send(route + rqp, ind); // create the index
+              mappings: data.mappings // create the index
+            });
           }
           return this.index._send(route + '/_search' + rqp); // just do a search
         } else {
@@ -12603,7 +12606,7 @@ P.svc.rscvd.overdue = async function() {
 };
 
 
-S.built = "Mon Jul 26 2021 02:27:22 GMT+0100";
+S.built = "Mon Jul 26 2021 07:44:38 GMT+0100";
 P.puppet = {_bg: true}// added by constructor
 
 P.puppet._auth = 'system';// added by constructor

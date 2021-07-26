@@ -75,7 +75,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
       if typeof rec is 'object' and not Array.isArray rec
         rec._id ?= lg.key ? rec[f._key] ? @uid()
         lg.key ?= rec._id
-      #console.log(n, lg.key, JSON.stringify(rec), JSON.stringify qry) if @S.dev and @S.bg is true
+      #console.log(n, lg.key, JSON.stringify(rec), JSON.stringify(qry), res, @refresh, typeof f, exists) if @S.dev and @S.bg is true
       
       if qry?
         res = await @index rt, qry

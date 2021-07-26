@@ -15,6 +15,8 @@ P.example = ->
   return res
 P.example._hides = true
 
+P.example.idx = _index: true
+
 P.example.restricted = () ->
   return hello: @user._id
 P.example.restricted._auth = true

@@ -113,15 +113,14 @@ P.index = (route, data, opts, foreach) ->
       else
         return @index._bulk route + rqp, data # bulk create (TODO what about if wanting other bulk actions?)
     else if typeof data in ['object', 'string']
-      if qr = await @index.translate data, opts
+      if JSON.stringify(data) isnt '{}' and qr = await @index.translate data, opts
         return @index._send route + '/_search' + rqp, qr
       else if typeof data is 'object'
         chk = if this?.copy? then @copy(data) else P.copy data
         delete chk[c] for c in ['settings', 'aliases', 'mappings']
         if JSON.stringify(chk) is '{}'
           if not await @index._send route + rqp
-            ind = if not await @index.translate(data) then {settings: data.settings, aliases: data.aliases, mappings: data.mappings} else {}
-            await @index._send route + rqp, ind # create the index
+            await @index._send route + rqp, {settings: data.settings, aliases: data.aliases, mappings: data.mappings} # create the index
           return @index._send route + '/_search' + rqp # just do a search
         else
           ret = await @index._send route + '/_doc' + rqp, data # create a single record without ID (if it came with ID it would have been caught above and converted to route with multiple parts)
