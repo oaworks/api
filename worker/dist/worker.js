@@ -9200,6 +9200,9 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
       _oad = async() => {
         var oad;
         oad = (await this.src.oadoi(metadata.doi));
+        if (oad == null) {
+          res.doi_not_in_oadoi = metadata.doi;
+        }
         if ((oad != null ? oad.doi : void 0) && (metadata != null ? metadata.doi : void 0) && oad.doi.toLowerCase() === metadata.doi.toLowerCase()) { // check again for doi in case removed by failed crossref lookup
           await _metadata(oad);
         }
@@ -12605,7 +12608,7 @@ P.svc.rscvd.overdue = async function() {
 };
 
 
-S.built = "Mon Jul 26 2021 09:07:03 GMT+0100";
+S.built = "Mon Jul 26 2021 09:23:02 GMT+0100";
 P.puppet = {_bg: true}// added by constructor
 
 P.puppet._auth = 'system';// added by constructor
