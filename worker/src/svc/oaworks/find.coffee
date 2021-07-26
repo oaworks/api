@@ -78,7 +78,6 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
   res.demo ?= true if (metadata.doi is '10.1234/567890' or (metadata.doi? and metadata.doi.indexOf('10.1234/oab-syp-') is 0)) or metadata.title is 'Engineering a Powerfully Simple Interlibrary Loan Experience with InstantILL' or options.from in ['qZooaHWRz9NLFNcgR','eZwJ83xp3oZDaec86']
   res.test ?= true if res.demo # don't save things coming from the demo accounts into the catalogue later
 
-
   _searches = () =>
     if (content? or options.url?) and not (metadata.doi or metadata.pmid? or metadata.pmcid? or metadata.title?)
       scraped = await @svc.oaworks.scrape content ? options.url
@@ -122,8 +121,6 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
         cr = await @src.crossref.works metadata.doi
         if not cr?.type
           res.doi_not_in_crossref = metadata.doi
-          delete options.url if typeof options.url is 'string' and options.url.indexOf('doi.org/' + metadata.doi) isnt -1
-          delete metadata.doi
         else
           await _metadata cr
         return true
@@ -132,6 +129,7 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
     return true
 
   await _searches()
+
 
   # if nothing useful can be found and still only have title try using bing - or drop this ability?
   # TODO what to do if this finds anything? re-call the whole find?
@@ -416,6 +414,7 @@ P.svc.oaworks.citation = (citation) ->
           if not res.pages and clc.indexOf('page') isnt -1
             res.pages = clc.split('page')[1].split('.')[0].split(', ')[0].split(' ')[0].trim()
 
+  res.year = res.year.toString() if typeof res.year is 'number'
   return res
 
 

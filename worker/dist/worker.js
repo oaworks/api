@@ -9209,10 +9209,6 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
         cr = (await this.src.crossref.works(metadata.doi));
         if (!(cr != null ? cr.type : void 0)) {
           res.doi_not_in_crossref = metadata.doi;
-          if (typeof options.url === 'string' && options.url.indexOf('doi.org/' + metadata.doi) !== -1) {
-            delete options.url;
-          }
-          delete metadata.doi;
         } else {
           await _metadata(cr);
         }
@@ -9875,6 +9871,9 @@ P.svc.oaworks.citation = function(citation) {
         } catch (error) {}
       }
     } catch (error) {}
+  }
+  if (typeof res.year === 'number') {
+    res.year = res.year.toString();
   }
   return res;
 };
@@ -12606,7 +12605,7 @@ P.svc.rscvd.overdue = async function() {
 };
 
 
-S.built = "Mon Jul 26 2021 07:44:38 GMT+0100";
+S.built = "Mon Jul 26 2021 09:07:03 GMT+0100";
 P.puppet = {_bg: true}// added by constructor
 
 P.puppet._auth = 'system';// added by constructor
