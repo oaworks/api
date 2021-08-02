@@ -7,6 +7,7 @@ import Busboy from 'busboy'
 import {promises as fs} from 'fs'
 import tar from 'tar' # for tar file conversion
 import zlib from 'zlib' # for reading/converting gz files
+import readline from 'readline'
 
 
 server = http.createServer (req, res) ->

@@ -126,9 +126,15 @@ P.logout = (e) ->
       else if typeof P.afterLogout is 'function'
         try P.afterLogout()
 
+P.requestPermission = () ->
+  P.hide '.PRequestPermission'
+  P.show '.PRequestedPermission'
+  P.ajax '/auth/request'
+
 P.ready () ->
-  P.on 'enter', '#PEmail', P.token
+  try P.on 'enter', '#PEmail', P.token
   try P.on 'keyup', '#PToken', (e) -> P.login() if P.val('#PToken').length is 8
+  try P.on 'click', '#PRequestPermission', P.requestPermission
   try
     if P.val('#POauthGoogle').length and P.oauthGoogleClientId
       state = Math.random().toString(36).substring(2,8)

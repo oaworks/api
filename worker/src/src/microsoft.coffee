@@ -83,12 +83,12 @@ P.src.microsoft.graph.journal = (q) ->
 
 
 '''
-P.src.microsoft.graph.paper = _index: true
-P.src.microsoft.graph.journal = _index: true
-P.src.microsoft.graph.author = _index: true
-P.src.microsoft.graph.affiliation = _index: true
-P.src.microsoft.graph.abstract = _index: true
-P.src.microsoft.graph.relation = _index: true
+P.src.microsoft.graph = _prefix: false, _index: settings: number_of_shards: 9
+P.src.microsoft.graph.journal = _prefix: false, _index: true
+P.src.microsoft.graph.author = _prefix: false, _index: true
+P.src.microsoft.graph.affiliation = _prefix: false, _index: true
+P.src.microsoft.graph.abstract = _prefix: false, _index: true
+P.src.microsoft.graph.relation = _prefix: false, _index: true
 '''
 
 

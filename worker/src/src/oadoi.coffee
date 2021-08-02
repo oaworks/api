@@ -8,8 +8,7 @@ P.src.oadoi = (doi) ->
   else
     return undefined
     
-#P.src.oadoi._kv = false
-P.src.oadoi._index = true
+P.src.oadoi._index = settings: number_of_shards: 9
 P.src.oadoi._key = 'doi'
 P.src.oadoi._prefix = false
 

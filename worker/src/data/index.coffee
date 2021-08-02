@@ -346,7 +346,7 @@ P.index._each = (route, q, opts, fn) ->
 
   processed = 0
   updates = []
-  for await rec from @index._for route, (qy ? q), opts # TODO check if this needs await
+  for await rec from @index._for route, (qy ? q), opts
     fr = await fn.call this, rec
     processed += 1
     updates.push(fr) if fr? and (typeof fr is 'object' or typeof fr is 'string')

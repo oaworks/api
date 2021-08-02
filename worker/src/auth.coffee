@@ -9,15 +9,14 @@
 # and store users to the index as well if available
 
 P.auth = (key) ->
-
   # if params.auth, someone looking up the URL route for this acc. Who would have the right to see that?
-  if typeof key is 'string'
+  if typeof key is 'string' # or key can be false, to pass through to unauthorised / login / request page
     return @users._get key
 
-  if not key? and @user? and @fn is 'auth'
+  if not key and @user? and (@fn is 'auth' or key is false)
     user = @user
-  else
-    if (@params.access_token and oauth = await @oauth @params.access_token) or ((@params.token or @params.auth) and email = await @kv 'auth/token/' + (@params.token ? @params.auth), '') # true causes delete after found
+  else if key isnt false
+    if (@params.access_token and oauth = await @auth._oauth @params.access_token) or ((@params.token or @params.auth) and email = await @kv 'auth/token/' + (@params.token ? @params.auth), '') # true causes delete after found
       if not user = await @users._get(oauth?.email ? email) # get the user record if it already exists
         user = await @users._create oauth ? email # create the user record if not existing, as this is the first token login attempt for this email address
     if not user and @apikey and uid = await @kv 'auth/apikey/' + @apikey
@@ -55,25 +54,28 @@ P.auth = (key) ->
   # if this is called with no variables, and no defaults, provide a count of users?
   # but then if logged in and on this route, what does it provide? the user account?
   
-  if not key? and @fn is 'auth' and not @format and @headers['user-agent'] and @headers['user-agent'].toLowerCase().includes('mozilla') and @headers.accept and @headers.accept.toLowerCase().includes 'html'
+  if not @format and (@fn is 'auth' or @unauthorised) and @headers['user-agent'] and @headers['user-agent'].toLowerCase().includes('mozilla') and @headers.accept and @headers.accept.includes('/html') and not @headers.accept.includes '/json'
     @format = 'html'
-
-  if not key? and @format is 'html'
-    ret = if @fn is 'auth' then '<body class="black">' else '<body>'
+  if not key and @format is 'html'
+    ret = '<body class="black">' # or times to decide when just a normal body? '<body>'
     ret += '<div class="flex" style="margin-top: 10%;"><div class="c6 off3"><h1 id="title" class="centre statement" style="font-size:40px;">' + (if @base then @base.replace('bg.', '(bg) ') else @S.name) + '</h1></div></div>'
     ret += '<div class="flex" style="margin-top: 5%;"><div class="c6 off3">'
-    if not user?
+    if not @user?
       ret += '<input autofocus id="PEmail" class="PEmail big shadow" type="text" name="email" placeholder="email">'
       ret += '<input id="PToken" class="PToken big shadow" style="display:none;" type="text" name="token" placeholder="token (check your email)">'
       ret += '<p class="PWelcome" style="display:none;">Welcome back</p>'
       ret += '<p class="PLogout" style="display:none;"><a id="PLogout" class="button action" href="#">logout</a></p>'
     else
+      if false #key is false # unauthorised
+        ret += '<p>You do not have permission to access this resource</p>'
+        ret += '<p class="PRequestPermission"><a id="PRequestPermission" class="button action" href="#">Request permission</p>'
+        ret += '<p class="PRequestedPermission" style="display:none;">Thanks, you will receive an email once permission has been granted</p>'
       ret += '<p>' + user.email + '</p><p><a id="PLogout" class="button action" href="#">logout</a></p>'
     ret += '<div class="PLoading" style="display:none;"><div class="loading big"></div></div>'
     ret += '</div></div></body>'
     ret += '<script>'
     ret += 'P.afterLogout = function() { location.reload(); }; ' if @fn is 'auth'
-    ret += 'P.loginNext = true;'  if @fn isnt 'auth' or user?
+    ret += 'P.loginNext = true;' if @fn isnt 'auth' or @user?
     ret += '</script>'
     return ret
   else
@@ -125,7 +127,7 @@ P.auth.role = (grl, user) ->
         if role in (user.roles[group] ? [])
           return role
         else if user.roles[group]?
-          cascade = ['service', 'owner', 'super', 'admin', 'auth', 'bulk', 'delete', 'remove', 'create', 'insert', 'publish', 'put', 'draft', 'post', 'edit', 'update', 'user', 'get', 'read', 'info', 'public']
+          cascade = ['service', 'owner', 'super', 'admin', 'auth', 'bulk', 'delete', 'remove', 'create', 'insert', 'publish', 'put', 'draft', 'post', 'edit', 'update', 'user', 'get', 'read', 'info', 'public', 'request']
           if -1 < ri = cascade.indexOf role
             for rl in cascade.splice 0, ri
               return rl if rl in user.roles[group]
@@ -138,13 +140,15 @@ P.auth.role = (grl, user) ->
 # deny meaning automatically not allowed any other role on the group
 # whereas otherwise a user (or system on behalf of) should be able to request a role (TODO)
 P.auth.add = (grl, user, remove, deny) ->
-  grl ?= @params.add
-  [group, role] = grl.replace('/', '.').split '.'
-
   user = if typeof user is 'object' then user else if user or @params.auth then await @users._get(user ? @params.auth) else @user
-  if @user._id isnt user._id
+  if not grl and @user._id isnt user._id
     # TODO what about one logged in user acting on the roles route of another? - which groups could a user add another user to?
     return false if not await @auth.role 'system'
+
+  grl ?= @params.add ? @params.remove ? @params.deny
+  return false if not grl
+
+  [group, role] = grl.replace('/', '.').split '.'
 
   remove ?= (@request.method is 'DELETE' or @params._delete is true) and @fn is 'auth.roles'
 
@@ -166,20 +170,22 @@ P.auth.add = (grl, user, remove, deny) ->
       user.roles[group].splice user.roles[group].indexOf(role), 1
       delete user.roles[group] if not user.roles[group].length
       @users._update user
-  else
+  else if role isnt 'request' or 'deny' not in (user.roles[group] ? []) # a denied user cannot request
     user.roles[group] ?= []
+    user.roles[group] = user.roles[group].splice(user.roles[group].indexOf('request'), 1) if 'request' in user.roles[group] # when any other role is added, request is removed
     user.roles.group.push role
     @users._update user
+    # TODO if role to add is 'request' then notify someone who can authorise
 
   return user
 
-P.auth.remove = (grl, user) ->
-  grl ?= @params.remove
-  return @auth.add grl, user, true
+P.auth.remove = (grl, user) -> return @auth.add grl, user, true # remove and deny would auth on add
+P.auth.deny = (grl, user) -> return @auth.add grl, user, undefined, true
 
-P.auth.deny = (grl, user) ->
-  grl ?= @params.deny
-  return @auth.add grl, user, undefined, true
+P.auth.request = (grl, user) ->
+  grl ?= @params.request # anyone can request so no auth needed for request
+  grl = grl.split('/')[0] + '/request'
+  return @auth.add grl, user
   
 
 P.auth.logout = (user) -> # how about triggering a logout on a different user account
@@ -204,7 +210,7 @@ P.auth.logout = (user) -> # how about triggering a logout on a different user ac
 # device fingerprinting was available in the old code but no explicit requirement for it so not added here yet
 # old code also had xsrf tokens for FORM POSTs, add that back in if relevant
 
-P._oauth = (token, cid) ->
+P.auth._oauth = (token, cid) ->
   # https://developers.google.com/identity/protocols/OAuth2UserAgent#validatetoken
   sets = {}
   if token #?= @params.access_token

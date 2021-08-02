@@ -5,7 +5,7 @@ P.svc.oaworks.permissions = (meta, ror, getmeta) ->
   cr = false
   haddoi = false
   
-  _prep = (rec) ->
+  _format = (rec) ->
     if haddoi and rec.embargo_months and (meta.published or meta.year)
       em = new Date Date.parse meta.published ? meta.year + '-01-01'
       em = new Date em.setMonth em.getMonth() + rec.embargo_months
@@ -179,7 +179,7 @@ P.svc.oaworks.permissions = (meta, ror, getmeta) ->
                   rs = await @svc.oaworks.permissions.affiliations 'issuer.id:"' + sn.value + '"'
                   break
     for rr in rs?.hits?.hits ? []
-      tr = await _prep rr._source
+      tr = await _format rr._source
       tr.score = await _score tr
       rors.push tr
 
@@ -187,7 +187,7 @@ P.svc.oaworks.permissions = (meta, ror, getmeta) ->
     qr = if issns.length then 'issuer.id:"' + issns.join('" OR issuer.id:"') + '"' else ''
     ps = await @svc.oaworks.permissions.journals qr
     for p in ps?.hits?.hits ? []
-      rp = await _prep p._source
+      rp = await _format p._source
       rp.score = await _score rp
       perms.all_permissions.push rp
 
@@ -195,7 +195,7 @@ P.svc.oaworks.permissions = (meta, ror, getmeta) ->
     qr = 'issuer.id:"' + meta.publisher + '"' # how exact/fuzzy can this be
     ps = await @svc.oaworks.permissions.publishers qr
     for p in ps?.hits?.hits ? []
-      rp = await _prep p._source
+      rp = await _format p._source
       rp.score = await _score rp
       perms.all_permissions.push rp
 

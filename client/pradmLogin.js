@@ -185,15 +185,26 @@ P.logout = function(e) {
   }
 };
 
+P.requestPermission = function() {
+  P.hide('.PRequestPermission');
+  P.show('.PRequestedPermission');
+  return P.ajax('/auth/request');
+};
+
 P.ready(function() {
   var grl, loggedin, ref1, state;
-  P.on('enter', '#PEmail', P.token);
+  try {
+    P.on('enter', '#PEmail', P.token);
+  } catch (error) {}
   try {
     P.on('keyup', '#PToken', function(e) {
       if (P.val('#PToken').length === 8) {
         return P.login();
       }
     });
+  } catch (error) {}
+  try {
+    P.on('click', '#PRequestPermission', P.requestPermission);
   } catch (error) {}
   try {
     if (P.val('#POauthGoogle').length && P.oauthGoogleClientId) {

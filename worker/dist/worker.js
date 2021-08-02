@@ -112,7 +112,6 @@ try {
   // (compared against a previously stored one). If it doesn't it should log something that then gets 
   // picked up by the alert mechanism
 
-  // _format can be set to default the function format return type (html or csv so far)
   // _hide can be set to hide a function that should otherwise show up on the routes list, 
   // or _hides can be used to hide a function and anything under it
   // e.g. one that doesn't start with _ but should be hidden for some reason anyway. NOTE this 
@@ -138,7 +137,7 @@ try {
 } catch (error) {}
 
 P = async function(scheduled) {
-  var _lp, authd, base, base1, base2, base3, bd, cp, ct, d, du, entry, exclusive, fd, fn, fs, hd, hk, i, j, kp, kpn, l, len, len1, len2, len3, name, o, pf, pk, pkp, pp, prs, qp, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, resp, rk, schedule, shn, si, tp;
+  var _lp, authd, base, base1, base2, base3, bd, cp, ct, d, du, entry, exclusive, fd, fn, fs, hd, hk, i, j, kp, kpn, l, len, len1, len2, len3, name, o, pf, pk, pkp, pp, prs, qp, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, resp, rk, schedule, shn, si, tp;
   // the context here is the fetch event
   this.started = Date.now(); // not strictly accurate in a workers environment, but handy nevertheless, used for comparison when logs are finally written
   try {
@@ -327,7 +326,7 @@ P = async function(scheduled) {
     this.base = this.parts.shift();
   }
   if (typeof this.headers.accept === 'string') {
-    if (this.headers.accept.indexOf('/csv') !== -1 && indexOf.call(this.S.formats, 'csv') >= 0) {
+    if (this.headers.accept.includes('/csv') && indexOf.call(this.S.formats, 'csv') >= 0) {
       this.format = 'csv';
     }
   }
@@ -548,12 +547,7 @@ P = async function(scheduled) {
     }
     // TODO check the blacklist
     if (authd || this.system) {
-      if (typeof fn._format === 'string' && (ref13 = fn._format, indexOf.call(this.S.formats, ref13) >= 0)) {
-        if (this.format == null) {
-          this.format = fn._format;
-        }
-      }
-      if ((ref14 = this.request.method) === 'HEAD' || ref14 === 'OPTIONS') {
+      if ((ref13 = this.request.method) === 'HEAD' || ref13 === 'OPTIONS') {
         res = '';
       } else if (fn._cache !== false && !this.refresh && (this.request.method === 'GET' || (this.request.method === 'POST' && (await this.index.translate(this.params)))) && (res = (await this.cache()))) { // this will return empty if nothing relevant was ever put in there anyway
         // how about caching of responses to logged in users, by param or header?
@@ -566,49 +560,44 @@ P = async function(scheduled) {
         this.completed = true;
       }
     } else {
-      // Random delay for https://en.wikipedia.org/wiki/Timing_attack
       this.unauthorised = true;
-      await this.sleep(200 * (1 + Math.random()));
+      await this.sleep(200 * (1 + Math.random())); // https://en.wikipedia.org/wiki/Timing_attack
       res = {
         status: 401 // not authorised
       };
-      if (this.format === 'html') {
-        res.body = (await this.auth(void 0, (this.fn.startsWith('svc.') ? this.fn.replace('svc.', '').split('.')[0].toUpperCase() : '')));
-      }
+      res.body = (await this.auth(false)); // this returns an auth web page if the request appeared to come from a web browser (and not from js)
     }
   }
   if (((res == null) || (typeof res === 'object' && res.status === 404)) && this.url.replace('.ico', '').replace('.gif', '').replace('.png', '').endsWith('favicon')) {
     res = '';
   }
-  resp = typeof res === 'object' && !Array.isArray(res) && typeof ((ref15 = res.headers) != null ? ref15.append : void 0) === 'function' ? res : (await this._response(res, fn));
+  resp = typeof res === 'object' && !Array.isArray(res) && typeof ((ref14 = res.headers) != null ? ref14.append : void 0) === 'function' ? res : (await this._response(res, fn));
   // what about if scheduled? log?
-  if (this.parts.length && ((ref16 = this.parts[0]) !== 'log' && ref16 !== 'status') && (!this.system || ((ref17 = this.parts[0]) !== 'kv' && ref17 !== 'index')) && ((ref18 = this.request.method) !== 'HEAD' && ref18 !== 'OPTIONS') && (res != null) && res !== '') {
-    if (this.completed && fn._cache !== false && resp.status === 200 && (typeof res !== 'object' || Array.isArray(res) || ((ref19 = res.hits) != null ? ref19.total : void 0) !== 0) && (typeof res !== 'number' || !this.refresh)) {
+  if (this.parts.length && ((ref15 = this.parts[0]) !== 'log' && ref15 !== 'status') && (!this.system || ((ref16 = this.parts[0]) !== 'kv' && ref16 !== 'index')) && ((ref17 = this.request.method) !== 'HEAD' && ref17 !== 'OPTIONS') && (res != null) && res !== '') {
+    if (this.completed && fn._cache !== false && resp.status === 200 && (typeof res !== 'object' || Array.isArray(res) || ((ref18 = res.hits) != null ? ref18.total : void 0) !== 0) && (typeof res !== 'number' || !this.refresh)) {
       si = fn._cache; // fn._cache can be a number of seconds for cache to live, so pass it to cache to use if suitable
-      if ((si == null) && typeof res === 'object' && !Array.isArray(res) && (((ref20 = res.hits) != null ? ref20.hits : void 0) != null)) { // if this is a search result, cache only 1 minute max if nothing else was set for it
+      if ((si == null) && typeof res === 'object' && !Array.isArray(res) && (((ref19 = res.hits) != null ? ref19.hits : void 0) != null)) { // if this is a search result, cache only 1 minute max if nothing else was set for it
         si = 60;
       }
       this.cache(void 0, resp, si);
     } else if (this.refresh) {
       this.cache(void 0, '');
     }
-    if (((ref21 = typeof fn) !== 'object' && ref21 !== 'function') || fn._log !== false) {
+    if (((ref20 = typeof fn) !== 'object' && ref20 !== 'function') || fn._log !== false) {
       this.log();
     }
   }
-  if (!this.completed && !this.cached && !this.unauthorised && !this.scheduled && this.S.pass !== false && typeof this.S.bg === 'string' && ((ref22 = this.request.method) !== 'HEAD' && ref22 !== 'OPTIONS')) {
+  if (!this.completed && !this.cached && !this.unauthorised && !this.scheduled && this.S.pass !== false && typeof this.S.bg === 'string' && ((ref21 = this.request.method) !== 'HEAD' && ref21 !== 'OPTIONS')) {
     throw new Error(); // TODO check for functions that often timeout and set them to _bg by default
   } else {
     return resp;
   }
 };
 
-P.src = {};
-
-P.svc = {};
-
-P.scripts = {};
-
+// build a suitable response object
+// API above calls this to create a response, unless the result of the called function
+// is already a suitable response (which itself could use this function, or manually 
+// build a response if preferred/necessary)
 P._response = async function(res, fn) {
   var ah, at, base, base1, base2, h, hdr, hh, i, j, keys, len, len1, m, ph, pt, ref, ref1, ref2, ref3, ret, rm, status, tt;
   if ((base = this.S).headers == null) {
@@ -717,6 +706,301 @@ P._response = async function(res, fn) {
   }
 };
 
+// API calls this to wrap functions on P, apart from top level functions and ones 
+// that start with _ or that indicate no wrapping with _wrap: false
+// wrapper settings declared on each P function specify which wrap actions to apply
+// _auth and _cache settings on a P function are handled by API BEFORE _wrapper is 
+// used, so _auth and _cache are not handled within the wrapper
+// the wrapepr logs the function call (whether it was the main API call or subsequent)
+P._wrapper = function(f, n) { // the function to wrap and the string name of the function
+  return async function() {
+    var _as, args, bup, exists, lg, limited, qry, rec, ref, ref1, ref2, ref3, res, rt, sht, started;
+    started = Date.now(); // not accurate in a workers environment, but close enough
+    rt = n.replace(/\./g, '_');
+    lg = {
+      fn: n
+    };
+    // _limit can be true, which stays in place until the function completes, or it can be a number which 
+    // will be the lifespan of the limit record in the KV store
+    // _limit
+    if (f._limit) {
+      limited = (await this.kv('limit/' + n));
+      while (limited) {
+        if (lg.limited == null) {
+          lg.limited = 0;
+        }
+        lg.limited += limited;
+        await this.sleep(limited - started);
+        limited = (await this.kv('limit/' + n));
+      }
+    }
+    // check for an _async param request and look to see if it is in the async finished store
+    // if so, serve the result otherwise re-serve the param to indicate waiting should continue
+    // _async
+    if ((ref = typeof this.params._async) === 'string' || ref === 'number') {
+      if (res = (await this.kv('async/' + this.params._async, ''))) {
+        if (typeof res === 'string' && res.includes('/') && !res.includes(' ') && !res.includes(':') && !res.startsWith('10.') && res.split('/').length === 2) {
+          try {
+            if (f._kv) {
+              res = (await this.kv(res));
+            }
+          } catch (error) {}
+          try {
+            if ((res == null) && f._index) { // async stored the _id for the result
+              res = (await this.index(res));
+            }
+          } catch (error) {}
+        }
+        try {
+          if (typeof res === 'string' && (res.startsWith('{') || res.startsWith('['))) {
+            res = JSON.parse(res);
+          }
+        } catch (error) {}
+      } else {
+        res = {
+          _async: this.params._async // user should keep waiting
+        };
+      }
+    
+    // serve the underlying sheet / csv link if configured and asked for it
+    // _sheet
+    } else if (this.fn === n && f._sheet && this.parts.indexOf('sheet') === this.parts.length - 1) {
+      res = {
+        status: 302
+      };
+      if (f._sheet.startsWith('http')) {
+        res.body = f._sheet;
+      } else if (this.format === 'json') { // TODO make it handle sheet and sheet ID in cases where both are provided
+        res.body = 'https://spreadsheets.google.com/feeds/list/' + f._sheet + '/' + 'default' + '/public/values?alt=json';
+      } else {
+        res.body = 'https://docs.google.com/spreadsheets/d/' + f._sheet;
+      }
+      res.headers = {
+        Location: res.body
+      };
+    // a function with _index will be given child functions that call the default index child functions - if they're present, call them with the route specified
+    } else if (f._indexed) {
+      args = [...arguments];
+      args.unshift(rt.replace('_' + f._indexed, ''));
+      res = (await this.index[f._indexed](...args));
+    
+    // index / kv should first be checked if configured
+    // for index, to create a new record with a specified ID, ONLY specify it as _id in the object as first argument and no second argument
+    // updating / deleting can be done providing key in first argument and object / empty string in second argument
+    // for kv, create can be done with ID string as first argument and record/value as second argument
+    // _index, _kv
+    } else if ((f._index || f._kv) && (!f._sheet || this.fn !== n || !this.refresh)) {
+      if (this.fn === n) {
+        if (this.fn.replace(/\./g, '/') !== this.route) { // action on a specific keyed record
+          lg.key = this.route.split(n.split('.').pop()).pop().replace(/\//g, '_').replace(/^_/, '').replace(/_$/, '');
+        }
+        // TODO who should be allowed to submit a record remotely?
+        //rec = if @request.method is 'PUT' or (lg.key and @request.method is 'POST') then @body else if @request.method is 'DELETE' or @params._delete then '' else undefined
+        if (!lg.key && f._index) { //and not rec?
+          qry = (await this.index.translate(this.request.method === 'POST' ? this.body : this.params)); // and if there is @params._delete, delete by query?
+        }
+      } else if (arguments.length) { // could be a key string and record or could be a query and options (and query could look like a key)
+        if (typeof arguments[0] === 'string' && arguments[0].length && !arguments[0].includes('\n')) { // could be key or query string
+          lg.key = arguments[0].replace(/\//g, '_');
+        }
+        if (lg.key && lg.key.length !== lg.key.replace(/[\s\:\*~\?=%]/g, '').length) { // only keep if it could be a valid key
+          delete lg.key;
+        }
+        if (f._index && arguments[0] !== '' && arguments[1] !== '' && (qry = (await this.index.translate(arguments[0], arguments[1])))) {
+          if (lg.key && (arguments.length === 1 || typeof arguments[1] === 'object') && (exists = (await this.index(rt + '/' + lg.key)))) { // it was a record key, not a query
+            qry = void 0;
+          }
+        }
+        rec = qry != null ? void 0 : lg.key ? arguments[1] : f._index ? arguments[0] : void 0;
+      }
+      if (typeof rec === 'object' && !Array.isArray(rec)) {
+        if (rec._id == null) {
+          rec._id = (ref1 = (ref2 = lg.key) != null ? ref2 : rec[f._key]) != null ? ref1 : this.uid();
+        }
+        if (lg.key == null) {
+          lg.key = rec._id;
+        }
+      }
+      //console.log(n, lg.key, JSON.stringify(rec), JSON.stringify(qry), res, @refresh, typeof f, exists) if @S.dev and @S.bg is true
+      if (qry != null) {
+        res = (await this.index(rt, qry));
+        lg.qry = JSON.stringify(qry);
+      }
+      if ((rec != null) || !this.refresh || typeof f !== 'function') {
+        if (f._kv && lg.key && ((rec != null) || (exists == null))) {
+          res = (await this.kv(rt + '/' + lg.key, rec)); // there may or may not be a rec, as it could just be getting the keyed record
+          if ((res != null) && (rec == null) && this.fn === n) {
+            lg.cached = this.cached = 'kv';
+          }
+        }
+        if (f._index && ((rec != null) || (res == null))) {
+          res = (exists != null) && (rec == null) ? exists : (await this.index(rt + (lg.key && ((rec != null) || (qry == null)) ? '/' + lg.key : ''), rec != null ? rec : (!lg.key ? qry : void 0)));
+          if ((res == null) && (!lg.key || (rec == null))) { // this happens if the index does not exist yet, so create it (otherwise res would be a search result object)
+            await this.index(rt, typeof f._index !== 'object' ? {} : {
+              settings: f._index.settings,
+              mappings: f._index.mappings,
+              aliases: f._index.aliases
+            });
+            res = (await this.index(rt + (lg.key ? '/' + lg.key : ''), rec != null ? rec : (!lg.key ? qry : void 0)));
+          }
+        }
+      }
+      try {
+        if ((rec == null) && res.hits.total === 0 && typeof f === 'function' && lg.key) { // allow the function to run to try to retrieve or create the record from remote
+          res = void 0;
+        }
+      } catch (error) {}
+      try {
+        if ((qry.query.bool != null) && (qry.size === 1 || (res.hits.total === 1 && lg.key))) { // return 1 record instead of a search result.
+          if ((res.hits.hits[0]._source != null) && (res.hits.hits[0]._source._id == null)) {
+            res.hits.hits[0]._source._id = res.hits.hits[0]._id;
+          }
+          res = (ref3 = res.hits.hits[0]._source) != null ? ref3 : res.hits.hits[0].fields; // is fields instead of _source still possible in ES7.x?
+        }
+      } catch (error) {}
+      if ((res != null) && (rec == null) && !lg.cached && this.fn === n) {
+        lg.cached = this.cached = 'index';
+      }
+    }
+    // if _history is required, record more about the incoming record change, if that's what happened
+    // _history
+    if (f._history && typeof rec === 'object' && !Array.isArray(rec) && rec._id) {
+      lg.history = rec._id;
+      lg.rec = JSON.stringify(rec); // record the incoming rec to record a history of changes to the record
+    }
+    
+    // if nothing yet, send to bg for _bg or _sheet functions, if bg is available and not yet on bg
+    // _bg, _sheet
+    if ((res == null) && (f._bg || f._sheet) && typeof this.S.bg === 'string' && this.S.bg.indexOf('http') === 0) {
+      bup = {
+        headers: {},
+        body: rec,
+        params: this.copy(this.params)
+      };
+      if (this.refresh) {
+        bup.params.refresh = true;
+      }
+      bup.headers['x-' + this.S.name.toLowerCase() + '-async'] = this.rid;
+      res = (await this.fetch(this.S.bg + '/' + rt.replace(/\_/g, '/'), bup)); // if this takes too long the whole route function will timeout and cascade to bg
+      lg.bg = true; // TODO would it be better to just throw error here and divert the entire request to backend?
+    }
+    
+    // if nothing yet, and function has _sheet, and it wasn't a specific record lookup attempt, 
+    // or it was a specific API call to refresh the _sheet index, or any call where index doesn't exist yet,
+    // then (create the index if not existing and) populate the index from the sheet
+    // this will happen on background where possible, because above will have routed to bg if it was available
+    // _sheet
+    if ((res == null) && f._sheet && ((this.refresh && this.fn === n) || !(exists = (await this.index(rt))))) {
+      if (f._sheet.startsWith('http') && f._sheet.includes('csv')) {
+        sht = (await this.convert.csv2json(f._sheet));
+      } else if (f._sheet.startsWith('http') && f._sheet.includes('json')) {
+        sht = (await this.fetch(f._sheet));
+        if (sht && !Array.isArray(sht)) {
+          sht = [sht];
+        }
+      } else {
+        sht = (await this.src.google.sheets(f._sheet));
+      }
+      if (Array.isArray(sht) && sht.length) {
+        if (typeof f === 'function') { // process the sheet with the function if necessary, then create or empty the index
+          sht = (await f.apply(this, [sht]));
+        }
+        await this.index(rt, '');
+        await this.index(rt, typeof f._index !== 'object' ? {} : {
+          settings: f._index.settings,
+          mappings: f._index.mappings,
+          aliases: f._index.aliases
+        });
+        if (arguments.length || JSON.stringify(this.params) !== '{}') {
+          await this.index(rt, sht);
+        } else {
+          this.waitUntil(this.index(rt, sht));
+          res = sht.length; // if there are args, don't set the res, so the function can run afterwards if present
+        }
+      } else {
+        res = 0;
+      }
+    }
+    
+    // if still nothing happened, and the function defined on P really IS a function
+    // (it could also be an index or kv config object with no default function)
+    // call the function, either _async if the function indicates it, or directly
+    // and record limit settings if present to restrict more runnings of the same function
+    // _async, _limit
+    if ((res == null) && typeof f === 'function') {
+      _as = async(rt, f, ar, notify) => {
+        var c, ends, i, id, len, r, ref4, ref5;
+        if (f._limit) {
+          ends = f._limit === true ? 86400 : f._limit;
+          await this.kv('limit/' + n, started + ends, ends); // max limit for one day
+        }
+        r = (await f.apply(this, ar));
+        if (typeof r === 'object' && (f._kv || f._index) && (r.took == null) && (r.hits == null)) {
+          if (f._key && Array.isArray(r) && r.length && (r[0]._id == null) && (r[0][f._key] != null)) {
+            for (i = 0, len = r.length; i < len; i++) {
+              c = r[i];
+              if (c._id == null) {
+                c._id = c[f._key];
+              }
+            }
+          }
+          id = Array.isArray(r) ? '' : '/' + ((ref4 = (ref5 = r[f._key]) != null ? ref5 : r._id) != null ? ref4 : this.uid()).replace(/\//g, '_').toLowerCase();
+          if (f._kv && !Array.isArray(r)) {
+            this.kv(rt + id, res, f._kv);
+          }
+          if (f._index) {
+            this.waitUntil(this.index(rt + id, r));
+          }
+        }
+        if (f._limit === true) {
+          await this.kv('limit/' + n, ''); // where limit is true only delay until function completes, then delete limit record
+        }
+        if (f._async) {
+          this.kv('async/' + this.rid, ((id != null) && !Array.isArray(r) ? rt + id : Array.isArray(r) ? r.length : r), 172800); // lasts 48 hours
+          if (notify) {
+            this.mail({
+              to: notify,
+              text: this.base + '/' + rt + '?_async=' + this.rid
+            });
+          }
+        }
+        return r;
+      };
+      if (f._async) {
+        lg.async = true;
+        res = {
+          _async: this.rid
+        };
+        this.waitUntil(_as(rt, f, arguments, this.params.notify));
+      } else {
+        res = (await _as(rt, f, arguments));
+      }
+    }
+    // if _diff checking is required, save the args and res and the "log" will alert 
+    // if there is a difference in the result for the same args
+    // _diff
+    if (f._diff && (res != null) && !lg.cached && !lg.async) {
+      lg.args = JSON.stringify(arguments.length ? arguments : this.fn === n ? this.params : '');
+      lg.res = JSON.stringify(res); // what if this is huge? just checksum it?
+      try {
+        lg.checksum = this.shorthash(lg.res);
+      } catch (error) {}
+    }
+    // _log
+    if (f._log !== false) {
+      lg.took = Date.now() - started;
+      this.log(lg);
+    }
+    return res;
+  };
+};
+
+P.src = {};
+
+P.svc = {};
+
+P.scripts = {};
+
 // curl -X GET "https://api.oa.works/auth" -H "x-id:YOURUSERIDHERE" -H "x-apikey:YOURAPIKEYHERE"
 // curl -X GET "https://api.oa.works/auth?apikey=YOURAPIKEYHERE"
 
@@ -730,13 +1014,13 @@ var indexOf = [].indexOf;
 P.auth = async function(key) {
   var cookie, email, oauth, ref, ref1, ref2, ref3, ref4, ref5, restok, resume, ret, uid, user;
   // if params.auth, someone looking up the URL route for this acc. Who would have the right to see that?
-  if (typeof key === 'string') {
+  if (typeof key === 'string') { // or key can be false, to pass through to unauthorised / login / request page
     return this.users._get(key);
   }
-  if ((key == null) && (this.user != null) && this.fn === 'auth') {
+  if (!key && (this.user != null) && (this.fn === 'auth' || key === false)) {
     user = this.user;
-  } else {
-    if ((this.params.access_token && (oauth = (await this.oauth(this.params.access_token)))) || ((this.params.token || this.params.auth) && (email = (await this.kv('auth/token/' + ((ref = this.params.token) != null ? ref : this.params.auth), ''))))) { // true causes delete after found
+  } else if (key !== false) {
+    if ((this.params.access_token && (oauth = (await this.auth._oauth(this.params.access_token)))) || ((this.params.token || this.params.auth) && (email = (await this.kv('auth/token/' + ((ref = this.params.token) != null ? ref : this.params.auth), ''))))) { // true causes delete after found
       if (!(user = (await this.users._get((ref1 = oauth != null ? oauth.email : void 0) != null ? ref1 : email)))) { // get the user record if it already exists
         user = (await this.users._create(oauth != null ? oauth : email)); // create the user record if not existing, as this is the first token login attempt for this email address
       }
@@ -792,19 +1076,24 @@ P.auth = async function(key) {
   
   // if this is called with no variables, and no defaults, provide a count of users?
   // but then if logged in and on this route, what does it provide? the user account?
-  if ((key == null) && this.fn === 'auth' && !this.format && this.headers['user-agent'] && this.headers['user-agent'].toLowerCase().includes('mozilla') && this.headers.accept && this.headers.accept.toLowerCase().includes('html')) {
+  if (!this.format && (this.fn === 'auth' || this.unauthorised) && this.headers['user-agent'] && this.headers['user-agent'].toLowerCase().includes('mozilla') && this.headers.accept && this.headers.accept.includes('/html') && !this.headers.accept.includes('/json')) {
     this.format = 'html';
   }
-  if ((key == null) && this.format === 'html') {
-    ret = this.fn === 'auth' ? '<body class="black">' : '<body>';
+  if (!key && this.format === 'html') {
+    ret = '<body class="black">'; // or times to decide when just a normal body? '<body>'
     ret += '<div class="flex" style="margin-top: 10%;"><div class="c6 off3"><h1 id="title" class="centre statement" style="font-size:40px;">' + (this.base ? this.base.replace('bg.', '(bg) ') : this.S.name) + '</h1></div></div>';
     ret += '<div class="flex" style="margin-top: 5%;"><div class="c6 off3">';
-    if (user == null) {
+    if (this.user == null) {
       ret += '<input autofocus id="PEmail" class="PEmail big shadow" type="text" name="email" placeholder="email">';
       ret += '<input id="PToken" class="PToken big shadow" style="display:none;" type="text" name="token" placeholder="token (check your email)">';
       ret += '<p class="PWelcome" style="display:none;">Welcome back</p>';
       ret += '<p class="PLogout" style="display:none;"><a id="PLogout" class="button action" href="#">logout</a></p>';
     } else {
+      if (false) { //key is false # unauthorised
+        ret += '<p>You do not have permission to access this resource</p>';
+        ret += '<p class="PRequestPermission"><a id="PRequestPermission" class="button action" href="#">Request permission</p>';
+        ret += '<p class="PRequestedPermission" style="display:none;">Thanks, you will receive an email once permission has been granted</p>';
+      }
       ret += '<p>' + user.email + '</p><p><a id="PLogout" class="button action" href="#">logout</a></p>';
     }
     ret += '<div class="PLoading" style="display:none;"><div class="loading big"></div></div>';
@@ -813,7 +1102,7 @@ P.auth = async function(key) {
     if (this.fn === 'auth') {
       ret += 'P.afterLogout = function() { location.reload(); }; ';
     }
-    if (this.fn !== 'auth' || (user != null)) {
+    if (this.fn !== 'auth' || (this.user != null)) {
       ret += 'P.loginNext = true;';
     }
     ret += '</script>';
@@ -899,7 +1188,7 @@ P.auth.role = async function(grl, user) {
         if (indexOf.call((ref2 = user.roles[group]) != null ? ref2 : [], role) >= 0) {
           return role;
         } else if (user.roles[group] != null) {
-          cascade = ['service', 'owner', 'super', 'admin', 'auth', 'bulk', 'delete', 'remove', 'create', 'insert', 'publish', 'put', 'draft', 'post', 'edit', 'update', 'user', 'get', 'read', 'info', 'public'];
+          cascade = ['service', 'owner', 'super', 'admin', 'auth', 'bulk', 'delete', 'remove', 'create', 'insert', 'publish', 'put', 'draft', 'post', 'edit', 'update', 'user', 'get', 'read', 'info', 'public', 'request'];
           if (-1 < (ri = cascade.indexOf(role))) {
             ref3 = cascade.splice(0, ri);
             for (j = 0, len1 = ref3.length; j < len1; j++) {
@@ -921,18 +1210,21 @@ P.auth.role = async function(grl, user) {
 // deny meaning automatically not allowed any other role on the group
 // whereas otherwise a user (or system on behalf of) should be able to request a role (TODO)
 P.auth.add = async function(grl, user, remove, deny) {
-  var base, group, ref, role;
-  if (grl == null) {
-    grl = this.params.add;
-  }
-  [group, role] = grl.replace('/', '.').split('.');
+  var base, group, ref, ref1, ref2, ref3, role;
   user = typeof user === 'object' ? user : user || this.params.auth ? (await this.users._get(user != null ? user : this.params.auth)) : this.user;
-  if (this.user._id !== user._id) {
+  if (!grl && this.user._id !== user._id) {
     if (!(await this.auth.role('system'))) {
       // TODO what about one logged in user acting on the roles route of another? - which groups could a user add another user to?
       return false;
     }
   }
+  if (grl == null) {
+    grl = (ref = (ref1 = this.params.add) != null ? ref1 : this.params.remove) != null ? ref : this.params.deny;
+  }
+  if (!grl) {
+    return false;
+  }
+  [group, role] = grl.replace('/', '.').split('.');
   if (remove == null) {
     remove = (this.request.method === 'DELETE' || this.params._delete === true) && this.fn === 'auth.roles';
   }
@@ -951,7 +1243,7 @@ P.auth.add = async function(grl, user, remove, deny) {
       user.roles[group] = ['user'];
       this.users._update(user);
     }
-  } else if (((ref = user.roles) != null ? ref[group] : void 0) && indexOf.call(user.roles[group], role) >= 0) {
+  } else if (((ref2 = user.roles) != null ? ref2[group] : void 0) && indexOf.call(user.roles[group], role) >= 0) {
     if (remove != null) {
       user.roles[group].splice(user.roles[group].indexOf(role), 1);
       if (!user.roles[group].length) {
@@ -959,28 +1251,34 @@ P.auth.add = async function(grl, user, remove, deny) {
       }
       this.users._update(user);
     }
-  } else {
+  } else if (role !== 'request' || indexOf.call((ref3 = user.roles[group]) != null ? ref3 : [], 'deny') < 0) {
     if ((base = user.roles)[group] == null) {
       base[group] = [];
+    }
+    if (indexOf.call(user.roles[group], 'request') >= 0) {
+      user.roles[group] = user.roles[group].splice(user.roles[group].indexOf('request'), 1);
     }
     user.roles.group.push(role);
     this.users._update(user);
   }
+  // TODO if role to add is 'request' then notify someone who can authorise
   return user;
 };
 
 P.auth.remove = function(grl, user) {
-  if (grl == null) {
-    grl = this.params.remove;
-  }
-  return this.auth.add(grl, user, true);
+  return this.auth.add(grl, user, true); // remove and deny would auth on add
 };
 
 P.auth.deny = function(grl, user) {
-  if (grl == null) {
-    grl = this.params.deny;
-  }
   return this.auth.add(grl, user, void 0, true);
+};
+
+P.auth.request = function(grl, user) {
+  if (grl == null) {
+    grl = this.params.request; // anyone can request so no auth needed for request
+  }
+  grl = grl.split('/')[0] + '/request';
+  return this.auth.add(grl, user);
 };
 
 P.auth.logout = async function(user) { // how about triggering a logout on a different user account
@@ -1008,7 +1306,7 @@ P.auth.logout = async function(user) { // how about triggering a logout on a dif
 
 // device fingerprinting was available in the old code but no explicit requirement for it so not added here yet
 // old code also had xsrf tokens for FORM POSTs, add that back in if relevant
-P._oauth = async function(token, cid) {
+P.auth._oauth = async function(token, cid) {
   var ref, ref1, ref10, ref11, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, ret, sets, validate;
   // https://developers.google.com/identity/protocols/OAuth2UserAgent#validatetoken
   sets = {};
@@ -1946,7 +2244,7 @@ P.fetch = async function(url, params) {
     if (params.headers == null) {
       params.headers = {};
     }
-    params.headers['Authorization'] = 'Basic ' + Buffer.from(params.auth).toString('base64');
+    params.headers.Authorization = 'Basic ' + Buffer.from(params.auth).toString('base64');
     delete params.auth;
   }
   ref = ['data', 'content', 'json'];
@@ -2034,6 +2332,9 @@ P.fetch = async function(url, params) {
       }
       if ((base = params.headers)[name = 'x-' + S.name.toLowerCase() + '-system'] == null) {
         base[name] = S.system;
+      }
+      if (!params.headers.Authorization && !params.headers.authorization && !params.headers['x-apikey'] && this.user) {
+        params.headers['x-apikey'] = this.user.apikey;
       }
     }
     _f = async() => {
@@ -3757,15 +4058,15 @@ P.datetime._cache = false;
 
 P.epoch = function(epoch) {
   var add, end, ref, start, subtract;
-  if (typeof epoch === 'number') {
-    epoch = epoch.toString();
-  }
   if (epoch == null) {
     epoch = this.params.epoch;
   }
+  if (typeof epoch === 'number') {
+    epoch = epoch.toString();
+  }
   if (!epoch) {
     return Date.now();
-  } else if (epoch.includes('+') || epoch.includes('-')) {
+  } else if (epoch.startsWith('+') || epoch.startsWith('-') || (epoch.split('+').length === 2 && epoch.split('+')[0].length > 4) || (epoch.split('-').length === 2 && epoch.split('-')[0].length > 4)) {
     if (epoch.startsWith('+') || epoch.startsWith('-')) {
       epoch = Date.now() + epoch;
     }
@@ -3776,7 +4077,7 @@ P.epoch = function(epoch) {
       [epoch, subtract] = epoch.replace('/', '').split('-');
       return (parseInt(epoch) - parseInt(subtract)).toString();
     }
-  } else if (epoch.length > 8 && !isNaN(parseInt(epoch))) {
+  } else if (epoch.length > 8 && !epoch.includes('-') && !isNaN(parseInt(epoch))) {
     return this.date(epoch, (ref = this.params.time) != null ? ref : true);
   } else {
     if (epoch.length === 4) {
@@ -3930,295 +4231,6 @@ P.passphrase._cache = false;
 // https://preshing.com/20110811/xkcd-password-generator/
 // https://xkcd.com/936/
 P._passphrase_words = ["ability", "able", "aboard", "about", "above", "accept", "accident", "according", "account", "accurate", "acres", "across", "act", "action", "active", "activity", "actual", "actually", "add", "addition", "additional", "adjective", "adult", "adventure", "advice", "affect", "afraid", "after", "afternoon", "again", "against", "age", "ago", "agree", "ahead", "aid", "air", "airplane", "alike", "alive", "all", "allow", "almost", "alone", "along", "aloud", "alphabet", "already", "also", "although", "am", "among", "amount", "ancient", "angle", "angry", "animal", "announced", "another", "answer", "ants", "any", "anybody", "anyone", "anything", "anyway", "anywhere", "apart", "apartment", "appearance", "apple", "applied", "appropriate", "are", "area", "arm", "army", "around", "arrange", "arrangement", "arrive", "arrow", "art", "article", "as", "aside", "ask", "asleep", "at", "ate", "atmosphere", "atom", "atomic", "attached", "attack", "attempt", "attention", "audience", "author", "automobile", "available", "average", "avoid", "aware", "away", "baby", "back", "bad", "badly", "bag", "balance", "ball", "balloon", "band", "bank", "bar", "bare", "bark", "barn", "base", "baseball", "basic", "basis", "basket", "bat", "battle", "be", "bean", "bear", "beat", "beautiful", "beauty", "became", "because", "become", "becoming", "bee", "been", "before", "began", "beginning", "begun", "behavior", "behind", "being", "believed", "bell", "belong", "below", "belt", "bend", "beneath", "bent", "beside", "best", "bet", "better", "between", "beyond", "bicycle", "bigger", "biggest", "bill", "birds", "birth", "birthday", "bit", "bite", "black", "blank", "blanket", "blew", "blind", "block", "blood", "blow", "blue", "board", "boat", "body", "bone", "book", "border", "born", "both", "bottle", "bottom", "bound", "bow", "bowl", "box", "boy", "brain", "branch", "brass", "brave", "bread", "break", "breakfast", "breath", "breathe", "breathing", "breeze", "brick", "bridge", "brief", "bright", "bring", "broad", "broke", "broken", "brother", "brought", "brown", "brush", "buffalo", "build", "building", "built", "buried", "burn", "burst", "bus", "bush", "business", "busy", "but", "butter", "buy", "by", "cabin", "cage", "cake", "call", "calm", "came", "camera", "camp", "can", "canal", "cannot", "cap", "capital", "captain", "captured", "car", "carbon", "card", "care", "careful", "carefully", "carried", "carry", "case", "cast", "castle", "cat", "catch", "cattle", "caught", "cause", "cave", "cell", "cent", "center", "central", "century", "certain", "certainly", "chain", "chair", "chamber", "chance", "change", "changing", "chapter", "character", "characteristic", "charge", "chart", "check", "cheese", "chemical", "chest", "chicken", "chief", "child", "children", "choice", "choose", "chose", "chosen", "church", "circle", "circus", "citizen", "city", "class", "classroom", "claws", "clay", "clean", "clear", "clearly", "climate", "climb", "clock", "close", "closely", "closer", "cloth", "clothes", "clothing", "cloud", "club", "coach", "coal", "coast", "coat", "coffee", "cold", "collect", "college", "colony", "color", "column", "combination", "combine", "come", "comfortable", "coming", "command", "common", "community", "company", "compare", "compass", "complete", "completely", "complex", "composed", "composition", "compound", "concerned", "condition", "congress", "connected", "consider", "consist", "consonant", "constantly", "construction", "contain", "continent", "continued", "contrast", "control", "conversation", "cook", "cookies", "cool", "copper", "copy", "corn", "corner", "correct", "correctly", "cost", "cotton", "could", "count", "country", "couple", "courage", "course", "court", "cover", "cow", "cowboy", "crack", "cream", "create", "creature", "crew", "crop", "cross", "crowd", "cry", "cup", "curious", "current", "curve", "customs", "cut", "cutting", "daily", "damage", "dance", "danger", "dangerous", "dark", "darkness", "date", "daughter", "dawn", "day", "dead", "deal", "dear", "death", "decide", "declared", "deep", "deeply", "deer", "definition", "degree", "depend", "depth", "describe", "desert", "design", "desk", "detail", "determine", "develop", "development", "diagram", "diameter", "did", "die", "differ", "difference", "different", "difficult", "difficulty", "dig", "dinner", "direct", "direction", "directly", "dirt", "dirty", "disappear", "discover", "discovery", "discuss", "discussion", "disease", "dish", "distance", "distant", "divide", "division", "do", "doctor", "does", "dog", "doing", "doll", "dollar", "done", "donkey", "door", "dot", "double", "doubt", "down", "dozen", "draw", "drawn", "dream", "dress", "drew", "dried", "drink", "drive", "driven", "driver", "driving", "drop", "dropped", "drove", "dry", "duck", "due", "dug", "dull", "during", "dust", "duty", "each", "eager", "ear", "earlier", "early", "earn", "earth", "easier", "easily", "east", "easy", "eat", "eaten", "edge", "education", "effect", "effort", "egg", "eight", "either", "electric", "electricity", "element", "elephant", "eleven", "else", "empty", "end", "enemy", "energy", "engine", "engineer", "enjoy", "enough", "enter", "entire", "entirely", "environment", "equal", "equally", "equator", "equipment", "escape", "especially", "essential", "establish", "even", "evening", "event", "eventually", "ever", "every", "everybody", "everyone", "everything", "everywhere", "evidence", "exact", "exactly", "examine", "example", "excellent", "except", "exchange", "excited", "excitement", "exciting", "exclaimed", "exercise", "exist", "expect", "experience", "experiment", "explain", "explanation", "explore", "express", "expression", "extra", "eye", "face", "facing", "fact", "factor", "factory", "failed", "fair", "fairly", "fall", "fallen", "familiar", "family", "famous", "far", "farm", "farmer", "farther", "fast", "fastened", "faster", "fat", "father", "favorite", "fear", "feathers", "feature", "fed", "feed", "feel", "feet", "fell", "fellow", "felt", "fence", "few", "fewer", "field", "fierce", "fifteen", "fifth", "fifty", "fight", "fighting", "figure", "fill", "film", "final", "finally", "find", "fine", "finest", "finger", "finish", "fire", "fireplace", "firm", "first", "fish", "five", "fix", "flag", "flame", "flat", "flew", "flies", "flight", "floating", "floor", "flow", "flower", "fly", "fog", "folks", "follow", "food", "foot", "football", "for", "force", "foreign", "forest", "forget", "forgot", "forgotten", "form", "former", "fort", "forth", "forty", "forward", "fought", "found", "four", "fourth", "fox", "frame", "free", "freedom", "frequently", "fresh", "friend", "friendly", "frighten", "frog", "from", "front", "frozen", "fruit", "fuel", "full", "fully", "fun", "function", "funny", "fur", "furniture", "further", "future", "gain", "game", "garage", "garden", "gas", "gasoline", "gate", "gather", "gave", "general", "generally", "gentle", "gently", "get", "getting", "giant", "gift", "girl", "give", "given", "giving", "glad", "glass", "globe", "go", "goes", "gold", "golden", "gone", "good", "goose", "got", "government", "grabbed", "grade", "gradually", "grain", "grandfather", "grandmother", "graph", "grass", "gravity", "gray", "great", "greater", "greatest", "greatly", "green", "grew", "ground", "group", "grow", "grown", "growth", "guard", "guess", "guide", "gulf", "gun", "habit", "had", "hair", "half", "halfway", "hall", "hand", "handle", "handsome", "hang", "happen", "happened", "happily", "happy", "harbor", "hard", "harder", "hardly", "has", "hat", "have", "having", "hay", "he", "headed", "heading", "health", "heard", "hearing", "heart", "heat", "heavy", "height", "held", "hello", "help", "helpful", "her", "herd", "here", "herself", "hidden", "hide", "high", "higher", "highest", "highway", "hill", "him", "himself", "his", "history", "hit", "hold", "hole", "hollow", "home", "honor", "hope", "horn", "horse", "hospital", "hot", "hour", "house", "how", "however", "huge", "human", "hundred", "hung", "hungry", "hunt", "hunter", "hurried", "hurry", "hurt", "husband", "ice", "idea", "identity", "if", "ill", "image", "imagine", "immediately", "importance", "important", "impossible", "improve", "in", "inch", "include", "including", "income", "increase", "indeed", "independent", "indicate", "individual", "industrial", "industry", "influence", "information", "inside", "instance", "instant", "instead", "instrument", "interest", "interior", "into", "introduced", "invented", "involved", "iron", "is", "island", "it", "its", "itself", "jack", "jar", "jet", "job", "join", "joined", "journey", "joy", "judge", "jump", "jungle", "just", "keep", "kept", "key", "kids", "kill", "kind", "kitchen", "knew", "knife", "know", "knowledge", "known", "label", "labor", "lack", "lady", "laid", "lake", "lamp", "land", "language", "large", "larger", "largest", "last", "late", "later", "laugh", "law", "lay", "layers", "lead", "leader", "leaf", "learn", "least", "leather", "leave", "leaving", "led", "left", "leg", "length", "lesson", "let", "letter", "level", "library", "lie", "life", "lift", "light", "like", "likely", "limited", "line", "lion", "lips", "liquid", "list", "listen", "little", "live", "living", "load", "local", "locate", "location", "log", "lonely", "long", "longer", "look", "loose", "lose", "loss", "lost", "lot", "loud", "love", "lovely", "low", "lower", "luck", "lucky", "lunch", "lungs", "lying", "machine", "machinery", "mad", "made", "magic", "magnet", "mail", "main", "mainly", "major", "make", "making", "man", "managed", "manner", "manufacturing", "many", "map", "mark", "market", "married", "mass", "massage", "master", "material", "mathematics", "matter", "may", "maybe", "me", "meal", "mean", "means", "meant", "measure", "meat", "medicine", "meet", "melted", "member", "memory", "men", "mental", "merely", "met", "metal", "method", "mice", "middle", "might", "mighty", "mile", "military", "milk", "mill", "mind", "mine", "minerals", "minute", "mirror", "missing", "mission", "mistake", "mix", "mixture", "model", "modern", "molecular", "moment", "money", "monkey", "month", "mood", "moon", "more", "morning", "most", "mostly", "mother", "motion", "motor", "mountain", "mouse", "mouth", "move", "movement", "movie", "moving", "mud", "muscle", "music", "musical", "must", "my", "myself", "mysterious", "nails", "name", "nation", "national", "native", "natural", "naturally", "nature", "near", "nearby", "nearer", "nearest", "nearly", "necessary", "neck", "needed", "needle", "needs", "negative", "neighbor", "neighborhood", "nervous", "nest", "never", "new", "news", "newspaper", "next", "nice", "night", "nine", "no", "nobody", "nodded", "noise", "none", "noon", "nor", "north", "nose", "not", "note", "noted", "nothing", "notice", "noun", "now", "number", "numeral", "nuts", "object", "observe", "obtain", "occasionally", "occur", "ocean", "of", "off", "offer", "office", "officer", "official", "oil", "old", "older", "oldest", "on", "once", "one", "only", "onto", "open", "operation", "opinion", "opportunity", "opposite", "or", "orange", "orbit", "order", "ordinary", "organization", "organized", "origin", "original", "other", "ought", "our", "ourselves", "out", "outer", "outline", "outside", "over", "own", "owner", "oxygen", "pack", "package", "page", "paid", "pain", "paint", "pair", "palace", "pale", "pan", "paper", "paragraph", "parallel", "parent", "park", "part", "particles", "particular", "particularly", "partly", "parts", "party", "pass", "passage", "past", "path", "pattern", "pay", "peace", "pen", "pencil", "people", "per", "percent", "perfect", "perfectly", "perhaps", "period", "person", "personal", "pet", "phrase", "physical", "piano", "pick", "picture", "pictured", "pie", "piece", "pig", "pile", "pilot", "pine", "pink", "pipe", "pitch", "place", "plain", "plan", "plane", "planet", "planned", "planning", "plant", "plastic", "plate", "plates", "play", "pleasant", "please", "pleasure", "plenty", "plural", "plus", "pocket", "poem", "poet", "poetry", "point", "pole", "police", "policeman", "political", "pond", "pony", "pool", "poor", "popular", "population", "porch", "port", "position", "positive", "possible", "possibly", "post", "pot", "potatoes", "pound", "pour", "powder", "power", "powerful", "practical", "practice", "prepare", "present", "president", "press", "pressure", "pretty", "prevent", "previous", "price", "pride", "primitive", "principal", "principle", "printed", "private", "prize", "probably", "problem", "process", "produce", "product", "production", "program", "progress", "promised", "proper", "properly", "property", "protection", "proud", "prove", "provide", "public", "pull", "pupil", "pure", "purple", "purpose", "push", "put", "putting", "quarter", "queen", "question", "quick", "quickly", "quiet", "quietly", "quite", "rabbit", "race", "radio", "railroad", "rain", "raise", "ran", "ranch", "range", "rapidly", "rate", "rather", "raw", "rays", "reach", "read", "reader", "ready", "real", "realize", "rear", "reason", "recall", "receive", "recent", "recently", "recognize", "record", "red", "refer", "refused", "region", "regular", "related", "relationship", "religious", "remain", "remarkable", "remember", "remove", "repeat", "replace", "replied", "report", "represent", "require", "research", "respect", "rest", "result", "return", "review", "rhyme", "rhythm", "rice", "rich", "ride", "riding", "right", "ring", "rise", "rising", "river", "road", "roar", "rock", "rocket", "rocky", "rod", "roll", "roof", "room", "root", "rope", "rose", "rough", "round", "route", "row", "rubbed", "rubber", "rule", "ruler", "run", "running", "rush", "sad", "saddle", "safe", "safety", "said", "sail", "sale", "salmon", "salt", "same", "sand", "sang", "sat", "satellites", "satisfied", "save", "saved", "saw", "say", "scale", "scared", "scene", "school", "science", "scientific", "scientist", "score", "screen", "sea", "search", "season", "seat", "second", "secret", "section", "see", "seed", "seeing", "seems", "seen", "seldom", "select", "selection", "sell", "send", "sense", "sent", "sentence", "separate", "series", "serious", "serve", "service", "sets", "setting", "settle", "settlers", "seven", "several", "shade", "shadow", "shake", "shaking", "shall", "shallow", "shape", "share", "sharp", "she", "sheep", "sheet", "shelf", "shells", "shelter", "shine", "shinning", "ship", "shirt", "shoe", "shoot", "shop", "shore", "short", "shorter", "shot", "should", "shoulder", "shout", "show", "shown", "shut", "sick", "sides", "sight", "sign", "signal", "silence", "silent", "silk", "silly", "silver", "similar", "simple", "simplest", "simply", "since", "sing", "single", "sink", "sister", "sit", "sitting", "situation", "six", "size", "skill", "skin", "sky", "slabs", "slave", "sleep", "slept", "slide", "slight", "slightly", "slip", "slipped", "slope", "slow", "slowly", "small", "smaller", "smallest", "smell", "smile", "smoke", "smooth", "snake", "snow", "so", "soap", "social", "society", "soft", "softly", "soil", "solar", "sold", "soldier", "solid", "solution", "solve", "some", "somebody", "somehow", "someone", "something", "sometime", "somewhere", "son", "song", "soon", "sort", "sound", "source", "south", "southern", "space", "speak", "special", "species", "specific", "speech", "speed", "spell", "spend", "spent", "spider", "spin", "spirit", "spite", "split", "spoken", "sport", "spread", "spring", "square", "stage", "stairs", "stand", "standard", "star", "stared", "start", "state", "statement", "station", "stay", "steady", "steam", "steel", "steep", "stems", "step", "stepped", "stick", "stiff", "still", "stock", "stomach", "stone", "stood", "stop", "stopped", "store", "storm", "story", "stove", "straight", "strange", "stranger", "straw", "stream", "street", "strength", "stretch", "strike", "string", "strip", "strong", "stronger", "struck", "structure", "struggle", "stuck", "student", "studied", "studying", "subject", "substance", "success", "successful", "such", "sudden", "suddenly", "sugar", "suggest", "suit", "sum", "summer", "sun", "sunlight", "supper", "supply", "support", "suppose", "sure", "surface", "surprise", "surrounded", "swam", "sweet", "swept", "swim", "swimming", "swing", "swung", "syllable", "symbol", "system", "table", "tail", "take", "taken", "tales", "talk", "tall", "tank", "tape", "task", "taste", "taught", "tax", "tea", "teach", "teacher", "team", "tears", "teeth", "telephone", "television", "tell", "temperature", "ten", "tent", "term", "terrible", "test", "than", "thank", "that", "thee", "them", "themselves", "then", "theory", "there", "therefore", "these", "they", "thick", "thin", "thing", "think", "third", "thirty", "this", "those", "thou", "though", "thought", "thousand", "thread", "three", "threw", "throat", "through", "throughout", "throw", "thrown", "thumb", "thus", "thy", "tide", "tie", "tight", "tightly", "till", "time", "tin", "tiny", "tip", "tired", "title", "to", "tobacco", "today", "together", "told", "tomorrow", "tone", "tongue", "tonight", "too", "took", "tool", "top", "topic", "torn", "total", "touch", "toward", "tower", "town", "toy", "trace", "track", "trade", "traffic", "trail", "train", "transportation", "trap", "travel", "treated", "tree", "triangle", "tribe", "trick", "tried", "trip", "troops", "tropical", "trouble", "truck", "trunk", "truth", "try", "tube", "tune", "turn", "twelve", "twenty", "twice", "two", "type", "typical", "uncle", "under", "underline", "understanding", "unhappy", "union", "unit", "universe", "unknown", "unless", "until", "unusual", "up", "upon", "upper", "upward", "us", "use", "useful", "using", "usual", "usually", "valley", "valuable", "value", "vapor", "variety", "various", "vast", "vegetable", "verb", "vertical", "very", "vessels", "victory", "view", "village", "visit", "visitor", "voice", "volume", "vote", "vowel", "voyage", "wagon", "wait", "walk", "wall", "want", "war", "warm", "warn", "was", "wash", "waste", "watch", "water", "wave", "way", "we", "weak", "wealth", "wear", "weather", "week", "weigh", "weight", "welcome", "well", "went", "were", "west", "western", "wet", "whale", "what", "whatever", "wheat", "wheel", "when", "whenever", "where", "wherever", "whether", "which", "while", "whispered", "whistle", "white", "who", "whole", "whom", "whose", "why", "wide", "widely", "wife", "wild", "will", "willing", "win", "wind", "window", "wing", "winter", "wire", "wise", "wish", "with", "within", "without", "wolf", "women", "won", "wonder", "wonderful", "wood", "wooden", "wool", "word", "wore", "work", "worker", "world", "worried", "worry", "worse", "worth", "would", "wrapped", "write", "writer", "writing", "written", "wrong", "wrote", "yard", "year", "yellow", "yes", "yesterday", "yet", "you", "young", "younger", "your", "yourself", "youth", "zero", "zoo"];
-
-// API calls this to wrap functions on P, apart from top level functions and ones 
-// that start with _ or that indicate no wrapping with _wrap: false
-// wrapper settings declared on each P function specify which wrap actions to apply
-// _auth and _cache settings on a P function are handled by API BEFORE _wrapper is 
-// used, so _auth and _cache are not handled within the wrapper
-// the wrapepr logs the function call (whether it was the main API call or subsequent)
-P._wrapper = function(f, n) { // the function to wrap and the string name of the function
-  return async function() {
-    var _as, args, bup, exists, lg, limited, qry, rec, ref, ref1, ref2, ref3, res, rt, sht, started;
-    started = Date.now(); // not accurate in a workers environment, but close enough
-    rt = n.replace(/\./g, '_');
-    lg = {
-      fn: n
-    };
-    // _limit can be true, which stays in place until the function completes, or it can be a number which 
-    // will be the lifespan of the limit record in the KV store
-    // _limit
-    if (f._limit) {
-      limited = (await this.kv('limit/' + n));
-      while (limited) {
-        if (lg.limited == null) {
-          lg.limited = 0;
-        }
-        lg.limited += limited;
-        await this.sleep(limited - started);
-        limited = (await this.kv('limit/' + n));
-      }
-    }
-    // check for an _async param request and look to see if it is in the async finished store
-    // if so, serve the result otherwise re-serve the param to indicate waiting should continue
-    // _async
-    if ((ref = typeof this.params._async) === 'string' || ref === 'number') {
-      if (res = (await this.kv('async/' + this.params._async, ''))) {
-        if (typeof res === 'string' && res.includes('/') && !res.includes(' ') && !res.includes(':') && !res.startsWith('10.') && res.split('/').length === 2) {
-          try {
-            if (f._kv) {
-              res = (await this.kv(res));
-            }
-          } catch (error) {}
-          try {
-            if ((res == null) && f._index) { // async stored the _id for the result
-              res = (await this.index(res));
-            }
-          } catch (error) {}
-        }
-        try {
-          if (typeof res === 'string' && (res.startsWith('{') || res.startsWith('['))) {
-            res = JSON.parse(res);
-          }
-        } catch (error) {}
-      } else {
-        res = {
-          _async: this.params._async // user should keep waiting
-        };
-      }
-    
-    // serve the underlying sheet / csv link if configured and asked for it
-    // _sheet
-    } else if (this.fn === n && f._sheet && this.parts.indexOf('sheet') === this.parts.length - 1) {
-      res = {
-        status: 302
-      };
-      if (f._sheet.startsWith('http')) {
-        res.body = f._sheet;
-      } else if (this.format === 'json') { // TODO make it handle sheet and sheet ID in cases where both are provided
-        res.body = 'https://spreadsheets.google.com/feeds/list/' + f._sheet + '/' + 'default' + '/public/values?alt=json';
-      } else {
-        res.body = 'https://docs.google.com/spreadsheets/d/' + f._sheet;
-      }
-      res.headers = {
-        Location: res.body
-      };
-    // a function with _index will be given child functions that call the default index child functions - if they're present, call them with the route specified
-    } else if (f._indexed) {
-      args = [...arguments];
-      args.unshift(rt.replace('_' + f._indexed, ''));
-      res = (await this.index[f._indexed](...args));
-    
-    // index / kv should first be checked if configured
-    // for index, to create a new record with a specified ID, ONLY specify it as _id in the object as first argument and no second argument
-    // updating / deleting can be done providing key in first argument and object / empty string in second argument
-    // for kv, create can be done with ID string as first argument and record/value as second argument
-    // _index, _kv
-    } else if ((f._index || f._kv) && (!f._sheet || this.fn !== n || !this.refresh)) {
-      if (this.fn === n) {
-        if (this.fn.replace(/\./g, '/') !== this.route) { // action on a specific keyed record
-          lg.key = this.route.split(n.split('.').pop()).pop().replace(/\//g, '_').replace(/^_/, '').replace(/_$/, '');
-        }
-        // TODO who should be allowed to submit a record remotely?
-        //rec = if @request.method is 'PUT' or (lg.key and @request.method is 'POST') then @body else if @request.method is 'DELETE' or @params._delete then '' else undefined
-        if (!lg.key && f._index) { //and not rec?
-          qry = (await this.index.translate(this.request.method === 'POST' ? this.body : this.params)); // and if there is @params._delete, delete by query?
-        }
-      } else if (arguments.length) { // could be a key string and record or could be a query and options (and query could look like a key)
-        if (typeof arguments[0] === 'string' && arguments[0].length && !arguments[0].includes('\n')) { // could be key or query string
-          lg.key = arguments[0].replace(/\//g, '_');
-        }
-        if (lg.key && lg.key.length !== lg.key.replace(/[\s\:\*~\?=%]/g, '').length) { // only keep if it could be a valid key
-          delete lg.key;
-        }
-        if (f._index && arguments[0] !== '' && arguments[1] !== '' && (qry = (await this.index.translate(arguments[0], arguments[1])))) {
-          if (lg.key && (arguments.length === 1 || typeof arguments[1] === 'object') && (exists = (await this.index(rt + '/' + lg.key)))) { // it was a record key, not a query
-            qry = void 0;
-          }
-        }
-        rec = qry != null ? void 0 : lg.key ? arguments[1] : f._index ? arguments[0] : void 0;
-      }
-      if (typeof rec === 'object' && !Array.isArray(rec)) {
-        if (rec._id == null) {
-          rec._id = (ref1 = (ref2 = lg.key) != null ? ref2 : rec[f._key]) != null ? ref1 : this.uid();
-        }
-        if (lg.key == null) {
-          lg.key = rec._id;
-        }
-      }
-      //console.log(n, lg.key, JSON.stringify(rec), JSON.stringify(qry), res, @refresh, typeof f, exists) if @S.dev and @S.bg is true
-      if (qry != null) {
-        res = (await this.index(rt, qry));
-        lg.qry = JSON.stringify(qry);
-      }
-      if ((rec != null) || !this.refresh || typeof f !== 'function') {
-        if (f._kv && lg.key && ((rec != null) || (exists == null))) {
-          res = (await this.kv(rt + '/' + lg.key, rec)); // there may or may not be a rec, as it could just be getting the keyed record
-          if ((res != null) && (rec == null) && this.fn === n) {
-            lg.cached = this.cached = 'kv';
-          }
-        }
-        if (f._index && ((rec != null) || (res == null))) {
-          res = (exists != null) && (rec == null) ? exists : (await this.index(rt + (lg.key && ((rec != null) || (qry == null)) ? '/' + lg.key : ''), rec != null ? rec : (!lg.key ? qry : void 0)));
-          if ((res == null) && (!lg.key || (rec == null))) { // this happens if the index does not exist yet, so create it (otherwise res would be a search result object)
-            await this.index(rt, typeof f._index !== 'object' ? {} : {
-              settings: f._index.settings,
-              mappings: f._index.mappings,
-              aliases: f._index.aliases
-            });
-            res = (await this.index(rt + (lg.key ? '/' + lg.key : ''), rec != null ? rec : (!lg.key ? qry : void 0)));
-          }
-        }
-      }
-      try {
-        if ((rec == null) && res.hits.total === 0 && typeof f === 'function' && lg.key) { // allow the function to run to try to retrieve or create the record from remote
-          res = void 0;
-        }
-      } catch (error) {}
-      try {
-        if ((qry.query.bool != null) && (qry.size === 1 || (res.hits.total === 1 && lg.key))) { // return 1 record instead of a search result.
-          if ((res.hits.hits[0]._source != null) && (res.hits.hits[0]._source._id == null)) {
-            res.hits.hits[0]._source._id = res.hits.hits[0]._id;
-          }
-          res = (ref3 = res.hits.hits[0]._source) != null ? ref3 : res.hits.hits[0].fields; // is fields instead of _source still possible in ES7.x?
-        }
-      } catch (error) {}
-      if ((res != null) && (rec == null) && !lg.cached && this.fn === n) {
-        lg.cached = this.cached = 'index';
-      }
-    }
-    // if _history is required, record more about the incoming record change, if that's what happened
-    // _history
-    if (f._history && typeof rec === 'object' && !Array.isArray(rec) && rec._id) {
-      lg.history = rec._id;
-      lg.rec = JSON.stringify(rec); // record the incoming rec to record a history of changes to the record
-    }
-    
-    // if nothing yet, send to bg for _bg or _sheet functions, if bg is available and not yet on bg
-    // _bg, _sheet
-    if ((res == null) && (f._bg || f._sheet) && typeof this.S.bg === 'string' && this.S.bg.indexOf('http') === 0) {
-      bup = {
-        headers: {},
-        body: rec,
-        params: this.copy(this.params)
-      };
-      if (this.refresh) {
-        bup.params.refresh = true;
-      }
-      bup.headers['x-' + this.S.name.toLowerCase() + '-async'] = this.rid;
-      res = (await this.fetch(this.S.bg + '/' + rt.replace(/\_/g, '/'), bup)); // if this takes too long the whole route function will timeout and cascade to bg
-      lg.bg = true; // TODO would it be better to just throw error here and divert the entire request to backend?
-    }
-    
-    // if nothing yet, and function has _sheet, and it wasn't a specific record lookup attempt, 
-    // or it was a specific API call to refresh the _sheet index, or any call where index doesn't exist yet,
-    // then (create the index if not existing and) populate the index from the sheet
-    // this will happen on background where possible, because above will have routed to bg if it was available
-    // _sheet
-    if ((res == null) && f._sheet && ((this.refresh && this.fn === n) || !(exists = (await this.index(rt))))) {
-      if (f._sheet.startsWith('http') && f._sheet.includes('csv')) {
-        sht = (await this.convert.csv2json(f._sheet));
-      } else if (f._sheet.startsWith('http') && f._sheet.includes('json')) {
-        sht = (await this.fetch(f._sheet));
-        if (sht && !Array.isArray(sht)) {
-          sht = [sht];
-        }
-      } else {
-        sht = (await this.src.google.sheets(f._sheet));
-      }
-      if (Array.isArray(sht) && sht.length) {
-        if (typeof f === 'function') { // process the sheet with the function if necessary, then create or empty the index
-          sht = (await f.apply(this, [sht]));
-        }
-        await this.index(rt, '');
-        await this.index(rt, typeof f._index !== 'object' ? {} : {
-          settings: f._index.settings,
-          mappings: f._index.mappings,
-          aliases: f._index.aliases
-        });
-        if (arguments.length || JSON.stringify(this.params) !== '{}') {
-          await this.index(rt, sht);
-        } else {
-          this.waitUntil(this.index(rt, sht));
-          res = sht.length; // if there are args, don't set the res, so the function can run afterwards if present
-        }
-      } else {
-        res = 0;
-      }
-    }
-    
-    // if still nothing happened, and the function defined on P really IS a function
-    // (it could also be an index or kv config object with no default function)
-    // call the function, either _async if the function indicates it, or directly
-    // and record limit settings if present to restrict more runnings of the same function
-    // _async, _limit
-    if ((res == null) && typeof f === 'function') {
-      _as = async(rt, f, ar, notify) => {
-        var c, ends, i, id, len, r, ref4, ref5;
-        if (f._limit) {
-          ends = f._limit === true ? 86400 : f._limit;
-          await this.kv('limit/' + n, started + ends, ends); // max limit for one day
-        }
-        r = (await f.apply(this, ar));
-        if ((r != null) && (f._kv || f._index) && (r.took == null) && (r.hits == null)) {
-          if (f._key && Array.isArray(r) && r.length && (r[0]._id == null) && (r[0][f._key] != null)) {
-            for (i = 0, len = r.length; i < len; i++) {
-              c = r[i];
-              if (c._id == null) {
-                c._id = c[f._key];
-              }
-            }
-          }
-          id = Array.isArray(r) ? '' : '/' + ((ref4 = (ref5 = r[f._key]) != null ? ref5 : r._id) != null ? ref4 : this.uid()).replace(/\//g, '_').toLowerCase();
-          if (f._kv && !Array.isArray(r)) {
-            this.kv(rt + id, res, f._kv);
-          }
-          if (f._index) {
-            this.waitUntil(this.index(rt + id, r));
-          }
-        }
-        if (f._limit === true) {
-          await this.kv('limit/' + n, ''); // where limit is true only delay until function completes, then delete limit record
-        }
-        if (f._async) {
-          this.kv('async/' + this.rid, ((id != null) && !Array.isArray(r) ? rt + id : Array.isArray(r) ? r.length : r), 172800); // lasts 48 hours
-          if (notify) {
-            this.mail({
-              to: notify,
-              text: this.base + '/' + rt + '?_async=' + this.rid
-            });
-          }
-        }
-        return r;
-      };
-      if (f._async) {
-        lg.async = true;
-        res = {
-          _async: this.rid
-        };
-        this.waitUntil(_as(rt, f, arguments, this.params.notify));
-      } else {
-        res = (await _as(rt, f, arguments));
-      }
-    }
-    // if _diff checking is required, save the args and res and the "log" will alert 
-    // if there is a difference in the result for the same args
-    // _diff
-    if (f._diff && (res != null) && !lg.cached && !lg.async) {
-      lg.args = JSON.stringify(arguments.length ? arguments : this.fn === n ? this.params : '');
-      lg.res = JSON.stringify(res); // what if this is huge? just checksum it?
-      try {
-        lg.checksum = this.shorthash(lg.res);
-      } catch (error) {}
-    }
-    // _log
-    if (f._log !== false) {
-      lg.took = Date.now() - started;
-      this.log(lg);
-    }
-    return res;
-  };
-};
 
 // https://developers.cloudflare.com/workers/runtime-apis/cache
 
@@ -4983,7 +4995,6 @@ P.index._each = async function(route, q, opts, fn) {
   processed = 0;
   updates = [];
   ref3 = this.index._for(route, qy != null ? qy : q, opts);
-  // TODO check if this needs await
   for await (rec of ref3) {
     fr = (await fn.call(this, rec));
     processed += 1;
@@ -5923,29 +5934,24 @@ P.src.base.search = async function(qry = '*', from, size) {
   } catch (error) {}
 };
 
-  // https://github.com/CrossRef/rest-api-doc/blob/master/rest_api.md
-  // http://api.crossref.org/works/10.1016/j.paid.2009.02.013
-var _xref_hdr, ref,
-  indexOf = [].indexOf;
-
-_xref_hdr = {
-  'User-Agent': S.name + '; mailto:' + ((ref = S.mail) != null ? ref.to : void 0)
-};
+// https://github.com/CrossRef/rest-api-doc/blob/master/rest_api.md
+// http://api.crossref.org/works/10.1016/j.paid.2009.02.013
+var indexOf = [].indexOf;
 
 P.src.crossref = function() {
   return 'Crossref API wrapper';
 };
 
 P.src.crossref.journals = async function(issn) {
-  var isissn, ref1, res, url;
+  var isissn, ref, res, url;
   // by being an index, should default to a search of the index, then run this query if not present, which should get saved to the index
   if (issn == null) {
-    issn = (ref1 = this.params.journals) != null ? ref1 : this.params.issn;
+    issn = (ref = this.params.journals) != null ? ref : this.params.issn;
   }
   isissn = typeof issn === 'string' && issn.length === 9 && issn.split('-').length === 2 && issn.indexOf('-') === 4;
   //url = 'https://api.crossref.org/journals?query=' + issn
   url = 'https://dev.api.cottagelabs.com/use/crossref/journals' + (isissn ? '/' + issn : '?q=') + issn;
-  res = (await this.fetch(url)); //, {headers: _xref_hdr} # TODO check how headers get sent by fetch
+  res = (await this.fetch(url)); //, {headers: {'User-Agent': @S.name + '; mailto:' + @S.mail?.to}} # TODO check how headers get sent by fetch
   //return if res?.message?['total-results']? and res.message['total-results'].length then res.message['total-results'][0] else undefined
   if (isissn) {
     if ((res != null ? res.ISSN : void 0) != null) {
@@ -5962,9 +5968,9 @@ P.src.crossref.journals = async function(issn) {
 //P.src.crossref.journals._key = 'ISSN'
 //P.src.crossref.journals._prefix = false
 P.src.crossref.journals.doi = async function(issn) {
-  var ref1, res;
+  var ref, res;
   if (issn == null) {
-    issn = (ref1 = this.params.doi) != null ? ref1 : this.params.issn;
+    issn = (ref = this.params.doi) != null ? ref : this.params.issn;
   }
   if (typeof issn === 'string') {
     issn = issn.split(',');
@@ -5979,9 +5985,9 @@ P.src.crossref.journals.doi = async function(issn) {
 };
 
 P.src.crossref.works = async function(doi, opts) {
-  var rec, ref1, ref2, ref3, res, url;
+  var rec, ref, ref1, ref2, res, url;
   if (doi == null) {
-    doi = (ref1 = (ref2 = (ref3 = this.params.works) != null ? ref3 : this.params.doi) != null ? ref2 : this.params.title) != null ? ref1 : this.params.q;
+    doi = (ref = (ref1 = (ref2 = this.params.works) != null ? ref2 : this.params.doi) != null ? ref1 : this.params.title) != null ? ref : this.params.q;
   }
   if (typeof doi === 'string') {
     if (doi.indexOf('10.') !== 0) {
@@ -5997,10 +6003,10 @@ P.src.crossref.works = async function(doi, opts) {
       // for now just get from old system instead of crossref
       //url = 'https://api.crossref.org/works/' + doi
       url = 'https://dev.api.cottagelabs.com/use/crossref/works?doi=' + doi;
-      res = (await this.fetch(url)); //, {headers: _xref_hdr}
+      res = (await this.fetch(url)); //, {headers: {'User-Agent': @S.name + '; mailto:' + @S.mail?.to}}
     }
     if ((res != null ? res.DOI : void 0) != null) {
-      rec = (await this.src.crossref.works._prep(res)); //res.data.message
+      rec = (await this.src.crossref.works._format(res)); //res.data.message
       return rec; //res?.message?.DOI?
     }
   } else {
@@ -6008,7 +6014,7 @@ P.src.crossref.works = async function(doi, opts) {
     //url = 'https://api.crossref.org/works/' + doi
     url = 'https://dev.api.cottagelabs.com/use/crossref/works?q=' + doi;
     return (await this.fetch(url, {
-      params: opts //, {headers: _xref_hdr}
+      params: opts //, {headers: {'User-Agent': @S.name + '; mailto:' + @S.mail?.to}}
     }));
   }
   return void 0;
@@ -6029,16 +6035,16 @@ P.src.crossref.works._prefix = false;
 // the wrapper should query in advance, like it does, but then be able to tell 
 // the difference between an actual query and an attempt to get a specific record
 P.src.crossref.works.title = async function(title) {
-  var i, j, len, len1, ltitle, qr, r, ref1, ref2, ref3, ref4, ref5, rem, res, rt, st, t;
+  var i, j, len, len1, ltitle, qr, r, ref, ref1, ref2, ref3, ref4, rem, res, rt, st, t;
   if (title == null) {
-    title = (ref1 = this.params.title) != null ? ref1 : this.params.q;
+    title = (ref = this.params.title) != null ? ref : this.params.q;
   }
   qr = 'title:"' + title + '"';
   if (title.split(' ').length > 2) {
     qr += ' OR (';
-    ref2 = title.split(' ');
-    for (i = 0, len = ref2.length; i < len; i++) {
-      t = ref2[i];
+    ref1 = title.split(' ');
+    for (i = 0, len = ref1.length; i < len; i++) {
+      t = ref1[i];
       if (!qr.endsWith('(')) {
         qr += ' AND ';
       }
@@ -6049,9 +6055,9 @@ P.src.crossref.works.title = async function(title) {
   rem = (await this.fetch('https://dev.api.cottagelabs.com/use/crossref/works?q=' + qr));
   //rem = @src.crossref.works qr
   ltitle = title.toLowerCase().replace(/['".,\/\^&\*;:!\?#\$%{}=\-\+_`~()]/g, ' ').replace(/\s{2,}/g, ' ').trim();
-  ref5 = (ref3 = rem != null ? (ref4 = rem.hits) != null ? ref4.hits : void 0 : void 0) != null ? ref3 : [];
-  for (j = 0, len1 = ref5.length; j < len1; j++) {
-    r = ref5[j];
+  ref4 = (ref2 = rem != null ? (ref3 = rem.hits) != null ? ref3.hits : void 0 : void 0) != null ? ref2 : [];
+  for (j = 0, len1 = ref4.length; j < len1; j++) {
+    r = ref4[j];
     if (r._source.DOI && r._source.title && r._source.title.length) {
       rt = (typeof r._source.title === 'string' ? r._source.title : r._source.title[0]).toLowerCase();
       if (r._source.subtitle && r._source.subtitle.length) {
@@ -6073,18 +6079,18 @@ P.src.crossref.works.title = async function(title) {
   return res;
 };
 
-P.src.crossref.works._prep = function(rec) {
-  var a, i, j, k, l, len, len1, len2, p, pbl, ref1, ref2, ref3, ref4, ref5, rp;
+P.src.crossref.works._format = function(rec) {
+  var a, i, j, k, l, len, len1, len2, p, pbl, ref, ref1, ref2, ref3, ref4, rp;
   if (rec.abstract) {
     rec.abstract = rec.abstract.replace(/<.*?>/g, '').replace(/^ABSTRACT/, '');
   }
   if (rec._id == null) {
     rec._id = rec.DOI.replace(/\//g, '_');
   }
-  ref2 = (ref1 = rec.assertion) != null ? ref1 : [];
+  ref1 = (ref = rec.assertion) != null ? ref : [];
   // try to build a published_date and publishedAt field?
-  for (i = 0, len = ref2.length; i < len; i++) {
-    a = ref2[i];
+  for (i = 0, len = ref1.length; i < len; i++) {
+    a = ref1[i];
     if (a.label === 'OPEN ACCESS') {
       if (a.URL && a.URL.indexOf('creativecommons') !== -1) {
         if (rec.license == null) {
@@ -6097,9 +6103,9 @@ P.src.crossref.works._prep = function(rec) {
       rec.is_oa = true;
     }
   }
-  ref4 = (ref3 = rec.license) != null ? ref3 : [];
-  for (j = 0, len1 = ref4.length; j < len1; j++) {
-    l = ref4[j];
+  ref3 = (ref2 = rec.license) != null ? ref2 : [];
+  for (j = 0, len1 = ref3.length; j < len1; j++) {
+    l = ref3[j];
     if (l.URL && l.URL.indexOf('creativecommons') !== -1 && (!rec.licence || rec.licence.indexOf('creativecommons') === -1)) {
       rec.licence = l.URL;
       try {
@@ -6120,9 +6126,9 @@ P.src.crossref.works._prep = function(rec) {
       rec.relation = rec.relation.slice(0, 100);
     }
   } catch (error) {}
-  ref5 = ['published-print', 'published-online', 'issued', 'deposited', 'indexed'];
-  for (k = 0, len2 = ref5.length; k < len2; k++) {
-    p = ref5[k];
+  ref4 = ['published-print', 'published-online', 'issued', 'deposited', 'indexed'];
+  for (k = 0, len2 = ref4.length; k < len2; k++) {
+    p = ref4[k];
     if (rec[p]) {
       try {
         if (rec[p]['date-time'] && rec[p]['date-time'].split('T')[0].split('-').length === 3) {
@@ -6932,12 +6938,12 @@ P.src.microsoft.graph.journal = async function(q) {
   return res;
 };
 
-`P.src.microsoft.graph.paper = _index: true
-P.src.microsoft.graph.journal = _index: true
-P.src.microsoft.graph.author = _index: true
-P.src.microsoft.graph.affiliation = _index: true
-P.src.microsoft.graph.abstract = _index: true
-P.src.microsoft.graph.relation = _index: true`;
+`P.src.microsoft.graph = _prefix: false, _index: settings: number_of_shards: 9
+P.src.microsoft.graph.journal = _prefix: false, _index: true
+P.src.microsoft.graph.author = _prefix: false, _index: true
+P.src.microsoft.graph.affiliation = _prefix: false, _index: true
+P.src.microsoft.graph.abstract = _prefix: false, _index: true
+P.src.microsoft.graph.relation = _prefix: false, _index: true`;
 
 `P.src.microsoft.graph._relations = (q, papers=true, authors=true, affiliations=true) ->
  # ['PaperId', 'AuthorId', 'AffiliationId', 'AuthorSequenceNumber', 'OriginalAuthor', 'OriginalAffiliation']
@@ -6986,9 +6992,11 @@ P.src.oadoi = async function(doi) {
   }
 };
 
-
-//P.src.oadoi._kv = false
-P.src.oadoi._index = true;
+P.src.oadoi._index = {
+  settings: {
+    number_of_shards: 9
+  }
+};
 
 P.src.oadoi._key = 'doi';
 
@@ -7473,7 +7481,9 @@ P.src.sherpa.opendoar.import = async function() {
 
 P.src.sherpa.opendoar.import._hide = true;
 
-// TODO copy over from old system
+var _got_props,
+  indexOf = [].indexOf;
+
 P.src.wikidata = function(q) {
   var ref, ref1;
   try {
@@ -7493,6 +7503,936 @@ P.src.wikidata = function(q) {
     });
   }
 };
+
+`P.src.wikidata = (qid) ->
+  qid ?= @params.wikidata ? @params.url ? @params.wikipedia
+  if typeof qid is 'string'
+    if qid.includes 'wiki/'
+      t = qid.split('wiki/').pop()
+      qid = undefined
+      try
+        w = await @src.wikipedia.lookup {title: t}
+        qid = w.data.pageprops.wikibase_item
+    if qid
+      res = await @fetch 'https://www.wikidata.org/wiki/Special:EntityData/' + qid + '.json'
+      qid = res.entities[qid]
+  if Array.isArray qid
+    recs = []
+    for q in qid
+      recs.push await @src.wikidata._format q
+    return recs
+  else if typeof qid is 'object'
+    return @src.wikidata._format qid
+  else
+    return undefined
+
+P.src.wikidata._index = settings: number_of_shards: 9
+P.src.wikidata._prefix = false`;
+
+P.src.wikidata._format = async function(rec) {
+  var al, als, ds, i, j, k, l, len, len1, len2, len3, len4, m, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, s, sl, sn, sw;
+  //rec.type = rec.type # was this meant to come from somewhere else
+  rec._id = rec.id;
+  rec.qid = rec.id;
+  rec.createdAt = Date.now();
+  rec.label = (ref = rec.labels) != null ? (ref1 = ref.en) != null ? ref1.value : void 0 : void 0; // is an english label required?
+  delete rec.labels;
+  sl = {};
+  ref3 = (ref2 = rec.sitelinks) != null ? ref2 : [];
+  for (i = 0, len = ref3.length; i < len; i++) {
+    sw = ref3[i];
+    if (indexOf.call(sw, 'enwiki') >= 0) {
+      sl[sw] = rec.sitelinks[sw];
+    }
+  }
+  rec.sitelinks = sl;
+  rec.description = (ref4 = rec.descriptions) != null ? (ref5 = ref4.en) != null ? ref5.value : void 0 : void 0;
+  delete rec.descriptions;
+  rec.alias = [];
+  ref7 = (ref6 = rec.aliases) != null ? ref6 : [];
+  for (j = 0, len1 = ref7.length; j < len1; j++) {
+    als = ref7[j];
+    ref8 = rec.aliases[als];
+    for (k = 0, len2 = ref8.length; k < len2; k++) {
+      al = ref8[k];
+      rec.alias.push(al);
+    }
+  }
+  delete rec.aliases;
+  rec.snaks = [];
+  ref10 = (ref9 = rec.claims) != null ? ref9 : [];
+  for (l = 0, len3 = ref10.length; l < len3; l++) {
+    s = ref10[l];
+    ref11 = rec.claims[s];
+    for (m = 0, len4 = ref11.length; m < len4; m++) {
+      sn = ref11[m];
+      ds = (await this.src.wikidata.desnak(sn.mainsnak));
+      if (JSON.stringify(ds) !== '{}') {
+        rec.snaks.push(ds);
+      }
+      if (rec.image == null) {
+        rec.image = ds.imgurl;
+      }
+    }
+  }
+  delete rec.claims;
+  try {
+    rec.wikipedia = (ref12 = (ref13 = rec.sitelinks) != null ? (ref14 = ref13.enwiki) != null ? ref14.url : void 0 : void 0) != null ? ref12 : 'https://en.wikipedia.org/wiki/' + rec.sitelinks.enwiki.title.replace(/ /g, '_');
+  } catch (error) {}
+  try {
+    rec.wid = (ref15 = rec.sitelinks) != null ? (ref16 = ref15.enwiki) != null ? ref16.url.split('wiki/').pop() : void 0 : void 0;
+  } catch (error) {}
+  return rec;
+};
+
+P.src.wikidata.desnak = async function(ms) {
+  var ansk, i, img, j, k, l, len, len1, len2, len3, len4, len5, len6, m, mds, n, o, q, qk, r, ref, ref1, ref10, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, sk, skid, snak;
+  if (ms == null) {
+    ms = this.params;
+  }
+  if (typeof ms !== 'object' || (((ref = ms.datavalue) != null ? ref.value : void 0) == null)) {
+    return {};
+  }
+  snak = {
+    qualifiers: [],
+    references: [],
+    property: ms.property // like PS30
+  };
+  try {
+    snak['key'] = ((await this.src.wikidata.property(snak.property))).label;
+  } catch (error) {}
+  if (typeof ms.datavalue.value !== 'object') {
+    snak.value = ms.datavalue.value; // an actual value
+    if (ms.datatype === 'url') {
+      snak.url = snak.value;
+    }
+  } else if (ms.datavalue.value.latitude) {
+    snak.location = {
+      latitude: ms.datavalue.value.latitude,
+      longitude: ms.datavalue.value.longitude,
+      precision: ms.datavalue.value.precision
+    };
+    snak.value = snak.location.latitude + (snak.location.longitude ? ',' + snak.location.longitude : '');
+    if (ms.datavalue.value.globe != null) {
+      snak.globe = ms.datavalue.value.globe.split('/').pop(); // like Q2 is earth, could be dereferenced later
+    }
+  } else if (ms.datavalue.value.amount) {
+    ref1 = ['amount', 'upperBound', 'lowerBound'];
+    for (i = 0, len = ref1.length; i < len; i++) {
+      sk = ref1[i];
+      snak[sk] = ms.datavalue.value[sk].toString();
+    }
+    snak.value = snak.amount;
+    if (ms.datavalue.value.unit) { // like Q712226 is square kilometer, later deref
+      snak.unit = ms.datavalue.value.unit.split('/').pop();
+    }
+  } else if (ms.datavalue.value.time) {
+    ref2 = ['time', 'timezone', 'before', 'after', 'precision'];
+    for (j = 0, len1 = ref2.length; j < len1; j++) {
+      sk = ref2[j];
+      snak[sk] = ms.datavalue.value[sk].toString();
+    }
+    snak.value = snak.time;
+  } else if (ms.datavalue.value.id) {
+    snak.qid = ms.datavalue.value.id; // like Q32, so needs later dereference and value set in snak.value (it would take too long and may run before the record to dereference exists anyway)
+  }
+  ref4 = (ref3 = ms.qualifiers) != null ? ref3 : [];
+  //try
+  //  v = await @src.wikidata snak.qid
+  //  snak.value = v?.label
+  for (k = 0, len2 = ref4.length; k < len2; k++) {
+    q = ref4[k];
+    ref5 = ms.qualifiers[q];
+    for (l = 0, len3 = ref5.length; l < len3; l++) {
+      qk = ref5[l];
+      snak.qualifiers.push((await this.src.wikidata.desnak(qk)));
+    }
+  }
+  ref7 = (ref6 = ms.references) != null ? ref6 : [];
+  for (m = 0, len4 = ref7.length; m < len4; m++) {
+    r = ref7[m];
+    ref8 = r['snaks-order'];
+    for (n = 0, len5 = ref8.length; n < len5; n++) {
+      skid = ref8[n];
+      ref9 = r.snaks[skid];
+      for (o = 0, len6 = ref9.length; o < len6; o++) {
+        ansk = ref9[o];
+        snak.references.push((await this.src.wikidata.desnak(ansk)));
+      }
+    }
+  }
+  if (snak.key === 'image' || (typeof snak.value === 'string' && ((ref10 = snak.value.toLowerCase().split('.').pop()) === 'bmp' || ref10 === 'gif' || ref10 === 'jpg' || ref10 === 'jpeg' || ref10 === 'png' || ref10 === 'svg' || ref10 === 'tif' || ref10 === 'webp'))) {
+    if (snak.value.startsWith('http')) {
+      snak.imgurl = snak.value;
+    } else {
+      snak.imgurl = 'https://upload.wikimedia.org/wikipedia/commons/';
+      img = snak.value.replace(/\s/g, '_');
+      mds = crypto.createHash('md5').update(img, 'utf8').digest('hex'); // base64
+      snak.imgurl += mds.charAt(0) + '/' + mds.charAt(0) + mds.charAt(1) + '/' + encodeURIComponent(img);
+    }
+  }
+  if (!snak.value && !snak.qid) {
+    return {};
+  } else {
+    return snak;
+  }
+};
+
+_got_props = {};
+
+P.src.wikidata.properties = async function() {
+  var content, i, len, parts, prop, row, rows, tb;
+  if (!this.refresh && JSON.stringify(_got_props) !== '{}') {
+    return _got_props;
+  } else {
+    _got_props = {};
+    try {
+      if (content = (await this.fetch('https://www.wikidata.org/wiki/Wikidata:Database_reports/List_of_properties/all'))) {
+        tb = content.split('<table class="wikitable sortable">')[1].split('</table>')[0];
+        rows = tb.split('</tr>');
+        rows.shift(); // the first row is headers
+        for (i = 0, len = rows.length; i < len; i++) {
+          row = rows[i];
+          try {
+            prop = {};
+            parts = row.split('</td>');
+            try {
+              prop.pid = parts[0].replace('</a>', '').split('>').pop().trim().replace('\n', '');
+            } catch (error) {}
+            try {
+              prop.label = parts[1].replace('</a>', '').split('>').pop().trim().replace('\n', '');
+            } catch (error) {}
+            try {
+              prop.desc = parts[2].replace('</a>', '').split('>').pop().trim().replace('\n', '');
+            } catch (error) {}
+            try {
+              prop.alias = parts[3].replace('</a>', '').split('>').pop().replace(/, or/g, ',').replace(/, /g, ',').trim().replace('\n', '').split(',');
+            } catch (error) {}
+            try {
+              prop.type = parts[4].replace('</a>', '').split('>').pop().trim().replace('\n', '');
+            } catch (error) {}
+            try {
+              prop.count = parts[5].replace('</a>', '').split('>').pop().replace(/,/g, '').trim().replace('\n', '');
+            } catch (error) {}
+            if (typeof prop.pid === 'string' && prop.pid.length && prop.pid.startsWith('P')) {
+              _got_props[prop.pid] = prop;
+            }
+          } catch (error) {}
+        }
+      }
+    } catch (error) {}
+    return _got_props;
+  }
+};
+
+P.src.wikidata.property = async function(prop) {
+  var firsts, p, partials, pls, props, q, qf;
+  if (prop == null) {
+    prop = this.params.property;
+  }
+  if (typeof prop !== 'string') {
+    return void 0;
+  }
+  props = (await this.src.wikidata.properties());
+  if (props[prop]) {
+    return props[prop];
+  } else {
+    q = prop.toLowerCase();
+    qf = q.split(' ')[0];
+    partials = [];
+    firsts = [];
+    for (p in props) {
+      pls = props[p].label.toLowerCase();
+      if (pls === q) {
+        return props[p];
+      } else if (pls.indexOf(q) !== -1) {
+        partials.push(props[p]);
+      } else if (pls.indexOf(qf) !== -1) {
+        firsts.push(props[p]);
+      }
+    }
+    return partials.concat(firsts);
+  }
+};
+
+P.src.wikidata.property.terms = async function(prop, size = 100, counts = true, alphabetical = false) {
+  var i, j, key, len, len1, loops, lp, max, out, qr, qv, rec, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, res, snak, sz, t, terms;
+  if (prop == null) {
+    prop = (ref = this.params.terms) != null ? ref : this.params.property;
+  }
+  terms = {};
+  loops = false;
+  key = false;
+  max = 0;
+  lp = 0;
+  sz = size < 1000 ? size : 1000;
+  qr = 'snaks.property.exact:' + prop;
+  while (this.keys(terms).length < size && (loops === false || lp < loops)) {
+    res = (await this.src.wikidata({
+      q: qr,
+      size: sz,
+      from: sz * lp
+    }));
+    if ((res != null ? (ref1 = res.hits) != null ? ref1.total : void 0 : void 0) != null) {
+      max = res.hits.total;
+    }
+    loops = (res != null ? (ref2 = res.hits) != null ? ref2.total : void 0 : void 0) == null ? 0 : Math.floor(res.hits.total / sz);
+    ref5 = (ref3 = res != null ? (ref4 = res.hits) != null ? ref4.hits : void 0 : void 0) != null ? ref3 : [];
+    for (i = 0, len = ref5.length; i < len; i++) {
+      rec = ref5[i];
+      ref8 = (ref6 = (ref7 = rec._source) != null ? ref7.snaks : void 0) != null ? ref6 : [];
+      for (j = 0, len1 = ref8.length; j < len1; j++) {
+        snak = ref8[j];
+        if (snak.property === prop) {
+          if ((snak.key != null) && key === false) {
+            key = snak.key;
+          }
+          if ((snak.value == null) && (snak.qid != null)) {
+            qv = (await this.src.wikidata(snak.qid));
+            if (qv != null) {
+              snak.value = qv.label;
+            }
+          }
+          if (snak.value != null) {
+            if (terms[snak.value] == null) {
+              terms[snak.value] = 0;
+              if ((snak.qid != null) && qr.split('AND NOT').length < 100) { //what is max amount of NOT terms?
+                qr += ' AND NOT snaks.qid.exact:' + snak.qid;
+              }
+            }
+            terms[snak.value] += 1;
+          }
+        }
+      }
+    }
+    lp += 1;
+  }
+  out = [];
+  for (t in terms) {
+    out.push({
+      term: t,
+      count: terms[t]
+    });
+  }
+  if (alphabetical) {
+    out = out.sort(function(a, b) {
+      if (a.term.toLowerCase().replace(/ /g, '') > b.term.toLowerCase().replace(/ /g, '')) {
+        return 1;
+      } else {
+        return -1;
+      }
+    });
+  } else {
+    out = out.sort(function(a, b) {
+      if (b.count > a.count) {
+        return 1;
+      } else {
+        return -1;
+      }
+    });
+  }
+  if (counts) {
+    return {
+      property: key,
+      total: max,
+      terms: out
+    };
+  } else {
+    return out.map(x(() => {
+      return x.term;
+    }));
+  }
+};
+
+P.src.wikidata.grid2ror = async function(grid, wd) {
+  var i, len, ref, s;
+  if (typeof wd === 'string') {
+    wd = (await this.src.wikidata(wd));
+  }
+  if (wd == null) {
+    wd = (await this.src.wikidata('(snaks.property:"P6782" OR snaks.property:"P1366") AND snaks.property:"P2427" AND snaks.value:"' + grid + '"'));
+  }
+  if (typeof wd === 'object' && (wd.snaks != null)) {
+    ref = wd.snaks;
+    for (i = 0, len = ref.length; i < len; i++) {
+      s = ref[i];
+      if (s.property === 'P6782') {
+        return s.value;
+      }
+      if (s.property === 'P1366' && s.qid) {
+        return this.src.wikidata.grid2ror(grid, s.qid);
+      }
+    }
+  }
+  return void 0;
+};
+
+P.src.wikidata._flatten = async function(rec) {
+  var c, i, len, ref, res;
+  res = {};
+  ref = rec.snaks;
+  for (i = 0, len = ref.length; i < len; i++) {
+    c = ref[i];
+    if (!c.value && c.qid) {
+      c.value = ((await this.src.wikidata(_c.qid))).label;
+    }
+    if (!c.value && c.property) {
+      c.value = ((await this.src.wikidata.property(c))).label;
+    }
+    if (res[c.key]) {
+      if (!Array.isArray(res[c.key])) {
+        res[c.key] = [res[c.key]];
+      }
+      res[c.key].push(c.value);
+    } else {
+      res[c.key] = c.value;
+    }
+  }
+  return res;
+};
+
+`API.use.wikidata.snakalyse = (snaks) ->
+  res = {meta: {}, total: 0, person: 0, orgs: 0, locs: 0, keys: []}
+  rec = {}
+  if typeof snaks is 'object' and snaks.snaks?
+    rec = snaks
+    snaks = snaks.snaks 
+  return res if not snaks?
+  snaks = [snaks] if not _.isArray snaks
+  seen = []
+  hascountry = false
+  hasviaf = false
+  hassex = false
+  hasfamily = false
+  for snak in snaks
+    if snak.key
+      res.keys.push(snak.key) if snak.key not in res.keys
+      res.total += 1
+      if snak.key + '_' + snak.value not in seen
+        seen.push snak.key + '_' + snak.value
+        tsk = snak.key.replace(/ /g,'_')
+        hascountry = true if snak.key is 'country'
+        hasviaf = true if snak.key is 'VIAF ID'
+        hassex = true if snak.key is 'sex or gender'
+        hasfamily = true if snak.key is 'family name'
+
+        if tsk.length and (snak.key in _props.research or snak.key in ['MeSH code','MeSH descriptor ID','MeSH term ID','MeSH concept ID',
+            'ICD-9-CM','ICD-9','ICD-10','ICD-10-CM',
+            'ICTV virus ID','ICTV virus genome composition',
+            'IUCN taxon ID','NCBI taxonomy ID'
+            'DiseasesDB','GARD rare disease ID',
+            "UniProt protein ID","RefSeq protein ID","Ensembl protein ID","Ensembl transcript ID",
+            "HGNC gene symbol","Gene Atlas Image","GeneReviews ID",
+            "Genetics Home Reference Conditions ID","FAO 2007 genetic resource ID","GeneDB ID","Gene Ontology ID","Ensembl gene ID",
+            "Entrez Gene ID","HomoloGene ID",
+            "InChIKey","InChI",
+            'Dewey Decimal Classification','Library of Congress Classification',
+            "AICS Chemical ID","MassBank accession ID",'ChEMBL ID',
+            'LiverTox ID'
+          ])
+          res.meta[tsk] = [] if not _.isArray res.meta[tsk] 
+          res.meta[tsk].push {value: snak.value, qid: snak.qid}
+
+        if snak.key in ['AICS Chemical ID','ChEMBL ID','chemical formula','chemical structure',"MassBank accession ID"] or snak.qid in ['Q11173'] # chemical compound
+          res.meta.chemical = rec.label ? true
+          res.meta.what ?= []
+          res.meta.what.push('chemical') if 'chemical' not in res.meta.what
+
+        if snak.key in ['ICTV virus ID','ICTV virus genome composition','has natural reservoir'] or snak.key is 'instance of' and snak.value is 'strain'
+          res.meta.virus = rec.label ? true
+          res.meta.what ?= []
+          res.meta.what.push('virus') if 'virus' not in res.meta.what
+
+        if snak.key in ['DrugBank ID','significant drug interaction']
+          res.meta.drug = rec.label ? true
+          res.meta.what ?= []
+          res.meta.what.push('drug') if 'drug' not in res.meta.what
+
+        if snak.key in ['LiverTox ID','eMedicine ID','medical condition treated','European Medicines Agency product number'] or (snak.key is 'instance of' and snak.qid in ['Q12140','Q35456']) # medication, essential medicine
+          res.meta.medicine = rec.label ? true
+          res.meta.what ?= []
+          res.meta.what.push('medicine') if 'medicine' not in res.meta.what
+
+        if snak.key in ['GARD rare disease ID','DiseasesDB','drug used for treatment','symptoms','ICD-9','ICD-10']
+          res.meta.disease = rec.label ? true
+          res.meta.what ?= []
+          res.meta.what.push('disease') if 'disease' not in res.meta.what
+
+        if snak.key in ["UniProt protein ID","RefSeq protein ID","Ensembl protein ID"]
+          res.meta.protein = rec.label ? true
+          res.meta.what ?= []
+          res.meta.what.push('protein') if 'protein' not in res.meta.what
+
+        if snak.key in ["HGNC gene symbol","Gene Atlas Image","GeneReviews ID","Genetics Home Reference Conditions ID","FAO 2007 genetic resource ID",
+            "GeneDB ID","Gene Ontology ID","Ensembl gene ID","Ensembl transcript ID","Entrez Gene ID","HomoloGene ID"]
+          res.meta.gene = rec.label ? true
+          res.meta.what ?= []
+          res.meta.what.push('gene') if 'gene' not in res.meta.what
+
+        if snak.key in _props.organisation or (snak.key is 'instance of' and ((typeof snak.value is 'string' and snak.value.toLowerCase().indexOf('company') isnt -1) or snak.qid in ['Q31855'])) # research institute
+          res.orgs += 1
+          res.meta.organisation = rec.label ? true
+          res.meta.what ?= []
+          res.meta.what.push('organisation') if 'organisation' not in res.meta.what
+        else if snak.key in _props.location or (snak.key is 'instance of' and snak.qid in [
+          'Q3624078','Q123480','Q170156','Q687554','Q43702','Q206696','Q6256']) # sovereign state, landlocked country, confederation, Federal Treaty, federal state, Helvetic Republic, country
+          res.locs += 1
+          res.meta.place = rec.label ? true
+          res.meta.what ?= []
+          res.meta.what.push('place') if 'place' not in res.meta.what
+
+        if snak.key is 'CBDB ID' or (snak.key is 'instance of' and snak.qid is 'Q5') # human
+          res.person += 1
+          res.meta.person = rec.label ? true
+          res.meta.what ?= []
+          res.meta.what.push('person') if 'person' not in res.meta.what
+
+        if snak.location
+          res.meta.location = snak.location
+
+  if hasviaf and hascountry and not res.meta.place? # to try to avoid other things that have country, but things other than places have viaf too - this may not work if people often have viaf and country
+    res.locs += 1
+    res.meta.place = rec.label ? true
+    res.meta.what ?= []
+    res.meta.what.push('place') if 'place' not in res.meta.what
+  if hassex and hasfamily and not res.meta.person?
+    res.person += 1
+    res.meta.person = rec.label ? true
+    res.meta.what ?= []
+    res.meta.what.push('person') if 'person' not in res.meta.what
+  if res.meta.what? and 'organisation' in res.meta.what and 'place' in res.meta.what
+    delete res.meta.place if res.meta.place?
+    res.meta.what = _.without res.meta.what, 'place'
+  if res.meta.what? and 'disease' in res.meta.what
+    delete res.meta.medicine if res.meta.medicine?
+    delete res.meta.drug if res.meta.drug?
+    res.meta.what = _.without(res.meta.what, 'medicine') if 'medicine' in res.meta.what
+    res.meta.what = _.without(res.meta.what, 'drug') if 'drug' in res.meta.what
+  return res
+
+_props = {
+  #ORGANISATION
+  organisation: [
+    "headquarters location",
+    "subsidiary",
+    "typically sells",
+    "Merchant Category Code",
+    #"industry",
+    "parent organization"
+    #"Ringgold ID" - locations have ringgold IDs too :(
+  ],
+
+  #LOCATION
+  location: [
+    "diplomatic relation",
+    "M.49 code",
+    "capital of",
+    "postal code",
+    "local dialing code",
+    "locator map image",
+    "shares border with",
+    "coordinate location",
+    "located on terrain feature",
+    "detail map",
+    "located in time zone",
+    "continent",
+    "lowest point",
+    "highest point",
+    "location map",
+    "relief location map",
+    "coordinates of easternmost point",
+    "coordinates of westernmost point",
+    "coordinates of northernmost point",
+    "coordinates of southernmost point",
+    "located in the administrative territorial entity",
+    "China administrative division code",
+    "UIC numerical country code",
+    "UIC alphabetical country code",
+    "coat of arms image",
+    #"country",
+    "head of government",
+    "GS1 country code",
+    "country calling code",
+    "language used",
+    "currency",
+    "capital",
+    "office held by head of state",
+    "head of state",
+    "flag",
+    "flag image",
+    "official language",
+    "contains administrative territorial entity",
+    "mobile country code",
+    "INSEE countries and foreign territories code"
+  ],
+  
+  #SOURCES
+  sources: [
+    "Google Knowledge Graph ID",
+    "Microsoft Academic ID",
+    "BBC Things ID",
+    "Getty AAT ID",
+    "Quora topic ID",
+    
+    "image",
+    "subreddit",
+  
+    "PhilPapers topic",
+  
+    "Wikitribune category",
+    "New York Times topic ID",
+    "The Independent topic ID",
+    "Google News topics ID",
+    "IPTC NewsCode",
+    "Guardian topic ID",
+  
+    "Library of Congress Control Number (LCCN) (bibliographic)",
+    "Library of Congress Classification",
+    "Library of Congress authority ID",
+    "LoC and MARC vocabularies ID",
+  
+    "Encyclopedia of Life ID",
+    "Encyclopædia Britannica Online ID",
+    "Encyclopædia Universalis ID",
+    "Encyclopedia of Modern Ukraine ID",
+    "Stanford Encyclopedia of Philosophy ID",
+    "Canadian Encyclopedia article ID",
+    "Cambridge Encyclopedia of Anthropology ID",
+    "Great Aragonese Encyclopedia ID",
+    "Orthodox Encyclopedia ID",
+    "Treccani's Enciclopedia Italiana ID",
+    "Gran Enciclopèdia Catalana ID",
+  
+    "Danish Bibliometric Research Indicator level",
+    "Danish Bibliometric Research Indicator (BFI) SNO/CNO",
+    "Biblioteca Nacional de España ID",
+    "Finnish national bibliography corporate name ID",
+    "Libraries Australia ID",
+    "Bibliothèque nationale de France ID",
+    "National Library of Brazil ID",
+    "Shanghai Library place ID",
+    "National Library of Greece ID",
+    "Portuguese National Library ID",
+    "National Library of Iceland ID",
+    "National Library of Israel ID",
+    "Open Library ID",
+    "Open Library subject ID",
+  
+    "OpenCitations bibliographic resource ID",
+  
+    "UNESCO Thesaurus ID",
+    "ASC Leiden Thesaurus ID",
+    "BNCF Thesaurus ID",
+    "NCI Thesaurus ID",
+    "STW Thesaurus for Economics ID",
+    "Thesaurus For Graphic Materials ID",
+    "UK Parliament thesaurus ID",
+  
+    "Wolfram Language entity type",
+    "Wolfram Language unit code",
+    "Wolfram Language entity code",
+  
+    "OmegaWiki Defined Meaning"
+  ],
+
+  #RESEARCH
+  research: [
+    "taxonomic type",
+    "taxon name",
+    "taxon rank",
+    "parent taxon",
+    "found in taxon",
+    "taxon synonym",
+    "this taxon is source of",
+    "taxon range map image",
+  
+    "biological process",
+    "ortholog",
+    "strand orientation",
+    "cytogenetic location",
+    "chromosome",
+    "genomic start",
+    "genomic end",
+    "cell component",
+    "element symbol",
+    "encodes",
+    "significant drug interaction",
+    "molecular function",
+    "possible medical findings",
+    "health specialty",
+    "chemical formula",
+    "chemical structure",
+    "physically interacts with",
+    "active ingredient in",
+    "therapeutic area",
+    "afflicts",
+    "defining formula",
+    "measured by",
+    "vaccine for",
+    "introduced feature",
+    "has contributing factor",
+    "has active ingredient",
+    "has natural reservoir",
+    "anatomical location",
+    "development of anatomical structure",
+    "medical condition treated",
+    "arterial supply",
+    "venous drainage",
+    "pathogen transmission process",
+    "risk factor",
+    "possible treatment",
+    "drug used for treatment",
+    "medical examinations",
+    "genetic association",
+    "symptoms",
+    "encoded by",
+    #"location",
+    "connects with",
+    "property constraint",
+    "instance of",
+    "subclass of",
+    "does not have part",
+    "has cause",
+    "subject has role",
+    "has quality",
+    "has part",
+    "has effect",
+    "has immediate cause",
+    "has parts of the class",
+    "part of",
+    "opposite of",
+    "facet of",
+    "natural reservoir of",
+    "equivalent property",
+    "partially coincident with",
+    "equivalent class",
+    "said to be the same as",
+    "properties for this type",
+    "used by",
+    "Commons category",
+    "route of administration"
+  ],
+
+  #IDS
+  ids: [
+    "MeSH code",
+    "MeSH descriptor ID",
+    "MeSH term ID",
+    "MeSH concept ID",
+  
+    "ICD-9-CM",
+    "ICD-9",
+    "ICD-10",
+    "ICD-10-CM",
+    "ICD-11 (foundation)",
+  
+    "ICTV virus ID",
+    "ICTV virus genome composition",
+  
+    "iNaturalist taxon ID",
+    "ADW taxon ID",
+    "BioLib taxon ID",
+    "Fossilworks taxon ID",
+    "IUCN taxon ID",
+    "NCBI taxonomy ID",
+  
+    "NCBI locus tag",
+    "IUCN conservation status",
+    "Dewey Decimal Classification",
+    "DiseasesDB",
+    "GeoNames feature code",
+    "GeoNames ID",
+    "ITU letter code",
+    "MSW ID",
+    "NBN System Key",
+    "EPPO Code",
+    "SPLASH",
+    "isomeric SMILES",
+    "canonical SMILES",
+    "InChIKey",
+    "InChI",
+    "NSC number",
+    "Reaxys registry number",
+    "European Medicines Agency product number",
+    "OCLC control number",
+    "CosIng number",
+    "Gmelin number",
+    "EC enzyme number",
+    "ZVG number",
+    "MCN code",
+    "Kemler code",
+    "GenBank Assembly accession",
+    "NUTS code",
+    "EC number",
+    "CAS Registry Number",
+    "ATC code",
+    "MathWorld identifier",
+    "UNSPSC Code",
+    "IPA transcription",
+    "ISNI",
+  
+    "ISO 3166-2 code",
+    "ISO 4 abbreviation",
+    "ISO 3166-1 numeric code",
+    "ISO 3166-1 alpha-3 code",
+    "ISO 3166-1 alpha-2 code",
+    "ITU/ISO/IEC object identifier",
+    "U.S. National Archives Identifier",
+  
+    "IRMNG ID",
+    "Global Biodiversity Information Facility ID",
+    "Human Phenotype Ontology ID",
+    "Freebase ID",
+    "YSA ID",
+    "PersonalData.IO ID",
+    "BabelNet ID",
+    "Klexikon article ID",
+    "EuroVoc ID",
+    "JSTOR topic ID",
+    "Semantic Scholar author ID",
+    "GND ID",
+    "PSH ID",
+    "YSO ID",
+    "HDS ID",
+    "Disease Ontology ID",
+    "Elhuyar ZTH ID",
+    "MonDO ID",
+    "ORCID iD",
+    "WorldCat Identities ID",
+    "VIAF ID",
+    "archINFORM location ID",
+    "Pleiades ID",
+    "Nomisma ID",
+    "GACS ID",
+    "NE.se ID",
+    "FAST ID",
+    "GARD rare disease ID",
+    "MedlinePlus ID",
+    "Dagens Nyheter topic ID",
+    "DMOZ ID",
+    "Analysis &amp; Policy Observatory term ID",
+    "DR topic ID",
+    "ICPC 2 ID",
+    "OMIM ID",
+    "Store medisinske leksikon ID",
+    "NHS Health A to Z ID",
+    "Patientplus ID",
+    "eMedicine ID",
+    "BHL Page ID",
+    "Invasive Species Compendium Datasheet ID",
+    "OSM relation ID",
+    "GeoNLP ID",
+    "Zhihu topic ID",
+    "Observation.org ID",
+    "IUPAC Gold Book ID",
+    "Dyntaxa ID",
+    "New Zealand Organisms Register ID",
+    "Fauna Europaea New ID",
+    "Fauna Europaea ID",
+    "Belgian Species List ID",
+    "TDKIV term ID",
+    "Foundational Model of Anatomy ID",
+    "UBERON ID",
+    "NSK ID",
+    "CANTIC ID",
+    "NALT ID",
+    "WoRMS-ID for taxa",
+  
+    "Crossref funder ID",
+    "RoMEO publisher ID",
+    "NORAF ID",
+    "GRID ID",
+    "CONOR ID",
+    "Publons publisher ID",
+    "SHARE Catalogue author ID",
+    "NUKAT ID",
+    "EGAXA ID",
+    "ULAN ID",
+    "ROR ID",
+    "HAL structure ID",
+    "ELNET ID",
+    "TA98 Latin term",
+    "Terminologia Anatomica 98 ID",
+    "GPnotebook ID",
+    "archINFORM keyword ID",
+    "FOIH heritage types ID",
+    "ILI ID",
+    "Römpp online ID",
+    "Pfam ID",
+    "ECHA InfoCard ID",
+    "MassBank accession ID",
+    "ChEBI ID",
+    "NDF-RT ID",
+    "Guide to Pharmacology Ligand ID",
+    "ChEMBL ID",
+    "ChemSpider ID",
+    "PubChem CID",
+    "KEGG ID",
+    "DSSTox substance ID",
+    "CA PROP 65 ID",
+    "IEDB Epitope ID",
+    "PDB ligand ID",
+    "DrugBank ID",
+    "PDB structure ID",
+    "LiverTox ID",
+    "RxNorm ID",
+    "Rosetta Code ID",
+    "UniProt journal ID",
+    "NLM Unique ID",
+    "Scopus Source ID",
+    "JUFO ID",
+    "Human Metabolome Database ID",
+    "NIAID ChemDB ID",
+    "KNApSAcK ID",
+    "Joconde inscription ID",
+    "BIDICAM authority ID",
+    "BVPH authority ID",
+    "LEM ID",
+    "ICSC ID",
+    "MinDat mineral ID",
+    "AICS Chemical ID",
+    "Reactome ID",
+    "Xenopus Anatomical Ontology ID",
+    "ARKive ID",
+    "CITES Species+ ID",
+    "UniProt protein ID",
+    "RefSeq protein ID",
+    "Ensembl protein ID",
+    "HGNC gene symbol",
+    "Gene Atlas Image",
+    "GeneReviews ID",
+    "Genetics Home Reference Conditions ID",
+    "FAO 2007 genetic resource ID",
+    "GeneDB ID",
+    "Gene Ontology ID",
+    "Ensembl gene ID",
+    "Ensembl transcript ID",
+    "Entrez Gene ID",
+    "HomoloGene ID",
+    "Pschyrembel Online ID",
+    "HCIS ID",
+    "BMRB ID",
+    "ZINC ID",
+    "HSDB ID",
+    "3DMet ID",
+    "SpectraBase compound ID",
+    "GTAA ID",
+    "HGNC ID",
+    "RefSeq RNA ID",
+    "History of Modern Biomedicine ID",
+    "Gynopedia ID",
+    "De Agostini ID",
+    "ESCO skill ID",
+    "ANZSRC FoR ID",
+    "Spider Ontology ID",
+    "Coflein ID",
+    "SAGE journal ID",
+    "ERA Journal ID",
+    "NIOSHTIC-2 ID",
+    "ISOCAT id"
+  ]
+}
+`;
 
 // http://zenodo.org/dev
 // https://zenodo.org/api/deposit/depositions
@@ -10962,8 +11902,8 @@ P.svc.oaworks.journal.oa = async function(issn) {
       issn = (ref = (ref1 = this.params.journal) != null ? ref1 : this.params.issn) != null ? ref : this.params.oa;
     }
   } catch (error) {}
-  tc = (await this.fetch('https://dev.api.cottagelabs.com/use/crossref/works?q=ISSN.exact:"' + issn + '"'));
-  oac = (await this.fetch('https://dev.api.cottagelabs.com/use/crossref/works?q=ISSN.exact:"' + issn + '" AND is_oa:true')); // could add AND NOT licence:nc
+  tc = (await this.fetch('https://dev.api.cottagelabs.com/use/crossref/works?q=type.exact:"journal-article" AND ISSN.exact:"' + issn + '"'));
+  oac = (await this.fetch('https://dev.api.cottagelabs.com/use/crossref/works?q=type.exact:"journal-article" AND ISSN.exact:"' + issn + '" AND is_oa:true')); // could add AND NOT licence:nc
   return tc.hits.total === oac.hits.total && (tc.hits.total !== 0 || oac.hits.total !== 0);
 };
 
@@ -10984,11 +11924,11 @@ P.svc.oaworks.publisher.oa = async function(publisher) {
 var indexOf = [].indexOf;
 
 P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
-  var _getmeta, _prep, _score, af, altoa, an, cr, cwd, doa, fz, haddoi, i, inisn, issns, j, key, l, len, len1, len10, len11, len12, len2, len3, len4, len5, len6, len7, len8, len9, longest, lvs, m, msgs, n, o, oadoi, overall_policy_restriction, p, pb, perms, pisoa, ps, q, qr, r, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref4, ref5, ref6, ref7, ref8, ref9, ro, rors, rp, rr, rs, rw, rwd, sn, snak, snkd, t, tr, u, v, vl, w, wp, x, y;
+  var _format, _getmeta, _score, af, altoa, an, cr, cwd, doa, fz, haddoi, i, inisn, issns, j, key, l, len, len1, len10, len11, len12, len2, len3, len4, len5, len6, len7, len8, len9, longest, lvs, m, msgs, n, o, oadoi, overall_policy_restriction, p, pb, perms, pisoa, ps, q, qr, r, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref4, ref5, ref6, ref7, ref8, ref9, ro, rors, rp, rr, rs, rw, rwd, sn, snak, snkd, t, tr, u, v, vl, w, wp, x, y;
   overall_policy_restriction = false;
   cr = false;
   haddoi = false;
-  _prep = async function(rec) {
+  _format = async function(rec) {
     var a, d, em, eph, fst, i, j, len, len1, len2, m, ph, pt, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, swaps;
     if (haddoi && rec.embargo_months && (meta.published || meta.year)) {
       em = new Date(Date.parse((ref = meta.published) != null ? ref : meta.year + '-01-01'));
@@ -11303,7 +12243,7 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
     ref13 = (ref11 = rs != null ? (ref12 = rs.hits) != null ? ref12.hits : void 0 : void 0) != null ? ref11 : [];
     for (q = 0, len5 = ref13.length; q < len5; q++) {
       rr = ref13[q];
-      tr = (await _prep(rr._source));
+      tr = (await _format(rr._source));
       tr.score = (await _score(tr));
       rors.push(tr);
     }
@@ -11314,7 +12254,7 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
     ref16 = (ref14 = ps != null ? (ref15 = ps.hits) != null ? ref15.hits : void 0 : void 0) != null ? ref14 : [];
     for (r = 0, len6 = ref16.length; r < len6; r++) {
       p = ref16[r];
-      rp = (await _prep(p._source));
+      rp = (await _format(p._source));
       rp.score = (await _score(rp));
       perms.all_permissions.push(rp);
     }
@@ -11325,7 +12265,7 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta) {
     ref19 = (ref17 = ps != null ? (ref18 = ps.hits) != null ? ref18.hits : void 0 : void 0) != null ? ref17 : [];
     for (t = 0, len7 = ref19.length; t < len7; t++) {
       p = ref19[t];
-      rp = (await _prep(p._source));
+      rp = (await _format(p._source));
       rp.score = (await _score(rp));
       perms.all_permissions.push(rp);
     }
@@ -12601,14 +13541,14 @@ P.svc.rscvd.overdue = async function() {
   for (j = 0, len1 = recs.length; j < len1; j++) {
     rec = recs[j];
     rec.status = 'Overdue';
-    this.svc.rscvd(rec);
+    this.waitUntil(this.svc.rscvd(rec));
     counter += 1;
   }
   return counter;
 };
 
 
-S.built = "Mon Jul 26 2021 09:23:02 GMT+0100";
+S.built = "Mon Aug 02 2021 03:39:01 GMT+0100";
 P.puppet = {_bg: true}// added by constructor
 
 P.puppet._auth = 'system';// added by constructor
@@ -12618,3 +13558,27 @@ P.puppet._hide = true;// added by constructor
 P.scripts.testoab = {_bg: true}// added by constructor
 
 P.scripts.testoab._cache = false;// added by constructor
+
+P.src.crossref.load = {_bg: true}// added by constructor
+
+P.src.crossref.load._async = true;// added by constructor
+
+P.src.crossref.load._auth = 'root';// added by constructor
+
+P.src.microsoft.load = {_bg: true}// added by constructor
+
+P.src.microsoft.load._async = true;// added by constructor
+
+P.src.microsoft.load._auth = 'root';// added by constructor
+
+P.src.oadoi.load = {_bg: true}// added by constructor
+
+P.src.oadoi.load._async = true;// added by constructor
+
+P.src.oadoi.load._auth = 'root';// added by constructor
+
+P.src.wikidata.load = {_bg: true}// added by constructor
+
+P.src.wikidata.load._async = true;// added by constructor
+
+P.src.wikidata.load._auth = 'root';// added by constructor

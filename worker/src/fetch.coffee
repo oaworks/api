@@ -35,7 +35,7 @@ P.fetch = (url, params) ->
     url = url.replace params.auth+'@', ''
   if params.auth
     params.headers ?= {}
-    params.headers['Authorization'] = 'Basic ' + Buffer.from(params.auth).toString('base64')
+    params.headers.Authorization = 'Basic ' + Buffer.from(params.auth).toString('base64')
     delete params.auth
   for ct in ['data', 'content', 'json']
     if params[ct]?
@@ -76,8 +76,10 @@ P.fetch = (url, params) ->
         url += '&' if not url.endsWith('&') and not url.endsWith '?'
         url += encodeURIComponent(k) + '=' + encodeURIComponent(JSON.stringify(v)) if k
     if S.system and ((typeof S.bg is 'string' and url.startsWith S.bg) or (typeof S.kv is 'string' and S.kv.startsWith('http') and url.startsWith S.kv))
-      params.headers ?= {} # add the system auth code when passing anything back to bg, or when bg passing to worker to reach kv
+      params.headers ?= {} # add the system auth code and any user creds when passing anything back to bg, or when bg passing to worker to reach kv
       params.headers['x-' + S.name.toLowerCase() + '-system'] ?= S.system
+      if not params.headers.Authorization and not params.headers.authorization and not params.headers['x-apikey'] and @user
+        params.headers['x-apikey'] = @user.apikey
     _f = () =>
       if params.verbose
         verbose = true

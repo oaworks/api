@@ -2,7 +2,6 @@
 # https://github.com/CrossRef/rest-api-doc/blob/master/rest_api.md
 # http://api.crossref.org/works/10.1016/j.paid.2009.02.013
 
-_xref_hdr = {'User-Agent': S.name + '; mailto:' + S.mail?.to}
 
 P.src.crossref = () ->
   return 'Crossref API wrapper'
@@ -13,7 +12,7 @@ P.src.crossref.journals = (issn) ->
   isissn = typeof issn is 'string' and issn.length is 9 and issn.split('-').length is 2 and issn.indexOf('-') is 4
   #url = 'https://api.crossref.org/journals?query=' + issn
   url = 'https://dev.api.cottagelabs.com/use/crossref/journals' + (if isissn then '/' + issn else '?q=') + issn
-  res = await @fetch url #, {headers: _xref_hdr} # TODO check how headers get sent by fetch
+  res = await @fetch url #, {headers: {'User-Agent': @S.name + '; mailto:' + @S.mail?.to}} # TODO check how headers get sent by fetch
   #return if res?.message?['total-results']? and res.message['total-results'].length then res.message['total-results'][0] else undefined
   return if isissn then (if res?.ISSN? then res else undefined) else res
 
@@ -43,16 +42,16 @@ P.src.crossref.works = (doi, opts) ->
       # for now just get from old system instead of crossref
       #url = 'https://api.crossref.org/works/' + doi
       url = 'https://dev.api.cottagelabs.com/use/crossref/works?doi=' + doi
-      res = await @fetch url #, {headers: _xref_hdr}
+      res = await @fetch url #, {headers: {'User-Agent': @S.name + '; mailto:' + @S.mail?.to}}
 
     if res?.DOI? #res?.message?.DOI?
-      rec = await @src.crossref.works._prep res #res.data.message
+      rec = await @src.crossref.works._format res #res.data.message
       return rec
   else
     # for now just get from old system instead of crossref
     #url = 'https://api.crossref.org/works/' + doi
     url = 'https://dev.api.cottagelabs.com/use/crossref/works?q=' + doi
-    return await @fetch url, params: opts #, {headers: _xref_hdr}
+    return await @fetch url, params: opts #, {headers: {'User-Agent': @S.name + '; mailto:' + @S.mail?.to}}
     
   return undefined
 
@@ -90,7 +89,7 @@ P.src.crossref.works.title = (title) ->
           res = r._source
   return res
 
-P.src.crossref.works._prep = (rec) ->
+P.src.crossref.works._format = (rec) ->
   rec.abstract = rec.abstract.replace(/<.*?>/g, '').replace(/^ABSTRACT/, '') if rec.abstract
   rec._id ?= rec.DOI.replace /\//g, '_'
   # try to build a published_date and publishedAt field?
