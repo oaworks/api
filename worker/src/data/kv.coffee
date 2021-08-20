@@ -30,7 +30,7 @@ if typeof S.kv is 'string' and S.kv.startsWith('http') and not global[S.kv]
     ret = await P.index kc
     if ret.expiresAt and ret.expiresAt < Date.now()
       P.index kc, '' # delete
-      return undefined
+      return
     else
       try ret.val = JSON.parse ret.val
       return ret.val
@@ -74,7 +74,7 @@ P.kv = (key, val, ttle, metadata, type) ->
   if not key?
     key = @params.kv ? @params.key ? @parts.join '_'
     if not val?
-      if @request.method is 'DELETE' or @params._delete # TODO this is for easy dev, take out or auth restrict later
+      if @request.method is 'DELETE' #or @params._delete
         val = ''
       else if @body
         val = @body
@@ -113,10 +113,7 @@ P.kv = (key, val, ttle, metadata, type) ->
         if val is ''
           @waitUntil global[@S.kv].delete key # remove a key after retrieval
         return if metadata is true then {value: value, metadata: metadata} else value
-      else
-        return undefined
-  else
-    return undefined
+  return
 
 P.kv._auths = 'system'
 P.kv._hides = true

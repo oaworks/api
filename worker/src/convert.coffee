@@ -388,3 +388,61 @@ P.convert.stream2txt = (stream) ->
     stream.on 'data', (chunk) => chunks.push Buffer.from chunk
     stream.on 'error', (err) => reject err
     stream.on 'end', () => resolve Buffer.concat(chunks).toString 'utf8'
+
+
+#import xml2js from 'xml2js'
+'''P.convert.xml2json = (content) ->
+  _clean = (val, k) ->
+    if Array.isArray val
+      vv = []
+      for v in val
+        if typeof v isnt 'string' or v.replace(/ /g,'').replace(/\n/g,'') isnt ''
+          cv = await _clean v, k
+          vv.push cv
+      val = if vv.length then if vv.length is 1 and typeof vv[0] is 'string' then vv[0] else vv else ''
+    else if typeof val is 'object'
+      keys = await @keys val
+      if keys.length is 1 and (keys[0].toLowerCase() is k.toLowerCase() or (k.toLowerCase().split('').pop() is 's' and keys[0].toLowerCase() is k.toLowerCase().slice(0, -1)))
+        val = await _clean val[keys[0]], k, clean
+      else if val.$?.key? and val._? and keys.length is 2
+        nv = {}
+        nv[val.$.key] = val._
+        val = nv
+      else if val.$? and _.keys(val.$).length is 1
+        sk = _.keys(val.$)[0]
+        val[sk] = val.$[sk]
+        delete val.$
+      else if val.$? and typeof val.$ is 'object'
+        unique = true
+        for dk of val.$
+          unique = dk not in keys
+        if unique
+          for dkk of val.$
+            val[dkk] = val.$[dkk]
+          delete val.$
+      ak = await @keys val
+      if ak.length is 1 and typeof val[ak[0]] is 'string' and val[ak[0]].toLowerCase() is k.toLowerCase()
+        val = ''
+      else
+        for o of val
+          val[o] = await _clean val[o], o
+          if o is '_' and typeof val[o] is 'string' and not val.value?
+            if ak.length is 1 and '_' not in ak and val[ak[0]].toLowerCase() is k.toLowerCase()
+              return val._
+            else
+              val.value = val._
+              delete val._
+    return val
+
+  content = await @fetch(content) if content.startsWith 'http'
+  parser = new xml2js.Parser()
+  return new Promse (resolve, reject) =>
+    parser.parseString content, (err, result) =>
+      recs = []
+      for row in (if Array.isArray(result) then result else if result then [result] else [])
+        for k of row
+          row[k] = await _clean row[k], k
+        recs.push row
+      resolve if recs.length is 1 then recs[0] else recs
+'''
+

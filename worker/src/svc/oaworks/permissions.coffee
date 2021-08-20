@@ -163,21 +163,11 @@ P.svc.oaworks.permissions = (meta, ror, getmeta) ->
     meta.ror = [meta.ror] if typeof meta.ror is 'string'
     rs = await @svc.oaworks.permissions.affiliations 'issuer.id:"' + meta.ror.join('" OR issuer.id:"') + '"'
     if not rs?.hits?.total
-      # look up the ROR in wikidata - if found, get the qid from the P17 country snak, look up that country qid
-      # get the P297 ISO 3166-1 alpha-2 code, search affiliations for that
-      if rw = await @src.wikidata 'snaks.property.exact:"P6782" AND snaks.property.exact:"P17" AND (snaks.value.exact:"' + meta.ror.join(" OR snaks.value.exact:") + '")'
-        snkd = false
-        for ro in rw.hits?.hits ? []
-          break if snkd
-          rwd = ro._source
-          for snak in rwd.snaks
-            break if snkd
-            if snak.property is 'P17' and cwd = await @src.wikidata snak.qid
-              for sn in cwd.snaks
-                if sn.property is 'P297'
-                  snkd = true
-                  rs = await @svc.oaworks.permissions.affiliations 'issuer.id:"' + sn.value + '"'
-                  break
+      try # look up the ROR, get the ISO 3166-1 alpha-2 code, search affiliations for that
+        rw = await @src.ror(if meta.ror.length is 1 then meta.ror[0] else 'id:"' + meta.ror.join(" OR id:") + '"')
+        rw = rw.hits.hits[0]._source if rw.hits?.total
+        if rw.country.country_code
+          rs = await @svc.oaworks.permissions.affiliations 'issuer.id:"' + rw.country.country_code + '"'
     for rr in rs?.hits?.hits ? []
       tr = await _format rr._source
       tr.score = await _score tr

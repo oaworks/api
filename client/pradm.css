@@ -24,6 +24,7 @@ https://coolors.co/cae0ff-d7be82-f2545b-616163-3e363f
   --black: #333;
   --white: #fff;
   --cream: #FFFFFC;
+  --green:  #86E9B9;
 
   --inner: #ddd;
   --outer: #555;
@@ -154,8 +155,8 @@ button:hover, .button:hover, [type=submit]:hover { box-shadow: inset 0 0 0 99em 
 .black .button:not(.black) { color: #5f5c64; }
 .white { background: var(--white); }
 .cream { background: var(--cream); }
+.green { background: var(--green); }
 .well { background: var(--cream); border-color: #333; }
-.bordered { border: 1px solid #999; }
 .statement { font-family:'Nixie One', 'Roboto Slab', Verdana, Arial, sans-serif; }
 .transparent { background: transparent !important; }
 .shadow {
@@ -180,6 +181,13 @@ p.light {
   box-shadow: none;
   color: #999;
 }
+
+.bordered { border: 1px solid #999; }
+.bordered-action { border: 1px solid var(--action); }
+.bordered-alert { border: 1px solid  var(--alert); }
+.bordered-warning { border: 1px solid  var(--warning); }
+.bordered-cream { border: 1px solid var(--cream); }
+.bordered-green { background: var(--green); }
 
 .right {
   float: right;

@@ -2,12 +2,11 @@
 # get the big deal data from a sheet and expose it in a website
 # https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4frfBvvPOKKFhArpV7cRUG0aAbfGRy214y-xlDG_CsW7kNbL-e8tuRvh8y37F4xc8wjO6FK8SD6UT/pubhtml
 # https://docs.google.com/spreadsheets/d/1dPG7Xxvk4qnPajTu9jG_uNuz2R5jvjfeaKI-ylX4NXs/edit
-# there are about 6500 records
 
-P.svc.bigdeal = _index: true
-P.svc.bigdeal.institution = _index: true
+P.svc.oaworks.deal = _index: true, _hides: true, _prefix: false
+P.svc.oaworks.deal.institution = _index: true, _prefix: false
 
-P.svc.bigdeal.import = () ->
+P.svc.oaworks.deal.import = () ->
   recs = await @src.google.sheets '1dPG7Xxvk4qnPajTu9jG_uNuz2R5jvjfeaKI-ylX4NXs'
   institutions = {}
   for rec in recs
@@ -27,10 +26,14 @@ P.svc.bigdeal.import = () ->
       else
         rec.gbpvalue = Math.floor rec.value
         rec.usdvalue = Math.floor rec.value * 1.3
+    rec.usdvalue ?= ''
     try rec.years = '2013' if rec.years is '2103' # fix what is probably a typo
     try delete rec.url if rec.shareurlpublicly.toLowerCase() isnt 'yes'
     try delete rec.shareurlpublicly
     try rec.collection = 'Unclassified' if rec.collection is ''
+    try
+      rec.carnegiebasicclassification = rec['2015carnegiebasicclassification']
+      delete rec['2015carnegiebasicclassification']
     try
       institutions[rec.institution] ?= {institution:rec.institution, deals:[], value:0, usdvalue:0, gbpvalue:0}
       rdc = JSON.parse JSON.stringify rec
@@ -45,12 +48,11 @@ P.svc.bigdeal.import = () ->
   for i of institutions
     insts.push institutions[i]
 
-  await @svc.bigdeal ''
-  await @svc.bigdeal.institution ''
+  await @svc.oaworks.deal ''
+  await @svc.oaworks.deal.institution ''
 
-  await @svc.bigdeal recs
-  await @svc.bigdeal.institution insts
+  await @svc.oaworks.deal recs
+  await @svc.oaworks.deal.institution insts
 
-  return retrieved: recs.length, saved: @svc.bigdeal.count(), institutions: insts.length, created: @svc.bigdeal.institution.count()
-
+  return retrieved: recs.length, institutions: insts.length
 

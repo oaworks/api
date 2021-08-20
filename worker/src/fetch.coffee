@@ -1,10 +1,9 @@
 
 # https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch
 
-# NOTE TODO for getting certain file content, adding encoding: null to headers (or correct encoding required) is helpful
+# NOTE TODO for getting certain file content, adding encoding: null to headers (or correct encoding required) can be helpful
 
 P.fetch = (url, params) ->
-  # TODO if asked to fetch a URL that is the same as the @url this worker served on, then needs to switch to a bg call if bg URL available
   if not url? and not params?
     try params = @copy @params
   if typeof url is 'object' and not params?
@@ -24,15 +23,13 @@ P.fetch = (url, params) ->
     params.url = url # send to bg (e.g. for proxying)
     url = S.bg + '/fetch'
     delete params.bg
-  # if params is provided, and headers is in it, may want to merge with some default headers
-  # see below for other things that can be set
   if params.username and params.password
     params.auth = params.username + ':' + params.password
     delete params.username
     delete params.password
   if url.split('//')[1].split('@')[0].indexOf(':') isnt -1
     params.auth = url.split('//')[1].split('@')[0]
-    url = url.replace params.auth+'@', ''
+    url = url.replace params.auth + '@', ''
   if params.auth
     params.headers ?= {}
     params.headers.Authorization = 'Basic ' + Buffer.from(params.auth).toString('base64')
@@ -52,16 +49,18 @@ P.fetch = (url, params) ->
     params.headers ?= {}
     if not params.headers['Content-Type']? and not params.headers['content-type']?
       params.headers['Content-Type'] = 'application/x-www-form-urlencoded'
-    if typeof params.form is 'string'
-      params.body = params.form
-    else
-      try params.form = await @params params.form
+    if typeof params.form is 'object'
+      try params.form = await @form params.form
+    params.body = params.form
     delete params.form
     params.method ?= 'POST'
+
   if typeof url isnt 'string'
-    return false
+    return
   else
-    if url.indexOf('?') isnt -1
+    if url.includes 'localhost' # allow local https connections on backend server without check cert
+      try params.agent ?= new https.Agent rejectUnauthorized: false
+    if url.includes '?'
       pts = url.split '?'
       nu = pts.shift() + '?'
       for qp in pts.join('?').split '&'
@@ -74,67 +73,34 @@ P.fetch = (url, params) ->
       url += '?' if url.indexOf('?') is -1
       for k, v of params.params
         url += '&' if not url.endsWith('&') and not url.endsWith '?'
-        url += encodeURIComponent(k) + '=' + encodeURIComponent(JSON.stringify(v)) if k
+        url += encodeURIComponent(k) + '=' + encodeURIComponent(if typeof v is 'object' then JSON.stringify(v) else v) if k
+      delete params.params
     if S.system and ((typeof S.bg is 'string' and url.startsWith S.bg) or (typeof S.kv is 'string' and S.kv.startsWith('http') and url.startsWith S.kv))
       params.headers ?= {} # add the system auth code and any user creds when passing anything back to bg, or when bg passing to worker to reach kv
       params.headers['x-' + S.name.toLowerCase() + '-system'] ?= S.system
-      if not params.headers.Authorization and not params.headers.authorization and not params.headers['x-apikey'] and @user
-        params.headers['x-apikey'] = @user.apikey
+      params.headers['x-apikey'] = @user.apikey if not params.headers.Authorization and not params.headers.authorization and not params.headers['x-apikey'] and @user
+
     _f = () =>
-      if params.verbose
-        verbose = true
-        delete params.verbose
+      if params.stream
+        delete params.stream
+        # return full response with status, ok, redirected, bodyUsed, size, timeout url, statusText, clone, body, arrayBuffer, blob, json, text, buffer, textConverted 
+        return fetch url, params # (and response body can be used as stream if desired, or can await text() or json() etc
       else
-        verbose = false
-      try
-        if url.indexOf('localhost') isnt -1
-          # allow local https connections on backend server without check cert
-          params.agent ?= new https.Agent rejectUnauthorized: false
-      response = await fetch url, params
-      console.log(response.status + ' ' + url) if S.dev #and S.bg is true # status code can be found here
-      # content type could be read from: response.headers.get('content-type')
-      # and await response.json() can get json direct, but it will error if the wrong sort of data is provided.
-      # So just do it manually from text here if appropriate
-      # TODO what if the response is a stream (buffer)?
-      r = await response.text()
-      try r = JSON.parse(r) if typeof r is 'string' and (r.indexOf('{') is 0 or r.indexOf('[') is 0)
-      resp = {}
-      if response.status is 404
-        resp = undefined
-      else if response.status >= 400
-        if S.dev
-          console.log params
-          console.log JSON.stringify r
-          console.log 'ERROR ' + response.status
-        resp.status = response.status
-      else if verbose
-        if typeof r is 'object'
-          resp.json = r
+        response = await fetch url, params
+        console.log(response.status + ' ' + url) if S.dev and S.bg is true # status code can be found here
+        # content type could be read from: response.headers.get('content-type')
+        r = await response.text() # await response.json() can get json direct, but it will error if the wrong sort of data is provided, so just try it here
+        try r = JSON.parse(r) if typeof r is 'string' and (r.indexOf('{') is 0 or r.indexOf('[') is 0)
+        if response.status is 404
+          return
+        else if response.status >= 400
+          console.log(params, JSON.stringify(r), 'FETCH ERROR', response.status) if S.dev and S.bg is true
+          return status: response.status
         else
-          resp.text = r
-      else
-        resp = r
-      if verbose and typeof resp is 'object'
-        resp.headers = {}
-        resp.headers[hd[0]] = hd[1] for hd in [...response.headers]
-        resp[rk] = response[rk] for rk in ['status', 'ok', 'redirected', 'bodyUsed'] # size, timeout url, statusText, clone, body, arrayBuffer, blob, json, text, buffer, textConverted
-      if verbose and resp? and this?.fn? and @fn is 'fetch' and @parts.length is 1 and @parts[0] is 'fetch'
-        return status: 200, body: resp
-      else
-        return resp
-    '''
-    if params.retry
-      params.retry = 3 if params.retry is true
-      opts = retry: params.retry
-      delete params.retry
-      for rk in ['pause', 'increment', 'check', 'timeout']
-        if params[rk]?
-          opts[rk] = params[rk]
-          delete params[rk]
-      res = @retry.call this, _f, [url, params], opts
-    else'''
+          return r
+
     try
-      if params.timeout and this?._timeout?
+      if params.timeout and this?._timeout? # should timeout be here at all or could/should @retry be used to handle that?
         pt = if params.timeout is true then 30000 else params.timeout
         delete params.timeout
         res = await @_timeout pt, _f()
@@ -145,11 +111,9 @@ P.fetch = (url, params) ->
         res = JSON.parse(res) if res.indexOf('[') is 0 or res.indexOf('{') is 0
       return res
     catch err
-      if S.dev or this?.S?.dev
-        console.log err
-        console.log JSON.stringify err
+      console.log(err, JSON.stringify(err), 'ERROR TRYING TO CALL FETCH') if S.dev and S.bg is true
       try @log err
-      return undefined
+      return
 
 
 '''

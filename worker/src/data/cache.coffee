@@ -25,7 +25,7 @@ P.cache = (request, response, age) ->
   # request and response needs to be an actual Request and Response objects
   # returns promise wrapping the Response object
   if @S.cache is false or @S.bg is true # can change this if a backend cache mechanism is added later (prob not worthwhile)
-    return undefined
+    return
   else
     try
       request ?= @request
@@ -59,10 +59,7 @@ P.cache = (request, response, age) ->
           rp = new Response response.body, response
           rp.headers.append "Cache-Control", "max-age=" + age
           @waitUntil caches.default.put ck, rp
-      catch
-        return undefined
-    else
-      return undefined
+    return
 
 P.cache._hide = true
 P.cache._auth = 'system'

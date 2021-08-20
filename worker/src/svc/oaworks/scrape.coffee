@@ -2,6 +2,8 @@
 
 # https://jcheminf.springeropen.com/articles/10.1186/1758-2946-3-47
 P.svc.oaworks.scrape = (content, doi) ->
+  content ?= @params.scrape ? @params.content ? @params.url
+  doi ?= @params.doi
   meta = {doi:doi}
   if typeof content is 'string' and content.startsWith 'http'
     if not meta.doi # quick check to get a DOI if at the end of a URL, as they often are
@@ -125,8 +127,8 @@ P.svc.oaworks.scrape = (content, doi) ->
         mls.push(mm) if mls.indexOf(mm) is -1
     mls.sort ((a, b) -> return b.length - a.length)
     mstr = ''
-    meta.email = []
     for me in mls
+      meta.email ?= []
       meta.email.push(me) if mstr.indexOf(me) is -1
       mstr += me
 

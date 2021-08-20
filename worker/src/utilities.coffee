@@ -76,7 +76,7 @@ P._timeout = (ms, fn) -> # where fn is a promise-able function that has been cal
   # so call this like res = await @_timeout 5000, @fetch url
   return new Promise (resolve, reject) =>
     timer = setTimeout () =>
-      reject new Error 'TIMEOUT' # should this error or just return undefined?
+      reject new Error 'TIMEOUT' # should this error or just return?
     , ms
     promise
       .then value =>
@@ -151,7 +151,7 @@ P.dot = (obj, key) ->
     res = res[k] for k in key
     return res
   catch
-    return undefined
+    return
 
 P.flatten = (obj) ->
   obj ?= @params
@@ -273,7 +273,7 @@ P.date = (rt, timed) ->
     rt = pts.reverse().join('-') if pts[0].length < pts[2].length
     return rt
   catch
-    return undefined
+    return
 P.date._cache = false
 
 P.datetime = () -> return @date @params.datetime, @params.time ? true
@@ -318,7 +318,7 @@ P._subroutes = (top) ->
         _lp(p[k], nd, (_hide ? p[k]._hides)) if not Array.isArray(p[k]) and not k.startsWith '_'
   if top
     top = top.replace(/\//g, '.') if typeof top is 'string'
-    _lp if typeof top is 'string' then @dot(P, top) else top
+    _lp if typeof top is 'string' then await @dot(P, top) else top
   return subroutes
 
 '''
@@ -386,7 +386,11 @@ P.retry = (fn, params=[], opts={}) ->
       else if typeof opts.increment is 'number'
         opts.pause += opts.increment
     
-  return undefined
+  return
+
+  # an example of how retry may be used? TODO test this
+  opts = retry: 3 # and can set pause, increment, check, timeout if desired (see above)
+  res = @retry.call this, _f, [url, params], opts # where _f is the function to retry
 
 '''
 

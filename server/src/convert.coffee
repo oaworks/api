@@ -1,17 +1,5 @@
 
-P.convert ?= {}
-
-P.convert._gz2txt = (fn) ->
-  gunzip = zlib.createGunzip()
-  stream = await fs.createReadStream fn # TODO unless check if fn is already a stream - ALSO check if fs.promises supports this
-  #txt = await @convert.stream2txt stream
-  #return zlib.gunzip txt
-  chunks = []
-  return new Promise (resolve, reject) =>
-    stream.on 'data', (chunk) => chunks.push Buffer.from zlib.gunzip chunk
-    stream.on 'error', (err) => resolve '' #reject err
-    stream.on 'end', () => resolve Buffer.concat(chunks).toString 'utf8'
-
+#P.convert ?= {}
 
 # svg2png (avoiding the canvas and canvg problem on newer ubuntu where libgif4 won't run - and has to be backend)
 # pdf2txt in a way that doesn't suck

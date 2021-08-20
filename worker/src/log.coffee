@@ -62,6 +62,9 @@ P.log = (msg, store) ->
           country: @request.cf.country
       try
         msg.request.headers = @headers # just get all headers to see what's useful?
+        if msg.request.headers.cookie
+          msg.cookie = true
+          delete msg.request.headers.cookie
       #catch
       #try
       #  msg.request.headers = {}
@@ -79,7 +82,7 @@ P.log = (msg, store) ->
         msg.params = {}
         for p of @params
           msg.params[p] = if typeof @params[p] is 'string' then @params[p] else JSON.stringify @params[p]
-      try msg.apikey = @headers.apikey? or @headers['x-apikey']? # only record if apikey was provided or not
+      try msg.apikey = @apikey? # only record if apikey was provided or not
       try msg.user = @user._id if @user?._id?
       msg.unauthorised = true if @unauthorised
 
@@ -155,7 +158,7 @@ P.log.monitor = (opts) ->
     opts.frequency ?= 60
     # also can provide an opts.name as a nice name for the monitor instead if just the query
     return opts
-  return undefined
+  return
 P.log.monitor = _index: true
 P.log.monitor._schedule = () ->
   notify = {}

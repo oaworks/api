@@ -27,8 +27,7 @@ P.src.crossref.journals.doi = (issn) ->
     #res = await @src.crossref.works 'ISSN.exact:"' + issn.join('" OR ISSN.exact:"') + '"'
     res = await @fetch 'https://dev.api.cottagelabs.com/use/crossref/works?q=ISSN.exact:"' + issn.join('" OR ISSN.exact:"') + '"'
     return res.hits.hits[0]._source.DOI
-  catch
-    return undefined
+  return
 
 P.src.crossref.works = (doi, opts) ->
   doi ?= @params.works ? @params.doi ? @params.title ? @params.q
@@ -53,7 +52,7 @@ P.src.crossref.works = (doi, opts) ->
     url = 'https://dev.api.cottagelabs.com/use/crossref/works?q=' + doi
     return await @fetch url, params: opts #, {headers: {'User-Agent': @S.name + '; mailto:' + @S.mail?.to}}
     
-  return undefined
+  return
 
 #P.src.crossref.works._kv = false
 P.src.crossref.works._index = settings: number_of_shards: 9
@@ -92,7 +91,6 @@ P.src.crossref.works.title = (title) ->
 P.src.crossref.works._format = (rec) ->
   rec.abstract = rec.abstract.replace(/<.*?>/g, '').replace(/^ABSTRACT/, '') if rec.abstract
   rec._id ?= rec.DOI.replace /\//g, '_'
-  # try to build a published_date and publishedAt field?
   for a in rec.assertion ? []
     if a.label is 'OPEN ACCESS'
       if a.URL and a.URL.indexOf('creativecommons') isnt -1
@@ -102,35 +100,29 @@ P.src.crossref.works._format = (rec) ->
   for l in rec.license ? []
     if l.URL and l.URL.indexOf('creativecommons') isnt -1 and (not rec.licence or rec.licence.indexOf('creativecommons') is -1)
       rec.licence = l.URL
-      try rec.licence = 'cc-' + rec.licence.split('/licenses/')[1].replace(/^\//, '').replace(/\/$/, '').replace(/\//g, '-')
+      try rec.licence = 'cc-' + rec.licence.split('/licenses/')[1].replace(/^\//, '').replace(/\/$/, '').replace(/\//g, '-').replace(/-$/, '')
       rec.is_oa = true
   try
-    if rec.reference and rec.reference.length > 200
+    if rec.reference and rec.reference.length > 100
       rec.reference_original_length = rec.reference.length
-      rec.reference = rec.reference.slice 0, 200
+      rec.reference = rec.reference.slice 0, 100
   try
     if rec.relation and rec.relation.length > 100
       rec.relation_original_length = rec.relation.length
       rec.relation = rec.relation.slice 0, 100
-    
-  for p in ['published-print','published-online','issued','deposited','indexed']
-    if rec[p]
-      try
-        if rec[p]['date-time'] and rec[p]['date-time'].split('T')[0].split('-').length is 3
-          rec.published ?= rec[p]['date-time'].split('T')[0]
-          rec.year ?= rec.published.split('-')[0] if rec.published?
-        pbl = ''
-        if rec[p]['date-parts'] and rec[p]['date-parts'].length and rec[p]['date-parts'][0]
-          rp = rec[p]['date-parts'][0]
-          pbl = rp[0]
-          if pbl and pbl isnt 'null'
-            if rp.length is 1
-              pbl += '-01-01'
-            else
-              pbl += if rp.length > 1 then '-' + (if rp[1].toString().length is 1 then '0' else '') + rp[1] else '-01'
-              pbl += if rp.length > 2 then '-' + (if rp[2].toString().length is 1 then '0' else '') + rp[2] else '-01'
-            if not rec.published
-              rec.year = pbl.split('-')[0]
-            rec.publishedAt ?= rec[p].timestamp
+  
+  for au in rec.author ? []
+    au.name = (if au.given then au.given + ' ' else '') + (au.family ? '')
+
+  for p in ['published','published-print','published-online','issued','deposited','indexed']
+    if typeof rec[p] is 'object' and not rec.published
+      rec.published = rec[p]['date-time'].split('T')[0] if typeof rec[p]['date-time'] is 'string' and rec[p]['date-time'].split('T')[0].split('-').length is 3
+      if typeof rec.published isnt 'string' and Array.isArray(rec[p]['date-parts']) and rec[p]['date-parts'].length and Array.isArray rec[p]['date-parts'][0]
+        rp = rec[p]['date-parts'][0]
+        if typeof rp[0] is 'string' and rp[0] isnt 'null'
+          rec.published = rp[0] + (if rp.length > 1 then '-' + (if rp[1].toString().length is 1 then '0' else '') + rp[1] else '-01') + (if rp.length > 2 then '-' + (if rp[2].toString().length is 1 then '0' else '') + rp[2] else '-01')
+      if typeof rec.published is 'string'
+        rec.year = rec.published.split('-')[0]
+        rec.publishedAt = rec[p].timestamp ? await @epoch rec.published
 
   return rec

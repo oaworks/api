@@ -10,8 +10,7 @@ P.src.fatcat = (doi) ->
   try
     res = await @fetch 'https://api.fatcat.wiki/v0/release/lookup?expand=files&hide=abstracts,refs&doi=' + doi
     return res
-  catch
-    return undefined
+  return
 
 # is there also a title search? Or only IDs? title= doesn't work. Can explore more later.
 

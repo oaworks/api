@@ -31,7 +31,7 @@ P.src.wikidata = (qid) ->
   else if typeof qid is 'object'
     return @src.wikidata._format qid
   else
-    return undefined
+    return
 
 P.src.wikidata._index = settings: number_of_shards: 9
 P.src.wikidata._prefix = false
@@ -198,6 +198,7 @@ P.src.wikidata.property.terms = (prop, size=100, counts=true, alphabetical=false
   return if counts then {property: key, total: max, terms: out} else out.map x => x.term
 
 
+# NOTE newer improved ROR data and dumps have GRID and ROR in them as well, so this is only needed if full ROR isn't easily available locally
 P.src.wikidata.grid2ror = (grid, wd) ->
   wd = await @src.wikidata(wd) if typeof wd is 'string'
   wd ?= await @src.wikidata '(snaks.property:"P6782" OR snaks.property:"P1366") AND snaks.property:"P2427" AND snaks.value:"' + grid + '"'
@@ -207,7 +208,7 @@ P.src.wikidata.grid2ror = (grid, wd) ->
         return s.value
       if s.property is 'P1366' and s.qid
         return @src.wikidata.grid2ror grid, s.qid
-  return undefined
+  return
 
 
 P.src.wikidata._flatten = (rec) ->

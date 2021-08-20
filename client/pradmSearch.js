@@ -9,7 +9,6 @@ P.search = function(opts) {
   if (opts.url == null) {
     opts.url = window.location.href.split('?')[0].replace('.html', ''); // provide a search endpoint URL compatible with 7.x versions of ES
   }
-  // opts.translate can be an optional function to translate the query to suit a different kind of endpoint (or just overwrite opts.qry, which builds the query)
   // note that if the query response is going to be different, other rewrites will be needed too
   if (opts.default == null) {
     opts.default = {
@@ -44,7 +43,7 @@ P.search = function(opts) {
     opts.scroll = true; // when results are scrolled to bottom retrieve the next set of results
   }
   // opts.method can be set to POST to force an ajax POST, otherwise query will be a GET with ?source= stringified query
-  opts.table = ['DOI', 'title', 'year', 'ISSN'];
+  opts.table = true; // or could be list of keys such as ['DOI', 'title', 'year', 'ISSN'] or object of keys pointing to display names, or false for non-tabular default layout
   P.search.opts = opts;
   opts.paging = false;
   opts.max = false;
@@ -64,7 +63,7 @@ P.search = function(opts) {
     } else if (!opts.max) {
       P.show('.PLoading');
       opts.paging = true;
-      return opts.execute();
+      return opts.search();
     }
   };
   opts.previous = function(e) {
@@ -75,12 +74,12 @@ P.search = function(opts) {
   };
   opts.from = function() {
     opts.query.from = parseInt(P.val('.PSearchFrom'));
-    return opts.execute();
+    return opts.search();
   };
   opts.to = function() {
     var ref;
     opts.query.size = P.val('.PSearchTo') - ((ref = opts.query.from) != null ? ref : 0);
-    return opts.execute();
+    return opts.search();
   };
   opts.scroller = function() {
     return window.addEventListener('scroll', function() {
@@ -111,7 +110,7 @@ P.search = function(opts) {
           }
           try {
             P.dot(opts, k, v);
-            opts.execute();
+            opts.search();
           } catch (error) {}
         }
       } else if (val.indexOf(':') !== -1 && val.split(':')[0].indexOf(' ') === -1 && val.indexOf('*') === -1 && val.indexOf('~') === -1 && val.indexOf(' AND ') === -1 && val.indexOf(' OR ') === -1) {
@@ -120,14 +119,14 @@ P.search = function(opts) {
         };
         tf.term[val.split(':')[0]] = val.split(':')[1].replace(/"/g, '');
         opts.query.query.bool.filter.push(tf);
-        opts.execute();
+        opts.search();
       } else if (val.startsWith('"') && val.endsWith('"')) {
         opts.query.query.bool.filter.push({
           "match_phrase": {
             "_all": val.replace(/"/g, '')
           }
         });
-        opts.execute();
+        opts.search();
       } else {
         opts.query.query.bool.filter.push({
           "query_string": {
@@ -135,7 +134,7 @@ P.search = function(opts) {
             "query": opts.fuzzify(val)
           }
         });
-        opts.execute();
+        opts.search();
       }
     }
     try {
@@ -154,7 +153,7 @@ P.search = function(opts) {
       opts.query.query.bool.filter = [];
       delete opts.query.from;
     }
-    return opts.execute();
+    return opts.search();
   };
   opts.placeholder = function(pl) {
     var ref, ref1, ref2, ref3;
@@ -165,72 +164,14 @@ P.search = function(opts) {
     P.set('.PSearch', '');
     return P.attr('.PSearch', 'placeholder', pl);
   };
-  opts.suggesting = false;
-  opts.suggestions = function(e) {
-    var ref;
-    try {
-      e.preventDefault();
-    } catch (error) {}
-    if (opts.query.query.bool.filter.length !== 0) {
-      opts.query.query.bool.filter.splice(-1, 1);
-    }
-    if (((ref = e.keyCode) != null ? ref : e.which) === 13) {
-      return opts.add(e);
-    } else {
-      opts.suggesting = true;
-      opts.query.query.bool.filter.push({
-        "query_string": {
-          "query": opts.fuzzify(P.val(e.target))
-        }
-      });
-      return opts.execute();
-    }
-  };
-  opts.suggest = function(data) {
-    var a, i, j, len, ref, ref1, results;
-    if (data == null) {
-      data = opts.response;
-    }
-    P.html('.PSuggestions', '');
-    ref1 = (ref = data.aggregations) != null ? ref : [];
-    results = [];
-    for (i = 0, len = ref1.length; i < len; i++) {
-      a = ref1[i];
-      results.push((function() {
-        var l, len1, ref2, results1;
-        ref2 = a.buckets;
-        results1 = [];
-        for (l = 0, len1 = ref2.length; l < len1; l++) {
-          j = ref2[l];
-          results1.push(P.append('.PSuggestions', j.key + ' (' + j.doc_count + ')<br>')); // how to make this a link that triggers a search
-        }
-        return results1;
-      })());
-    }
-    return results;
-  };
   opts.fuzzify = function(str) {
-    var i, len, ns, part, ref;
-    if (opts.fuzzy && str.indexOf('*') === -1 && str.indexOf('~') === -1 && str.indexOf(':') === -1 && str.indexOf('"') === -1 && str.indexOf('AND') === -1 && str.indexOf('OR') === -1 && str.indexOf(' ') === -1) {
-      ns = '';
-      ref = str.split(' ');
-      for (i = 0, len = ref.length; i < len; i++) {
-        part = ref[i];
-        if (part.length) {
-          part += opts.fuzzy;
-          if (opts.fuzzy === '*') {
-            part = '*' + part;
-          }
-          ns += part + ' ';
-        }
-      }
-      return ns;
-    } else {
-      return str;
+    if (opts.fuzzy && str.indexOf('*') === -1 && str.indexOf('~') === -1 && str.indexOf(':') === -1 && str.indexOf('"') === -1 && str.indexOf('AND') === -1 && str.indexOf('OR') === -1) {
+      str = (opts.fuzzy === '*' ? '*' : '') + str.trim().replace(/\s/g, opts.fuzzy + ' ' + (opts.fuzzy === '*' ? '*' : '')) + opts.fuzzy;
     }
+    return str;
   };
-  opts.qry = function() {
-    var a, base, base1, base2, base3, f, fq, i, l, len, len1, len2, m, ou, qsf, ref, ref1, ref2, ref3, ref4, sk;
+  opts.translate = function() {
+    var a, base, base1, base2, base3, f, fq, i, j, l, len, len1, len2, ou, qsf, ref, ref1, ref2, ref3, ref4, sk;
     ref1 = (ref = opts.aggregations) != null ? ref : [];
     for (i = 0, len = ref1.length; i < len; i++) {
       a = ref1[i];
@@ -247,8 +188,8 @@ P.search = function(opts) {
       base1.size = opts.size;
     }
     ref2 = ['includes', 'excludes'];
-    for (l = 0, len1 = ref2.length; l < len1; l++) {
-      sk = ref2[l];
+    for (j = 0, len1 = ref2.length; j < len1; j++) {
+      sk = ref2[j];
       if (opts[sk] != null) {
         if ((base2 = opts.default)._source == null) {
           base2._source = {};
@@ -301,8 +242,8 @@ P.search = function(opts) {
       }
     });
     ref4 = (ref3 = opts.filters) != null ? ref3 : [];
-    for (m = 0, len2 = ref4.length; m < len2; m++) {
-      f = ref4[m];
+    for (l = 0, len2 = ref4.length; l < len2; l++) {
+      f = ref4[l];
       qsf = JSON.stringify(opts.query.query.bool.filter);
       try {
         if (qsf.indexOf(JSON.stringify(f)) === -1) {
@@ -334,9 +275,6 @@ P.search = function(opts) {
     if (opts.paging) {
       delete opts.query.aggregations;
     }
-    if (typeof opts.translate === 'function') {
-      opts.query = opts.translate(opts.query);
-    }
     if (opts.method !== 'POST') {
       ou = opts.url.split('source=')[0];
       ou += ou.indexOf('?') === -1 ? '?' : !ou.endsWith('&') && !ou.endsWith('?') ? '&' : '';
@@ -349,21 +287,16 @@ P.search = function(opts) {
     var ref;
     P.hide('.PLoading');
     opts.response = resp;
-    if (opts.suggesting) {
-      opts.suggest();
+    if (opts._first) {
+      opts._first = false;
     } else {
-      if (opts._first) {
-        opts._first = false;
-      } else {
-        opts.placeholder();
-      }
-      opts.render();
-      opts.construct();
+      opts.placeholder();
     }
+    opts.render();
+    opts.construct();
     try {
-      opts.max = !opts.suggesting && resp.hits.hits.length < ((ref = opts.query.size) != null ? ref : 10);
+      opts.max = resp.hits.hits.length < ((ref = opts.query.size) != null ? ref : 10);
     } catch (error) {}
-    opts.suggesting = false;
     return opts.paging = false;
   };
   opts.error = function(resp) {
@@ -371,10 +304,10 @@ P.search = function(opts) {
     P.show('.PError');
     return console.log(resp);
   };
-  opts.executing = false;
-  opts.execute = function(e) {
-    if (!opts.executing) {
-      opts.executing = true;
+  opts.searching = false;
+  opts.search = function(e) {
+    if (!opts.searching) {
+      opts.searching = true;
       P.hide('.PError');
       P.show('.PLoading');
       if (!opts._first) {
@@ -385,7 +318,7 @@ P.search = function(opts) {
         o = {
           success: opts.success,
           error: opts.error,
-          data: opts.qry() // create this here so it does exist if necessary, but otherwise it at least still needs to run anyway
+          data: opts.translate() // translate here so it does exist if necessary, but otherwise it at least still needs to run anyway
         };
         if (opts.method !== 'POST') {
           delete o.data;
@@ -402,13 +335,13 @@ P.search = function(opts) {
           };
         }
         P.ajax(o);
-        return opts.executing = false;
+        return opts.searching = false;
       }, 300);
     }
   };
   opts.render = function() {
     var bt, f, filter, gte, k, key, kk, lte, query, ref, ref1, ref2, ref3, ref4, ws;
-    if (opts.pushstate && !opts.suggesting) {
+    if (opts.pushstate) {
       ws = window.location.search.split('source=')[0];
       if (JSON.stringify(opts.query) !== JSON.stringify(opts.default)) {
         ws += ws.indexOf('?') === -1 ? '?' : !ws.endsWith('&') ? '&' : '';
@@ -457,12 +390,7 @@ P.search = function(opts) {
   };
   opts.results = []; // all resulting records, after transform if present
   opts.result = function(rec) { // a function that draws a given result on the page (can be false to not draw results)
-    var base, headers, i, k, kk, l, len, len1, nt, objects, re, ref, ref1, ref2, s, t;
-    // table can be false for a simple text layout. OR it can be undefined, which defaults to building a table of every key in the result records
-    // table can be a list of keys to include, or an object of keys pointing to preferred header names to use
-    if (opts._table_was_defined == null) {
-      opts._table_was_defined = typeof opts.table === 'object';
-    }
+    var headers, i, k, kk, len, nt, re, ref, ref1, t;
     if (Array.isArray(opts.table)) {
       nt = {};
       ref = opts.table;
@@ -472,48 +400,24 @@ P.search = function(opts) {
       }
       opts.table = nt;
     }
-    re = opts.table !== false ? '<tr' : '<p style="word-wrap: break-word; padding:5px; margin-bottom:0px;"';
+    re = opts.table ? '<tr' : '<p style="word-wrap: break-word; padding:5px; margin-bottom:0px;"';
     re += ' class="PSearchResult PResultFrom' + ((ref1 = opts.query.from) != null ? ref1 : 0) + '">';
     headers = P.html('.PSearchHeaders');
-    for (k in (typeof opts.table === 'object' ? opts.table : rec)) {
+    for (k in (opts.table ? opts.table : rec)) {
       kk = typeof opts.table === 'object' && opts.table[k] ? opts.table[k] : k;
-      if (opts.table == null) {
-        opts.table = {};
+      if (opts.table && headers.indexOf(kk) === -1) {
+        P.append('.PSearchHeaders', '<th>' + kk + '</th>');
       }
-      if (opts.table !== false) {
-        if (!opts._table_was_defined) {
-          if ((base = opts.table)[k] == null) {
-            base[k] = '';
-          }
-        }
-        if (headers.indexOf(kk) === -1) {
-          P.append('.PSearchHeaders', '<th>' + kk + '</th>');
-        }
-      }
-      re += opts.table !== false ? '<td>' : '<b>' + kk + '</b>: ';
+      re += opts.table ? '<td>' : '<b>' + kk + '</b>: ';
       if (Array.isArray(rec[k])) {
-        rec[k] = rec[k].length === 0 ? void 0 : rec[k].length === 1 ? rec[k][0] : rec[k];
-        if (Array.isArray(rec[k])) {
-          objects = false;
-          ref2 = rec[k];
-          for (l = 0, len1 = ref2.length; l < len1; l++) {
-            s = ref2[l];
-            if (typeof s === 'object') {
-              objects = true;
-              break;
-            }
-          }
-          if (!objects) {
-            rec[k] = rec[k].join(', ');
-          }
-        }
+        rec[k] = rec[k].length === 0 ? void 0 : rec[k].length === 1 ? rec[k][0] : typeof rec[k][0] !== 'object' ? rec[k].join(', ') : rec[k];
       }
       if (rec[k]) {
-        re += typeof rec[k] === 'object' ? JSON.stringify(rec[k]) : rec[k];
+        re += (typeof rec[k] === 'object' ? JSON.stringify(rec[k]) : rec[k]);
       }
-      re += opts.table !== false ? '</td>' : ', ';
+      re += opts.table ? '</td>' : ', ';
     }
-    re += opts.table !== false ? '</tr>' : '</p>';
+    re += opts.table ? '</tr>' : '</p>';
     return re;
   };
   opts.transform = false; // an optional function that transforms an individual result
@@ -558,8 +462,9 @@ P.search = function(opts) {
       //opts.template += '<a href="#" class="button PSearchopts" alt="show/hide search options" title="show/hide search options">+</a>'
       opts.template += '<a href="#" class="button PSearchNext" alt="next" title="next">&gt;</a>';
     }
-    opts.template += '<div class="PSuggestions"></div><div class="PSearches" style="margin-top:5px; margin-bottom:5px;"></div>'; //<div class="PRange"></div>
-    opts.template += opts.table !== false ? '<table class="striped"><thead' + (opts.sticky ? ' class="sticky"' : '') + '><tr class="PSearchHeaders"></tr></thead><tbody class="PSearchResults"></tbody></table>' : '<div class="PSearchResults"></div>';
+    //opts.template += '<div class="PSuggestions"></div>'
+    opts.template += '<div class="PSearches" style="margin-top:5px; margin-bottom:5px;"></div>'; //<div class="PRange"></div>
+    opts.template += opts.table ? '<table class="striped"><thead' + (opts.sticky ? ' class="sticky"' : '') + '><tr class="PSearchHeaders"></tr></thead><tbody class="PSearchResults"></tbody></table>' : '<div class="PSearchResults"></div>';
     opts.template += '<div class="PLoading" style="display:none;"><div class="loading big"></div></div>';
     opts.template += '</div></div>';
   }
@@ -575,7 +480,6 @@ P.search = function(opts) {
         } catch (error) {}
       });
       P.on('enter', '.PSearch', opts.add);
-      P.on('keyup', '.PSuggest', opts.suggestions, 600);
       for (k in opts) {
         if (typeof opts[k] === 'function') {
           // could some of these require click or keyup instead of change? how to tell?
@@ -602,6 +506,6 @@ P.search = function(opts) {
     if (opts.scroll !== false) {
       delete opts.query.from;
     }
-    return opts.execute();
+    return opts.search();
   }
 };

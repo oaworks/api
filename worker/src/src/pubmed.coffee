@@ -1,4 +1,7 @@
 
+# there are pubmed data loaders on the server side, they build an index that can 
+# be queried directly. However some of the below functions may still be useful 
+# for lookups to the pubmed API at other times
 
 # pubmed API http://www.ncbi.nlm.nih.gov/books/NBK25497/
 # examples http://www.ncbi.nlm.nih.gov/books/NBK25498/#chapter3.ESearch__ESummaryEFetch
@@ -7,19 +10,19 @@
 # then scrape the QueryKey and WebEnv values from it and use like so:
 # http://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&query_key=1&WebEnv=NCID_1_54953983_165.112.9.28_9001_1461227951_1012752855_0MetA0_S_MegaStore_F_1
 
-P.src.pubmed = {}
+P.src.pubmed = _key: 'PMID', _prefix: false, _index: settings: number_of_shards: 6
 
 P.src.pubmed.entrez = {}
 P.src.pubmed.entrez.summary = (qk, webenv, id) ->
   url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed'
   if id?
-    id = id.join(',') if _.isArray id
+    id = id.join(',') if Array.isArray id
     url += '&id=' + id # can be a comma separated list as well
   else
     url += '&query_key=' + qk + '&WebEnv=' + webenv
   try
     res = await @fetch url
-    md = @convert.xml2json res.content
+    md = await @convert.xml2json res
     recs = []
     for rec in md.eSummaryResult.DocSum
       frec = {id:rec.Id[0]}
@@ -39,16 +42,16 @@ P.src.pubmed.entrez.summary = (qk, webenv, id) ->
         break
     return recs
   catch
-    return undefined
+    return
 
 P.src.pubmed.entrez.pmid = (pmid) ->
   url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/epost.fcgi?db=pubmed&id=' + pmid
   try
     res = await @fetch url
-    result = @convert.xml2json res.content
+    result = await @convert.xml2json res
     return @src.pubmed.entrez.summary result.ePostResult.QueryKey[0], result.ePostResult.WebEnv[0]
   catch
-    return undefined
+    return
 
 P.src.pubmed.search = (str, full, size=10, ids=false) ->
   url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=' + size + '&sort=pub date&term=' + str
@@ -58,7 +61,7 @@ P.src.pubmed.search = (str, full, size=10, ids=false) ->
       res = {total: ids.length, data: []}
     else
       res = await @fetch url
-      result = @convert.xml2json res.content
+      result = await @convert.xml2json res
       res = {total: result.eSearchResult.Count[0], data: []}
       if ids is true
         res.data = result.eSearchResult.IdList[0].Id
@@ -81,33 +84,33 @@ P.src.pubmed.search = (str, full, size=10, ids=false) ->
             break if res.data.length is size
           urlids = []
       if urlids.length
-        for rec in @src.pubmed.entrez.summary undefined, undefined, urlids
-          res.data.push @src.pubmed.format rec
+        for rec in await @src.pubmed.entrez.summary undefined, undefined, urlids
+          res.data.push await @src.pubmed.format rec
           break if res.data.length is size
     return res
   catch
-    return undefined
+    return
 
 P.src.pubmed.pmid = (pmid) ->
   try
     url = 'https://www.ncbi.nlm.nih.gov/pubmed/' + pmid + '?report=xml'
     res = await @fetch url
     if res.indexOf('<') is 0
-      return @src.pubmed.format await @decode res.content.split('<pre>')[1].split('</pre>')[0].replace('\n','')
+      return @src.pubmed.format await @decode res.split('<pre>')[1].split('</pre>')[0].replace('\n','')
   try
     return @src.pubmed.format await @src.pubmed.entrez.pmid pmid
-  return undefined
+  return
 
 P.src.pubmed.aheadofprint = (pmid) ->
   try
     res = await @fetch 'https://www.ncbi.nlm.nih.gov/pubmed/' + pmid + '?report=xml'
     return res.indexOf('PublicationStatus&gt;aheadofprint&lt;/PublicationStatus') isnt -1
   catch
-    return false
+    return
 
 P.src.pubmed.format = (rec, metadata={}) ->
   if typeof rec is 'string' and rec.indexOf('<') is 0
-    rec = @convert.xml2json rec
+    rec = await @convert.xml2json rec
   if rec.eSummaryResult?.DocSum? or rec.ArticleIds
     frec = {}
     if rec.eSummaryResult?.DocSum?
@@ -170,10 +173,10 @@ P.src.pubmed.format = (rec, metadata={}) ->
         a = {}
         a.family = ar.LastName[0]
         a.given = ar.ForeName[0]
-        a.name = if a.Author then a.Author else a.given + ' ' + a.family
+        a.name = (if a.given then a.given + ' ' else '') + (a.family ? '')
         try a.affiliation = ar.AffiliationInfo[0].Affiliation[0]
         if a.affiliation?
-          a.affiliation = a.affiliation[0] if _.isArray a.affiliation
+          a.affiliation = a.affiliation[0] if Array.isArray a.affiliation
           a.affiliation = {name: a.affiliation} if typeof a.affiliation is 'string'
         metadata.author.push a
     try
@@ -195,11 +198,9 @@ P.src.pubmed.format = (rec, metadata={}) ->
         try
           rf.url = 'http' + rc.split('http')[1].split(' ')[0]
           delete rf.url if rf.url.indexOf('doi.org') isnt -1 
-        metadata.reference.push(rf) if not _.isEmpty rf
+        metadata.reference.push(rf) if JSON.stringify(rf) isnt '{}'
   try metadata.pdf ?= rec.pdf
   try metadata.url ?= rec.url
-  try metadata.open ?= rec.open
-  try metadata.redirect ?= rec.redirect
   return metadata
 
 

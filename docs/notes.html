@@ -129,7 +129,7 @@ see the puppet file for info on installing chrome
 # https://pm2.keymetrics.io/docs/usage/cluster-mode/
 npm i -g pm2
 pm2 install pm2-logrotate
-pm2 start server/dist/server.min.js -i 3 --name paradigm --watch
+pm2 start server/dist/server.min.js -i 3 --name paradigm --watch ( --node-args="--max-old-space-size=3072" )
 pm2 startup
 pm2 save
 pm2 logs # will show log output and console.log

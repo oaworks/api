@@ -166,7 +166,7 @@ P = (scheduled) ->
   try @cookie = @headers.Cookie ? @headers.cookie
   
   # set some request and user IDs / keys in @rid, @apikey, and @refresh
-  @rid = @headers['x-' + @S.name.toLowerCase() + '-async']
+  @rid = @headers['x-' + @S.name.toLowerCase() + '-rid']
   try @rid ?= @headers['cf-ray'] #.slice 0, -4
   @rid ?= P.uid() # @uid is not defined yet
   try @apikey = @headers['x-apikey'] ? @headers.apikey ? @params.apikey
@@ -221,9 +221,9 @@ P = (scheduled) ->
 
   @_logs = [] # place for a running request to dump multiple logs, which will combine and save at the end of the overall request
   @nolog = false # if any function sets nolog to true, the log will not be saved.
-  if @params.nolog # the request may also disable logging with a nolog param matching a unique key in settings (e.g. to not log test calls)
-    @nolog = @S.nolog and @params.nolog is @S.nolog
-    delete @params.nolog
+  if @params._nolog # the request may also disable logging with a nolog param matching a unique key in settings (e.g. to not log test calls)
+    @nolog = @S.nolog and @params._nolog is @S.nolog
+    delete @params._nolog
 
   @route = @parts.join '/'
   @routes = []
@@ -247,10 +247,12 @@ P = (scheduled) ->
   fn = undefined # the actual function to run, once it's found (not just the name of it, which is put in @fn)
   prs = [...@parts]
   pk = undefined
+  pks = []
   _lp = (p, a, n, hides, auths, wraps, caches) =>
     if pk and @fn.indexOf(n) is 0
       while prs.length and not p[prs[0]]?
         @params[pk] = (if @params[pk] then @params[pk] + '/' else '') + prs.shift()
+        pks.push(pk) if pk not in pks
     for k of p
       if typeof p[k] not in ['function', 'object']
         a[k] = p[k]
@@ -290,8 +292,13 @@ P = (scheduled) ->
         _lp(p[k], a[k], nd, (hides ? p[k]._hides), (auths ? p[k]._auths), (wraps ? p[k]._wraps), (caches ? p[k]._caches)) if not Array.isArray(p[k]) and (not k.startsWith('_') or typeof a[k] is 'function')
   _lp P, @, ''
   if pk and prs.length # catch any remaining url params beyond the max depth of P
-    @params[pk] = if @params[pk] then @params[pk] + '/' + prs.join('/') else prs.join('/')
-  # TODO should url params get some auto-processing like query params do above? Could be numbers, lists, bools...
+    @params[pk] = if @params[pk] then @params[pk] + '/' + prs.join('/') else prs.join '/'
+  for cpk in pks # tidy any params provided within the URL
+    @params[cpk] = true if @params[cpk].toLowerCase() is 'true'
+    @params[cpk] = false if @params[cpk].toLowerCase() is 'false'
+    if typeof @params[cpk] is 'string' and @params[cpk].replace(/[0-9]/g,'').length is 0 and not @params[cpk].startsWith '0'
+      pkn = parseInt @params[cpk]
+      @params[cpk] = pkn if not isNaN pkn
 
   console.log('=== ' + (if @system then 'SYSTEM ' else '') + @request.method + ' ===', @base, @fn, @domain, typeof @body) if @S.dev and @S.bg is true
 
@@ -383,33 +390,37 @@ P._response = (res, fn) ->
       if typeof res isnt 'string'
         try
           res = await @convert['json2' + @format] res
-      if typeof res is 'string' and @format is 'html' and not res.includes('<html') and not @params.partial
-        ret = '<!DOCTYPE html><html dir="ltr" lang="en">\n<head>\n'
-        ret += '<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n';
-        if res.includes '<title'
-          [pt, tt] = res.split '<title'
-          [tt, at] = tt.split '</title>'
-          ret += '<title' + tt + '</title>\n'
-          res = pt + at
-        else if res.includes 'id="title"'
-          ret += '<title>' + res.split('id="title"')[1].split('>')[1].split('<')[0] + '</title>\n'
-        ret += '<link href="//fonts.googleapis.com/css?family=Lustria|Noto+Sans|Roboto+Slab|Nixie+One" rel="stylesheet" type="text/css">\n'
-        ret += '<link rel="stylesheet" href="/client/pradm.min.css?v=' + @S.version + '">\n'
-        ret += '<script type="text/javascript" src="/client/pradm.min.js?v=' + @S.version + '"></script><script type="text/javascript" src="/client/pradmLogin.min.js?v=' + @S.version + '"></script>\n'
-        for hdr in ['<meta ', '<link ']
-          if res.includes hdr
-            for m in res.split hdr
-              rm = hdr + m.split('>')[0]
-              res = res.replace rm, ''
-              ret += rm + '\n'
-        if res.includes '<head>'
-          [ph, hh] = res.split '<head>'
-          [hh, ah] = hh.split '</head>'
-          ret += hh
-          res = ph + ah
-        ret += '\n</head>\n'
-        ret += if not res.includes '<body' then '\n<body>\n' + res + '\n</body>\n' else res
-        res = ret + '\n</html>'
+      if typeof res is 'string' and @format is 'html'
+        res = res.replace /\>\</g, '>\n<'
+        if not res.includes('<html') and not @params.partial
+          ret = '<!DOCTYPE html><html dir="ltr" lang="en">\n<head>\n'
+          ret += '<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n';
+          if res.includes '<title'
+            [pt, tt] = res.split '<title'
+            [tt, at] = tt.split '</title>'
+            ret += '<title' + tt + '</title>\n'
+            res = pt + at
+          else if res.includes 'id="title"'
+            ret += '<title>' + res.split('id="title"')[1].split('>')[1].split('<')[0] + '</title>\n'
+          ret += '<link href="//fonts.googleapis.com/css?family=Lustria|Noto+Sans|Roboto+Slab|Nixie+One" rel="stylesheet" type="text/css">\n'
+          ret += '<link rel="stylesheet" href="/client/pradm.min.css?v=' + @S.version + '">\n'
+          ret += '<script type="text/javascript" src="/client/pradm.min.js?v=' + @S.version + '"></script>\n'
+          ret += '<script type="text/javascript" src="/client/pradmLogin.min.js?v=' + @S.version + '"></script>\n'
+          for hdr in ['<meta ', '<link ']
+            if res.includes hdr
+              for m in res.split hdr
+                rm = hdr + m.split('>')[0]
+                res = res.replace rm, ''
+                ret += rm + '\n'
+          if res.includes '<head>'
+            [ph, hh] = res.split '<head>'
+            [hh, ah] = hh.split '</head>'
+            ret += hh
+            res = ph + ah
+          ret += '<link rel="icon" href="data:,">' if not ret.includes 'icon'
+          ret += '\n</head>\n'
+          ret += if not res.includes '<body' then '\n<body>\n' + res + '\n</body>\n' else res
+          res = ret + '\n</html>'
       @S.headers['Content-Type'] = if @format is 'html' then 'text/html; charset=UTF-8' else 'text/csv; charset=UTF-8'
     if typeof res isnt 'string'
       try res = JSON.stringify res, '', 2
@@ -507,18 +518,19 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
       if rec? or not @refresh or typeof f isnt 'function'
         if f._kv and lg.key and (rec? or not exists?)
           res = await @kv rt + '/' + lg.key, rec # there may or may not be a rec, as it could just be getting the keyed record
-          lg.cached = @cached = 'kv' if res? and not rec? and @fn is n
+          lg.cached = 'kv' if res? and not rec?
         if f._index and (rec? or not res?)
           res = if exists? and not rec? then exists else await @index rt + (if lg.key and (rec? or not qry?) then '/' + lg.key else ''), (rec ? (if not lg.key then qry else undefined))
           if not res? and (not lg.key or not rec?) # this happens if the index does not exist yet, so create it (otherwise res would be a search result object)
             await @index rt, if typeof f._index isnt 'object' then {} else {settings: f._index.settings, mappings: f._index.mappings, aliases: f._index.aliases}
-            res = await @index rt + (if lg.key then '/' + lg.key else ''), (rec ? (if not lg.key then qry else undefined))
+            res = await @index(rt + (if lg.key then '/' + lg.key else ''), (rec ? (if not lg.key then qry else undefined))) if rec isnt ''
       try res = undefined if not rec? and res.hits.total is 0 and typeof f is 'function' and lg.key # allow the function to run to try to retrieve or create the record from remote
       try
         if qry.query.bool? and (qry.size is 1 or (res.hits.total is 1 and lg.key)) # return 1 record instead of a search result.
           res.hits.hits[0]._source._id = res.hits.hits[0]._id if res.hits.hits[0]._source? and not res.hits.hits[0]._source._id?
           res = res.hits.hits[0]._source ? res.hits.hits[0].fields # is fields instead of _source still possible in ES7.x?
-      lg.cached = @cached = 'index' if res? and not rec? and not lg.cached and @fn is n
+      lg.cached = 'index' if res? and not rec? and not lg.cached
+      @cached = lg.cached if lg.cached and @fn is n
 
     # if _history is required, record more about the incoming record change, if that's what happened
     # _history
@@ -531,16 +543,16 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
     if not res? and (f._bg or f._sheet) and typeof @S.bg is 'string' and @S.bg.indexOf('http') is 0
       bup = headers: {}, body: rec, params: @copy @params
       bup.params.refresh = true if @refresh
-      bup.headers['x-' + @S.name.toLowerCase() + '-async'] = @rid
+      bup.headers['x-' + @S.name.toLowerCase() + '-rid'] = @rid
       res = await @fetch @S.bg + '/' + rt.replace(/\_/g, '/'), bup # if this takes too long the whole route function will timeout and cascade to bg
-      lg.bg = true # TODO would it be better to just throw error here and divert the entire request to backend?
+      lg.bg = true
 
     # if nothing yet, and function has _sheet, and it wasn't a specific record lookup attempt, 
     # or it was a specific API call to refresh the _sheet index, or any call where index doesn't exist yet,
     # then (create the index if not existing and) populate the index from the sheet
     # this will happen on background where possible, because above will have routed to bg if it was available
     # _sheet
-    if not res? and f._sheet and ((@refresh and @fn is n) or not exists = await @index rt)
+    if not res? and f._sheet and rec isnt '' and ((@refresh and @fn is n) or not exists = await @index rt)
       if f._sheet.startsWith('http') and f._sheet.includes 'csv'
         sht = await @convert.csv2json f._sheet
       else if f._sheet.startsWith('http') and f._sheet.includes 'json'
@@ -565,7 +577,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
     # call the function, either _async if the function indicates it, or directly
     # and record limit settings if present to restrict more runnings of the same function
     # _async, _limit
-    if not res? and typeof f is 'function'
+    if not res? and (not f._index or rec isnt '') and typeof f is 'function'
       _as = (rt, f, ar, notify) =>
         if f._limit
           ends = if f._limit is true then 86400 else f._limit

@@ -21,7 +21,7 @@ P.src.base.title = (title) ->
       ct = ret.title.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036F]/g, '').replace(/ß/g,'ss')
       if ct and ct.length <= title.length*1.2 and ct.length >= title.length*.8 and title.replace(/ /g,'').indexOf(ct.replace(' ','').replace(' ','').replace(' ','').split(' ')[0]) isnt -1
         return ret
-  return undefined
+  return
 
 P.src.base.get = (qry) ->
 	res = await @src.base.search qry

@@ -2,9 +2,11 @@
 import fetch from 'node-fetch' # used in fetch
 import crypto from 'crypto' # used in utilities for hash generation
 import http from 'http'
-import https from 'https' # allows fetch to control https security for local connections
+import https from 'https' # allows fetch to control https security for local connections, and used for read streams
 import Busboy from 'busboy'
-import {promises as fs} from 'fs'
+import { promises as fs } from 'fs'
+import { createReadStream } from 'fs'
+fs.createReadStream = createReadStream # since using fs.promises, but there isn't a promise createReadStream, this just makes it available in the normal expected way
 import tar from 'tar' # for tar file conversion
 import zlib from 'zlib' # for reading/converting gz files
 import readline from 'readline'

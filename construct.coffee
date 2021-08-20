@@ -38,7 +38,7 @@ if GROUP
 else if ENV
   console.log 'Deploying with default secrets folders, overriding with files prefixed with ' + ENV
 
-if args.length and 'worker' not in args and 'server' not in args
+if args.length and 'worker' not in args and 'server' not in args and ('build' in args or 'deploy' in args)
   args.push 'worker' # do both unless only one is specified
   args.push 'server'
 if not args.length
@@ -248,31 +248,32 @@ _w = () ->
     else
       console.log "No server secrets folder present so no extra server secrets built into server script\n"
 
-  if fs.existsSync './worker/' + GROUP + 'secrets'
-    wfls = fs.readdirSync './worker/' + GROUP + 'secrets'
-    if wfls.length
-      # TODO find necessary KV namespaces from the code / config and create them via cloudflare API?
-      for WF in wfls
-        if ENV is '' or WF.indexOf(ENV) is 0 or (WF.indexOf('_') is -1 and not fs.existsSync './worker/' + GROUP + 'secrets/' + ENV + WF)
-          SECRETS_DATA = JSON.parse fs.readFileSync('./worker/' + GROUP + 'secrets/' + WF).toString()
-          SECRETS_NAME = 'SECRETS_' + WF.split('.')[0].toUpperCase().replace ENV + '_', ''
-          if (if WF.includes('_') then WF.split('_').pop() else WF).split('.')[0].toLowerCase() is 'settings' and not SECRETS_DATA.system
-            console.log 'Adding system token', SYSTOKEN
-            SECRETS_DATA.system = SYSTOKEN
-          if 'worker' in args
-            if 'secrets' in args
-              if not CNS.length
-                console.log "To push secrets to cloudflare, cloudflare account ID, API token, and script ID must be set to keys ACCOUNT_ID, API_TOKEN, SCRIPT_ID, in ./secrets/construct.json"
-              else
-                console.log 'Sending worker ' + SECRETS_NAME + ' secrets to cloudflare'
-                _put {name: SECRETS_NAME, text: JSON.stringify(SECRETS_DATA)}
-          if 'server' in args
-            console.log 'Saving worker ' + SECRETS_NAME + ' to server file'
-            sfl = "var " + SECRETS_NAME + " = '" + JSON.stringify(SECRETS_DATA) + "';\n" + sfl
+  if 'worker' in args or 'server' in args
+    if fs.existsSync './worker/' + GROUP + 'secrets'
+      wfls = fs.readdirSync './worker/' + GROUP + 'secrets'
+      if wfls.length
+        # TODO find necessary KV namespaces from the code / config and create them via cloudflare API?
+        for WF in wfls
+          if ENV is '' or WF.indexOf(ENV) is 0 or (WF.indexOf('_') is -1 and not fs.existsSync './worker/' + GROUP + 'secrets/' + ENV + WF)
+            SECRETS_DATA = JSON.parse fs.readFileSync('./worker/' + GROUP + 'secrets/' + WF).toString()
+            SECRETS_NAME = 'SECRETS_' + WF.split('.')[0].toUpperCase().replace ENV + '_', ''
+            if (if WF.includes('_') then WF.split('_').pop() else WF).split('.')[0].toLowerCase() is 'settings' and not SECRETS_DATA.system
+              console.log 'Adding system token', SYSTOKEN
+              SECRETS_DATA.system = SYSTOKEN
+            if 'worker' in args
+              if 'secrets' in args
+                if not CNS.length
+                  console.log "To push secrets to cloudflare, cloudflare account ID, API token, and script ID must be set to keys ACCOUNT_ID, API_TOKEN, SCRIPT_ID, in ./secrets/construct.json"
+                else
+                  console.log 'Sending worker ' + SECRETS_NAME + ' secrets to cloudflare'
+                  _put {name: SECRETS_NAME, text: JSON.stringify(SECRETS_DATA)}
+            if 'server' in args
+              console.log 'Saving worker ' + SECRETS_NAME + ' to server file'
+              sfl = "var " + SECRETS_NAME + " = '" + JSON.stringify(SECRETS_DATA) + "';\n" + sfl
+      else
+        console.log "No worker secrets json files present, so no worker secrets imported to cloudlfare or built into server script\n"
     else
-      console.log "No worker secrets json files present, so no worker secrets imported to cloudlfare or built into server script\n"
-  else
-    console.log "No worker secrets folder present, so no worker secrets imported to cloudflare or built into server script\n"
+      console.log "No worker secrets folder present, so no worker secrets imported to cloudflare or built into server script\n"
 
   if 'build' in args
     if 'worker' in args or 'server' in args # server needs worker to be built as well anyway

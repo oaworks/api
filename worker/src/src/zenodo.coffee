@@ -32,7 +32,7 @@ P.src.zenodo.records.get = (q, dev) ->
   try
     return r.hits.hits[0] # appears to be the complete record so no need to get from /api/records/CONCEPTRECID
   catch
-    return undefined
+    return
 
 P.src.zenodo.records.doi = (doi, dev) ->
   doi ?= @params.doi

@@ -7,12 +7,12 @@
 # or an element to scope on can be directly provided as third param
 P = (n, fn, sc) ->
   if typeof fn is 'function'
-    P.each n, fn
+    P.each n, fn, undefined, sc
   else if n
-    [sc, n] = n.split(' ') if not sc?
-    if not n?
-      n = sc
-      sc = document
+    if n.startsWith('#') and n.includes ' '
+      sc = n.split(' ')[0]
+      n = n.replace sc + ' ', ''
+      sc = P.gebi sc
     d = P[if n.startsWith('#') then 'gebi' else if n.startsWith('.') then 'gebc' else 'gebn'] n, sc
     return if d? and (n.startsWith('#') or d.length isnt 0) then d else undefined
 
@@ -20,21 +20,21 @@ P.api ?= @api ? '//' + window.location.host
 
 P.gebi = (id) -> return document.getElementById id.split('#').pop().split(' ')[0]
 P.gebc = (n, sc) ->
-  sc = P.list(P sc ? n)[0] if typeof sc is 'string' or n.includes ' '
-  d = (sc ? document).getElementsByClassName n.replace '.', ''
+  sc ?= P.list(P sc ? n)[0] if typeof sc is 'string' or (n.startsWith('#') and n.includes ' ')
+  d = (sc ? document).getElementsByClassName n.replace(/^\./, '').replace(/\s\./g, ' ').trim()
   return if d? and d.length is 1 then d[0] else d
 P.gebn = (n, sc) ->
   n = n.replace /[<>]/g, ''
   if n.includes ','
     return P.gebns n, sc
   else
-    sc = P.list(P sc ? n)[0] if typeof sc is 'string' or n.includes ' '
+    sc ?= P.list(P sc ? n)[0] if typeof sc is 'string' or (n.startsWith('#') and n.includes ' ')
     d = (sc ? document).getElementsByTagName n # e.g. by the element name, like "div"
     d = (sc ? document).getElementsByName(n) if not d? or d.length is 0 # otherwise by the "name" attribute matching n
     return if d? and d.length is 1 then d[0] else d
 P.gebns = (ns, sc) -> # ns could be like "h1, h2, h3, p"
   d = []
-  sc = P.list(P sc ? ns)[0] if typeof sc is 'string' or ns.includes ' '
+  sc ?= P.list(P sc ? ns)[0] if typeof sc is 'string' or (ns.startsWith('#') and ns.includes ' ')
   for tag in ns.replace(/, /g, ',').split ','
     d.push(t) for t in (sc ? document).getElementsByTagName tag
   d.sort (a,b) -> return if a.sourceIndex then a.sourceIndex - b.sourceIndex else 3 - (a.compareDocumentPosition(b) & 6)
@@ -178,32 +178,6 @@ P.siblings = (els) ->
   
 # end of functions that act on elements
 
-P.on = (a, id, fn, l, sc) ->
-  if a is 'enter'
-    a = 'keyup'
-    wfn = (e) -> fn(e) if e.keyCode is 13
-  else
-    wfn = fn
-  l ?= 300 if a is 'scroll'
-  l = 300 if l is true
-  wfn = P.limit(wfn) if l
-  P._ons ?= {}
-  if not P._ons[a]?
-    P._ons[a] = {}
-    [sc, id] = id.split(' ') if id.includes ' '
-    sc = P.list(P sc)[0] if sc? and typeof sc is 'string'
-    (sc ? document).addEventListener a, (e) ->
-      ids = P.classes e.target
-      ids[i] = '.' + ids[i] for i of ids
-      ids.push('#' + e.target.id) if e.target.id
-      try ids.push e.target.tagName.toLowerCase()
-      for s in ids
-        if P._ons[a][s]?
-          P._ons[a][s][f](e) for f of P._ons[a][s]
-          break
-  P._ons[a][id] ?= {}
-  P._ons[a][id][fn.toString().toLowerCase().replace('function', '').replace /[^a-z0-9]/g, ''] ?= wfn
-
 P.dot = (o, k, v, d) ->
   if typeof k is 'string'
     return P.dot o, k.split('.'), v, d
@@ -331,6 +305,40 @@ P.cookie = (n, vs, opts) ->
       c = c.substring(1) while c.charAt(0) is ' '
       return JSON.parse(decodeURIComponent(c.substring(n.length + 1, c.length))) if c.indexOf(n + '=') isnt -1
     return false
+
+P.on = (a, id, fn, l, sc) ->
+  if a is 'enter'
+    a = 'keyup'
+    wfn = (e) -> fn(e) if e.keyCode is 13
+  else
+    wfn = fn
+  l ?= 300 if a is 'scroll'
+  l = 300 if l is true
+  wfn = P.limit(wfn, l) if l
+  
+  if id.startsWith('#') and id.includes ' '
+    sc = id.split(' ')[0].replace '#', ''
+    id = id.split ' '
+    id.shift()
+    id = id.join ' '
+  else
+    sc = '_doc'
+
+  P._ons ?= {}
+  P._ons[sc] ?= {}
+  if not P._ons[sc][a]?
+    P._ons[sc][a] = {}
+    (if sc is '_doc' then document else P.list(P '#' + sc)[0]).addEventListener a, (e) ->
+      ids = P.classes e.target
+      ids[i] = '.' + ids[i] for i of ids
+      ids.push('#' + e.target.id) if e.target.id
+      try ids.push e.target.tagName.toLowerCase()
+      for s in ids
+        if P._ons[sc][a][s]?
+          P._ons[sc][a][s][f](e) for f of P._ons[sc][a][s]
+          break
+  P._ons[sc][a][id] ?= {}
+  P._ons[sc][a][id][fn.toString().toLowerCase().replace('function', '').replace /[^a-z0-9]/g, ''] ?= wfn
 
 P.limit = (fn, w) ->
   w ?= 300

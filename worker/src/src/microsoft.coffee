@@ -18,18 +18,16 @@ P.src.microsoft.bing = (q, key) ->
     return {total: 0, data: []}
 
 
-# https://docs.microsoft.com/en-us/academic-services/graph/reference-data-schema
-# We get files via MS Azure dump and run an import script. Have to manually go to 
-# Azure, use storage explorer to find the most recent blob container, select the file(s)
-# to download, right click and select shared access signature, create it, copy it, and download that.
-# THEN DELETE THE BLOB BECAUSE THEY CHARGE US FOR EVERY CREATION, EVERY DOWNLOAD, AND STORAGE TIME FOR AS LONG AS IT EXISTS
-# Fields we get are:
-# 'journal': ['JournalId', 'Rank', 'NormalizedName', 'DisplayName', 'Issn', 'Publisher', 'Webpage', 'PaperCount', 'PaperFamilyCount', 'CitationCount', 'CreatedDate'],
-# 'author': ['AuthorId', 'Rank', 'NormalizedName', 'DisplayName', 'LastKnownAffiliationId', 'PaperCount', 'PaperFamilyCount', 'CitationCount', 'CreatedDate'],
-# 'paper': ['PaperId', 'Rank', 'Doi', 'DocType', 'PaperTitle', 'OriginalTitle', 'BookTitle', 'Year', 'Date', 'OnlineDate', 'Publisher', 'JournalId', 'ConferenceSeriesId', 'ConferenceInstanceId', 'Volume', 'Issue', 'FirstPage', 'LastPage', 'ReferenceCount', 'CitationCount', 'EstimatedCitation', 'OriginalVenue', 'FamilyId', 'FamilyRank', 'CreatedDate'],
-# 'affiliation': ['AffiliationId', 'Rank', 'NormalizedName', 'DisplayName', 'GridId', 'OfficialPage', 'Wikipage', 'PaperCount', 'PaperFamilyCount', 'CitationCount', 'Iso3166Code', 'Latitude', 'Longitude', 'CreatedDate'],
-# 'relation': ['PaperId', 'AuthorId', 'AffiliationId', 'AuthorSequenceNumber', 'OriginalAuthor', 'OriginalAffiliation']
-# of about 49k journals about 9 are dups, 37k have ISSN. 32k were already known from other soruces. Of about 250m papers, about 99m have DOIs
+P.src.microsoft.graph = _prefix: false, _index: settings: number_of_shards: 9
+P.src.microsoft.graph.journal = _prefix: false, _index: true
+P.src.microsoft.graph.author = _prefix: false, _index: settings: number_of_shards: 9
+P.src.microsoft.graph.affiliation = _prefix: false, _index: true
+P.src.microsoft.graph.urls = _prefix: false, _index: settings: number_of_shards: 6
+P.src.microsoft.graph.abstract = _prefix: false, _index: settings: number_of_shards: 6
+P.src.microsoft.graph.relation = _prefix: false, _index: settings: number_of_shards: 12
+
+
+'''
 P.src.microsoft.graph = (q) ->
   # NOTE: although there are about 250m papers only about 90m have JournalId - the rest could be books, etc. Import them all?
   _append = (rec) ->
@@ -60,69 +58,17 @@ P.src.microsoft.graph = (q) ->
           #res.relation = await @src.microsoft.graph._relations res.PaperId
           return res
         else
-          return undefined
+          return
       else if title.length < (rt.length * 1.2) and (title.length > rt.length * .8)
         #res.relation = await @src.microsoft.graph._relations res.PaperId
         return res
-    return undefined
+    return
   else
     return await @src.microsoft.graph.paper q
   
-
 P.src.microsoft.graph.paper = (q) ->
   # for now just get from old index
   url = 'https://dev.api.cottagelabs.com/use/microsoft/graph/paper/?q=' + q
   res = await @fetch url
   return if res?.hits?.total then res.hits.hits[0]._source else undefined
-
-P.src.microsoft.graph.journal = (q) ->
-  # for now just get from old index
-  url = 'https://dev.api.cottagelabs.com/use/microsoft/graph/journal/' + q
-  res = await @fetch url
-  return res
-
-
-'''
-P.src.microsoft.graph = _prefix: false, _index: settings: number_of_shards: 9
-P.src.microsoft.graph.journal = _prefix: false, _index: true
-P.src.microsoft.graph.author = _prefix: false, _index: true
-P.src.microsoft.graph.affiliation = _prefix: false, _index: true
-P.src.microsoft.graph.abstract = _prefix: false, _index: true
-P.src.microsoft.graph.relation = _prefix: false, _index: true
-'''
-
-
-'''
-P.src.microsoft.graph._relations = (q, papers=true, authors=true, affiliations=true) ->
- # ['PaperId', 'AuthorId', 'AffiliationId', 'AuthorSequenceNumber', 'OriginalAuthor', 'OriginalAffiliation']
- # context could be paper, author, affiliation
-  results = []
-  _append = (recs) ->
-    res = []
-    recs = [recs] if not Array.isArray recs
-    for rec in recs
-      rec.paper = await @src.microsoft.graph.paper(rec.PaperId) if rec.PaperId and papers
-      rec.author = await @src.microsoft.graph.author(rec.AuthorId) if rec.AuthorId and authors
-      rec.affiliation = await @src.microsoft.graph.affiliation(rec.AffiliationId ? rec.LastKnownAffiliationId) if (rec.AffiliationId or rec.LastKnownAffiliationId) and affiliations
-      if rec.GridId or rec.affiliation?.GridId
-        try rec.ror = await @src.wikidata.grid2ror rec.GridId ? rec.affiliation?.GridId
-      res.push rec
-      results.push rec
-    return res
-
-  if typeof q is 'string' and rel = await @src.microsoft.graph.relation q
-    return _append rel
-  
-  count = 0
-  if typeof q is 'string' and cn = @src.microsoft.graph.relation.count 'PaperId.exact:"' + q + '"'
-    count += cn
-    _append(@src.microsoft.graph.relation.fetch('PaperId.exact:"' + q + '"')) if cn < 10
-  else if typeof q is 'string' and cn = @src.microsoft.graph.relation.count 'AuthorId.exact:"' + q + '"'
-    count += cn
-    _append(@src.microsoft.graph.relation.fetch('AuthorId.exact:"' + q + '"')) if cn < 10
-  else if typeof q is 'string' and cn = @src.microsoft.graph.relation.count 'AffiliationId.exact:"' + q + '"'
-    count += cn
-    _append(@src.microsoft.graph.relation.fetch('AffiliationId.exact:"' + q + '"')) if cn < 10
-
-  return results
 '''

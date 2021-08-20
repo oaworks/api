@@ -1,91 +1,183 @@
 
+# https://docs.microsoft.com/en-us/academic-services/graph/reference-data-schema
+# We used to get files via MS Azure dump and run an import script. Have to manually go to 
+# Azure, use storage explorer to find the most recent blob container, select the file(s)
+# to download, right click and select shared access signature, create it, copy it, and download that.
+# THEN DELETE THE BLOB BECAUSE THEY CHARGE US FOR EVERY CREATION, EVERY DOWNLOAD, AND STORAGE TIME FOR AS LONG AS IT EXISTS
+# but now the service has been discontinued. Maybe there will be a replacement in future
 
-P.src.microsoft.load = () ->
+P.src.microsoft.load = (kinds) ->
+  howmany = @params.howmany ? -1 # max number of lines to process. set to -1 to keep going...
+
   keys =
-    'journal': ['JournalId', 'Rank', 'NormalizedName', 'DisplayName', 'Issn', 'Publisher', 'Webpage', 'PaperCount', 'PaperFamilyCount', 'CitationCount', 'CreatedDate']
-    'author': ['AuthorId', 'Rank', 'NormalizedName', 'DisplayName', 'LastKnownAffiliationId', 'PaperCount', 'PaperFamilyCount', 'CitationCount', 'CreatedDate']
-    'affiliation': ['AffiliationId', 'Rank', 'NormalizedName', 'DisplayName', 'GridId', 'OfficialPage', 'Wikipage', 'PaperCount', 'PaperFamilyCount', 'CitationCount', 'Iso3166Code', 'Latitude', 'Longitude', 'CreatedDate']
-    'abstract': ['PaperId', 'Abstract']
-    'relation': ['PaperId', 'AuthorId', 'AffiliationId', 'AuthorSequenceNumber', 'OriginalAuthor', 'OriginalAffiliation']
-    'paper': ['PaperId', 'Rank', 'Doi', 'DocType', 'PaperTitle', 'OriginalTitle', 'BookTitle', 'Year', 'Date', 'OnlineDate', 'Publisher', 'JournalId', 'ConferenceSeriesId', 'ConferenceInstanceId', 'Volume', 'Issue', 'FirstPage', 'LastPage', 'ReferenceCount', 'CitationCount', 'EstimatedCitation', 'OriginalVenue', 'FamilyId', 'FamilyRank', 'CreatedDate']
+    #journal: ['JournalId', 'Rank', 'NormalizedName', 'DisplayName', 'Issn', 'Publisher', 'Webpage', 'PaperCount', 'PaperFamilyCount', 'CitationCount', 'CreatedDate']
+    #affiliation: ['AffiliationId', 'Rank', 'NormalizedName', 'DisplayName', 'GridId', 'OfficialPage', 'Wikipage', 'PaperCount', 'PaperFamilyCount', 'CitationCount', 'Iso3166Code', 'Latitude', 'Longitude', 'CreatedDate']
+    #author: ['AuthorId', 'Rank', 'NormalizedName', 'DisplayName', 'LastKnownAffiliationId', 'PaperCount', 'PaperFamilyCount', 'CitationCount', 'CreatedDate']
+    #relation: ['PaperId', 'AuthorId', 'AffiliationId', 'AuthorSequenceNumber', 'OriginalAuthor', 'OriginalAffiliation']
+    #abstract: ['PaperId', 'Abstract']
+    #urls: ['PaperId', 'SourceType', 'SourceUrl', 'LanguageCode']
+    paper: ['PaperId', 'Rank', 'Doi', 'DocType', 'PaperTitle', 'OriginalTitle', 'BookTitle', 'Year', 'Date', 'OnlineDate', 'Publisher', 'JournalId', 'ConferenceSeriesId', 'ConferenceInstanceId', 'Volume', 'Issue', 'FirstPage', 'LastPage', 'ReferenceCount', 'CitationCount', 'EstimatedCitation', 'OriginalVenue', 'FamilyId', 'FamilyRank', 'CreatedDate']
 
-  infolder = '/mnt/volume_nyc3_01/mag/' # where the lines should be read from
+  kinds ?= if @params.load then @params.load.split(',') else if @params.kinds then @params.kinds.split(',') else @keys keys
+
+  # totals: 49027 journals, 26997 affiliations, 269880467 authors, 699632917 relations, 429637001 urls, 145551658 abstracts (in 2 files), 259102074 papers
+  # paper URLs PaperId is supposedly a Primary Key but there are clearly many more of them than Papers...
+  # of other files not listed here yet: 1726140322 paper references
+  # of about 49k journals about 9 are dups, 37k have ISSN. 32k were already known from other soruces. Of about 250m papers, about 99m have DOIs
+  infolder = '/mnt/volume_nyc3_01/mag/2021-04-26/' # where the lines should be read from
   lastfile = '/mnt/volume_nyc3_01/mag/last' # prefix of where to record the ID of the last item read from the kind of file
-  howmany = -1 # max number of lines to process. set to -1 to keep going
-  batchsize = 20000 # how many records to batch upload at a time
+  
   total = 0
+  blanks = 0
+  done = not @params.parallel
+  ds = {}
+  
+  paper_journal_lookups = {} # store these in memory when loading papers as they're looked up because there aren't many and it will work out faster than searching every time
+  url_source_types = # defined by MAG
+    '1': 'html'
+    '2': 'text'
+    '3': 'pdf'
+    '4': 'doc'
+    '5': 'ppt'
+    '6': 'xls'
+    '8': 'rtf'
+    '12': 'xml'
+    '13': 'rss'
+    '20': 'swf'
+    '27': 'ics'
+    '31': 'pub'
+    '33': 'ods'
+    '34': 'odp'
+    '35': 'odt'
+    '36': 'zip'
+    '40': 'mp3'
 
-  for kind in (if @params.kinds then @params.kinds.split(',') else @keys keys)
+  _loadkind = (kind) =>
+    console.log 'MAG loading', kind
+    batchsize = if kind in ['abstract'] then 20000 else if kind in ['relation'] then 75000 else if kind in ['urls'] then 100000 else 50000 # how many records to batch upload at a time
     batch = []
     kindlastfile = lastfile + '_' + kind
     kindtotal = 0
-    last = false
-    if not @refresh
-      try last = (await fs.readFile kindlastfile).toString()
-    waiting = last isnt false
-    
-    if last isnt 'DONE'
-      await @src.microsoft.graph[kind]('') if @params._delete and last is false
+    try lastrecord = parseInt((await fs.readFile kindlastfile).toString().split(' ')[0]) if not @refresh
 
-      _lines = (path) =>
-        readline.createInterface 
-          input: fs.createReadStream path
-          crlfDelay: Infinity
-    
-      for await line from _lines infolder + (if kind is 'relation' then 'PaperAuthorAffiliations.txt' else kind.substr(0,1).toUpperCase() + kind.substr(1) + 's.txt')
-        break if howmany isnt -1 and total >= howmany
-        vals = line.split '\t'
-  
-        if waiting
-          waiting = false if vals[0] is last
+    if lastrecord isnt 'DONE'
+      if true #not lastrecord
+        if kind is 'paper'
+          await @src.microsoft.graph ''
         else
+          await @src.microsoft.graph[kind] ''
+      
+      infile = (if kind in ['urls'] then infolder.replace('2021-04-26/', '') else infolder) + (if kind is 'relation' then 'PaperAuthorAffiliations.txt' else (if kind in ['urls'] then 'Paper' else '') + kind.substr(0,1).toUpperCase() + kind.substr(1) + (if kind in ['urls'] then '' else 's') + '.txt')
+
+      for await line from readline.createInterface input: fs.createReadStream infile
+        kindtotal += 1
+        break if total is howmany
+        vals = line.split '\t'
+        try console.log(kind, 'waiting', kindtotal, lastrecord) if lastrecord and not (kindtotal/100000).toString().includes '.'
+        if not lastrecord or kindtotal is lastrecord or parseInt(vals[0]) is lastrecord
+          lastrecord = undefined
           total += 1
-          kindtotal += 1
           kc = 0
           obj = {}
-          if kind isnt 'relation'
+          if kind not in ['relation', 'urls']
             obj._id = vals[0]
-            try obj._id.trim()
-          if kind is 'abstract'
-            obj.PaperId = vals[0]
-            ind = JSON.parse vals[1]
-            al = []
-            al.push('') while al.length < ind.IndexLength
-            for k in ind.InvertedIndex
-              for p in ind.InvertedIndex[k]
-                al[p] = k
-            obj.Abstract = al.join ' '
-          else
-            for key in keys[kind]
-              vs = vals[kc]
-              try vs.trim()
-              obj[key] = vs if vs
-              kc += 1
-          if kind is 'paper'
-            if obj.JournalId
-              try obj.journal = await @src.microsoft.graph.journal obj.JournalId
-            try obj.abstract = await @src.microsoft.graph.abstract obj.PaperId
-            try
-              for await rr from @index._for 'src_microsoft_graph_relation', 'PaperId:"' + obj._id + '"'
-                if rr.AuthorId and author = await @src.microsoft.graph.author rr.AuthorId
-                  if author.LastKnownAffiliationId
-                    try author.affiliation = await @src.microsoft.graph.affiliation author.LastKnownAffiliationId
-                  obj.author ?= []
-                  obj.author.push author
+            try obj._id = obj._id.trim()
+            delete obj._id if not obj._id # there appear to be some blank lines so skip those
+          if obj._id or kind in ['relation', 'urls']
+            if kind is 'abstract'
+              try
+                obj.PaperId = parseInt vals[0]
+                ind = JSON.parse vals[1]
+                al = []
+                al.push('') while al.length < ind.IndexLength
+                for k in ind.InvertedIndex
+                  for p in ind.InvertedIndex[k]
+                    al[p] = k
+                obj.Abstract = al.join(' ').replace /\n/g, ' '
+            else
+              for key in keys[kind]
+                vs = vals[kc]
+                try vs.trim()
+                obj[key] = vs if vs and key not in ['NormalizedName']
+                if key in ['Rank', 'AuthorSequenceNumber', 'Year', 'EstimatedCitation', 'FamilyRank', 'SourceType'] or key.endsWith('Count') or key.endsWith 'Id'
+                  try
+                    psd = parseInt obj[key]
+                    obj[key] = psd if not isNaN psd
+                kc += 1
+            if kind is 'paper'
+              if obj.JournalId
+                try
+                  js = obj.JournalId.toString()
+                  if jrnl = paper_journal_lookups[js]
+                    obj.journal = title: jrnl.DisplayName, ISSN: jrnl.Issn.split(','), url: jrnl.Webpage, id: obj.JournalId
+                  else if jrnl = await @src.microsoft.graph.journal js
+                    paper_journal_lookups[js] = jrnl
+                    obj.journal = title: jrnl.DisplayName, ISSN: jrnl.Issn.split(','), url: jrnl.Webpage
+              #try
+              #  abs = await @src.microsoft.graph.abstract obj.PaperId.toString()
+              #  obj.abstract = abs.Abstract
+              try
+                for await ur from @index._for 'src_microsoft_graph_urls', 'PaperId:"' + obj._id + '"'
+                  obj.url ?= []
+                  puo = url: ur.SourceUrl, language: ur.LanguageCode
+                  try puo.type = url_source_types[ur.SourceType.toString()]
+                  obj.url.push puo
+              try
+                for await rr from @index._for 'src_microsoft_graph_relation', 'PaperId:"' + obj._id + '"'
+                  if rr.AuthorId # which it seems they all do, along with OriginalAuthor and OriginalAffiliation
+                    obj.author ?= []
+                    obj.author.push name: rr.OriginalAuthor, sequence: rr.AuthorSequenceNumber, id: rr.AuthorId, affiliation: name: rr.OriginalAffiliation, id: rr.AffiliationId
+                  #if rr.AuthorId and author = await @src.microsoft.graph.author rr.AuthorId.toString()
+                  #  author.relation = rr
+                  #  if author.LastKnownAffiliationId
+                  #    try author.affiliation = await @src.microsoft.graph.affiliation author.LastKnownAffiliationId.toString()
+                  #  obj.author ?= []
+                  #  obj.author.push author
+                  #if rr.AffiliationId and aff = await @src.microsoft.graph.affiliation rr.AffiliationId.toString()
+                  #  aff.relation = rr
+                  #  obj.affiliation ?= []
+                  #  obj.affiliation.push aff
 
-          batch.push obj
+          if JSON.stringify(obj) isnt '{}' # readline MAG author dump somehow managed to cause blank rows even though they couldn't be found in the file, so skip empty records
+            batch.push obj
+          else
+            blanks += 1
   
-        if batch.length >= batchsize
-          console.log total, kindtotal, vals[0]
-          await @src.microsoft.graph[kind] batch
-          await fs.writeFile kindlastfile, vals[0]
+        if batch.length is batchsize
+          console.log kind, total, kindtotal, blanks
+          if kind is 'paper'
+            await @src.microsoft.graph batch
+          else
+            batched = await @src.microsoft.graph[kind] batch
+            console.log 'batch returned', batched # should be the count of how many were successfully saved
+          await fs.writeFile kindlastfile, kindtotal + ' ' + vals[0]
           batch = []
   
       if batch.length
-        await @src.microsoft.graph[kind] batch
-        batch = []
+        if kind is 'paper'
+          await @src.microsoft.graph batch 
+        else
+          await @src.microsoft.graph[kind] batch
       await fs.writeFile kindlastfile, 'DONE'
+    ds[k] = true
 
+  for k in kinds
+    if @params.parallel
+      if k isnt 'paper'
+        ds[k] = false
+        _loadkind k
+    else
+      await _loadkind k
+
+  while not done
+    done = true
+    for d of ds
+      done = false if ds[d] is false
+    if done and 'paper' in kinds
+      await _loadkind 'paper'
+    await @sleep 1000
+
+  console.log total, blanks
   return total
 
 P.src.microsoft.load._async = true

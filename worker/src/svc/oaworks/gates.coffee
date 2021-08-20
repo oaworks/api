@@ -4,7 +4,7 @@ P.svc.oaworks.gates = () ->
     @svc.oaworks.gates.oacheck undefined, undefined, undefined, undefined, true
     return true
   else if @format is 'html'
-    return 'I will be a nice HTML UI listing the links to trigger updates and listing the result files'
+    return 'Welcome to... Gates stuff'
   else
     return 'OA.works Gates project API parts placeholder'
 
@@ -127,20 +127,20 @@ P.svc.oaworks.gates.oacheck = (urls, q, funder, total, all) ->
 
   done = []
   #await fs.writeFile '/home/cloo/static/gates/oacheck_fixed.csv', '"DOI","in_oadoi","journal_oa_status","Crossref_OA","best_oa_location_url","best_oa_location_url_for_pdf","is_oa","oa_status","has_repository_copy","repository_license","repository_url_for_pdf","repository_url","repository_version","publisher_license","publisher_url_for_pdf","publisher_version","Paper title","Journal Title","ISSN","Publisher name","Published date","Published year","Matches"'
-  for d in (await fs.readFile '/home/cloo/static/gates/oacheck_rererun.csv').toString().split '\n'
+  for d in [] #(await fs.readFile '/home/cloo/static/gates/oacheck_rererun.csv').toString().split '\n'
     dd = d.replace(/"/g, '').split(',')[0].trim()
     if dd.startsWith('10.') and dd.indexOf('/') isnt -1 and dd not in done
       done.push dd
       #await fs.appendFile '/home/cloo/static/gates/oacheck_fixed.csv', '\n' + d
   console.log done.length
 
-  #fn = '/home/cloo/static/gates/oacheck_gates_dev_63.csv'
-  out = '/home/cloo/static/gates/oacheck_rererun_opps_invs.csv'
+  out = '/home/cloo/static/gates/oacheck_rerererun.csv'
 
-  #for row in (await fs.readFile fn).toString().split '\n'
-  #  row = row.replace(/"/g, '').trim()
-  #  dois.push(row) if row.startsWith('10.') and row.indexOf('/') isnt -1 and row not in dois and row not in done
-  #console.log dois.length
+  for fn in ['/home/cloo/static/gates/oacheck_gates_dev_55.csv', '/home/cloo/static/gates/oacheck_gates_dev_63.csv']
+    for row in (await fs.readFile fn).toString().split '\n'
+      row = row.replace(/"/g, '').trim()
+      dois.push(row) if row.startsWith('10.') and row.indexOf('/') isnt -1 and row not in dois and row not in done
+  console.log dois.length
 
   for fn in ['oppids.csv', 'invids.csv', 'funders.csv']
     for fr in await @convert.csv2json (await fs.readFile '/home/cloo/static/gates/' + fn).toString()

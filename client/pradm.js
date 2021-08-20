@@ -10,14 +10,12 @@ var P, ref,
 P = function(n, fn, sc) {
   var d;
   if (typeof fn === 'function') {
-    return P.each(n, fn);
+    return P.each(n, fn, void 0, sc);
   } else if (n) {
-    if (sc == null) {
-      [sc, n] = n.split(' ');
-    }
-    if (n == null) {
-      n = sc;
-      sc = document;
+    if (n.startsWith('#') && n.includes(' ')) {
+      sc = n.split(' ')[0];
+      n = n.replace(sc + ' ', '');
+      sc = P.gebi(sc);
     }
     d = P[n.startsWith('#') ? 'gebi' : n.startsWith('.') ? 'gebc' : 'gebn'](n, sc);
     if ((d != null) && (n.startsWith('#') || d.length !== 0)) {
@@ -38,10 +36,12 @@ P.gebi = function(id) {
 
 P.gebc = function(n, sc) {
   var d;
-  if (typeof sc === 'string' || n.includes(' ')) {
-    sc = P.list(P(sc != null ? sc : n))[0];
+  if (typeof sc === 'string' || (n.startsWith('#') && n.includes(' '))) {
+    if (sc == null) {
+      sc = P.list(P(sc != null ? sc : n))[0];
+    }
   }
-  d = (sc != null ? sc : document).getElementsByClassName(n.replace('.', ''));
+  d = (sc != null ? sc : document).getElementsByClassName(n.replace(/^\./, '').replace(/\s\./g, ' ').trim());
   if ((d != null) && d.length === 1) {
     return d[0];
   } else {
@@ -55,8 +55,10 @@ P.gebn = function(n, sc) {
   if (n.includes(',')) {
     return P.gebns(n, sc);
   } else {
-    if (typeof sc === 'string' || n.includes(' ')) {
-      sc = P.list(P(sc != null ? sc : n))[0];
+    if (typeof sc === 'string' || (n.startsWith('#') && n.includes(' '))) {
+      if (sc == null) {
+        sc = P.list(P(sc != null ? sc : n))[0];
+      }
     }
     d = (sc != null ? sc : document).getElementsByTagName(n); // e.g. by the element name, like "div"
     if ((d == null) || d.length === 0) { // otherwise by the "name" attribute matching n
@@ -73,8 +75,10 @@ P.gebn = function(n, sc) {
 P.gebns = function(ns, sc) { // ns could be like "h1, h2, h3, p"
   var d, j, len, len1, m, ref1, ref2, t, tag;
   d = [];
-  if (typeof sc === 'string' || ns.includes(' ')) {
-    sc = P.list(P(sc != null ? sc : ns))[0];
+  if (typeof sc === 'string' || (ns.startsWith('#') && ns.includes(' '))) {
+    if (sc == null) {
+      sc = P.list(P(sc != null ? sc : ns))[0];
+    }
   }
   ref1 = ns.replace(/, /g, ',').split(',');
   for (j = 0, len = ref1.length; j < len; j++) {
@@ -399,73 +403,6 @@ P.siblings = function(els) {
 
 
 // end of functions that act on elements
-P.on = function(a, id, fn, l, sc) {
-  var base, base1, name, wfn;
-  if (a === 'enter') {
-    a = 'keyup';
-    wfn = function(e) {
-      if (e.keyCode === 13) {
-        return fn(e);
-      }
-    };
-  } else {
-    wfn = fn;
-  }
-  if (a === 'scroll') {
-    if (l == null) {
-      l = 300;
-    }
-  }
-  if (l === true) {
-    l = 300;
-  }
-  if (l) {
-    wfn = P.limit(wfn);
-  }
-  if (P._ons == null) {
-    P._ons = {};
-  }
-  if (P._ons[a] == null) {
-    P._ons[a] = {};
-    if (id.includes(' ')) {
-      [sc, id] = id.split(' ');
-    }
-    if ((sc != null) && typeof sc === 'string') {
-      sc = P.list(P(sc))[0];
-    }
-    (sc != null ? sc : document).addEventListener(a, function(e) {
-      var f, i, ids, j, len, results, s;
-      ids = P.classes(e.target);
-      for (i in ids) {
-        ids[i] = '.' + ids[i];
-      }
-      if (e.target.id) {
-        ids.push('#' + e.target.id);
-      }
-      try {
-        ids.push(e.target.tagName.toLowerCase());
-      } catch (error) {}
-      results = [];
-      for (j = 0, len = ids.length; j < len; j++) {
-        s = ids[j];
-        if (P._ons[a][s] != null) {
-          for (f in P._ons[a][s]) {
-            P._ons[a][s][f](e);
-          }
-          break;
-        } else {
-          results.push(void 0);
-        }
-      }
-      return results;
-    });
-  }
-  if ((base = P._ons[a])[id] == null) {
-    base[id] = {};
-  }
-  return (base1 = P._ons[a][id])[name = fn.toString().toLowerCase().replace('function', '').replace(/[^a-z0-9]/g, '')] != null ? base1[name] : base1[name] = wfn;
-};
-
 P.dot = function(o, k, v, d) {
   if (typeof k === 'string') {
     return P.dot(o, k.split('.'), v, d);
@@ -692,6 +629,78 @@ P.cookie = function(n, vs, opts) {
     }
     return false; // even if values is false or '', so can remove this way
   }
+};
+
+P.on = function(a, id, fn, l, sc) {
+  var base, base1, base2, name, wfn;
+  if (a === 'enter') {
+    a = 'keyup';
+    wfn = function(e) {
+      if (e.keyCode === 13) {
+        return fn(e);
+      }
+    };
+  } else {
+    wfn = fn;
+  }
+  if (a === 'scroll') {
+    if (l == null) {
+      l = 300;
+    }
+  }
+  if (l === true) {
+    l = 300;
+  }
+  if (l) {
+    wfn = P.limit(wfn, l);
+  }
+  if (id.startsWith('#') && id.includes(' ')) {
+    sc = id.split(' ')[0].replace('#', '');
+    id = id.split(' ');
+    id.shift();
+    id = id.join(' ');
+  } else {
+    sc = '_doc';
+  }
+  if (P._ons == null) {
+    P._ons = {};
+  }
+  if ((base = P._ons)[sc] == null) {
+    base[sc] = {};
+  }
+  if (P._ons[sc][a] == null) {
+    P._ons[sc][a] = {};
+    (sc === '_doc' ? document : P.list(P('#' + sc))[0]).addEventListener(a, function(e) {
+      var f, i, ids, j, len, results, s;
+      ids = P.classes(e.target);
+      for (i in ids) {
+        ids[i] = '.' + ids[i];
+      }
+      if (e.target.id) {
+        ids.push('#' + e.target.id);
+      }
+      try {
+        ids.push(e.target.tagName.toLowerCase());
+      } catch (error) {}
+      results = [];
+      for (j = 0, len = ids.length; j < len; j++) {
+        s = ids[j];
+        if (P._ons[sc][a][s] != null) {
+          for (f in P._ons[sc][a][s]) {
+            P._ons[sc][a][s][f](e);
+          }
+          break;
+        } else {
+          results.push(void 0);
+        }
+      }
+      return results;
+    });
+  }
+  if ((base1 = P._ons[sc][a])[id] == null) {
+    base1[id] = {};
+  }
+  return (base2 = P._ons[sc][a][id])[name = fn.toString().toLowerCase().replace('function', '').replace(/[^a-z0-9]/g, '')] != null ? base2[name] : base2[name] = wfn;
 };
 
 P.limit = function(fn, w) {

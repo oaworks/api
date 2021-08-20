@@ -19,7 +19,10 @@ P.auth = (key) ->
     if (@params.access_token and oauth = await @auth._oauth @params.access_token) or ((@params.token or @params.auth) and email = await @kv 'auth/token/' + (@params.token ? @params.auth), '') # true causes delete after found
       if not user = await @users._get(oauth?.email ? email) # get the user record if it already exists
         user = await @users._create oauth ? email # create the user record if not existing, as this is the first token login attempt for this email address
-    if not user and @apikey and uid = await @kv 'auth/apikey/' + @apikey
+    if not user and @apikey
+      if @S.bg is true
+        user = await @users._get undefined, @apikey
+      if not user and uid = await @kv 'auth/apikey/' + @apikey
         user = await @users._get uid # no user creation if apikey doesn't match here - only create on login token above 
     if not user and (@params.resume or @cookie) # accept resume on a header too?
       if not resume = @params.resume # login by resume token if provided in param or cookie
@@ -32,7 +35,7 @@ P.auth = (key) ->
         uid = @hashhex @params.email.trim().toLowerCase() # accept resume with email instead of id?
       if resume and uid and restok = await @kv 'auth/resume/' + uid + '/' + resume
         user = await @users._get uid
-        user.resume = resume
+        user.resume = resume if user?
 
   if typeof user is 'object' and user._id
     # if 2fa is enabled, request a second form of ID (see below about implementing 2fa)
@@ -225,7 +228,7 @@ P.auth._oauth = (token, cid) ->
           google: {id: ret.data.id}
           name: ret.data.name ? (ret.data.given_name + (if ret.data.family_name then ' ' + ret.data.family_name else ''))
           avatar: ret.data.picture
-  return undefined
+  return
 # an oauth client-side would require the google oauth client token. It's not a secret, but must be got in advance from google account provider
 # ours is '360291218230-r9lteuqaah0veseihnk7nc6obialug84.apps.googleusercontent.com' - but that's no use to anyone else, unless wanting to login with us
 # the Oauth URL that would trigger something like this would be like:
@@ -240,8 +243,12 @@ P.auth._oauth = (token, cid) ->
 
 P.users = _index: true, _hide: true, _auth: 'system'
 
-P.users._get = (uid) ->
-  if typeof uid is 'string'
+P.users._get = (uid, apikey) ->
+  if apikey
+    try
+      us = await @index 'users', 'apikey:"' + apikey + '"'
+      user = us.hits.hits[0]._source if us?.hits?.total is 1
+  else if typeof uid is 'string'
     uid = uid.replace('users/','') if uid.startsWith 'users/'
     uid = @hashhex(uid.trim().toLowerCase()) if uid.includes '@'
     if @S.bg isnt true
@@ -261,7 +268,8 @@ P.users._create = (user) ->
     email: user.email
     apikey: @uid()
   delete user.email
-  u.profile = user # could use other input as profile input data? better for services to store this where necessary though
+  try u.profile = user # could use other input as profile input data? better for services to store this where necessary though
+  try u.creation = @base + '/' + @route # which domain the user was created from
   u.roles = {}
   u.createdAt = new Date()
   try await @kv 'users/' + u._id, u
