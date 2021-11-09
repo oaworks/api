@@ -48,15 +48,15 @@ So why is it that frameworks tend to make us do more work defining routes onto
 declared functions? Let's turn that around.</p>
 
 <p>Paradigm is a minimalist node.js framework with an API-first approach, 
-providing a wrapper for things like auth, caching, elasticsearch and more. 
-It also includes build/deploy scripts for Cloudflare and/or linux VMs.
+providing a wrapper for things like auth, caching, search, and more. 
 So if you can write a function, you can create an API.</p>
 
-<p>We use Paradigm to build and run the <a target="_blank" href="https://api.oa.works">OA.Works API service</a>, 
-which also serves as working examples for these docs.</p>
+<p>We use Paradigm to build and run the <a target="_blank" href="https://api.oa.works">OA.Works API service</a></p>
+<!--, 
+which also serves as working examples for these docs.</p>-->
 
+<!-- <code class="request curl">curl <a target="_blank" href="//paradigm.oa.works">https://paradigm.oa.works</a> -->
 <pre class="shadow">
-<code class="request curl">curl <a target="_blank" href="//paradigm.oa.works">https://paradigm.oa.works</a>
 curl <a target="_blank" href="//api.oa.works">https://api.oa.works</a>
 </code><code style="display:none;" class="request node"># you may first need to install node-fetch using npm or your preferred package manager
 import fetch from 'node-fetch'
@@ -67,15 +67,19 @@ import requests
 res = requests.get('https://api.oa.works')
 print(res.json())
 </code>
-<a class="requesting" href="node">Node</a> | <a class="requesting" href="python">Python</a> | <a class="goto" href="#usingoaworks">OA.Works API docs</a> | <a class="goto" href="#usingparadigm">Paradigm API docs</a> | <a class="goto" href="#deployment">Deployment docs</a> | <a class="goto" href="#development">Development docs</a>
+<a class="requesting" href="node">Node</a> | <a class="requesting" href="python">Python</a>
 </pre>
+<!-- <a class="goto" href="#usingoaworks">OA.Works API docs</a> | <a class="goto" href="#usingparadigm">Paradigm API docs</a> | <a class="goto" href="#deployment">Deployment docs</a> | <a class="goto" href="#development">Development docs</a> -->
 
+<!--
 <p><br>We also included some convenient <a class="goto" href="#client">js client libraries</a> and css framework for rapid prototyping, data manipulation, 
 or integration into UI developments.</p>
 
 <p>Paradigm is open source so you could also <a href="#deployment">run your own copy</a>, or use it to <a href="#development">develop your own services</a>.</p>
+-->
 
 
+<!--
 <hr></hr>
 
 <h2 name="usingoaworks">Using OA.Works API</h2>
@@ -186,7 +190,7 @@ This route can be used to retrieve all activity from your embed(s) then you can 
 URL parameter. See the above for an example query, and view the response to see field names you can use to customise the query. 
 Note, responses will not necessarily have all fields - it depends what we can find in each case. Check out the 
 <a target="_blank" href="https://www.elastic.co/guide/en/elasticsearch/reference/7.10/query-dsl.html">Elasticsearch docs</a> to learn more about search queries.</p>
-
+-->
 
 
 <hr></hr>
@@ -203,7 +207,7 @@ two per second and include an email address in a <b>User-Agent</b> header
 (or <a class="goto" href="#auth">sign up and use an API key</a>) in case we need to contact you.</p>
 
 <pre class="shadow">
-<code>curl -X GET '<a target="_blank" href="https://paradigm.oa.works">https://paradigm.oa.works</a>' -H 'User-Agent: youremail@yourdomain.com'</code>
+<code>curl -X GET '<a target="_blank" href="https://api.oa.works">https://api.oa.works</a>' -H 'User-Agent: youremail@yourdomain.com'</code>
 </pre>
 
 
@@ -222,20 +226,23 @@ appending the <b>.html</b> extension to the <b>/auth</b> URL and you can sign in
 
 <p>Signing in using the UI also sets a cookie so 
 further browser-based requests won't require another login or an API key (the cookie 
-will be sent with the requests automatically). For this reason, the most useful client 
+will be sent with the requests automatically).</p>
+
+<!--For this reason, the most useful client 
 library provided with Paradigm is probably the login library; read more about the 
 <a class="goto" href="#client">client libraries</a> to learn how to use it.</p>
+-->
 
 <p>To login directly via the API, start by requesting an auth token for your email address:</p>
 
 <pre class="shadow">
-<code>curl 'https://paradigm.oa.works/auth/token?email=...'</code>
+<code>curl 'https://api.oa.works/auth/token?email=...'</code>
 </pre>
 
 <p>Retrieve the token from your email account then send it back to the <b>/auth</b> endpoint:</p>
 
 <pre class="shadow">
-<code>curl 'https://paradigm.oa.works/auth?token=...'</code>
+<code>curl 'https://api.oa.works/auth?token=...'</code>
 </pre>
 
 <p>That's it, you'll be logged in. The response object will include a <b>resume</b> key, 
@@ -259,14 +266,14 @@ Some routes may only be visible or accessible with authorisation, so use your
 API key on your requests.</p>
 
 <pre class="shadow">
-<code>curl '<a target="_blank" href="https://paradigm.oa.works/status">https://paradigm.oa.works/status</a>' -H 'x-apikey: ...'
-curl '<a target="_blank" href="https://paradigm.oa.works/status">https://paradigm.oa.works/status?apikey=...</a>'</code>
+<code>curl '<a target="_blank" href="https://api.oa.works/status">https://api.oa.works/status</a>' -H 'x-apikey: ...'
+curl '<a target="_blank" href="https://api.oa.works/status">https://api.oa.works/status?apikey=...</a>'</code>
 </pre>
 
 
 <h3>Sources</h3>
 
-<p><b>/src</b> routes are used connect to some remote source that isn't part of Paradigm. As our main 
+<p><b>/src</b> routes are used to connect to some remote source that isn't part of Paradigm. As our main 
 project goals over the years have been about academic research, most of these are for querying 
 and caching useful remote datasets. For example we have a <b>/src</b> route to query and cache the 
 <a target="_blank" href="https://www.crossref.org/documentation/retrieve-metadata/rest-api/">Crossref API</a>.</p>
@@ -281,15 +288,17 @@ for powerful querying and analysis.</p>
 directly to the main route of a <b>/src</b> to find more information about it.</p>
 
 <pre class="shadow">
-<code>curl <a target="_blank" href="/src/crossref">https://paradigm.oa.works/src/crossref</a></code>
+<code>curl <a target="_blank" href="/src/crossref">https://api.oa.works/src/crossref</a></code>
 </pre>
 
 <p>(These parts of documentation are still in progress - sorry if you don't find anything 
 useful; looking at the code of a src and the notes surrounding it will have to suffice for now.)</p>
 
+<!--
 <p>Sources can be added for any API you'd like to integrate with - go to the 
 <a class="goto" href="#development">Development</a> section for more information 
 about extending Paradigm to suit your needs.</p>
+-->
 
 
 <h3>Services</h3>
@@ -302,28 +311,30 @@ a <b>/svc/oaworks</b> route in our <a href="/status">status page</a> response.</
 <p>Like OA.Works, a service can be written using Paradigm and then exposed as a
 virtually standalone API. So documentation for individual services is left up to each 
 service. Like <b>src</b> routes, the main route of a service should display useful 
-information about it, and further documentation may be written separately as we have 
-done above for OA.Works.</p>
+information about it.</p>
+<!--, and further documentation may be written separately as we have 
+done above for OA.Works.</p>-->
 
 <pre class="shadow">
-<code>curl <a target="_blank" href="https://paradigm.oa.works/svc/oaworks">https://paradigm.oa.works/svc/oaworks</a></code>
+<code>curl <a target="_blank" href="/svc/oaworks">https://api.oa.works/svc/oaworks</a></code>
 </pre>
 
-<p>You may also notice that these are the same:</p>
+<p>You may also notice that this is the same:</p>
 
 <pre class="shadow">
-<code>curl <a target="_blank" href="/svc/oaworks">https://api.oa.works/svc/oaworks</a>
-curl <a target="_blank" href="/">https://api.oa.works</a></code>
+<code>curl <a target="_blank" href="/">https://api.oa.works</a></code>
 </pre>
 
 <p>When you write your own service you usually want it to be the main 
-route of the API, not a subroute, so there are <a class="goto" href="#settings">settings</a> that allow a 
-service to be "hoisted" to the main route. So you can extend Paradigm with more services 
-to suit your needs, and deploy them as if they were top-level standalone APIs if you wish.
+route of the API, not a subroute, so there is an optional 
+<a class="goto" href="#settings">setting</a> to bring your service up to the main 
+route.</p>
+<!--
 See the <a class="goto" href="#development">Development</a> section for more information.</p>
+-->
 
 
-<h3>Data (indexes)</h3>
+<h3>Search</h3>
 
 <p>One of the most powerful features of Paradigm is easy integration with an Elasticsearch 
 index for storing, searching, and analysing data. Any endpoint that needs to store data can 
@@ -334,14 +345,14 @@ Permissions API mentioned above, all that data can be made available via a searc
 Creating an index with Paradigm also automatically adds some convenient endpoints to every index:</p>
 
 <pre class="shadow">
-<code>curl '<a target="_blank" href='/svc/oaworks/permissions/publishers?q="public%20library%20of%20science"'>/svc/oaworks/permissions/publishers?q="public%20library%20of%20science"</a>'
-curl '<a target="_blank" href="/svc/oaworks/permissions/publishers/keys">/svc/oaworks/permissions/publishers/keys</a>'
-curl '<a target="_blank" href="/svc/oaworks/permissions/publishers/terms">/svc/oaworks/permissions/publishers/terms</a>'
-curl '<a target="_blank" href="/svc/oaworks/permissions/publishers/suggest">/svc/oaworks/permissions/publishers/suggest</a>'
-curl '<a target="_blank" href="/svc/oaworks/permissions/publishers/count">/svc/oaworks/permissions/publishers/count</a>'
-curl '<a target="_blank" href="/svc/oaworks/permissions/publishers/min">/svc/oaworks/permissions/publishers/min</a>'
-curl '<a target="_blank" href="/svc/oaworks/permissions/publishers/max">/svc/oaworks/permissions/publishers/max</a>'
-curl '<a target="_blank" href="/svc/oaworks/permissions/publishers/range">/svc/oaworks/permissions/publishers/range</a>'
+<code>curl '<a target="_blank" href='/svc/oaworks/permissions/publishers?q="public%20library%20of%20science"'>/permissions/publishers?q="public%20library%20of%20science"</a>'
+curl '<a target="_blank" href="/svc/oaworks/permissions/publishers/keys">/permissions/publishers/keys</a>'
+curl '<a target="_blank" href="/svc/oaworks/permissions/publishers/terms">/permissions/publishers/terms</a>'
+curl '<a target="_blank" href="/svc/oaworks/permissions/publishers/suggest">/permissions/publishers/suggest</a>'
+curl '<a target="_blank" href="/svc/oaworks/permissions/publishers/count">/permissions/publishers/count</a>'
+curl '<a target="_blank" href="/svc/oaworks/permissions/publishers/min">/permissions/publishers/min</a>'
+curl '<a target="_blank" href="/svc/oaworks/permissions/publishers/max">/permissions/publishers/max</a>'
+curl '<a target="_blank" href="/svc/oaworks/permissions/publishers/range">/permissions/publishers/range</a>'
 </code>
 </pre>
 
@@ -352,6 +363,7 @@ read on to learn about them and see some examples of how queries can be used for
 very powerful results.</p>
 
 
+<!--
 <h3>Handling files</h3>
 
 <p>Coming soon, details of our file handling API, integrating with local disk, Amazon s3, Cloudflare storage.</p>
@@ -375,15 +387,13 @@ you may want to implement yourself. As our built-in UIs described in the previou
 section demonstrates, it's possible to build quite a lot with not very much.</p>
 
 <p><a href="/docs/client">Read the client libraries documentation</a>.</p>
-
+-->
 
 <hr></hr>
 
 <h2 name="deployment">Deployment</h2>
 
 <p>How and why to run a bg server (the demo already is one)</p>
-
-<p>Note cloudflare workers unbound may also be enough for some: https://blog.cloudflare.com/workers-unbound-ga/</p>
 
 <pre class="shadow">
 <code class="install linux">sudo apt install nodejs
@@ -411,32 +421,36 @@ node server/dist/server.min.js
 # in the "paradigm" directory, run "coffee construct.coffee"
 # then run "node server/dist/server.min.js"
 </code>
-<a class="installing" href="apple">Apple</a> | <a class="installing" href="windows">Windows</a> | <a class="goto" href="#development">Development docs</a>
+<a class="installing" href="apple">Apple</a> | <a class="installing" href="windows">Windows</a>
 </pre>
+<!-- | <a class="goto" href="#development">Development docs</a> -->
 
-<p>We recommend using <a href="">Cloudflare Workers</a> however we don't want to be tied
+<p>Note bg is optional, cloudflare workers / unbound may also be enough for some: https://blog.cloudflare.com/workers-unbound-ga/</p>
+
+<p>We use Cloudflare Workers however we don't want to be tied
 to one provider, so Paradigm can run anywhere that node.js can run. 
 Where we use particular Cloudflare infrastructure such as Workers KV, we also consider our 
 fallback position such as writing to Elasticsearch if KV is not available, and planning that 
 later we could easily update our key/value store code to use Redis instead.</p>
 
+<!--
 <p>If you want to know more about why we chose Cloudflare, and the other choices we made, 
 read our <a class="goto" href="#development">Development</a> section.</p>
+-->
 
-<h3>Worker (Cloudflare)</h3>
 
-<p>To deploy to your own cloudflare worker, first sign up or login to cloudflare. 
+<h3>Cloudflare worker</h3>
+
+<p>To deploy to your own cloudflare worker, first 
+<a href="https://workers.cloudflare.com">sign up or login</a> to cloudflare. 
 Everything you need for the demo and even to run a pretty powerful API is available 
 in the free tier.</p>
-
-<p><a class="shadow" href="https://workers.cloudflare.com">https://workers.cloudflare.com</a></p>
 
 <p>Once signed up, copy your account ID and API token from the cloudflare dashboard main page. 
 You'll find it displayed near the bottom right. Optionally, go to the <b>Workers</b> tab and 
 create a KV namespace, and note down the name you gave it (you can call it Paradigm).</p>
 
-<p>(Workers KV is also available free on cloudflare. There are limits on free usage, but they're plenty to start with. 
-Raising the limits is also pretty cheap - we pay about $5 a month.)</p>
+<p>(Workers KV is also available free on cloudflare. There are limits on free usage, but they're plenty to start with.)</p>
 
 <p>Next, <a class="goto" href="#install">clone our git repo</a> (if you haven't already) and create a folder 
 called <b>secrets</b> in the main Paradigm folder, and in there create a file called 
@@ -527,21 +541,18 @@ set up your own Elasticsearch instance to save data to.</p>
 
 <p>We use Elasticsearch 7.10.0, and we use the Amazon Open Distro version. You can 
 use any version you like, as long as it's new enough to be compatible with 7.x index 
-structures. We run our own cluster on virtual <a href="https://ubuntu.com">Ubuntu Linux</a> machines from 
-<a href="https://digitalocean.com">Digital Ocean</a>, 
+structures. We run our own cluster on <a href="https://digitalocean.com">Digital Ocean</a>, 
 but you can use any provider you prefer, or even run it locally on your own machine to 
 try out.</p>
 
 <p>There are providers who will run Elasticsearch for you. We've found them 
 all to be pretty expensive for production scaling, so it's cheaper for us to run our own. 
-If you're just getting started and aren't comfortable with sysadmin, Amazon Web Services 
-provide a small free tier that you can sign up to - this is surely the easiest way to 
-run a cluster, and you can just pay to scale it up later if you want.</p>
-
-<p><a class="shadow" target="_blank" href="https://aws.amazon.com/elasticsearch-service/pricing/">Amazon AWS Elasticsearch pricing</a></p>
-
-<p><a class="shadow" target="_blank" href="https://aws.amazon.com/free/?all-free-tier.sort-by=item.additionalFields.SortRank&all-free-tier.sort-order=asc&all-free-tier.q=elasticsearch&all-free-tier.q_operator=AND">
-AWS Elasticsearch Free tier details</a></p>
+If you're just getting started and aren't comfortable with sysadmin, 
+<a target="_blank" href="https://aws.amazon.com/free/?all-free-tier.sort-by=item.additionalFields.SortRank&all-free-tier.sort-order=asc&all-free-tier.q=elasticsearch&all-free-tier.q_operator=AND">
+Amazon Web Services provide a small free tier</a> that is probably the easiest way to 
+run a cluster, and you can just 
+<a target="_blank" href="https://aws.amazon.com/elasticsearch-service/pricing/">pay to scale it up</a>
+later if you want.</p>
 
 <p>Once you sign up and start an Elasticsearch service, you'll get a URL to your own cluster, and probably a 
 <b>username:password</b> combination. Put those in your settings file as described above.</p>
@@ -551,17 +562,16 @@ or Windows though - their documentation does explain how, but we've never tried 
 a large production cluster can get complicated, but it does give you more power and control 
 in comparison to paying a service provider for it. Also, whilst Elasticsearch itself is free 
 and open source, and you can run it on your own laptop to start with, you'll need to pay for 
-a machine or cluster of machines to run it in production, so keep that in mind. We pay around 
-$900 a month just for our cluster virtual machines, and we think we're getting a pretty good deal.</p>
+a machine or cluster of machines to run it in production, so keep that in mind.</p>
 
 <p>Rather than us writing instructions that will get out of date, it's best to go straight to the source - 
-check out the installation docs below to get your own cluster up and running:</p>
+check out the 
+<a target="_blank" href="https://www.elastic.co/elastic-stack">Elasticsearch</a> or
+<a target="_blank" href="https://opendistro.github.io/for-elasticsearch-docs/docs/install">Open Distro</a>
+docs</p>
 
-<p><a class="shadow" target="_blank" href="https://www.elastic.co/elastic-stack">Elasticsearch website download and install links</a></p>
-<p><a class="shadow" target="_blank" href="https://opendistro.github.io/for-elasticsearch-docs/docs/install">Elasticsearch Open Distro download and install docs</a></p>
-<p><a class="shadow" target="_blank" href="https://github.com/oaworks/paradigm/docs/elasticsearch.html">Helpful notes from our own experience</a></p>
 
-
+<!--
 <h3>Scheduled tasks</h3>
 
 <p>Use CF workers tasks. In the code _schedule can be specified on tasks that need it (link to the code docs).</p>
@@ -572,9 +582,10 @@ check out the installation docs below to get your own cluster up and running:</p
 to replace CF workers task schedules. It could even be done with a simple cron job, or a monitor service like 
 uptimerobot hitting a certain URL, so not a big deal. For peace of mind, just making it clear this isn't a 
 deal-breaker for anyone worried about vendor lock-in.</p>
+-->
 
 
-
+<!--
 <h3>Sysadmin considerations</h3>
 
 <p>Logs, monitors, alerts</p>
@@ -582,9 +593,10 @@ deal-breaker for anyone worried about vendor lock-in.</p>
 Built-in logging
 
 Uptimerobot, Updown, Ghost inspector, Kibana (which has alerts and scheduling too), pm2, Digital Ocean alerts, etc
+-->
 
 
-
+<!--
 <hr></hr>
 
 <h2 name="development">Development</h2>
@@ -741,9 +753,10 @@ log checking or alerting can be used to find unexpected differences.</p>
 <p><b>_hide</b> - if true a function will not show up on the list of available routes - but it <b>IS</b> still accessible.
 (If necessary a function can be written on the API object and yet be hidden AND inaccessible via a route, by prefixing the 
 function name with an underscore.)</p>
+-->
 
 
-
+<!--
 <h3>Build your own service</h3>
 
 <p>Write your own service standalone, and talk to ours over the API where necessary.</p>
@@ -766,12 +779,12 @@ will be given access to develop feature branches and request PRs directly on our
 <p>Also our other relevant projects, UI repo, and so on.</p>
 
 <p>Suggest stuff you need / would like to see added.</p>
+-->
 
 
-
-
+<!--
 <h2>Our funders and supporters</h2>
-
+-->
 
 
 

@@ -272,7 +272,7 @@ P.svc.oaworks.permissions = (meta, ror, getmeta, oadoi, crossref) -> # oadoi and
     # note if enforcement_from is after published date, don't apply the permission. If no date, the permission applies to everything
     for wp in perms.all_permissions
       if wp.issuer?.type is 'journal' and not wp.issuer.journal_oa_type
-        wp.issuer.journal_oa_type = await @svc.oaworks.permissions.journals.type (issns ? wp.issuer.id), af, oadoi, crossref
+        wp.issuer.journal_oa_type = await @svc.oaworks.permissions.journals.oa.type (issns ? wp.issuer.id), af, oadoi, crossref
       if not wp.provenance?.enforcement_from
         perms.best_permission = @copy wp
         break
@@ -285,7 +285,7 @@ P.svc.oaworks.permissions = (meta, ror, getmeta, oadoi, crossref) -> # oadoi and
       rors.sort (a, b) => return if (a.score < b.score) then 1 else -1
       for ro in rors # check this gives the order in the direction we want, else reverse it
         if ro.issuer?.type is 'journal' and not ro.issuer.journal_oa_type
-          ro.issuer.journal_oa_type = await @svc.oaworks.permissions.journals.type (issns ? ro.issuer.id), af, oadoi, crossref
+          ro.issuer.journal_oa_type = await @svc.oaworks.permissions.journals.oa.type (issns ? ro.issuer.id), af, oadoi, crossref
         perms.all_permissions.push ro
         if not perms.best_permission?.author_affiliation_requirement?
           if perms.best_permission?
@@ -368,7 +368,7 @@ P.svc.oaworks.permissions.journals.oa = (issn, oadoi) ->
         ret.oa = false
   return ret
 
-P.svc.oaworks.permissions.journals.type = (issns, jrnl, oadoi, crossref) ->
+P.svc.oaworks.permissions.journals.oa.type = (issns, jrnl, oadoi, crossref) ->
   if typeof issns is 'string' and issns.startsWith '10.'
     oadoi ?= await @src.oadoi issns
     crossref ?= await @src.crossref.works issns

@@ -209,7 +209,7 @@ P.svc.oaworks.report.check = (ror, reload) ->
     else
       if oadoi = await @src.oadoi res.DOI
         res.oadoi = oadoi
-        res.journal_oa_type = await @svc.oaworks.permissions.journals.type undefined, undefined, oadoi, res.crossref
+        res.journal_oa_type = await @svc.oaworks.permissions.journals.oa.type undefined, undefined, oadoi, res.crossref
 
         for loc in oadoi.oa_locations ? []
           if loc.host_type is 'publisher'

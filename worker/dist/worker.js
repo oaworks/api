@@ -12593,7 +12593,7 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta, oadoi, crossref) 
     for (o = 0, len4 = ref19.length; o < len4; o++) {
       wp = ref19[o];
       if (((ref20 = wp.issuer) != null ? ref20.type : void 0) === 'journal' && !wp.issuer.journal_oa_type) {
-        wp.issuer.journal_oa_type = (await this.svc.oaworks.permissions.journals.type(issns != null ? issns : wp.issuer.id, af, oadoi, crossref));
+        wp.issuer.journal_oa_type = (await this.svc.oaworks.permissions.journals.oa.type(issns != null ? issns : wp.issuer.id, af, oadoi, crossref));
       }
       if (!((ref21 = wp.provenance) != null ? ref21.enforcement_from : void 0)) {
         perms.best_permission = this.copy(wp);
@@ -12617,7 +12617,7 @@ P.svc.oaworks.permissions = async function(meta, ror, getmeta, oadoi, crossref) 
       for (t = 0, len5 = rors.length; t < len5; t++) {
         ro = rors[t];
         if (((ref22 = ro.issuer) != null ? ref22.type : void 0) === 'journal' && !ro.issuer.journal_oa_type) {
-          ro.issuer.journal_oa_type = (await this.svc.oaworks.permissions.journals.type(issns != null ? issns : ro.issuer.id, af, oadoi, crossref));
+          ro.issuer.journal_oa_type = (await this.svc.oaworks.permissions.journals.oa.type(issns != null ? issns : ro.issuer.id, af, oadoi, crossref));
         }
         perms.all_permissions.push(ro);
         if (((ref23 = perms.best_permission) != null ? ref23.author_affiliation_requirement : void 0) == null) {
@@ -12760,7 +12760,7 @@ P.svc.oaworks.permissions.journals.oa = async function(issn, oadoi) {
   return ret;
 };
 
-P.svc.oaworks.permissions.journals.type = async function(issns, jrnl, oadoi, crossref) {
+P.svc.oaworks.permissions.journals.oa.type = async function(issns, jrnl, oadoi, crossref) {
   var js, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7;
   if (typeof issns === 'string' && issns.startsWith('10.')) {
     if (oadoi == null) {
@@ -13522,7 +13522,7 @@ P.svc.oaworks.report.check = async function(ror, reload) {
     } else {
       if (oadoi = (await this.src.oadoi(res.DOI))) {
         res.oadoi = oadoi;
-        res.journal_oa_type = (await this.svc.oaworks.permissions.journals.type(void 0, void 0, oadoi, res.crossref));
+        res.journal_oa_type = (await this.svc.oaworks.permissions.journals.oa.type(void 0, void 0, oadoi, res.crossref));
         ref15 = (ref14 = oadoi.oa_locations) != null ? ref14 : [];
         for (v = 0, len6 = ref15.length; v < len6; v++) {
           loc = ref15[v];
@@ -14567,7 +14567,7 @@ P.svc.rscvd.overdue = async function() {
 };
 
 
-S.built = "Mon Nov 08 2021 08:03:35 GMT+0000";
+S.built = "Tue Nov 09 2021 05:00:17 GMT+0000";
 P.puppet = {_bg: true}// added by constructor
 
 P.puppet._auth = 'system';// added by constructor
