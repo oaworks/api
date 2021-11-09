@@ -28,7 +28,7 @@
 
 <div class="nav sticky shadow">
   <label for="panel-toggle" class="button black transparent toggle right"></label>
-  <p style="line-height:0.9em;padding-top:10px;"><a href="https://oa.works">&nbsp;&nbsp;OA.<br>&nbsp;&nbsp;&nbsp;Works</a></p>
+  <p style="line-height:0.9em;padding-top:10px;"><a style="color:#FFFFFC;" href="/docs">&nbsp;&nbsp;OA.<br>&nbsp;&nbsp;&nbsp;Works docs</a></p>
 </div>
 
 <input type="checkbox" id="panel-toggle" class="toggle"> <!-- this checkbox goes before the div it should control, and the label for it can be anywhere -->
@@ -41,7 +41,7 @@
   
 <h1 class="centre">Paradigm API</h1>
 <p class="centre light">
-  Client css and js for interacting with Paradigm, <br>or even for other things!
+  CSS examples
 </p>
 
 <div class="contents print"></div>
@@ -213,6 +213,10 @@
       </tr>
     </tbody>
   </table>
+  
+  <p>A big table with lots of cells may stretch to the right beyond the containing div or page boundary. 
+  That can be controlled by adding the <b>fixed</b> class to the table (but has the side-effect of making 
+  all columns the same width).</p>
 </div>
 
 <div class="flex">
@@ -255,6 +259,56 @@
   <input name="password" type="password" placeholder="password">
   <a class="button warning" href="#">go</a>
 </div>
+
+<br><br>
+
+<p>Here is a simple range slider:</p>
+
+<input type="range" min="0" max="100" value="5">
+
+<br><br>
+
+<p>Next is a range slider with min and max settings (made up of two range sliders in a wrapper div), 
+and with value displays either side:</p>
+
+<div class="tab flex">
+  <input class="c1" id="demoFromShow" value="5">
+  <div class="range">
+    <input type="range" min="0" max="100" value="5" id="demoFrom" class="PRangeSlider PRangeFrom">
+    <input type="range" min="0" max="100" value="95" id="demoTo" class="PRangeSlider PRangeTo">
+  </div>
+  <input class="c1" id="demoToShow" value="95">
+</div>
+
+<br>
+
+<p>NOTE: until this last range slider, everything above can be done just CSS. To connect the 
+value displays above in sync with the sliders, a little bit of javascript is 
+used. So this is a good point to move on into the Paradigm API js client libraries.</p>
+
+<script>
+var sf = document.getElementById('demoFrom');
+var sfs = document.getElementById('demoFromShow');
+sf.oninput = function() { sfs.value = this.value; };
+sfs.onchange = function() { sf.value = this.value; };
+
+var st = document.getElementById('demoTo');
+var sts = document.getElementById('demoToShow');
+st.oninput = function() { sts.value = this.value; };
+sts.onchange = function() { st.value = this.value; };
+
+
+/*P.on 'input', '.PRangeSlider', () ->
+  # would need to augment these to certain range results if more than one as well, e.g using .PFor...
+  if P.has '.PRangeTo'
+    P.val '.PRangeTo', this.value
+  else if P '.PRangeFrom'
+    P.val '.PRangeFrom', this.value
+  else
+    P.val '.PRange', this.value*/
+</script>
+
+<br><br><br><br><br><br><br>
 
 </body>
 </html>

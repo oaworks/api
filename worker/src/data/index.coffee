@@ -90,8 +90,6 @@ P.index = (route, data, opts, foreach) ->
     route += '/' + dni if route.indexOf('/') is -1 and route.indexOf(dni) is -1
     delete data._id # ID can't go into the data for ES7.x
 
-  # TODO if data is a record to save, should default fields such as createdAt ALWAYS be added here?
-  # e.g rec.createdAt = Date.now()
   route = route.toLowerCase()
   rpl = route.split('/').length
   this.index ?= P.index # allow either P.index or a contextualised @index to be used
@@ -117,7 +115,7 @@ P.index = (route, data, opts, foreach) ->
         delete chk[c] for c in ['settings', 'aliases', 'mappings']
         if JSON.stringify(chk) is '{}'
           if not await @index._send route + rqp
-            await @index._send route + rqp, {settings: data.settings, aliases: data.aliases, mappings: data.mappings} # create the index
+            await @index._send route + rqp, {settings: data.settings, aliases: data.aliases, mappings: (data.mappings ? data.mapping)} # create the index
           return @index._send route + '/_search' + rqp # just do a search
         else
           ret = await @index._send route + '/_doc' + rqp, data # create a single record without ID (if it came with ID it would have been caught above and converted to route with multiple parts)
@@ -171,20 +169,26 @@ P.index.status = () ->
 
 
 
-P.index.keys = (route) ->
+P.index.keys = (route, type) ->
+  # type could most usefully be "text" to show fields that can be suggested on, or long or date (lists of types can be provided)
+  # https://www.elastic.co/guide/en/elasticsearch/reference/6.8/mapping-types.html
   route ?= @params.index ? @params.keys ? @fn.replace /\./g, '/'
   route = route.replace('index/', '').replace '/keys', ''
-  keys = []
-  _keys = (mapping, depth='') =>
-    mapping ?= if typeof route is 'object' then route else await @index.mapping route
-    mapping.properties = mapping[route]?.mappings?.properties ? mapping[@S.index.name + '_' + route]?.mappings?.properties ? mapping.properties
-    if mapping.properties?
-      depth += '.' if depth.length
-      for k of mapping.properties
-        keys.push(depth+k) if depth+k not in keys
-        if mapping.properties[k].properties?
-          await _keys mapping.properties[k], depth+k
-  await _keys()
+  type ?= @params.type ? @params.types
+  type = [type] if typeof type is 'string'
+  keys = if type is true then {} else []
+  mapping = if typeof route is 'object' then route else await @index.mapping route
+  _keys = (m, depth='') =>
+    depth += '.' if depth
+    for k of m
+      if m[k].properties?
+        await _keys m[k].properties, depth+k
+      else if not type or type is true or m[k].type in type
+        if type is true
+          keys[depth+k] = m[k].type
+        else
+          keys.push(depth+k) if depth+k not in keys
+  await _keys(mapping) if typeof mapping is 'object'
   return keys
 
 P.index.terms = (route, key, qry, size=100, counts=true, order="count") ->
@@ -219,8 +223,8 @@ P.index.terms = (route, key, qry, size=100, counts=true, order="count") ->
 P.index.suggest = (route, key, qry, size=100, include) ->
   if not key or not qry
     key ?= @params.suggest ? @params.key
-    [key, qry] = key.split('/') if key.indexOf('/') isnt -1
-  return @index.keys(route) if not key
+    [key, qry] = key.split('/') if typeof key is 'string' and key.includes '/'
+  return @index.keys(route, 'text') if not key
 
   route ?= @params.index ? @fn.replace /\./g, '/'
   route = route.replace('index/', '').split('/suggest')[0]
@@ -254,20 +258,15 @@ P.index.suggest = (route, key, qry, size=100, include) ->
       seen.push kl
   return res
 
-P.index.count = (route, key, qry) ->
-  if route and typeof key is 'string' and not qry
-    if key not in await @index.keys route
-      qry = key
-      key = undefined
-  else
-    key ?= @params.count ? @params.key
-    route ?= @params.index ? @fn.replace /\./g, '_'
-    route = route.replace('index/', '').split('/count')[0]
-    if route.indexOf('/') isnt -1
-      [route, key] = route.split '/'
-    cq = @copy @params
-    delete cq[k] for k in ['index', 'route', 'count', 'key']
-    qry = qr if not qry? and qr = await @index.translate cq
+P.index.count = (route, qry, key) ->
+  key ?= @params.count ? @params.key
+  route ?= @params.index ? @fn.replace /\./g, '_'
+  route = route.replace('index/', '').split('/count')[0]
+  if route.indexOf('/') isnt -1
+    [route, key] = route.split '/'
+  cq = @copy @params
+  delete cq[k] for k in ['index', 'route', 'count', 'key']
+  qry = qr if not qry? and qr = await @index.translate cq
   qry = await @index.translate(qry) if typeof qry is 'string'
   qry ?= query: bool: must: [], filter: []
   if key
@@ -304,7 +303,8 @@ P.index.mapping = (route) ->
   route = route.replace /^\//, '' # remove any leading /
   route = route + '/' if route.indexOf('/') is -1
   route = route.replace('/','/_mapping') if route.indexOf('_mapping') is -1
-  return @index._send route
+  ret = await @index._send route
+  return ret[route.replace('/_mapping', '').replace(/\//g, '_').replace(/^_/, '')].mappings.properties
 
 P.index.history = (route, key) ->
   # TODO get the history of a record by a query of the log
@@ -315,6 +315,7 @@ P.index.history = (route, key) ->
 # use this like: for await rec from @index._for route, q, opts
 # see index._each below for example of how to call this for/yield generator
 P.index._for = (route, q, opts) ->
+  opts = {until: opts} if typeof opts is 'number'
   if opts?.scroll # set this longer, e.g. 10m, if the processing to be done with the records may take longer than a minute
     scroll = opts.scroll
     scroll += 'm' if typeof scroll is 'number' or not scroll.endsWith 'm'
@@ -325,6 +326,7 @@ P.index._for = (route, q, opts) ->
     max = opts.until ? opts.max
     delete opts.until
     delete opts.max
+  q ?= '*'
   qy = await @index.translate q, opts
   qy.from ?= 0
   qy.size ?= 500
@@ -332,16 +334,16 @@ P.index._for = (route, q, opts) ->
   # use scan/scroll for each, because _pit is only available in "default" ES, which ES means is NOT the open one, so our OSS distro does not include it!
   # https://www.elastic.co/guide/en/elasticsearch/reference/7.10/paginate-search-results.html#search-after
   res = await @index._send route + '/_search?scroll=' + scroll, qy
+  if res?._scroll_id
+    prs = res._scroll_id.replace /==$/, ''
+  max = res.hits.total if res?.hits?.total and (not max? or max > res.hits.total)
   counter = 0
-  prs = res?._scroll_id
-  delete res._scroll_id if res?.hits?.total is res.hits.hits.length # no point scrolling for more if the hits amount already matched the total amount
   loop
     if (not res?.hits?.hits or res.hits.hits.length is 0) and res?._scroll_id # get more if possible
-      prs = res._scroll_id
       res = await @index._send '/_search/scroll?scroll=' + scroll + '&scroll_id=' + res._scroll_id
-      if res?._scroll_id isnt prs 
-        await @index._send('/_search/scroll?scroll_id=' + prs, '') if prs
-        prs = res._scroll_id
+      if res?._scroll_id isnt prs
+        await @index._send '/_search/scroll?scroll_id=' + prs, ''
+        prs = res?._scroll_id
     if counter isnt max and res?.hits?.hits? and res.hits.hits.length
       counter += 1
       r = res.hits.hits.shift()
@@ -349,8 +351,8 @@ P.index._for = (route, q, opts) ->
       ret._id ?= r._id
       yield ret
     else
-      @waitUntil @index._send('/_search/scroll?scroll_id=' + prs, '') if prs # don't keep too many old scrolls open (default ES max is 500)
-      break 
+      await @index._send('/_search/scroll?scroll_id=' + prs, '') if prs # don't keep too many old scrolls open (default ES max is 500)
+      break
   return
 
 P.index._each = (route, q, opts, fn) ->
@@ -412,7 +414,8 @@ P.index._bulk = (route, data, action='index', bulk=50000) ->
       row = rows[r]
       counter += 1
       if typeof row is 'object'
-        rid = row._id ? row._source?._id
+        rid = row._id ? row._source?._id ? await @uid()
+        rid = rid.replace(/\//g, '_') if typeof rid is 'string'
         row = row._source if row._source
         delete row._id # newer ES 7.x won't accept the _id in the object itself
       meta = {}
@@ -478,145 +481,151 @@ P.index.translate = (q, opts) ->
       return undefined if q[k]?
     return undefined if JSON.stringify(q) isnt '{}' and not q.q? and not q.query? and not q.source? and not q.must? and not q.should? and not q.must_not? and not q.filter? and not q.aggs? and not q.aggregations?
 
-  try
-    try q = @copy(q) if typeof q is 'object' # copy objects so don't interfere with what was passed in
-    try opts = @copy(opts) if typeof opts is 'object'
-    opts ?= {}
-    opts = {random: true} if opts is 'random'
-    opts = {size: opts} if typeof opts is 'number'
-    opts = {newest: true} if opts is true
-    opts = {newest: false} if opts is false
-    if opts.newest?
-      opts.sort = createdAt: if opts.newest then 'desc' else 'asc'
-      delete opts.newest
+  try q = @copy(q) if typeof q is 'object' # copy objects so don't interfere with what was passed in
+  try opts = @copy(opts) if typeof opts is 'object'
+  opts ?= {}
+  opts = {fields: opts} if typeof opts is 'string' or Array.isArray opts
+  opts = {random: true} if opts is 'random'
+  opts = {size: opts} if typeof opts is 'number'
+  opts = {newest: true} if opts is true
+  opts = {newest: false} if opts is false
+  if opts.newest?
+    opts.sort = createdAt: if opts.newest then 'desc' else 'asc'
+    delete opts.newest
 
-    qry = opts?.query ? {}
-    qry.query ?= {}
-    qry.query.bool ?= must: [], filter: []
-  
-    if typeof q is 'string'
-      qry.query.bool.filter.push query_string: query: q
-    else if typeof q is 'object'
-      if q.query?
-        qry = q # assume already a query
-      else
-        if q.source?
-          qry = JSON.parse(decodeURIComponent q.source) if typeof q.source is 'string'
-          qry = q.source if typeof q.source is 'object'
-        else if q.q?
-          if typeof q.q is 'object'
-            qry.query = q.q # if an object assume it's a correct one
-          else
-            q.q = decodeURIComponent q.q
-            if q.prefix? and q.q.indexOf(':') isnt -1
-              delete q.prefix
-              pfx = {}
-              qpts = q.q.split ':'
-              pfx[qpts[0]] = qpts[1]
-              qry.query.bool.must.push prefix: pfx # TODO check if prefix can still be used in ES7.x and if it can go in filter instead of must
-            else
-              qry.query.bool.filter.push query_string: query: q.q
-        opts[o] ?= q[o] for o of q
+  qry = opts?.query ? {}
+  qry.query ?= {}
+  qry.query.bool ?= must: [], filter: []
 
-    # simple convenience catch for old-style queries - NOT complete, only works if they were basic filtered bool queries perhaps with directly translatable facets
-    if qry.query?.filtered?.query?.bool?
-      qry.query.bool = qry.query.filtered.query.bool
-      qry.query.bool.filter = qry.query.filtered.filter
-      delete qry.query.filtered
-    if qry.facets?
-      qry.aggregations = JSON.parse JSON.stringify(qry.facets).replace(/\.exact/g, '.keyword')
-      delete qry.facets
-  
-    if qry.query? and not qry.query.bool? and JSON.stringify qry.query isnt '{}'
-      qry.query = bool: must: [], filter: [qry.query]
-    qry.query ?= bool: must: [], filter: []
-    qry.query.bool ?= must: [], filter: []
-    qry.query.bool.filter ?= []
-
-    if typeof opts.sort is 'string'
-      sorts = [] # https://www.elastic.co/guide/en/elasticsearch/reference/7.x/sort-search-results.html
-      for so in opts.sort.split ','
-        [k, o] = so.split ':'
-        if not o
-          sorts.push k.trim()
+  if typeof q is 'string'
+    sq = query_string: query: q
+    if opts?.fields?
+      sq.query_string.fields = if typeof opts.fields is 'string' then opts.fields.split(',') else opts.fields
+      delete opts.fields
+    qry.query.bool.filter.push sq
+  else if typeof q is 'object'
+    if q.query?
+      qry = q # assume already a query
+    else
+      if q.source?
+        if typeof q.source is 'string'
+          try qry = JSON.parse decodeURIComponent q.source
+        else if typeof q.source is 'object'
+          qry = q.source
+      else if q.q?
+        if typeof q.q is 'object'
+          qry.query = q.q # if an object assume it's a correct one
         else
-          sorts.push {}
-          sorts[sorts.length-1][k.trim()] = o.trim()
-      opts.sort = sorts
-
-    if opts.random
-      fq = {function_score: {random_score: {}}}
-      fq.function_score.random_score.seed = seed if opts.seed?
-      fq.function_score.query = qry.query
-      qry.query = fq # TODO check how function_score and random seed work now in ES7.x
-      delete opts.random
-      delete opts.seed
-    if inc = opts._include ? opts.include ? opts._includes ? opts.includes
-      qry._source ?= {}
-      qry._source.includes = if typeof inc is 'string' then inc.replace(/,\s/g, ',').split(',') else inc
-    if exc = opts._exclude ? opts.exclude ? opts._excludes ? opts.excludes
-      excludes = exc.replace(/,\s/g, ',').split(',') if typeof exc is 'string'
-      for i in qry._source?.includes ? []
-        delete exc[i] if i in excludes
-      qry._source.excludes = exc
-        
-    for tp in ['filter', 'restrict', 'must', 'and', 'must_not', 'not', 'should', 'or']
-      if opts[tp]?
-        ls = if Array.isArray(opts[tp]) then opts[tp] else [opts[tp]]
-        delete opts[tp]
-        etp = if tp in ['filter', 'restrict', 'must', 'and'] then 'filter' else if tp in ['must_not', 'not'] then 'must_not' else 'should'
-        qry.query.bool[etp] ?= []
-        for rs in ls
-          if typeof rs is 'object'
-            rkeys = @keys rs
-            rs = {term: rs} if rkeys.length is 1 and typeof rs[rkeys[0]] isnt 'object'
+          q.q = decodeURIComponent q.q
+          if q.prefix? and q.q.indexOf(':') isnt -1
+            delete q.prefix
+            pfx = {}
+            qpts = q.q.split ':'
+            pfx[qpts[0]] = qpts[1]
+            qry.query.bool.must.push prefix: pfx # TODO check if prefix can still be used in ES7.x and if it can go in filter instead of must
+          else if q.fields?
+            qry.query.bool.filter.push query_string: query: q.q, fields: q.fields.split ','
+            delete q.fields
           else
-            rs = {query_string: {query: rs}}
-          qry.query.bool[etp].push rs
-  
-    if opts.terms?
-      try opts.terms = opts.terms.replace(/,\s/g, ',').split(',')
-      qry.aggregations ?= {}
-      for tm in opts.terms
-        qry.aggregations[tm] = { terms: { field: tm + (if tm.endsWith('.keyword') then '' else '.keyword'), size: 1000 } }
-      delete opts.terms
-    for af in ['aggs','aggregations']
-      if opts[af]?
-        qry[af] ?= {}
-        qry[af][f] = opts[af][f] for f of opts[af]
-        delete opts[af]
+            qry.query.bool.filter.push query_string: query: q.q
+      opts[o] ?= q[o] for o of q
 
-    for k, v of opts
-      v = v.replace(/,\s/g, ',').split(',') if k in ['fields'] and typeof v is 'string' and v.indexOf(',') isnt -1
-      if k in ['from', 'size'] and typeof v isnt 'number'
-        try
-          v = parseInt v
-          v = undefined if isNaN v
-      # some URL params that may be commonly used in this API along with valid ES URL query params will be removed here by default too
-      # this makes it easy to handle them in routes whilst also just passing the whole params here and still get back a valid ES query
-      qry[k] = v if v? and k not in ['apikey', '_', 'callback', 'refresh', 'key', 'counts', 'index', 'search', 'source', 'q'] and k.replace('_', '').replace('s', '') not in ['include', 'exclude']
+  # simple convenience catch for old-style queries - NOT complete, only works if they were basic filtered bool queries perhaps with directly translatable facets
+  if qry.query?.filtered?.query?.bool?
+    qry.query.bool = qry.query.filtered.query.bool
+    qry.query.bool.filter = qry.query.filtered.filter
+    delete qry.query.filtered
+  if qry.facets?
+    qry.aggregations = JSON.parse JSON.stringify(qry.facets).replace(/\.exact/g, '.keyword')
+    delete qry.facets
 
-    try
-      # order: (default) count is highest count first, reverse_count is lowest first. term is ordered alphabetical by term, reverse_term is reverse alpha
-      ords = count: {_count: 'desc'}, reverse_count: {_count: 'asc'}, term: {_key: 'asc'}, reverse_term: {_key: 'desc'} # convert for ES7.x
-      for ag of qry.aggregations
-        if typeof qry.aggregations[ag].terms?.order is 'string' and ords[qry.aggregations[ag].terms.order]?
-          qry.aggregations[ag].terms.order = ords[qry.aggregations[ag].terms.order]
-       
-    # no filter query or no main query can cause issues on some queries especially if certain aggs/terms are present, so insert some default searches if necessary
-    #qry.query = { match_all: {} } if typeof qry is 'object' and qry.query? and JSON.stringify(qry.query) is '{}'
-    # clean slashes out of query strings
-    if qry.query?.bool?
-      for bm of qry.query.bool
-        for b of qry.query.bool[bm]
-          if typeof qry.query.bool[bm][b].query_string?.query is 'string' and qry.query.bool[bm][b].query_string.query.indexOf('/') isnt -1 and qry.query.bool[bm][b].query_string.query.indexOf('"') is -1
-            qry.query.bool[bm][b].query_string.query = '"' + qry.query.bool[bm][b].query_string.query + '"'
-    delete qry._source if qry._source? and qry.fields?
-    #console.log JSON.stringify qry
-    return qry
+  if qry.query? and not qry.query.bool? and JSON.stringify qry.query isnt '{}'
+    qry.query = bool: must: [], filter: [qry.query]
+  qry.query ?= bool: must: [], filter: []
+  qry.query.bool ?= must: [], filter: []
+  qry.query.bool.filter ?= []
 
-  catch
-    return undefined
+  if typeof opts.sort is 'string'
+    sorts = [] # https://www.elastic.co/guide/en/elasticsearch/reference/7.x/sort-search-results.html
+    for so in opts.sort.split ','
+      [k, o] = so.split ':'
+      if not o
+        sorts.push k.trim()
+      else
+        sorts.push {}
+        sorts[sorts.length-1][k.trim()] = o.trim()
+    opts.sort = sorts
+
+  if opts.random
+    fq = {function_score: {random_score: {}}}
+    fq.function_score.random_score.seed = seed if opts.seed?
+    fq.function_score.query = qry.query
+    qry.query = fq # TODO check how function_score and random seed work now in ES7.x
+    delete opts.random
+    delete opts.seed
+  if inc = opts._include ? opts.include ? opts._includes ? opts.includes
+    qry._source ?= {}
+    qry._source.includes = if typeof inc is 'string' then inc.replace(/,\s/g, ',').split(',') else inc
+  if exc = opts._exclude ? opts.exclude ? opts._excludes ? opts.excludes
+    qry._source ?= {}
+    qry._source.excludes = if typeof exc is 'string' then exc.replace(/,\s/g, ',').split(',') else exc
+    for i in qry._source?.includes ? []
+      qry._source.excludes = qry._source.excludes.filter (v) -> return v isnt i 
+
+  for tp in ['filter', 'restrict', 'must', 'and', 'must_not', 'not', 'should', 'or']
+    if opts[tp]?
+      ls = if Array.isArray(opts[tp]) then opts[tp] else [opts[tp]]
+      delete opts[tp]
+      etp = if tp in ['filter', 'restrict', 'must', 'and'] then 'filter' else if tp in ['must_not', 'not'] then 'must_not' else 'should'
+      qry.query.bool[etp] ?= []
+      for rs in ls
+        if typeof rs is 'object'
+          rkeys = @keys rs
+          rs = {term: rs} if rkeys.length is 1 and typeof rs[rkeys[0]] isnt 'object'
+        else
+          rs = {query_string: {query: rs}}
+        qry.query.bool[etp].push rs
+
+  if opts.terms?
+    try opts.terms = opts.terms.replace(/,\s/g, ',').split(',')
+    qry.aggregations ?= {}
+    for tm in opts.terms
+      qry.aggregations[tm] = { terms: { field: tm + (if tm.endsWith('.keyword') then '' else '.keyword'), size: 1000 } }
+    delete opts.terms
+  for af in ['aggs','aggregations']
+    if opts[af]?
+      qry[af] ?= {}
+      qry[af][f] = opts[af][f] for f of opts[af]
+      delete opts[af]
+
+  for k, v of opts
+    #v = v.replace(/,\s/g, ',').split(',') if k in ['fields'] and typeof v is 'string' and v.indexOf(',') isnt -1
+    if k in ['from', 'size'] and typeof v isnt 'number'
+      try
+        v = parseInt v
+        v = undefined if isNaN v
+    # some URL params that may be commonly used in this API along with valid ES URL query params will be removed here by default too
+    # this makes it easy to handle them in routes whilst also just passing the whole params here and still get back a valid ES query
+    qry[k] = v if v? and k not in ['apikey', '_', 'callback', 'refresh', 'key', 'counts', 'index', 'search', 'source', 'q'] and k.replace('_', '').replace('s', '') not in ['include', 'exclude']
+
+  try
+    # order: (default) count is highest count first, reverse_count is lowest first. term is ordered alphabetical by term, reverse_term is reverse alpha
+    ords = count: {_count: 'desc'}, reverse_count: {_count: 'asc'}, term: {_key: 'asc'}, reverse_term: {_key: 'desc'} # convert for ES7.x
+    for ag of qry.aggregations
+      if typeof qry.aggregations[ag].terms?.order is 'string' and ords[qry.aggregations[ag].terms.order]?
+        qry.aggregations[ag].terms.order = ords[qry.aggregations[ag].terms.order]
+     
+  # no filter query or no main query can cause issues on some queries especially if certain aggs/terms are present, so insert some default searches if necessary
+  #qry.query = { match_all: {} } if typeof qry is 'object' and qry.query? and JSON.stringify(qry.query) is '{}'
+  # clean slashes out of query strings
+  if qry.query?.bool?
+    for bm of qry.query.bool
+      for b of qry.query.bool[bm]
+        if typeof qry.query.bool[bm][b].query_string?.query is 'string' and qry.query.bool[bm][b].query_string.query.indexOf('/') isnt -1 and qry.query.bool[bm][b].query_string.query.indexOf('"') is -1
+          qry.query.bool[bm][b].query_string.query = '"' + qry.query.bool[bm][b].query_string.query + '"'
+  delete qry._source if qry._source? and qry.fields?
+  #console.log JSON.stringify qry
+  return qry
 
 P.index.translate._auth = false
 
@@ -657,15 +666,15 @@ P.index._send = (route, data, method) ->
     # see hits.total https://www.elastic.co/guide/en/elasticsearch/reference/current/breaking-changes-7.0.html
     route += (if route.indexOf('?') is -1 then '?' else '&') + 'rest_total_hits_as_int=true'
 
-  if @S.dev and @S.bg is true
+  if @S.dev and @S.bg is true and not data?.query? and not route.includes('/_doc/') and (method is 'DELETE' or not route.includes '_search/scroll')
     console.log 'INDEX', method, route
     #console.log method(JSON.stringify(if Array.isArray(data) and data.length then data[0] else data).substr(0, 3000)) if data
 
   #opts.retry = 3
   opts.method = method
   res = await @fetch route, opts
-  if @S.dev and @S.bg is true
-    try console.log 'INDEX QUERY FOUND', res.hits.total, res.hits.hits.length
+  #if @S.dev and @S.bg is true
+  #  try console.log 'INDEX QUERY FOUND', res.hits.total, res.hits.hits.length
   if not res? or (typeof res is 'object' and typeof res.status is 'number' and res.status >= 400 and res.status <= 600)
     # fetch returns undefined for 404, otherwise any other error from 400 is returned like status: 400
     # write a log / send an alert?

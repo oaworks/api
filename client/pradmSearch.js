@@ -1,7 +1,52 @@
+var indexOf = [].indexOf;
+
+P.tabulate = function(ls, hide, tc = 'striped bordered') { // convert list of objects to simple html table, nested
+  var h, head, headers, i, j, k, l, len, len1, len2, o, obj, t;
+  headers = [];
+  t = '</tr></thead><tbody>';
+  for (i = 0, len = ls.length; i < len; i++) {
+    obj = ls[i];
+    for (o in obj) {
+      if (indexOf.call(headers, o) < 0) {
+        headers.push(o);
+      }
+    }
+    t += '<tr>';
+    for (j = 0, len1 = headers.length; j < len1; j++) {
+      k = headers[j];
+      t += '<td>';
+      if (Array.isArray(obj[k])) {
+        obj[k] = obj[k].length === 0 ? void 0 : obj[k].length === 1 ? obj[k][0] : typeof obj[k][0] !== 'object' ? obj[k].join(', ') : obj[k];
+      }
+      if (typeof obj[k] === 'object') {
+        if (!Array.isArray(obj[k])) {
+          obj[k] = [obj[k]];
+        }
+        t += '<a href="#" onclick="if (this.nextSibling.style.display === \'none\') {this.nextSibling.style.display = \'block\'} else {this.nextSibling.style.display = \'none\'}; return false;" alt="View more" title="View more">' + obj[k].length + '...</a><pre style="display:none;background:transparent;color:#333;border:none;width:100%;">';
+        t += P.tabulate(obj[k], true);
+      } else if (obj[k]) {
+        t += obj[k];
+      }
+      t += '</td>';
+    }
+    t += '</tr>';
+  }
+  t += '</tbody></table>';
+  head = '<tr>';
+  for (l = 0, len2 = headers.length; l < len2; l++) {
+    h = headers[l];
+    head += '<th>' + (h.toUpperCase() === h || h[0].toUpperCase() === h[0] ? h : h[0].toUpperCase() + h.substr(1).toLowerCase()) + '</th>';
+  }
+  return '<table class="' + tc.trim() + '"' + (hide != null ? ' style="display:none;"' : '') + '><thead>' + head + t;
+};
+
 P.search = function(opts) {
   var p, pp;
   if (opts == null) {
     opts = {};
+  }
+  if (opts.scope == null) {
+    opts.scope = 'body'; // can be the ID of a div to append the search element to
   }
   if (opts.msg == null) {
     opts.msg = 'search...'; // the first placeholder message displayed in the PSearch box
@@ -43,7 +88,9 @@ P.search = function(opts) {
     opts.scroll = true; // when results are scrolled to bottom retrieve the next set of results
   }
   // opts.method can be set to POST to force an ajax POST, otherwise query will be a GET with ?source= stringified query
-  opts.table = true; // or could be list of keys such as ['DOI', 'title', 'year', 'ISSN'] or object of keys pointing to display names, or false for non-tabular default layout
+  if (opts.table == null) {
+    opts.table = true; // or could be list of keys such as ['DOI', 'title', 'year', 'ISSN'] or object of keys pointing to display names, or false for non-tabular default layout
+  }
   P.search.opts = opts;
   opts.paging = false;
   opts.max = false;
@@ -96,12 +143,12 @@ P.search = function(opts) {
     delete opts.query.from;
     // TODO add range sliders and a way to get data out of them when they change
     if (val = P.val(e.target)) {
-      if (val.indexOf('opts.') === 0) {
-        if (val.indexOf(':') === -1) { // print opts config to the search box placeholder
-          opts.placeholder(P.dot(opts, val.replace('opts.', ''))); // change the opts config to the provided value
+      if (val.startsWith('opts.')) {
+        if (!val.includes(':')) { // print opts config to the search box placeholder
+          opts.placeholder(JSON.stringify(P.dot(opts, val.replace('opts.', '')))); // change the opts config to the provided value
         } else {
-          k = val.substring(8, val.indexOf(':')).replace(' ', '');
-          v = val.substring(val.indexOf(':') + 1).trim();
+          k = val.substr(5, val.indexOf(':')).replace(' ', '');
+          v = val.substr(val.indexOf(':') + 1).trim();
           try {
             v = JSON.parse(v);
           } catch (error) {}
@@ -113,25 +160,21 @@ P.search = function(opts) {
             opts.search();
           } catch (error) {}
         }
-      } else if (val.indexOf(':') !== -1 && val.split(':')[0].indexOf(' ') === -1 && val.indexOf('*') === -1 && val.indexOf('~') === -1 && val.indexOf(' AND ') === -1 && val.indexOf(' OR ') === -1) {
+      } else if (val.includes(':') && !val.split(':')[0].includes(' ') && !val.includes('*') && !val.includes('~') && !val.includes(' AND ') && !val.includes(' OR ')) {
         tf = {
           term: {}
         };
         tf.term[val.split(':')[0]] = val.split(':')[1].replace(/"/g, '');
         opts.query.query.bool.filter.push(tf);
         opts.search();
-      } else if (val.startsWith('"') && val.endsWith('"')) {
-        opts.query.query.bool.filter.push({
-          "match_phrase": {
-            "_all": val.replace(/"/g, '')
-          }
-        });
-        opts.search();
       } else {
+        if (opts.fuzzy && !val.includes('*') && !val.includes('~') && !val.includes(':') && !val.includes('"') && !val.includes(' AND ') && !val.includes('OR')) {
+          val = val.trim().replace(/\s/g, opts.fuzzy + ' ') + opts.fuzzy;
+        }
         opts.query.query.bool.filter.push({
           "query_string": {
             "default_operator": opts.operator,
-            "query": opts.fuzzify(val)
+            "query": val.replace(/"/g, '')
           }
         });
         opts.search();
@@ -146,13 +189,13 @@ P.search = function(opts) {
     try {
       e.preventDefault();
     } catch (error) {}
-    P.remove(e.target.closest('a'));
-    if (false) { // TODO if it's the remove all button...
-      opts.query = void 0;
+    if (P('.PSearchRemove').length <= 2 || P.has(e.target, '.PSearchRemoveAll')) {
+      P.html('.PSearches', '');
     } else {
-      opts.query.query.bool.filter = [];
-      delete opts.query.from;
+      P.remove(e.target.closest('a'));
     }
+    opts.query.query.bool.filter = [];
+    delete opts.query.from;
     return opts.search();
   };
   opts.placeholder = function(pl) {
@@ -163,12 +206,6 @@ P.search = function(opts) {
     }
     P.set('.PSearch', '');
     return P.attr('.PSearch', 'placeholder', pl);
-  };
-  opts.fuzzify = function(str) {
-    if (opts.fuzzy && str.indexOf('*') === -1 && str.indexOf('~') === -1 && str.indexOf(':') === -1 && str.indexOf('"') === -1 && str.indexOf('AND') === -1 && str.indexOf('OR') === -1) {
-      str = (opts.fuzzy === '*' ? '*' : '') + str.trim().replace(/\s/g, opts.fuzzy + ' ' + (opts.fuzzy === '*' ? '*' : '')) + opts.fuzzy;
-    }
-    return str;
   };
   opts.translate = function() {
     var a, base, base1, base2, base3, f, fq, i, j, l, len, len1, len2, ou, qsf, ref, ref1, ref2, ref3, ref4, sk;
@@ -208,8 +245,9 @@ P.search = function(opts) {
     if (opts.query == null) {
       opts.query = JSON.parse(JSON.stringify(opts.default));
     }
+    qsf = JSON.stringify(opts.query.query.bool.filter).toLowerCase();
     P('.PSearchVal', function(el) {
-      var tf, val;
+      var tf, val, vc;
       try {
         val = P.val(el);
       } catch (error) {}
@@ -219,34 +257,30 @@ P.search = function(opts) {
         }
       } catch (error) {}
       if (val) {
-        if (val.indexOf(':') !== -1) {
-          tf = {
-            term: {}
-          };
-          tf.term[val.split(':')[0]] = val.split(':')[1].replace(/"/g, '');
-          return opts.query.query.bool.filter.push(tf);
-        } else if (val.indexOf('*') !== -1 || val.indexOf('~') !== -1 || val.indexOf(' AND ') !== -1 || val.indexOf(' OR ') === -1) {
-          return opts.query.query.bool.filter.push({
-            "query_string": {
-              "default_operator": opts.operator,
-              "query": val
-            }
-          });
-        } else {
-          return opts.query.query.bool.filter.push({
-            "match_phrase": {
-              "_all": val
-            }
-          });
+        vc = (val.includes(':') ? val.split(':')[1] : val).toLowerCase().replace(/"/g, '');
+        if (!qsf.includes(vc)) {
+          if (val.includes(':')) {
+            tf = {
+              term: {}
+            };
+            tf.term[val.split(':')[0]] = vc;
+            return opts.query.query.bool.filter.push(tf);
+          } else {
+            return opts.query.query.bool.filter.push({
+              "query_string": {
+                "default_operator": opts.operator,
+                "query": val
+              }
+            });
+          }
         }
       }
     });
     ref4 = (ref3 = opts.filters) != null ? ref3 : [];
     for (l = 0, len2 = ref4.length; l < len2; l++) {
       f = ref4[l];
-      qsf = JSON.stringify(opts.query.query.bool.filter);
       try {
-        if (qsf.indexOf(JSON.stringify(f)) === -1) {
+        if (!qsf.includes(JSON.stringify(f).toLowerCase())) {
           opts.query.query.bool.filter.push(f);
         }
       } catch (error) {}
@@ -277,18 +311,19 @@ P.search = function(opts) {
     }
     if (opts.method !== 'POST') {
       ou = opts.url.split('source=')[0];
-      ou += ou.indexOf('?') === -1 ? '?' : !ou.endsWith('&') && !ou.endsWith('?') ? '&' : '';
+      ou += !ou.includes('?') ? '?' : !ou.endsWith('&') && !ou.endsWith('?') ? '&' : '';
       opts.url = ou + 'source=' + encodeURIComponent(JSON.stringify(opts.query));
     }
     return opts.query;
   };
-  opts._first = true;
+  opts.first = true;
   opts.success = function(resp) {
     var ref;
     P.hide('.PLoading');
+    P.show('.PSearchResults');
     opts.response = resp;
-    if (opts._first) {
-      opts._first = false;
+    if (opts.first) {
+      opts.first = false;
     } else {
       opts.placeholder();
     }
@@ -309,8 +344,11 @@ P.search = function(opts) {
     if (!opts.searching) {
       opts.searching = true;
       P.hide('.PError');
+      if (!opts.paging) {
+        P.hide('.PSearchResults');
+      }
       P.show('.PLoading');
-      if (!opts._first) {
+      if (!opts.first) {
         P.attr('.PSearch', 'placeholder', 'searching...');
       }
       return setTimeout(function() {
@@ -340,15 +378,15 @@ P.search = function(opts) {
     }
   };
   opts.render = function() {
-    var bt, f, filter, gte, k, key, kk, lte, query, ref, ref1, ref2, ref3, ref4, ws;
+    var bt, filter, gte, i, k, key, kk, len, lte, query, ref, ref1, ref2, ref3, ref4, ref5, ws;
     if (opts.pushstate) {
       ws = window.location.search.split('source=')[0];
       if (JSON.stringify(opts.query) !== JSON.stringify(opts.default)) {
-        ws += ws.indexOf('?') === -1 ? '?' : !ws.endsWith('&') ? '&' : '';
+        ws += !ws.includes('?') ? '?' : !ws.endsWith('&') ? '&' : '';
         ws += 'source=' + JSON.stringify(opts.query); // url encode this?
       }
-      if (ws.endsWith('&') || ws.endsWith('?')) {
-        ws = ws.substring(0, ws.length - 1);
+      while (ws.endsWith('&') || ws.endsWith('?')) {
+        ws = ws.substr(0, ws.length - 1);
       }
       try {
         window.history.pushState("", "search", ws);
@@ -360,33 +398,34 @@ P.search = function(opts) {
     try {
       P.set('.PSearchTo', ((ref1 = opts.query.from) != null ? ref1 : 0) + (((ref2 = opts.response) != null ? (ref3 = ref2.hits) != null ? ref3.hits : void 0 : void 0) != null ? opts.response.hits.hits.length : (ref4 = opts.query.size) != null ? ref4 : 10));
     } catch (error) {}
-    try {
+    if (!opts.paging) {
       P.html('.PSearches', ''); // TODO and reset any range sliders or check buttons
-    } catch (error) {}
-    for (f in opts.query.query.bool.filter) {
-      filter = opts.query.query.bool.filter[f];
-      if (JSON.stringify(filter).indexOf('match_all') === -1) {
-        query = JSON.stringify(filter).split(':"').pop().split('}')[0].replace(/"/g, '');
-        P.append('.PSearches', '<a class="button PSearchRemove" href="#"><b>X</b> <span class="PSearchVal">' + query + '</span></a>');
-      } else if (filter.term) {
-        bt = '<a style="margin:5px;" class="button PSearchRemove" href="#"><b>X</b> <span class="PSearchVal">';
-        for (k in filter.term) {
-          bt += ' ' + k.replace('.keyword', '').split('.').pop() + ':' + filter.term[k];
-        }
-        P.append('.PSearches', bt + '</span></a>');
-      } else if (filter.range) {
-        for (kk in filter.range) {
-          key = kk.replace('.keyword', '').split('.').pop();
-          gte = filter.range[kk].gte;
-          lte = filter.range[kk].lte;
+      ref5 = opts.query.query.bool.filter;
+      for (i = 0, len = ref5.length; i < len; i++) {
+        filter = ref5[i];
+        if (JSON.stringify(filter).includes('query_string')) {
+          query = JSON.stringify(filter).split(':"').pop().split('}')[0].replace(/"/g, '').replace(/\*$/, '').replace(/\~$/, '');
+          P.append('.PSearches', '<a class="button err PSearchRemove" href="#" alt="Remove" title="Remove"><span class="PSearchVal">' + query + '</span></a> ');
+        } else if (filter.term) {
+          bt = '<a class="button err PSearchRemove" href="#" alt="Remove" title="Remove"><span class="PSearchVal">';
+          for (k in filter.term) {
+            bt += ' ' + k.replace('.keyword', '').split('.').pop() + ':' + filter.term[k];
+          }
+          P.append('.PSearches', bt + '</span></a> ');
+        } else if (filter.range) {
+          for (kk in filter.range) {
+            key = kk.replace('.keyword', '').split('.').pop();
+            gte = filter.range[kk].gte;
+            lte = filter.range[kk].lte;
+          }
         }
       }
+      // TODO adjust the relevant range filter sliders on the UI to match the values
+      if (opts.query.query.bool.filter.length) {
+        P.append('.PSearches', '<a class="button err c1 PSearchRemove PSearchRemoveAll" href="#" alt="Remove all" title="Remove all">X</a>');
+      }
+      return P.on('click', '.PSearchRemove', opts.remove);
     }
-    // TODO adjust the relevant range filter sliders on the UI to match the values
-    if (opts.query.query.bool.filter.length > 2) {
-      P.append('.PSearches', '<a class="button PSearchRemove" href="#">clear all</a>');
-    }
-    return P.listen('click', '.PSearchRemove', opts.remove);
   };
   opts.results = []; // all resulting records, after transform if present
   opts.result = function(rec) { // a function that draws a given result on the page (can be false to not draw results)
@@ -403,17 +442,24 @@ P.search = function(opts) {
     re = opts.table ? '<tr' : '<p style="word-wrap: break-word; padding:5px; margin-bottom:0px;"';
     re += ' class="PSearchResult PResultFrom' + ((ref1 = opts.query.from) != null ? ref1 : 0) + '">';
     headers = P.html('.PSearchHeaders');
-    for (k in (opts.table ? opts.table : rec)) {
-      kk = typeof opts.table === 'object' && opts.table[k] ? opts.table[k] : k;
-      if (opts.table && headers.indexOf(kk) === -1) {
+    for (k in (typeof opts.table === 'object' ? opts.table : rec)) {
+      kk = typeof opts.table === 'object' && !Array.isArray(opts.table) && opts.table[k] ? opts.table[k] : k;
+      if (opts.table && !headers.includes(kk)) {
         P.append('.PSearchHeaders', '<th>' + kk + '</th>');
       }
       re += opts.table ? '<td>' : '<b>' + kk + '</b>: ';
       if (Array.isArray(rec[k])) {
         rec[k] = rec[k].length === 0 ? void 0 : rec[k].length === 1 ? rec[k][0] : typeof rec[k][0] !== 'object' ? rec[k].join(', ') : rec[k];
       }
-      if (rec[k]) {
-        re += (typeof rec[k] === 'object' ? JSON.stringify(rec[k]) : rec[k]);
+      if (typeof rec[k] === 'object') {
+        if (!Array.isArray(rec[k])) {
+          rec[k] = [rec[k]];
+        }
+        re += '<a href="#" onclick="if (this.nextSibling.style.display === \'none\') {this.nextSibling.style.display = \'block\'} else {this.nextSibling.style.display = \'none\'}; return false;" alt="View more" title="View more">' + rec[k].length + '...</a>'; //'<pre style="display:none;background:transparent;color:#333;border:none;width:100%;">'
+        //re += JSON.stringify(rec[k], undefined, 2) + '</pre>'
+        re += P.tabulate(rec[k], true);
+      } else if (rec[k]) {
+        re += rec[k];
       }
       re += opts.table ? '</td>' : ', ';
     }
@@ -422,7 +468,7 @@ P.search = function(opts) {
   };
   opts.transform = false; // an optional function that transforms an individual result
   opts.construct = function(data) {
-    var i, len, rec, ref, ref1, results;
+    var i, len, rec, ref, ref1, ref2, ref3, results;
     if (data == null) {
       data = JSON.parse(JSON.stringify(opts.response));
     }
@@ -441,7 +487,7 @@ P.search = function(opts) {
     results = [];
     for (i = 0, len = ref1.length; i < len; i++) {
       rec = ref1[i];
-      rec = typeof opts.transform === 'function' ? opts.transform(rec) : rec._source != null ? rec._source : rec;
+      rec = typeof opts.transform === 'function' ? opts.transform(rec) : (ref2 = (ref3 = rec._source) != null ? ref3 : rec.fields) != null ? ref2 : rec;
       opts.results.push(rec);
       if (typeof opts.result === 'function') {
         results.push(P.append('.PSearchResults', opts.result(rec)));
@@ -452,27 +498,37 @@ P.search = function(opts) {
     return results;
   };
   if (!opts.template && opts.template !== false) {
-    // NOTE: TODO sticky is not working yet in this layout
-    opts.template = '<div class="container big PSearchDiv"><div' + (opts.sticky ? ' class="sticky"' : '') + '>';
+    opts.template = '<div class="PSearchDiv"><div class="PSearchControls' + (opts.sticky ? ' sticky' : '') + ' pb5">';
+    opts.template += '<div class="tab flex big">';
     if (opts.scroll === false) {
-      opts.template += '<a href="#" class="button PSearchPrevious" alt="previous" title="previous">&lt;</a>';
+      opts.template += '<a href="#" class="button PSearchPrevious c1" alt="Previous page" title="Previous page">&lt;</a>';
     }
-    opts.template += '<input style="margin-top:5px;" type="text" class="PSearch big" placeholder="' + opts.msg + '">'; // can add PSuggest to this to trigger suggestions
+    if (opts.suggest) {
+      opts.template += '<select class="PSuggester c1"><option value="" disabled="disabled" selected="selected">&#x2315;</option></select>';
+    }
+    opts.template += '<input type="text" class="PSearch" placeholder="' + opts.msg + '">';
     if (opts.scroll === false) {
+      //opts.template += '<div class="loader big PLoading"><div class="loading"></div></div>'
+      //opts.template += '<a class="button cream c1" style="font-size:2.3em;padding:0;" href="#">&#x2315;</a>'
       //opts.template += '<a href="#" class="button PSearchopts" alt="show/hide search options" title="show/hide search options">+</a>'
-      opts.template += '<a href="#" class="button PSearchNext" alt="next" title="next">&gt;</a>';
+      opts.template += '<a href="#" class="button PSearchNext c1" alt="Next page" title="Next page">&gt;</a>';
     }
-    //opts.template += '<div class="PSuggestions"></div>'
-    opts.template += '<div class="PSearches" style="margin-top:5px; margin-bottom:5px;"></div>'; //<div class="PRange"></div>
-    opts.template += opts.table ? '<table class="striped"><thead' + (opts.sticky ? ' class="sticky"' : '') + '><tr class="PSearchHeaders"></tr></thead><tbody class="PSearchResults"></tbody></table>' : '<div class="PSearchResults"></div>';
-    opts.template += '<div class="PLoading" style="display:none;"><div class="loading big"></div></div>';
-    opts.template += '</div></div>';
+    opts.template += '</div>';
+    if (opts.suggest) {
+      opts.template += '<div class="PSuggestions"></div>';
+    }
+    opts.template += '<div class="PSearches tab flex" style="margin-top:-1px;"></div>'; //<div class="PRange"></div>
+    opts.template += '</div>';
+    opts.template += opts.table ? '<table class="striped bordered' + (false && opts.scope !== 'body' ? ' fixed' : '') + ' PSearchTable"><thead' + (false && opts.sticky ? ' class="sticky"' : '') + '><tr class="PSearchHeaders"></tr></thead><tbody class="PSearchResults"></tbody></table>' : '<div class="PSearchResults"></div>';
+    opts.template += '<div class="PLoading" style="display: none; padding-bottom: 100px;"><div class="loading big"></div></div>';
+    opts.template += '</div>';
   }
   if (opts.ui == null) {
     opts.ui = function() {
-      var k;
+      var k, ref, ref1;
       if (opts.template !== false && !P('.PSearch')) {
-        P.append('body', opts.template);
+        P.append(opts.scope, opts.template);
+        P.css('.PSearchControls', 'background-color', (ref = (ref1 = P.css(opts.scope, 'background')) != null ? ref1 : P.css(opts.scope, 'background-color')) != null ? ref : '#FFFFFC');
       }
       P.on('focus', '.PSearch', function() {
         try {
@@ -483,14 +539,16 @@ P.search = function(opts) {
       for (k in opts) {
         if (typeof opts[k] === 'function') {
           // could some of these require click or keyup instead of change? how to tell?
-          P.on('change', '.PSearch' + k.substring(0, 1).toUpperCase() + k.substring(1).toLowerCase(), opts[k]);
+          P.on('change', '.PSearch' + k[0].toUpperCase() + k.substr(1).toLowerCase(), opts[k]);
         }
       }
       if (opts.scroll !== false) {
         opts.scroller();
       }
       try {
-        return P.focus('.PSearch');
+        if (!P.mobile()) {
+          return P.focus('.PSearch');
+        }
       } catch (error) {}
     };
   }
@@ -499,6 +557,9 @@ P.search = function(opts) {
   }
   for (p in pp = P.params()) {
     if (p !== 'search') {
+      if (p === 'source') {
+        opts.first = false;
+      }
       opts[p === 'source' ? 'query' : p] = pp[p];
     }
   }

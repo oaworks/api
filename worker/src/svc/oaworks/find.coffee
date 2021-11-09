@@ -123,6 +123,12 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
         if not cr?.type
           res.doi_not_in_crossref = metadata.doi
         else
+          # temporary fix of date info until crossref index reloaded
+          try
+            cr.published = await @src.crossref.works.published cr
+            try cr.year = cr.published.split('-')[0]
+            try cr.year = parseInt cr.year
+            try cr.publishedAt = await @epoch cr.published
           await _metadata cr
         return true
       await Promise.all [_oad(), _crd()] # _fatcat(), 
@@ -211,8 +217,8 @@ P.svc.oaworks.citation = (citation) ->
     res.abstract = citation.abstract ? citation.abstractText if citation.abstract or citation.abstractText
     try res.abstract = @convert.html2txt(res.abstract).replace(/\n/g,' ').replace('Abstract ','') if res.abstract
 
-    for p in ['published-print', 'journal-issue.published-print', 'journalInfo.printPublicationDate', 'firstPublicationDate', 'journalInfo.electronicPublicationDate', 'published', 'published_date', 'issued', 'published-online', 'created', 'deposited', 'indexed']
-      if not res.published or res.DOI
+    for p in ['published-print', 'journal-issue.published-print', 'journalInfo.printPublicationDate', 'firstPublicationDate', 'journalInfo.electronicPublicationDate', 'published', 'published_date', 'issued', 'published-online', 'created', 'deposited']
+      if typeof res.published isnt 'string'
         if rt = citation[p] ? citation['journal-issue']?[p.replace('journal-issue.','')] ? citation['journalInfo']?[p.replace('journalInfo.','')]
           rt = rt.toString() if typeof rt is 'number'
           try rt = rt['date-time'].toString() if typeof rt isnt 'string'
@@ -228,7 +234,7 @@ P.svc.oaworks.citation = (citation) ->
             res.published += '-01' if res.published.split('-').length isnt 3
             res.year ?= res.published.split('-')[0]
             delete res.published if res.published.split('-').length isnt 3
-            delete res.year if res.year.length isnt 4
+            delete res.year if res.year.toString().length isnt 4
         break if res.published
     res.year ?= citation.year if citation.year
     try res.year ?= citation.journalInfo.yearOfPublication.trim()

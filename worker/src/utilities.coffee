@@ -1,16 +1,16 @@
 
 import { customAlphabet } from 'nanoid'
 
-P.uid = (r) ->
-  r ?= if @fn is 'uid' then (this?.params?.len ? this?.params?.length ? this?.params?.size ? this?.params?.uid ? 21) else 21
-  if typeof r is 'string'
-    rs = parseInt r
-    r = if isNaN(rs) then undefined else rs
+P.uid = (length) ->
+  length ?= if @fn is 'uid' then (this?.params?.len ? this?.params?.length ? this?.params?.size ? this?.params?.uid ? 21) else 21
+  if typeof length is 'string'
+    rs = parseInt length
+    length = if isNaN(rs) then undefined else rs
   # have to use only lowercase for IDs, because other IDs we receive from users such as DOIs
   # are often provided in upper OR lowercase forms, and they are case-insensitive, so all IDs
   # will be normalised to lowercase. This increases the chance of an ID collision, but still, 
   # without uppercases it's only a 1% chance if generating 1000 IDs per second for 131000 years.
-  nanoid = customAlphabet (this?.params?.alphabet ? '0123456789abcdefghijklmnopqrstuvwxyz'), r
+  nanoid = customAlphabet (this?.params?.alphabet ? '0123456789abcdefghijklmnopqrstuvwxyz'), length
   return nanoid()
 P.uid._cache = false
 
@@ -103,13 +103,7 @@ P.decode = (content) ->
   _decode = (content) ->
     # https://stackoverflow.com/questions/44195322/a-plain-javascript-way-to-decode-html-entities-works-on-both-browsers-and-node
     translator = /&(nbsp|amp|quot|lt|gt);/g
-    translate = {
-      "nbsp":" ",
-      "amp" : "&",
-      "quot": "\"",
-      "lt"  : "<",
-      "gt"  : ">"
-    }
+    translate = "nbsp":" ", "amp" : "&", "quot": "\"", "lt"  : "<", "gt"  : ">"
     return content.replace(translator, ((match, entity) ->
       return translate[entity]
     )).replace(/&#(\d+);/gi, ((match, numStr) ->
@@ -245,14 +239,21 @@ P.device = () ->
   return res
 P.device._cache = false
 
-P.date = (rt, timed) ->
+P.date = (rt, timed, secs=true, ms=true) ->
   rt ?= @params.date ? Date.now()
   timed ?= @params.time
   if typeof rt is 'number' or (typeof rt is 'string' and rt.indexOf(' ') is -1 and rt.indexOf('/') is -1 and rt.indexOf('-') is -1 and rt.length > 8 and rt.indexOf('T') is -1)
     try
       ret = new Date parseInt rt
       ret = ret.toISOString()
-      return if timed then ret else ret.split('T')[0]
+      if timed
+        if not secs
+          ret = ret.split(':').slice(0,-1).join(':').replace('T', ' ')
+        else if not ms
+          ret = ret.split('.')[0].replace('T', ' ')
+      else
+        ret = ret.split('T')[0]
+      return ret
   try
     rt = rt.toString() if typeof rt is 'number'
     rt = rt[0] if Array.isArray(rt) and rt.length is 1 and Array.isArray rt[0]
@@ -276,7 +277,7 @@ P.date = (rt, timed) ->
     return
 P.date._cache = false
 
-P.datetime = () -> return @date @params.datetime, @params.time ? true
+P.datetime = (secs, ms) -> return @date @params.datetime, (@params.time ? true), (secs ? @params.secs ? @params.s), (ms ? @params.ms)
 P.datetime._cache = false
 P.epoch = (epoch) ->
   epoch ?= @params.epoch
@@ -307,18 +308,17 @@ P.epoch = (epoch) ->
     return new Date(start + '.' + end).valueOf()
 P.epoch._cache = false
 
-P._subroutes = (top) ->
+P.subroutes = (top) ->
   subroutes = []
   _lp = (p, n, _hide) =>
     for k of p
       if typeof p[k] in ['function', 'object']
         nd = (n ? '') + (if n then '.' else '') + k
-        if not k.startsWith('_') and (typeof p[k] is 'function' or p[k]._index or p[k]._kv or p[k]._sheet) and not p[k]._hide and not p[k]._hides and not _hide and not nd.startsWith('scripts') and nd.indexOf('.scripts') is -1
+        if not k.startsWith('_') and (typeof p[k] is 'function' or p[k]._index or p[k]._kv or p[k]._sheet) and not p[k]._hide and not p[k]._hides and not _hide
           subroutes.push nd.replace /\./g, '/'
         _lp(p[k], nd, (_hide ? p[k]._hides)) if not Array.isArray(p[k]) and not k.startsWith '_'
-  if top
-    top = top.replace(/\//g, '.') if typeof top is 'string'
-    _lp if typeof top is 'string' then await @dot(P, top) else top
+  top = top.replace(/\//g, '.') if typeof top is 'string'
+  _lp if typeof top is 'string' then await @dot(P, top) else (top ? P)
   return subroutes
 
 '''

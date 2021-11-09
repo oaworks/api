@@ -25,7 +25,7 @@ P.src.pubmed.load = (changes) ->
   # need enough memory for each process to max out. Running 3 with 15k batch size was stable but reaching almost 3000M at times and 
   # didn't seem much faster, so now set to do whole files as batches with two streamers at a time, see how that goes
   batchsize = -1 # how many records to batch upload at a time
-  streamers = 2 # how many files to stream at a time
+  streamers = 1 # how many files to stream at a time
   howmany = @params.howmany ? -1 # max number of lines to process. set to -1 to keep going...
 
   await @src.pubmed('') if @refresh and not changes
@@ -35,7 +35,7 @@ P.src.pubmed.load = (changes) ->
   listing = await @fetch addr
   for a in listing.split 'href="'
     f = a.split('"')[0]
-    if f.startsWith('pubmed') and f.endsWith('.gz') and ((@refresh and not changes) or not exists = await @src.pubmed.count undefined, 'srcfile:"' + addr + f + '"')
+    if f.startsWith('pubmed') and f.endsWith('.gz') and ((@refresh and not changes) or not exists = await @src.pubmed.count 'srcfile:"' + addr + f + '"')
       files.push addr + f
 
   running = 0
@@ -224,6 +224,7 @@ P.src.pubmed.changes = () ->
 
 P.src.pubmed.changes._async = true
 P.src.pubmed.changes._auth = 'root'
+P.src.pubmed.changes._notify = false
 
 
 # https://www.nlm.nih.gov/bsd/serfile_addedinfo.html

@@ -17,31 +17,38 @@ P.puppet = (url, proxy, headers, idle=false) ->
       return ''
 
   try
-    args = ['--no-sandbox', '--disable-setuid-sandbox']
-    args.push('--proxy-server='+proxy) if proxy
     pid = false
-    if typeof headers isnt 'string'
-      try
-        headers = JSON.parse headers
-      catch
-        headers = {}
+    bopts = ignoreHTTPSErrors:true, dumpio:false, timeout:12000, headless: true
+    bopts.args = ['--no-sandbox', '--disable-setuid-sandbox', '--single-process', '--no-zygote']
+    bopts.args.push('--proxy-server='+proxy) if proxy
     try
-      browser = await puppeteer.launch args:args, ignoreHTTPSErrors:true, dumpio:false, timeout:12000
+      browser = await puppeteer.launch bopts
     catch
-      browser = await puppeteer.launch args:args, ignoreHTTPSErrors:true, dumpio:false, timeout:12000, executablePath: '/usr/bin/google-chrome'
+      bopts.executablePath = '/usr/bin/google-chrome'
+      browser = await puppeteer.launch bopts
     try pid = browser.process().pid
-    page = await browser.newPage()
-    page.setExtraHTTPHeaders(headers) if typeof headers is 'object' and JSON.stringify(headers) isnt '{}'
-    popts = {timeout:30000} # default is 30s anyway, but just in case want to adjust later
-    # may be worth always waiting for idle, and having the idle option default to true and only override with false when necessary
-    popts.waitUntil = if typeof idle is 'string' then idle else if idle then ['load','domcontentloaded','networkidle0','networkidle2'] else 'domcontentloaded'
-    opened = await page.goto url, popts
+
     try
-      content = await page.evaluate(() => new XMLSerializer().serializeToString(document.doctype) + '\n' + document.documentElement.outerHTML)
-    catch
-      content = await page.evaluate(() => document.querySelector('*').outerHTML)
-    await page.close()
-    await browser.close()
+      page = await browser.newPage()
+      if typeof headers isnt 'string'
+        try
+          headers = JSON.parse headers
+        catch
+          headers = {}
+      page.setExtraHTTPHeaders(headers) if typeof headers is 'object' and JSON.stringify(headers) isnt '{}'
+      popts = {timeout:30000} # default is 30s anyway, but just in case want to adjust later
+      # may be worth always waiting for idle, and having the idle option default to true and only override with false when necessary
+      popts.waitUntil = if typeof idle is 'string' then idle else if idle then ['load','domcontentloaded','networkidle0','networkidle2'] else 'domcontentloaded'
+      opened = await page.goto url, popts
+      try
+        content = await page.evaluate(() => new XMLSerializer().serializeToString(document.doctype) + '\n' + document.documentElement.outerHTML)
+      catch
+        content = await page.evaluate(() => document.querySelector('*').outerHTML)
+      await page.close()
+    catch err
+      console.log err
+    finally
+      await browser.close()
     try process.kill(pid) if pid
     return content
   catch
@@ -49,3 +56,7 @@ P.puppet = (url, proxy, headers, idle=false) ->
 
 P.puppet._auth = 'system'
 P.puppet._hide = true
+
+# TODO check if puppet still manages to leave chrome zombies everywhere despite all the above
+# (many things have been tried, on different settings etc, eventually some always seem to leak through)
+# if so run a daily? cleanup to kill any chrome processes more than a day? old

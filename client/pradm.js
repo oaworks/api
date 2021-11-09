@@ -4,7 +4,7 @@
   // (preceded with #), then a space, then the element(s) class name / tag name
   // (ID requests can't be scoped this way because IDs have to be unique within a page anyway)
   // or an element to scope on can be directly provided as third param
-var P, ref,
+var P,
   indexOf = [].indexOf;
 
 P = function(n, fn, sc) {
@@ -25,10 +25,6 @@ P = function(n, fn, sc) {
     }
   }
 };
-
-if (P.api == null) {
-  P.api = (ref = this.api) != null ? ref : '//' + window.location.host;
-}
 
 P.gebi = function(id) {
   return document.getElementById(id.split('#').pop().split(' ')[0]);
@@ -73,19 +69,19 @@ P.gebn = function(n, sc) {
 };
 
 P.gebns = function(ns, sc) { // ns could be like "h1, h2, h3, p"
-  var d, j, len, len1, m, ref1, ref2, t, tag;
+  var d, i, j, len, len1, ref, ref1, t, tag;
   d = [];
   if (typeof sc === 'string' || (ns.startsWith('#') && ns.includes(' '))) {
     if (sc == null) {
       sc = P.list(P(sc != null ? sc : ns))[0];
     }
   }
-  ref1 = ns.replace(/, /g, ',').split(',');
-  for (j = 0, len = ref1.length; j < len; j++) {
-    tag = ref1[j];
-    ref2 = (sc != null ? sc : document).getElementsByTagName(tag);
-    for (m = 0, len1 = ref2.length; m < len1; m++) {
-      t = ref2[m];
+  ref = ns.replace(/, /g, ',').split(',');
+  for (i = 0, len = ref.length; i < len; i++) {
+    tag = ref[i];
+    ref1 = (sc != null ? sc : document).getElementsByTagName(tag);
+    for (j = 0, len1 = ref1.length; j < len1; j++) {
+      t = ref1[j];
       d.push(t);
     }
   }
@@ -114,14 +110,14 @@ P.list = function(els) {
 };
 
 P.each = function(els, k, v, sc) {
-  var el, j, len, ref1, results;
+  var el, i, len, ref, results;
   if (typeof els === 'string') {
     els = P(els, void 0, sc);
   }
-  ref1 = P.list(els);
+  ref = P.list(els);
   results = [];
-  for (j = 0, len = ref1.length; j < len; j++) {
-    el = ref1[j];
+  for (i = 0, len = ref.length; i < len; i++) {
+    el = ref[i];
     if (typeof k === 'function') {
       results.push(k(el));
     } else {
@@ -180,19 +176,19 @@ P.get = function(els, a) {
   var r;
   r = void 0;
   P.each(els, function(el) {
-    var ref1, ref2;
+    var ref, ref1;
     if (r == null) {
       if (a != null) {
         try {
           return r = el.getAttribute(a);
         } catch (error) {}
       } else {
-        if ((ref1 = el.getAttribute('type')) === 'radio' || ref1 === 'checkbox') {
+        if ((ref = el.getAttribute('type')) === 'radio' || ref === 'checkbox') {
           try {
             r = P.checked(el);
           } catch (error) {}
         }
-        if ((r == null) && ((ref2 = el.getAttribute('type')) !== 'radio' && ref2 !== 'checkbox')) {
+        if ((r == null) && ((ref1 = el.getAttribute('type')) !== 'radio' && ref1 !== 'checkbox')) {
           try {
             r = el.value;
           } catch (error) {}
@@ -230,13 +226,13 @@ P.checked = function(els) {
   var r;
   r = void 0;
   P.each(els, function(el) {
-    var ref1;
+    var ref;
     if (r == null) {
       if (el instanceof HTMLInputElement) {
         if (el.getAttribute('type') === 'checkbox') {
           return r = el.checked;
         } else if (el.getAttribute('type') === 'radio') {
-          return r = el.checked ? (ref1 = el.value) != null ? ref1 : true : false;
+          return r = el.checked ? (ref = el.value) != null ? ref : true : false;
         }
       } else {
         return r = false;
@@ -298,8 +294,8 @@ P.classes = function(els, cls, d) {
     cls = cls.replace(/^\./, '');
   }
   P.each(els, function(el) {
-    var c, cc, j, len, ref1, ref2, results;
-    c = (ref1 = el.getAttribute('class')) != null ? ref1 : '';
+    var c, cc, i, len, ref, ref1, results;
+    c = (ref = el.getAttribute('class')) != null ? ref : '';
     if (cls) {
       if (d != null) {
         c = c.replace(cls, '').trim().replace(/\s\s/g, ' ');
@@ -308,11 +304,11 @@ P.classes = function(els, cls, d) {
       }
       el.setAttribute('class', c);
     }
-    ref2 = c.split(' ');
+    ref1 = c.split(' ');
     results = [];
-    for (j = 0, len = ref2.length; j < len; j++) {
-      cc = ref2[j];
-      if (indexOf.call(r, c) < 0) {
+    for (i = 0, len = ref1.length; i < len; i++) {
+      cc = ref1[i];
+      if (indexOf.call(r, cc) < 0) {
         results.push(r.push(cc));
       } else {
         results.push(void 0);
@@ -329,8 +325,8 @@ P.has = function(els, cls) {
   var r;
   r = false;
   P.each(els, function(el) {
-    var ref1;
-    if ((ref1 = cls.replace(/^\./, ''), indexOf.call(P.classes(el), ref1) >= 0) || (!cls.startsWith('.') && el.getAttribute(cls))) {
+    var ref;
+    if ((ref = cls.replace(/^\./, ''), indexOf.call(P.classes(el), ref) >= 0) || (!cls.startsWith('.') && el.getAttribute(cls))) {
       return r = true;
     }
   });
@@ -341,11 +337,11 @@ P.css = function(els, k, v) {
   var r;
   r = void 0;
   P.each(els, function(el) {
-    var j, len, p, pk, pv, ref1, ref2, sk, ss, style;
+    var i, len, p, pk, pv, ref, ref1, sk, ss, style;
     style = {};
-    ref2 = ((ref1 = P.get(el, 'style')) != null ? ref1 : '').split(';');
-    for (j = 0, len = ref2.length; j < len; j++) {
-      p = ref2[j];
+    ref1 = ((ref = P.get(el, 'style')) != null ? ref : '').split(';');
+    for (i = 0, len = ref1.length; i < len; i++) {
+      p = ref1[i];
       [pk, pv] = p.split(':');
       style[pk] = pk === k && (v != null) ? v : pv;
     }
@@ -353,6 +349,7 @@ P.css = function(els, k, v) {
       r = k != null ? style[k] : style;
     }
     if (v != null) {
+      style[k] = v;
       ss = '';
       for (sk in style) {
         if (style[sk] != null) {
@@ -403,6 +400,14 @@ P.siblings = function(els) {
 
 
 // end of functions that act on elements
+P.mobile = function() { // try to tell if on a mobile device
+  if (/(android|bb\d+|meego).+mobile|avantgo|bada\/|blackberry|blazer|compal|elaine|fennec|hiptop|iemobile|ip(hone|od)|ipad|iris|kindle|Android|Silk|lge |maemo|midp|mmp|netfront|opera m(ob|in)i|palm( os)?|phone|p(ixi|re)\/|plucker|pocket|psp|series(4|6)0|symbian|treo|up\.(browser|link)|vodafone|wap|windows (ce|phone)|xda|xiino/i.test(navigator.userAgent) || /1207|6310|6590|3gso|4thp|50[1-6]i|770s|802s|a wa|abac|ac(er|oo|s\-)|ai(ko|rn)|al(av|ca|co)|amoi|an(ex|ny|yw)|aptu|ar(ch|go)|as(te|us)|attw|au(di|\-m|r |s )|avan|be(ck|ll|nq)|bi(lb|rd)|bl(ac|az)|br(e|v)w|bumb|bw\-(n|u)|c55\/|capi|ccwa|cdm\-|cell|chtm|cldc|cmd\-|co(mp|nd)|craw|da(it|ll|ng)|dbte|dc\-s|devi|dica|dmob|do(c|p)o|ds(12|\-d)|el(49|ai)|em(l2|ul)|er(ic|k0)|esl8|ez([4-7]0|os|wa|ze)|fetc|fly(\-|_)|g1 u|g560|gene|gf\-5|g\-mo|go(\.w|od)|gr(ad|un)|haie|hcit|hd\-(m|p|t)|hei\-|hi(pt|ta)|hp( i|ip)|hs\-c|ht(c(\-| |_|a|g|p|s|t)|tp)|hu(aw|tc)|i\-(20|go|ma)|i230|iac( |\-|\/)|ibro|idea|ig01|ikom|im1k|inno|ipaq|iris|ja(t|v)a|jbro|jemu|jigs|kddi|keji|kgt( |\/)|klon|kpt |kwc\-|kyo(c|k)|le(no|xi)|lg( g|\/(k|l|u)|50|54|\-[a-w])|libw|lynx|m1\-w|m3ga|m50\/|ma(te|ui|xo)|mc(01|21|ca)|m\-cr|me(rc|ri)|mi(o8|oa|ts)|mmef|mo(01|02|bi|de|do|t(\-| |o|v)|zz)|mt(50|p1|v )|mwbp|mywa|n10[0-2]|n20[2-3]|n30(0|2)|n50(0|2|5)|n7(0(0|1)|10)|ne((c|m)\-|on|tf|wf|wg|wt)|nok(6|i)|nzph|o2im|op(ti|wv)|oran|owg1|p800|pan(a|d|t)|pdxg|pg(13|\-([1-8]|c))|phil|pire|pl(ay|uc)|pn\-2|po(ck|rt|se)|prox|psio|pt\-g|qa\-a|qc(07|12|21|32|60|\-[2-7]|i\-)|qtek|r380|r600|raks|rim9|ro(ve|zo)|s55\/|sa(ge|ma|mm|ms|ny|va)|sc(01|h\-|oo|p\-)|sdk\/|se(c(\-|0|1)|47|mc|nd|ri)|sgh\-|shar|sie(\-|m)|sk\-0|sl(45|id)|sm(al|ar|b3|it|t5)|so(ft|ny)|sp(01|h\-|v\-|v )|sy(01|mb)|t2(18|50)|t6(00|10|18)|ta(gt|lk)|tcl\-|tdg\-|tel(i|m)|tim\-|t\-mo|to(pl|sh)|ts(70|m\-|m3|m5)|tx\-9|up(\.b|g1|si)|utst|v400|v750|veri|vi(rg|te)|vk(40|5[0-3]|\-v)|vm40|voda|vulc|vx(52|53|60|61|70|80|81|83|85|98)|w3c(\-| )|webc|whit|wi(g |nc|nw)|wmlb|wonu|x700|yas\-|your|zeto|zte\-/i.test(navigator.userAgent.substr(0, 4))) {
+    return true;
+  } else {
+    return false;
+  }
+};
+
 P.dot = function(o, k, v, d) {
   if (typeof k === 'string') {
     return P.dot(o, k.split('.'), v, d);
@@ -444,11 +449,11 @@ P.keys = function(o) {
 };
 
 P.params = function(p) {
-  var j, k, kv, len, r, ref1, v;
+  var i, k, kv, len, r, ref, v;
   r = {};
-  ref1 = window.location.href.slice(window.location.href.indexOf('?') + 1).split('&');
-  for (j = 0, len = ref1.length; j < len; j++) {
-    kv = ref1[j];
+  ref = window.location.href.slice(window.location.href.indexOf('?') + 1).split('&');
+  for (i = 0, len = ref.length; i < len; i++) {
+    kv = ref[i];
     [k, v] = kv.split('=');
     if (k) {
       if (typeof v === 'string') {
@@ -471,16 +476,16 @@ P.params = function(p) {
 };
 
 P.ajax = function(url, opts) {
-  var base, base1, h, loaded, ref1, ref2, ref3, xhr;
+  var base, base1, h, loaded, ref, ref1, ref2, xhr;
   if (typeof url === 'object') {
     opts = url;
     url = void 0;
   }
   if (url == null) {
-    url = (ref1 = opts.url) != null ? ref1 : '';
+    url = (ref = opts.url) != null ? ref : '';
   }
   if (url === '' || (url.startsWith('/') && !url.startsWith('//'))) {
-    url = P.api + url;
+    url = '//' + window.location.host + url;
   }
   if (opts == null) {
     opts = {};
@@ -508,13 +513,13 @@ P.ajax = function(url, opts) {
           base1.Authorization = "Basic " + btoa(opts.username + ":" + opts.password);
         }
       } else if (opts.apikey || opts['x-apikey']) {
-        opts.headers.apikey = (ref2 = opts.apikey) != null ? ref2 : opts['x-apikey'];
+        opts.headers.apikey = (ref1 = opts.apikey) != null ? ref1 : opts['x-apikey'];
       }
     }
   } catch (error) {}
   //else if P.account?.resume # if paradigm creds are available, but not sending to a paradigm URL (which would include cookies if available) try the resume key
   xhr = new XMLHttpRequest();
-  xhr.open((ref3 = opts.method) != null ? ref3 : 'GET', url);
+  xhr.open((ref2 = opts.method) != null ? ref2 : 'GET', url);
   for (h in opts.headers) {
     xhr.setRequestHeader(h, opts.headers[h]);
   }
@@ -552,9 +557,9 @@ P.ajax = function(url, opts) {
     } catch (error) {}
   };
   xhr.onloadend = function() {
-    var ref4;
+    var ref3;
     try {
-      if (((ref4 = xhr.status) === 404) && !loaded) {
+      if (((ref3 = xhr.status) === 404) && !loaded) {
         return opts.error(xhr);
       }
     } catch (error) {}
@@ -565,7 +570,7 @@ P.ajax = function(url, opts) {
 };
 
 P.cookie = function(n, vs, opts) {
-  var c, d, domained, dt, j, len, ref1, ref2, t;
+  var c, d, domained, dt, i, len, ref, ref1, t;
   if (n === '' || n === false || typeof n === 'object') {
     vs = n;
     n = void 0;
@@ -592,7 +597,7 @@ P.cookie = function(n, vs, opts) {
     } else {
       opts.expires = -1;
     }
-    d = (ref1 = opts.expires) != null ? ref1 : 180;
+    d = (ref = opts.expires) != null ? ref : 180;
     if (typeof d === 'number') {
       d = new Date();
       d.setDate(d.getDate() + opts.expires);
@@ -617,9 +622,9 @@ P.cookie = function(n, vs, opts) {
     }
     return t;
   } else {
-    ref2 = document.cookie.split(';');
-    for (j = 0, len = ref2.length; j < len; j++) {
-      c = ref2[j];
+    ref1 = document.cookie.split(';');
+    for (i = 0, len = ref1.length; i < len; i++) {
+      c = ref1[i];
       while (c.charAt(0) === ' ') {
         c = c.substring(1);
       }
@@ -632,7 +637,12 @@ P.cookie = function(n, vs, opts) {
 };
 
 P.on = function(a, id, fn, l, sc) {
-  var base, base1, base2, name, wfn;
+  var base, base1, base2, name, nl, wfn;
+  if (typeof fn === 'number' && typeof l === 'function') {
+    nl = fn;
+    fn = l;
+    l = nl;
+  }
   if (a === 'enter') {
     a = 'keyup';
     wfn = function(e) {
@@ -643,7 +653,7 @@ P.on = function(a, id, fn, l, sc) {
   } else {
     wfn = fn;
   }
-  if (a === 'scroll') {
+  if (a === 'scroll' || a === 'keyup') {
     if (l == null) {
       l = 300;
     }
@@ -671,20 +681,42 @@ P.on = function(a, id, fn, l, sc) {
   if (P._ons[sc][a] == null) {
     P._ons[sc][a] = {};
     (sc === '_doc' ? document : P.list(P('#' + sc))[0]).addEventListener(a, function(e) {
-      var f, i, ids, j, len, results, s;
-      ids = P.classes(e.target);
-      for (i in ids) {
-        ids[i] = '.' + ids[i];
+      var _bids, f, i, ids, len, pn, results, s;
+      ids = [];
+      _bids = function(et) {
+        var etnl, i, len, pc, ref, ref1, ref2;
+        ref = P.classes(et);
+        for (i = 0, len = ref.length; i < len; i++) {
+          pc = ref[i];
+          if (ref1 = '.' + pc, indexOf.call(ids, ref1) < 0) {
+            ids.push('.' + pc);
+          }
+        }
+        if (et.id && (ref2 = '#' + et.id, indexOf.call(ids, ref2) < 0)) {
+          ids.push('#' + et.id);
+        }
+        try {
+          etnl = et.tagName.toLowerCase();
+          if (indexOf.call(ids, etnl) < 0) {
+            return ids.push(etnl);
+          }
+        } catch (error) {}
+      };
+      _bids(e.target);
+      if (a === 'click') { // catch bubbling from clicks on child elements for example - are there other actions this is worth doing for?
+        pn = e.target.parentNode;
+        while (pn) {
+          if (document.body === pn) {
+            pn = void 0;
+          } else {
+            _bids(pn);
+            pn = pn.parentNode;
+          }
+        }
       }
-      if (e.target.id) {
-        ids.push('#' + e.target.id);
-      }
-      try {
-        ids.push(e.target.tagName.toLowerCase());
-      } catch (error) {}
       results = [];
-      for (j = 0, len = ids.length; j < len; j++) {
-        s = ids[j];
+      for (i = 0, len = ids.length; i < len; i++) {
+        s = ids[i];
         if (P._ons[sc][a][s] != null) {
           for (f in P._ons[sc][a][s]) {
             P._ons[sc][a][s][f](e);

@@ -4,12 +4,17 @@ import crypto from 'crypto' # used in utilities for hash generation
 import http from 'http'
 import https from 'https' # allows fetch to control https security for local connections, and used for read streams
 import Busboy from 'busboy'
-import { promises as fs } from 'fs'
-import { createReadStream } from 'fs'
-fs.createReadStream = createReadStream # since using fs.promises, but there isn't a promise createReadStream, this just makes it available in the normal expected way
 import tar from 'tar' # for tar file conversion
 import zlib from 'zlib' # for reading/converting gz files
 import readline from 'readline'
+import cron from 'node-cron'
+
+import { promises as fs } from 'fs'
+import { createReadStream } from 'fs'
+fs.createReadStream = createReadStream # since using fs.promises, but there isn't a promise createReadStream, this just makes it available in the normal expected way
+import { createWriteStream } from 'fs'
+fs.createWriteStream = createWriteStream
+
 
 
 server = http.createServer (req, res) ->
@@ -83,7 +88,7 @@ server = http.createServer (req, res) ->
 S.port ?= if S.dev then 4000 else 3000
 server.listen S.port, 'localhost'
 
-console.log S.name + ' v' + S.version + ' built ' + S.built + ', listening on ' + S.port
+console.log S.name + ' v' + S.version + ' built ' + S.built + ', available on http://localhost:' + S.port
 
 if S.demo
   console.log 'Congrats! You have a demo up and running'

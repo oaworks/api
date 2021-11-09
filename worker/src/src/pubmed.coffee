@@ -10,7 +10,27 @@
 # then scrape the QueryKey and WebEnv values from it and use like so:
 # http://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&query_key=1&WebEnv=NCID_1_54953983_165.112.9.28_9001_1461227951_1012752855_0MetA0_S_MegaStore_F_1
 
+# NOTE: interestingly there are things in pubmed with PMC IDs that are NOT in EPMC, they return 
+# nothing in the epmc website or API. For example PMID 33685375 has PMC7987225 and DOI 10.2989/16085906.2021.1872664
+# (the crossref record has no PMID or PMC in it, but the pubmed record has all)
+
+# NOTE also there are items in pubmed with identifier.pmc which seem fine but some have
+# identifier.pmcid which may NOT be fine. e.g. PMID 31520348 shows a pmc ID of 6156939
+# but in PMC that is a DIFFERENT article. The DOI provided in pubmed matches the correct 
+# article in EPMC, which is not an article in PMC.
 P.src.pubmed = _key: 'PMID', _prefix: false, _index: settings: number_of_shards: 6
+
+P.src.pubmed.doi = (doi) ->
+  doi ?= @params.doi
+  if doi and found = await @src.pubmed 'identifier.doi:"' + doi + '"', 1
+    return found
+  return
+
+P.src.pubmed.pmc = (pmc) ->
+  pmc ?= @params.pmc
+  if pmc and found = await @src.pubmed 'identifier.pmc:"PMC' + pmc.toString().toLowerCase().replace('pmc','') + '"', 1
+    return found
+  return
 
 P.src.pubmed.entrez = {}
 P.src.pubmed.entrez.summary = (qk, webenv, id) ->

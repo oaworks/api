@@ -110,7 +110,7 @@ P.auth.token = (email, from, subject, text, html, template, url) ->
       params: {token: token, url: url}
     return email: email
   else
-    return @uid 8 # is there a case where this would somehow be useful? It's not getting saved anywhere for later confirmation...
+    return #@uid 8 # is there a case where this would somehow be useful? It's not getting saved anywhere for later confirmation...
 
 # auth/:uid/role/:grl
 # check if a user has a role or one of a list of roles
@@ -178,7 +178,7 @@ P.auth.add = (grl, user, remove, deny) ->
     user.roles[group] = user.roles[group].splice(user.roles[group].indexOf('request'), 1) if 'request' in user.roles[group] # when any other role is added, request is removed
     user.roles.group.push role
     @users._update user
-    # TODO if role to add is 'request' then notify someone who can authorise
+    # TODO if role to add is 'request' then notify someone who can authorise - or have a cron job send batch notifications
 
   return user
 
@@ -241,7 +241,7 @@ P.auth._oauth = (token, cid) ->
 # if the states match, send the access_token into the above method and if it validates then we can login the user
 
 
-P.users = _index: true, _hide: true, _auth: 'system'
+P.users = _index: true, _hides: true, _auth: 'system'
 
 P.users._get = (uid, apikey) ->
   if apikey

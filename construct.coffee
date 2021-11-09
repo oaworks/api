@@ -60,6 +60,7 @@ else
 SYSTOKEN = crypto.randomBytes(32).toString 'hex'
 DATE = new Date().toString().split(' (')[0]
 VERSION = '' # get read from main worker file
+BG = '' # get read from worker settings, and if present is used to ping the URL to check it is up
 
 CNS = []
 if fs.existsSync './' + GROUP + 'secrets/' + ENV + 'construct.json'
@@ -71,17 +72,35 @@ else
   console.log "Anything in these folders will be ignored by any future git commits, so it is safe to put secret data in them."
   console.log "Deployment to cloudflare requires a ./secrets/construct.json file containing an object with keys ACCOUNT_ID, SCRIPT_ID, API_TOKEN"
 
+_sr = (data, opts) ->
+  return new Promise (resolve, reject) =>
+    req = https.request opts, (res) =>
+      if res.statusCode isnt 200
+        console.log res.statusCode
+      body = ''
+      res.on 'data', (chunk) -> body += chunk
+      res.on 'end', () -> 
+        try body = JSON.parse body
+        resolve body
+    req.on 'error', (err) =>
+      console.log 'SYNC PUT ERROR', err
+      reject err
+    req.write data
+    req.end()
+
 _put = (data) ->
   if typeof data isnt 'string'
+    sn = data.name
     data = JSON.stringify data
     ps = '/secrets'
   else
+    sn = ''
     ps = ''
   for CNE in CNS
-    console.log 'Sending for ' + CNE.SCRIPT_ID + (if CNE.NAME then ' on ' + CNE.NAME else '')
+    console.log 'Sending ' + (if sn then sn + ' ' else '') + 'for ' + CNE.SCRIPT_ID + (if CNE.NAME then ' on ' + CNE.NAME else '')
     if CNE.ACCOUNT_ID and CNE.SCRIPT_ID and CNE.API_TOKEN
       # data is either an object to send to secrets, or a file handle to stream to worker
-      opts =
+      ret = await _sr data, 
         hostname: 'api.cloudflare.com'
         port: 443
         path: '/client/v4/accounts/' + CNE.ACCOUNT_ID + '/workers/scripts/' + CNE.SCRIPT_ID + ps
@@ -90,19 +109,9 @@ _put = (data) ->
           'Content-Type': 'application/javascript'
           #'Content-Length': data.length
           'Authorization': 'Bearer ' + CNE.API_TOKEN
-    
-      req = https.request opts, (res) -> 
-        console.log(res.statusCode) if res.statusCode isnt 200
-        body = ''
-        res.on 'data', (chunk) -> body += chunk
-        res.on 'end', () -> 
-          try
-            body = JSON.parse body
-            try console.log (body.result.name ? body.result.id) + ' ' + (if body.success then 'success' else 'error')
-            console.log(e.message) for e in body.errors
-      req.on 'error', (err) -> console.log err
-      req.write data
-      req.end()
+      try console.log('ERROR', e.code, e.message) for e in ret.errors
+      try console.log (ret?.success ? 'false'), CNE.SCRIPT_ID, CNE.NAME, sn
+      console.log '------'
 
 _exec = (cmd) ->
   return new Promise (d) ->
@@ -256,6 +265,7 @@ _w = () ->
         for WF in wfls
           if ENV is '' or WF.indexOf(ENV) is 0 or (WF.indexOf('_') is -1 and not fs.existsSync './worker/' + GROUP + 'secrets/' + ENV + WF)
             SECRETS_DATA = JSON.parse fs.readFileSync('./worker/' + GROUP + 'secrets/' + WF).toString()
+            try BG = SECRETS_DATA.bg if not BG
             SECRETS_NAME = 'SECRETS_' + WF.split('.')[0].toUpperCase().replace ENV + '_', ''
             if (if WF.includes('_') then WF.split('_').pop() else WF).split('.')[0].toLowerCase() is 'settings' and not SECRETS_DATA.system
               console.log 'Adding system token', SYSTOKEN
@@ -266,7 +276,7 @@ _w = () ->
                   console.log "To push secrets to cloudflare, cloudflare account ID, API token, and script ID must be set to keys ACCOUNT_ID, API_TOKEN, SCRIPT_ID, in ./secrets/construct.json"
                 else
                   console.log 'Sending worker ' + SECRETS_NAME + ' secrets to cloudflare'
-                  _put {name: SECRETS_NAME, text: JSON.stringify(SECRETS_DATA)}
+                  await _put {name: SECRETS_NAME, text: JSON.stringify(SECRETS_DATA)}
             if 'server' in args
               console.log 'Saving worker ' + SECRETS_NAME + ' to server file'
               sfl = "var " + SECRETS_NAME + " = '" + JSON.stringify(SECRETS_DATA) + "';\n" + sfl
@@ -291,7 +301,7 @@ _w = () ->
           console.log "To deploy worker to cloudflare, cloudflare account ID, API token, and script ID must be set to keys ACCOUNT_ID, API_TOKEN, SCRIPT_ID, in secrets/construct.json"
         else
           console.log "Deploying worker to cloudflare"
-          _put fs.readFileSync('./worker/dist/worker.min.js').toString()
+          await _put fs.readFileSync('./worker/dist/worker.min.js').toString()
       else
         console.log "No worker file available to deploy to cloudflare at worker/dist/worker.min.js\n"
   
@@ -311,6 +321,20 @@ _w = () ->
 
   if VERSION
     console.log 'v' + VERSION + ' built at ' + DATE
+
+  if BG.startsWith 'http' # this will confirm version deployment to BG if available, and also causes any scheduled tasks to be loaded on restart
+    setTimeout () ->
+      req = https.request {hostname: BG.split('://')[1], port: if BG.startsWith('https') then 443 else 80}, (res) -> 
+        body = ''
+        res.on 'data', (chunk) -> body += chunk
+        res.on 'end', () -> 
+          try
+            body = JSON.parse body
+            console.log 'Ping', BG, (if VERSION.includes(body.version) then 'confirms' else 'FAILED TO FIND'), 'expected version', body.version
+          catch
+            console.log 'Ping ERROR'
+      req.end()
+    , 1000
 
 _w()
 

@@ -13,11 +13,9 @@ P.src.ror.load = () ->
   batchsize = 20000 # how many records to batch upload at a time
   howmany = @params.howmany ? -1 # max number of lines to process. set to -1 to keep going
 
-  infile = '/mnt/volume_nyc3_01/ror/2021-03-25-ror-data.json' # where the lines should be read from
-  lastfile = '/mnt/volume_nyc3_01/ror/last' # where to record the ID of the last item read from the file
-  try lastrecord = (await fs.readFile lastfile).toString() if not @refresh
+  infile = @S.directory + '/ror/2021-03-25-ror-data.json' # where the lines should be read from
 
-  await @src.ror('') if not lastrecord
+  await @src.ror('') if @refresh
 
   total = 0
   batch = []
@@ -41,15 +39,12 @@ P.src.ror.load = () ->
         endobj = false
         rec = await @src.ror._format JSON.parse lobj
         lobj = ''
-        if not lastrecord or lastrecord is rec.id
-          lastrecord = undefined
-          total += 1
-          batch.push rec
-          if batch.length is batchsize
-            console.log 'ROR bulk loading', batch.length, total
-            await @src.ror batch
-            batch = []
-            await fs.writeFile lastfile, rec.id
+        total += 1
+        batch.push rec
+        if batch.length is batchsize
+          console.log 'ROR bulk loading', batch.length, total
+          await @src.ror batch
+          batch = []
 
   await @src.ror(batch) if batch.length
   console.log total

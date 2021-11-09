@@ -5,12 +5,12 @@
 # ES base is still there - just can't get it to respond without finding the index name. 
 # However, developments on querying the releases gives us a possible solution:
 
-P.src.fatcat = (doi) ->
+'''P.src.fatcat = (doi) ->
   doi ?= @params.fatcat ? @params.doi
   try
     res = await @fetch 'https://api.fatcat.wiki/v0/release/lookup?expand=files&hide=abstracts,refs&doi=' + doi
     return res
-  return
+  return'''
 
 # is there also a title search? Or only IDs? title= doesn't work. Can explore more later.
 

@@ -59,7 +59,7 @@ P.src.google.sheets = (opts) ->
     delete opts.sheet
     delete opts.sheets
   if not opts.sheetid
-    return values
+    return []
   else if opts.sheetid.startsWith 'http'
     url = opts.sheetid
   else
@@ -76,7 +76,9 @@ P.src.google.sheets = (opts) ->
     url = 'https://sheets.googleapis.com/v4/spreadsheets/' + opts.sheetid + '/values/' + opts.sheet + '?alt=json&key=' + (@S.src.google?.secrets?.serverkey ? @S.src.google?.secrets?.apikey)
 
   g = await @fetch url, headers: 'Cache-Control': 'no-cache'
-  if opts.headers is false
+  if opts.values is false
+    return g
+  else if opts.headers is false
     return g.values
   else
     if Array.isArray opts.headers
@@ -104,16 +106,15 @@ P.src.google.sheets._bg = true
 # https://developers.google.com/hangouts/chat/how-tos/webhooks	
 # pradm dev "pradm alert" google chat webhook
 P.src.google.chat = (params, url) ->
-  params = {text: params} if typeof params is 'string'
-  params ?= @params
-  headers = "Content-Type": 'application/json; charset=UTF-8' # any other possible headers?
-  data = method: 'POST', headers: headers, body: text: decodeURIComponent params.text ? params.msg ? params.body ? ''
-  url ?= @S.src.google?.secrets?.chat # should url be allowed on params? doesn't strictly need to be secret, the key and token it uses only work for the webhook
-  if data.body.text and url?
-    return @fetch url, data
-  else
-    return
-
+  try
+    params = {text: params} if typeof params is 'string'
+    params ?= @params
+    headers = "Content-Type": 'application/json; charset=UTF-8' # any other possible headers?
+    data = method: 'POST', headers: headers, body: text: decodeURIComponent params.text ? params.msg ? params.body ? ''
+    url ?= @S.src.google?.secrets?.chat # should url be allowed on params? doesn't strictly need to be secret, the key and token it uses only work for the webhook
+    if data.body.text and url?
+      return @fetch url, data
+  return
 
 '''
 # docs:

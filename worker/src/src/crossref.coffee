@@ -2,19 +2,13 @@
 # https://github.com/CrossRef/rest-api-doc/blob/master/rest_api.md
 # http://api.crossref.org/works/10.1016/j.paid.2009.02.013
 
-
 P.src.crossref = () ->
   return 'Crossref API wrapper'
 
 P.src.crossref.journals = (issn) ->
-  # by being an index, should default to a search of the index, then run this query if not present, which should get saved to the index
   issn ?= @params.journals ? @.params.issn
-  isissn = typeof issn is 'string' and issn.length is 9 and issn.split('-').length is 2 and issn.indexOf('-') is 4
-  #url = 'https://api.crossref.org/journals?query=' + issn
-  url = 'https://dev.api.cottagelabs.com/use/crossref/journals' + (if isissn then '/' + issn else '?q=') + issn
-  res = await @fetch url #, {headers: {'User-Agent': @S.name + '; mailto:' + @S.mail?.to}} # TODO check how headers get sent by fetch
-  #return if res?.message?['total-results']? and res.message['total-results'].length then res.message['total-results'][0] else undefined
-  return if isissn then (if res?.ISSN? then res else undefined) else res
+  res = await @fetch 'https://api.crossref.org/journals/' + issn, {headers: {'User-Agent': @S.name + '; mailto:' + @S.mail?.to}}
+  return res?.message
 
 #P.src.crossref.journals._index = true
 #P.src.crossref.journals._key = 'ISSN'
@@ -24,12 +18,11 @@ P.src.crossref.journals.doi = (issn) ->
   issn ?= @params.doi ? @params.issn
   issn = issn.split(',') if typeof issn is 'string'
   try
-    #res = await @src.crossref.works 'ISSN.exact:"' + issn.join('" OR ISSN.exact:"') + '"'
-    res = await @fetch 'https://dev.api.cottagelabs.com/use/crossref/works?q=ISSN.exact:"' + issn.join('" OR ISSN.exact:"') + '"'
-    return res.hits.hits[0]._source.DOI
+    res = await @src.crossref.works 'ISSN:"' + issn.join('" OR ISSN:"') + '"', 1
+    return res.DOI
   return
 
-P.src.crossref.works = (doi, opts) ->
+P.src.crossref.works = (doi) ->
   doi ?= @params.works ? @params.doi ? @params.title ? @params.q
   if typeof doi is 'string'
     if doi.indexOf('10.') isnt 0
@@ -38,20 +31,12 @@ P.src.crossref.works = (doi, opts) ->
       # a search of an index of works - and remainder of route is a DOI to return one record
       doi = doi.split('//')[1] if doi.indexOf('http') is 0
       doi = '10.' + doi.split('/10.')[1] if doi.indexOf('10.') isnt 0 and doi.indexOf('/10.') isnt -1
-      # for now just get from old system instead of crossref
-      #url = 'https://api.crossref.org/works/' + doi
-      url = 'https://dev.api.cottagelabs.com/use/crossref/works?doi=' + doi
-      res = await @fetch url #, {headers: {'User-Agent': @S.name + '; mailto:' + @S.mail?.to}}
+      url = 'https://api.crossref.org/works/' + doi
+      res = await @fetch url, {headers: {'User-Agent': @S.name + '; mailto:' + @S.mail?.to}}
 
-    if res?.DOI? #res?.message?.DOI?
-      rec = await @src.crossref.works._format res #res.data.message
-      return rec
-  else
-    # for now just get from old system instead of crossref
-    #url = 'https://api.crossref.org/works/' + doi
-    url = 'https://dev.api.cottagelabs.com/use/crossref/works?q=' + doi
-    return await @fetch url, params: opts #, {headers: {'User-Agent': @S.name + '; mailto:' + @S.mail?.to}}
-    
+    if res?.message?.DOI?
+      return @src.crossref.works._format res.message
+
   return
 
 #P.src.crossref.works._kv = false
@@ -71,8 +56,7 @@ P.src.crossref.works.title = (title) ->
       qr += ' AND ' if not qr.endsWith '('
       qr += '(title:"' + t + '" OR subtitle:"' + t + '")'
     qr += ')'
-  rem = await @fetch 'https://dev.api.cottagelabs.com/use/crossref/works?q=' + qr
-  #rem = @src.crossref.works qr
+  rem = @src.crossref.works qr
   ltitle = title.toLowerCase().replace(/['".,\/\^&\*;:!\?#\$%{}=\-\+_`~()]/g,' ').replace(/\s{2,}/g,' ').trim()
   for r in rem?.hits?.hits ? []
     if r._source.DOI and r._source.title and r._source.title.length
@@ -114,15 +98,78 @@ P.src.crossref.works._format = (rec) ->
   for au in rec.author ? []
     au.name = (if au.given then au.given + ' ' else '') + (au.family ? '')
 
-  for p in ['published','published-print','published-online','issued','deposited','indexed']
-    if typeof rec[p] is 'object' and not rec.published
-      rec.published = rec[p]['date-time'].split('T')[0] if typeof rec[p]['date-time'] is 'string' and rec[p]['date-time'].split('T')[0].split('-').length is 3
-      if typeof rec.published isnt 'string' and Array.isArray(rec[p]['date-parts']) and rec[p]['date-parts'].length and Array.isArray rec[p]['date-parts'][0]
-        rp = rec[p]['date-parts'][0]
-        if typeof rp[0] is 'string' and rp[0] isnt 'null'
-          rec.published = rp[0] + (if rp.length > 1 then '-' + (if rp[1].toString().length is 1 then '0' else '') + rp[1] else '-01') + (if rp.length > 2 then '-' + (if rp[2].toString().length is 1 then '0' else '') + rp[2] else '-01')
-      if typeof rec.published is 'string'
-        rec.year = rec.published.split('-')[0]
-        rec.publishedAt = rec[p].timestamp ? await @epoch rec.published
+  if rec.published = await @src.crossref.works.published rec
+    try rec.year = rec.published.split('-')[0]
+    try parseInt rec.year
+    try rec.publishedAt = await @epoch rec.published
 
   return rec
+
+P.src.crossref.works.published = (rec) ->
+  rec ?= @params.published
+  rec = await @src.crossref.works(rec) if typeof rec is 'string'
+  if rec?
+    ppe = undefined
+    pp = undefined
+    for p in ['published','published-print','published-online','issued','deposited']
+      if typeof rec[p] is 'object'
+        ppp = undefined
+        if typeof rec[p]['date-time'] is 'string' and rec[p]['date-time'].split('T')[0].split('-').length is 3
+          ppp = rec[p]['date-time'].split('T')[0]
+        else if Array.isArray(rec[p]['date-parts']) and rec[p]['date-parts'].length and Array.isArray rec[p]['date-parts'][0]
+          rp = rec[p]['date-parts'][0]
+          if typeof rp[0] in ['string', 'number'] and rp[0] isnt 'null'
+            ppp = rp[0] + (if rp.length > 1 then '-' + (if rp[1].toString().length is 1 then '0' else '') + rp[1] else '-01') + (if rp.length > 2 then '-' + (if rp[2].toString().length is 1 then '0' else '') + rp[2] else '-01')
+        if ppp and (not pp or ppe > await @epoch ppp)
+          pp = ppp
+          ppe = await @epoch pp
+    return pp        
+  return
+  
+P.src.crossref.works.published._hide = true
+
+P.src.crossref.works.search = (qrystr, from, size, filter, start, end, sort, order) ->
+  qrystr ?= @params.q ? @params.search ? @params
+  from ?= @params.from
+  size ?= @params.size
+  filter ?= @params.filter
+  start ?= @params.start
+  end ?= @params.end
+  sort ?= @params.sort
+  order ?= @params.order ? 'asc'
+  if start
+    filtered = filter ? sort ? 'created' # can be published, indexed, deposited, created. indexed catches the most changes but can be very large and takes a long time
+    start = await @date(start) if typeof start isnt 'string' or start.indexOf('-') is -1 # should be like 2021-01-31
+    filter = (if filter then filter + ',' else '') + 'from-' + filtered.replace('lished','').replace('xed','x').replace('ited','it') + '-date:' + start
+  if end
+    filtered ?= filter ? sort ? 'created'
+    end = await @date(end) if typeof end isnt 'string' or end.indexOf('-') is -1
+    filter = (if filter then filter + ',' else '') + 'until-' + filtered.replace('lished','').replace('xed','x').replace('ited','it') + '-date:' + end
+  url = 'https://api.crossref.org/works?'
+  url += 'sort=' + sort + '&order=' + order + '&' if sort?
+  if typeof qrystr is 'object'
+    for k of qrystr
+      if k not in ['from','size','filter','start','end','sort','order']
+        ky = if k in ['title','citation','issn'] then 'query.bibliographic' else if k is 'journal' then 'query.container-title' else if k in ['author','editor','chair','translator','contributor','affiliation','bibliographic'] then 'query.' + k else k
+        url += ky + '=' + encodeURIComponent(qrystr[k]) + '&' 
+  else if qrystr and qrystr isnt 'all'
+    qry = qrystr.replace(/\w+?\:/g,'') #.replace(/ AND /g,'+').replace(/ NOT /g,'-')
+    qry = qry.replace(/ /g,'+')
+    url += 'query=' + encodeURIComponent(qry) + '&'
+  if from?
+    if from isnt '*' and typeof from is 'string' and not from.replace(/[0-9]/g,'').length
+      try
+        fp = parseInt from
+        from = fp if not isNaN fp
+    if typeof from isnt 'number'
+      url += 'cursor=' + encodeURIComponent(from) + '&'
+    else
+      url += 'offset=' + from + '&'
+  url += 'rows=' + size + '&' if size? # max size is 1000
+  url += 'filter=' + encodeURIComponent(filter) + '&'if filter? and filter isnt ''
+  url = url.replace('?&','?').replace(/&$/,'') # tidy any params coming immediately after the start of search query param signifier, as it makes crossref error out
+  try
+    res = await @fetch url, {headers: {'User-Agent': @S.name + '; mailto:' + @S.mail?.to}}
+    return total: res.message['total-results'], cursor: res.message['next-cursor'], data: res.message.items, facets: res.message.facets
+  catch
+    return

@@ -1,8 +1,15 @@
 
 P.status = ->
   res = name: S.name, version: S.version, built: S.built
-  for k in ['uid', 'rid', 'params', 'base', 'parts', 'opts', 'routes']
+  for k in ['rid', 'params', 'base', 'parts', 'opts', 'routes']
     try res[k] ?= @[k]
+  if @S.bg is true
+    try
+      res.schedule = {}
+      for ss of _schedule
+        res.schedule[ss] = {}
+        for k of _schedule[ss]
+          res.schedule[ss][k] = _schedule[ss][k] if k not in ['fn']
   res.bg = true if @S.bg is true
   res.kv = if typeof @S.kv is 'string' and global[@S.kv] then @S.kv else if typeof @S.kv is 'string' then @S.kv else false
   try res.index = await @index.status()

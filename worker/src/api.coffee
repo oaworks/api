@@ -1,7 +1,7 @@
 
 # global S and P are accessible anywhere, and all files are merged into one on build.
 # NOTE it IS possible for scripts to persist between cloudflare worker requests, but also not guaranteed or intentional
-# so can't rely on them being clean every time, nor rely on them for storing state. Hence every new fetch event builds its own @S and @P
+# so can't rely on them being clean every time, nor rely on them for storing state. Hence every new fetch event builds its own @S and P onto the global
 
 try
   # from CF variable this will need parsed, so just default to passing them as strings and parsing them
@@ -77,7 +77,6 @@ S.src ?= {}
 # e.g. one that doesn't start with _ but should be hidden for some reason anyway. NOTE this 
 # doesn't stop it being ACCESSIBLE on the API, only hidden, whereas starting it with _ makes it inaccessible
 
-# TODO limit, retry, cron/job/batch
 # TODO add a way for a function to result in a file url on local disk or s3, or perhaps even a URL somewhere else, 
 # and to serve the location redirect as the result. Could be a _file option
 
@@ -85,14 +84,16 @@ try
   addEventListener 'fetch', (event) ->
     event.passThroughOnException() if S.pass isnt false
     event.respondWith P.call event
-try
+
+'''try
   addEventListener 'scheduled', (event) ->
     # https://developers.cloudflare.com/workers/runtime-apis/scheduled-event
     # event.type will always be 'scheduled'. event.scheduledTime ms timestamp of the scheduled time. Can be parsed with new Date(event.scheduledTime)
-    event.waitUntil P.call event, true # Fails will be recorded on Cron past events UI. Otherwise will record as success
+    event.waitUntil P.call event, true # Fails will be recorded on Cron past events UI. Otherwise will record as success'''
 
+_schedule = {}
 
-P = (scheduled) ->
+P = () ->
   # the context here is the fetch event
   @started = Date.now() # not strictly accurate in a workers environment, but handy nevertheless, used for comparison when logs are finally written
 
@@ -111,8 +112,8 @@ P = (scheduled) ->
     delete @S.kv if not global[@S.kv]
 
   # make @params @body, @headers, @cookie
-  @params = {}
-  if @request.url? and @request.url.indexOf('?') isnt -1
+  @params ?= {}
+  if @request.url? and @request.url.includes '?'
     pkp = ''
     for qp in @request.url.split('?')[1].split '&'
       kp = qp.split '='
@@ -124,7 +125,7 @@ P = (scheduled) ->
           if typeof @params[kp[0]] is 'string' and @params[kp[0]].replace(/[0-9]/g,'').length is 0 and not @params[kp[0]].startsWith('0')
             kpn = parseInt @params[kp[0]]
             @params[kp[0]] = kpn if not isNaN kpn
-          if typeof @params[kp[0]] is 'string' and @params[kp[0]].indexOf('%') isnt -1
+          if typeof @params[kp[0]] is 'string' and @params[kp[0]].includes '%'
             try @params[kp[0]] = decodeURIComponent @params[kp[0]]
           if typeof @params[kp[0]] is 'string' and (@params[kp[0]].startsWith('[') or @params[kp[0]].startsWith('{'))
             try @params[kp[0]] = JSON.parse @params[kp[0]]
@@ -178,21 +179,21 @@ P = (scheduled) ->
     delete @params.refresh # what to do about refresh getting into the cache key?
 
   # set the @url, the @base, the @route, and the url route parts in @parts
-  if @request.url.indexOf('http://') isnt 0 and @request.url.indexOf('https://') isnt 0
+  if not @request.url.startsWith('http://') and not @request.url.startsWith 'https://'
     # in case there's a url param with them as well, check if they're at the start
     # there's no base to the URL passed on the backend server, so here the @base isn't shifted from the parts list
     @url = @request.url.split('?')[0].replace(/^\//,'').replace(/\/$/,'')
-    try du = decodeURIComponent(@url) if @url.indexOf('%') isnt -1
+    try du = decodeURIComponent(@url) if @url.includes '%'
     @parts = if @url.length then (du ? @url).split('/') else []
     try @base = @headers.host
   else
     @url = @request.url.split('?')[0].replace(/\/$/,'').split('://')[1]
-    try du = decodeURIComponent(@url) if @url.indexOf('%') isnt -1
+    try du = decodeURIComponent(@url) if @url.includes '%'
     @parts = (du ? @url).split '/'
     @base = @parts.shift()
   if typeof @headers.accept is 'string'
     @format = 'csv' if @headers.accept.includes('/csv') and 'csv' in @S.formats
-  if @parts.length and @parts[@parts.length-1].indexOf('.') isnt -1 # format specified in url takes precedence over header
+  if @parts.length and @parts[@parts.length-1].includes '.' # format specified in url takes precedence over header
     pf = @parts[@parts.length-1].split('.').pop()
     if pf in @S.formats
       @format = pf
@@ -201,7 +202,7 @@ P = (scheduled) ->
     throw new Error() # send to backend to handle requests for anything that should be served from folders on disk
   for d of @S.domains ? {} # allows requests from specific domains to route directly to a subroute, or more usefully, a specific service
     @S.domains[d] = {parts: @S.domains[d], exclusive: false} if Array.isArray @S.domains[d]
-    if @base.indexOf(d) isnt -1
+    if @base.includes d
       exclusive = @S.domains[d].exclusive # if exclusive, ONLY routes that match within the defined parts will be served
       if not exclusive # for non-exclusive, only restrict if there IS something to match at or after the defined parts
         pp = [...@S.domains[d].parts]
@@ -228,7 +229,6 @@ P = (scheduled) ->
   @route = @parts.join '/'
   @routes = []
   @fn = '' # the function name that was mapped to by the URL routes in the request will be stored here
-  @scheduled = true if scheduled or @route is '_schedule' # and restrict this to root, or disable URL route to it
 
   if @route is '' #don't bother doing anything, just serve a direct P._response with the API details
     return P._response.call @, if @request.method in ['HEAD', 'OPTIONS'] then '' else name: @S.name, version: @S.version, base: (if @S.dev then @base else undefined), built: (if @S.dev then @S.built else undefined)
@@ -243,13 +243,12 @@ P = (scheduled) ->
   # params will be added to @params, keyed to whatever the most recent URL part that DID map to a function was
   # so for example /svc/oaworks/find maps to svc.oaworks.find, and /svc/oaworks/find/10.1234/567890 ALSO maps to it, 
   # and puts the remainder of the route (which is a DOI) into @params.find, so the find function can read it from there
-  schedule = [] # if called by a task scheduler, every _schedule function will be put in here, and these get run instead of the fn
   fn = undefined # the actual function to run, once it's found (not just the name of it, which is put in @fn)
   prs = [...@parts]
   pk = undefined
   pks = []
   _lp = (p, a, n, hides, auths, wraps, caches) =>
-    if pk and @fn.indexOf(n) is 0
+    if pk and @fn.startsWith n
       while prs.length and not p[prs[0]]?
         @params[pk] = (if @params[pk] then @params[pk] + '/' else '') + prs.shift()
         pks.push(pk) if pk not in pks
@@ -258,7 +257,7 @@ P = (scheduled) ->
         a[k] = p[k]
       else if p[k]?
         nd = n + (if n then '.' else '') + k
-        if typeof p[k] is 'object' and not p[k]._index and not p[k]._indexed and not p[k]._kv and not p[k]._bg # index, kv, or bg could be objects that need wrapped
+        if typeof p[k] is 'object' and not p[k]._index and not p[k]._indexed and not p[k]._sheet and not p[k]._kv and not p[k]._bg # index, kv, or bg could be objects that need wrapped
           a[k] = JSON.parse JSON.stringify p[k]
         else
           p[k]._hide ?= p[k]._hides ?= hides
@@ -274,21 +273,37 @@ P = (scheduled) ->
               p[k][ik] ?= {_indexed: ik, _auth: (if ik.startsWith('_') then 'system' else p[k]._auth)}
           for sk of fs = P.dot @S, n
             p[k][sk] = fs[sk] if sk.startsWith '_' # try to find anything in settings and treat it as an override
-          if typeof p[k] is 'function' and not p[k]._index and not p[k]._indexed and not p[k]._kv and not p[k]._bg and (nd.indexOf('.') is -1 or p[k]._wrap is false or nd.split('.').pop().indexOf('_') is 0)
+          if typeof p[k] is 'function' and not p[k]._index and not p[k]._indexed and not p[k]._kv and not p[k]._bg and (not nd.includes('.') or p[k]._wrap is false or nd.split('.').pop().startsWith '_')
             a[k] = p[k].bind @
           else
             a[k] = P._wrapper(p[k], nd).bind @
-          a[k]._fn = nd
           for uk of p[k]
             a[k][uk] = p[k][uk] if uk.startsWith '_'
-        schedule.push(a[k]) if @scheduled and a[k]._schedule
+        a[k]._name ?= nd
+
+        if a[k]._schedule and not _schedule[nd] and @S.bg is true and @S.cron is false # TODO work a way for this to work with cloudflare tasks on worker too, if useful 
+          console.log 'Adding schedule', a[k]._schedule, nd
+          _schedule[nd] = schedule: a[k]._schedule, fn: a[k]
+          cron.schedule a[k]._schedule, () =>
+            _schedule[nd].last = await @datetime()
+            try
+              @refresh = true if fn._sheet
+              crd = await _schedule[nd].fn _schedule[nd].fn._args # args can optionally be provided for the scheduled call
+              try _schedule[nd].result = JSON.stringify(crd).substr 0, 200
+              _schedule[nd].success = true
+              console.log 'scheduled task result', crd
+            catch
+              _schedule[nd].success = false
+            if _schedule[nd].fn._notify isnt false
+              @src.google.chat 'Scheduled ' + nd ' executed ' + (if _schedule[nd].success then 'successfully' else 'unsuccessfully') + ' at ' + await @datetime undefined, false
+
         if not k.startsWith '_' # underscored methods cannot be accessed from URLs
-          if prs.length and prs[0] is k and @fn.indexOf(n) is 0
+          if prs.length and prs[0] is k and @fn.startsWith n
             pk = prs.shift()
             @fn += (if @fn is '' then '' else '.') + pk
-            fn = a[k] if typeof a[k] is 'function' and n.indexOf('._') is -1 # URL routes can't call _abc functions or ones under them
-          if typeof a[k] is 'function' and not a[k]._hide and nd.replace('svc.','').replace('src.','').split('.').length is 1 #and not nd.startsWith('scripts') and nd.indexOf('.scripts') is -1 and ((not nd.startsWith('svc') and not nd.startsWith('src')) or nd.split('.').length < 3)
-            @routes.push (nd).replace(/\./g, '/') # TODO this could check the auth method, and only show things the current user can access, and also search for description / comment? NOTE this is just about visibility, they're still accessible if given right auth (if any)
+            fn = a[k] if typeof a[k] is 'function' and not n.includes '._' # URL routes can't call _abc functions or ones under them
+          if typeof a[k] is 'function' and not a[k]._hide and nd.replace('svc.','').replace('src.','').split('.').length is 1 #and ((not nd.startsWith('svc') and not nd.startsWith('src')) or nd.split('.').length < 3)
+            @routes.push nd.replace /\./g, '/' # TODO this could check the auth method, and only show things the current user can access, and also search for description / comment? NOTE this is just about visibility, they're still accessible if given right auth (if any)
         _lp(p[k], a[k], nd, (hides ? p[k]._hides), (auths ? p[k]._auths), (wraps ? p[k]._wraps), (caches ? p[k]._caches)) if not Array.isArray(p[k]) and (not k.startsWith('_') or typeof a[k] is 'function')
   _lp P, @, ''
   if pk and prs.length # catch any remaining url params beyond the max depth of P
@@ -302,16 +317,7 @@ P = (scheduled) ->
 
   console.log('=== ' + (if @system then 'SYSTEM ' else '') + @request.method + ' ===', @base, @fn, @domain, typeof @body) if @S.dev and @S.bg is true
 
-  if @scheduled
-    for fs in schedule
-      console.log('scheduled', fs._fn) if @S.dev and @S.bg is true
-      try
-        if typeof fs._schedule is 'function'
-          @waitUntil fs._schedule.apply @
-        else # TODO add a timing method to this to only run at certain times, waiting until a kv record or similar indicating last run is not available
-          @waitUntil fs.apply @
-
-  else if typeof fn in ['object', 'function'] and fn._bg and typeof @S.bg is 'string' and @S.bg.startsWith 'http'
+  if typeof fn in ['object', 'function'] and fn._bg and typeof @S.bg is 'string' and @S.bg.startsWith 'http'
     throw new Error()
   else if typeof fn is 'function'
     authd = if @fn is 'auth' then undefined else await @auth()
@@ -347,7 +353,6 @@ P = (scheduled) ->
 
   res = '' if (not res? or (typeof res is 'object' and res.status is 404)) and @url.replace('.ico','').replace('.gif','').replace('.png','').endsWith 'favicon'
   resp = if typeof res is 'object' and not Array.isArray(res) and typeof res.headers?.append is 'function' then res else await @_response res, fn
-  # what about if scheduled? log?
   if @parts.length and @parts[0] not in ['log','status'] and (not @system or @parts[0] not in ['kv', 'index']) and @request.method not in ['HEAD', 'OPTIONS'] and res? and res isnt ''
     if @completed and fn._cache isnt false and resp.status is 200 and (typeof res isnt 'object' or Array.isArray(res) or res.hits?.total isnt 0) and (typeof res isnt 'number' or not @refresh)
       si = fn._cache # fn._cache can be a number of seconds for cache to live, so pass it to cache to use if suitable
@@ -356,7 +361,7 @@ P = (scheduled) ->
     else if @refresh
       @cache undefined, ''
     @log() if typeof fn not in ['object', 'function'] or fn._log isnt false
-  if not @completed and not @cached and not @unauthorised and not @scheduled and @S.pass isnt false and typeof @S.bg is 'string' and @request.method not in ['HEAD', 'OPTIONS']
+  if not @completed and not @cached and not @unauthorised and @S.pass isnt false and typeof @S.bg is 'string' and @request.method not in ['HEAD', 'OPTIONS']
     throw new Error() # TODO check for functions that often timeout and set them to _bg by default
   else
     return resp
@@ -477,9 +482,10 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
       if f._sheet.startsWith 'http'
         res.body = f._sheet
       else if @format is 'json' # TODO make it handle sheet and sheet ID in cases where both are provided
-        res.body = 'https://spreadsheets.google.com/feeds/list/' + f._sheet + '/' + 'default' + '/public/values?alt=json'
+        #res.body = 'https://spreadsheets.google.com/feeds/list/' + f._sheet + '/' + 'default' + '/public/values?alt=json'
+        res.body = 'https://sheets.googleapis.com/v4/spreadsheets/' + f._sheet.split('/')[0] + '/values/' + (f._sheetid ? f._sheet.split('/')[1] ? 'Sheet1') + '?alt=json'
       else
-        res.body = 'https://docs.google.com/spreadsheets/d/' + f._sheet
+        res.body = 'https://docs.google.com/spreadsheets/d/' + f._sheet.split('/')[0]
       res.headers = Location: res.body
 
     # a function with _index will be given child functions that call the default index child functions - if they're present, call them with the route specified
@@ -496,39 +502,50 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
     else if (f._index or f._kv) and (not f._sheet or @fn isnt n or not @refresh)
       if @fn is n
         lg.key = @route.split(n.split('.').pop()).pop().replace(/\//g, '_').replace(/^_/,'').replace(/_$/,'') if @fn.replace(/\./g, '/') isnt @route # action on a specific keyed record
+        qry = await @index.translate(if @request.method is 'POST' then @body else @params) if not lg.key and f._index #and not rec?
         # TODO who should be allowed to submit a record remotely?
         #rec = if @request.method is 'PUT' or (lg.key and @request.method is 'POST') then @body else if @request.method is 'DELETE' or @params._delete then '' else undefined
-        if not lg.key and f._index #and not rec?
-          qry = await @index.translate(if @request.method is 'POST' then @body else @params) # and if there is @params._delete, delete by query?
+         # and if there is @params._delete, delete by query?
       else if arguments.length # could be a key string and record or could be a query and options (and query could look like a key)
-        lg.key = arguments[0].replace(/\//g, '_') if typeof arguments[0] is 'string' and arguments[0].length and not arguments[0].includes '\n' # could be key or query string
-        delete lg.key if lg.key and lg.key.length isnt lg.key.replace(/[\s\:\*~\?=%]/g, '').length # only keep if it could be a valid key
-        if f._index and arguments[0] isnt '' and arguments[1] isnt '' and qry = await @index.translate arguments[0], arguments[1] # check if it can be a query
-          qry = undefined if lg.key and (arguments.length is 1 or typeof arguments[1] is 'object') and exists = await @index rt + '/' + lg.key # it was a record key, not a query
+        # could be key or query string - if query string is ambiguous, make it definitive by sending an object with q: 'query string'
+        lg.key = arguments[0].replace(/\//g, '_').trim() if typeof arguments[0] is 'string' and arguments[0].length and not arguments[0].includes('\n') and arguments[0].length is arguments[0].replace(/[\s\:\*~\?=%"]/g, '').length
+        lg.key = arguments[0].toString() if typeof arguments[0] is 'number' # some indexes could use a number as an ID
+        qry = await @index.translate(arguments[0], arguments[1]) if f._index and not lg.key # check if it can be a query
         rec = if qry? then undefined else if lg.key then arguments[1] else if f._index then arguments[0] else undefined
 
-      if typeof rec is 'object' and not Array.isArray rec
-        rec._id ?= lg.key ? rec[f._key] ? @uid()
-        lg.key ?= rec._id
+      if typeof rec is 'object'
+        if not Array.isArray rec
+          rec._id ?= lg.key ? rec[f._key] ? @uid()
+          lg.key ?= rec._id
+        else if rec.length
+          for c in rec
+            c._id ?= c[f._key] ? @uid()
       #console.log(n, lg.key, JSON.stringify(rec), JSON.stringify(qry), res, @refresh, typeof f, exists) if @S.dev and @S.bg is true
       
-      if qry?
-        res = await @index rt, qry
-        lg.qry = JSON.stringify qry
       if rec? or not @refresh or typeof f isnt 'function'
-        if f._kv and lg.key and (rec? or not exists?)
+        if f._kv and lg.key
           res = await @kv rt + '/' + lg.key, rec # there may or may not be a rec, as it could just be getting the keyed record
           lg.cached = 'kv' if res? and not rec?
-        if f._index and (rec? or not res?)
-          res = if exists? and not rec? then exists else await @index rt + (if lg.key and (rec? or not qry?) then '/' + lg.key else ''), (rec ? (if not lg.key then qry else undefined))
+        if f._index
+          res = await @index rt + (if lg.key then '/' + lg.key else ''), (rec ? qry)
           if not res? and (not lg.key or not rec?) # this happens if the index does not exist yet, so create it (otherwise res would be a search result object)
-            await @index rt, if typeof f._index isnt 'object' then {} else {settings: f._index.settings, mappings: f._index.mappings, aliases: f._index.aliases}
+            await @index rt, if typeof f._index isnt 'object' then {} else {settings: f._index.settings, mappings: (f._index.mappings ? f._index.mapping), aliases: f._index.aliases}
             res = await @index(rt + (if lg.key then '/' + lg.key else ''), (rec ? (if not lg.key then qry else undefined))) if rec isnt ''
-      try res = undefined if not rec? and res.hits.total is 0 and typeof f is 'function' and lg.key # allow the function to run to try to retrieve or create the record from remote
-      try
-        if qry.query.bool? and (qry.size is 1 or (res.hits.total is 1 and lg.key)) # return 1 record instead of a search result.
-          res.hits.hits[0]._source._id = res.hits.hits[0]._id if res.hits.hits[0]._source? and not res.hits.hits[0]._source._id?
-          res = res.hits.hits[0]._source ? res.hits.hits[0].fields # is fields instead of _source still possible in ES7.x?
+          if not res? and not rec? and lg.key and typeof arguments[0] is 'string' and qry = await @index.translate arguments[0], arguments[1]
+            qrs = await @index rt, qry
+            if qrs?.hits?.total is 1
+              for k in await @keys qrs.hits.hits[0]._source
+                if (typeof qrs.hits.hits[0]._source[k] is 'string' and arguments[0] is qrs.hits.hits[0]._source[k]) or (Array.isArray(qrs.hits.hits[0]._source[k]) and arguments[0] in qrs.hits.hits[0]._source[k])
+                  res = qrs.hits.hits[0]._source
+                  res._id ?= qrs.hits.hits[0]._id
+                  break
+          if qry?.size is 1 and typeof res is 'object' and res.hits?.hits?
+            if not res.hits.hits.length
+              res = undefined
+            else
+              res.hits.hits[0]._source._id ?= res.hits.hits[0]._id
+              res = res.hits.hits[0]._source
+      lg.qry = JSON.stringify(qry) if qry?
       lg.cached = 'index' if res? and not rec? and not lg.cached
       @cached = lg.cached if lg.cached and @fn is n
 
@@ -540,7 +557,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
 
     # if nothing yet, send to bg for _bg or _sheet functions, if bg is available and not yet on bg
     # _bg, _sheet
-    if not res? and (f._bg or f._sheet) and typeof @S.bg is 'string' and @S.bg.indexOf('http') is 0
+    if not res? and (f._bg or f._sheet) and typeof @S.bg is 'string' and @S.bg.startsWith 'http'
       bup = headers: {}, body: rec, params: @copy @params
       bup.params.refresh = true if @refresh
       bup.headers['x-' + @S.name.toLowerCase() + '-rid'] = @rid
@@ -563,7 +580,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
       if Array.isArray(sht) and sht.length
         sht = await f.apply(@, [sht]) if typeof f is 'function' # process the sheet with the function if necessary, then create or empty the index
         await @index rt, ''
-        await @index rt, if typeof f._index isnt 'object' then {} else {settings: f._index.settings, mappings: f._index.mappings, aliases: f._index.aliases}
+        await @index rt, if typeof f._index isnt 'object' then {} else {settings: f._index.settings, mappings: (f._index.mappings ? f._index.mapping), aliases: f._index.aliases}
         if arguments.length or JSON.stringify(@params) isnt '{}'
           await @index rt, sht
         else
@@ -571,6 +588,8 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
           res = sht.length # if there are args, don't set the res, so the function can run afterwards if present
       else
         res = 0
+      if @fn is n and f._notify isnt false
+        @waitUntil @src.google.chat @fn + ' refresh done at ' + (await @datetime undefined, false) + '\n' + JSON.stringify res
     
     # if still nothing happened, and the function defined on P really IS a function
     # (it could also be an index or kv config object with no default function)
@@ -588,12 +607,15 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
             c._id ?= c[f._key] for c in r
           id = if Array.isArray(r) then '' else '/' + (r[f._key] ? r._id ? @uid()).replace(/\//g, '_').toLowerCase()
           @kv(rt + id, res, f._kv) if f._kv and not Array.isArray r
-          @waitUntil @index(rt + id, r) if f._index
+          @waitUntil(@index(rt + id, r)) if f._index
         if f._limit is true
           await @kv 'limit/' + n, '' # where limit is true only delay until function completes, then delete limit record
         if f._async
           @kv 'async/' + @rid, (if id? and not Array.isArray(r) then rt + id else if Array.isArray(r) then r.length else r), 172800 # lasts 48 hours
-          @mail({to: notify, text: @base + '/' + rt + '?_async=' + @rid}) if notify
+          if @fn is n and f._notify isnt false
+            txt = @fn + ' done at ' + (await @datetime undefined, false) + '\n\n' + JSON.stringify(r) + '\n\n' + @base + '/' + rt + '?_async=' + @rid
+            @mail({to: notify, text: txt}) if notify
+            @waitUntil @src.google.chat txt
         return r
       if f._async
         lg.async = true
@@ -618,7 +640,10 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
     return res
 
 
+P.command = ->
+  @format = 'html'
+  return '<script type="text/javascript" src="/client/pradmCommand.min.js?v=' + @S.version + '"></script><body></body><script>P.command();</script>'
+
 
 P.src = {}
 P.svc = {}
-P.scripts = {}

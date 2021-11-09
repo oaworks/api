@@ -24,14 +24,15 @@ P.src.microsoft.load = (kinds) ->
   # paper URLs PaperId is supposedly a Primary Key but there are clearly many more of them than Papers...
   # of other files not listed here yet: 1726140322 paper references
   # of about 49k journals about 9 are dups, 37k have ISSN. 32k were already known from other soruces. Of about 250m papers, about 99m have DOIs
-  infolder = '/mnt/volume_nyc3_01/mag/2021-04-26/' # where the lines should be read from
-  lastfile = '/mnt/volume_nyc3_01/mag/last' # prefix of where to record the ID of the last item read from the kind of file
+  infolder = @S.directory + '/mag/2021-04-26/' # where the lines should be read from
+  lastfile = @S.directory + '/mag/last' # prefix of where to record the ID of the last item read from the kind of file
   
   total = 0
   blanks = 0
   done = not @params.parallel
   ds = {}
   
+  paper_journal_count = 0
   paper_journal_lookups = {} # store these in memory when loading papers as they're looked up because there aren't many and it will work out faster than searching every time
   url_source_types = # defined by MAG
     '1': 'html'
@@ -61,7 +62,7 @@ P.src.microsoft.load = (kinds) ->
     try lastrecord = parseInt((await fs.readFile kindlastfile).toString().split(' ')[0]) if not @refresh
 
     if lastrecord isnt 'DONE'
-      if true #not lastrecord
+      if not lastrecord
         if kind is 'paper'
           await @src.microsoft.graph ''
         else
@@ -112,21 +113,26 @@ P.src.microsoft.load = (kinds) ->
                     obj.journal = title: jrnl.DisplayName, ISSN: jrnl.Issn.split(','), url: jrnl.Webpage, id: obj.JournalId
                   else if jrnl = await @src.microsoft.graph.journal js
                     paper_journal_lookups[js] = jrnl
+                    paper_journal_count += 1
+                    console.log paper_journal_count
                     obj.journal = title: jrnl.DisplayName, ISSN: jrnl.Issn.split(','), url: jrnl.Webpage
               #try
               #  abs = await @src.microsoft.graph.abstract obj.PaperId.toString()
               #  obj.abstract = abs.Abstract
-              try
-                for await ur from @index._for 'src_microsoft_graph_urls', 'PaperId:"' + obj._id + '"'
+              # the below are too slow, 10 to 15 mins per 50k articles
+              '''try
+                urlres = await @src.microsoft.graph.url 'PaperId:"' + obj._id + '"' # don't bother for-looping these because result size should be low, and saves on creating and deleting a scrol context for every one
+                for ur in urlres.hits.hits
                   obj.url ?= []
-                  puo = url: ur.SourceUrl, language: ur.LanguageCode
-                  try puo.type = url_source_types[ur.SourceType.toString()]
-                  obj.url.push puo
-              try
-                for await rr from @index._for 'src_microsoft_graph_relation', 'PaperId:"' + obj._id + '"'
-                  if rr.AuthorId # which it seems they all do, along with OriginalAuthor and OriginalAffiliation
+                  puo = url: ur._source.SourceUrl, language: ur._source.LanguageCode
+                  try puo.type = url_source_types[ur._source.SourceType.toString()]
+                  obj.url.push puo'''
+              '''try
+                relationres = await @src.microsoft.graph.relation 'PaperId:"' + obj._id + '"', 100 # 100 authors should be enough...
+                for rr in relationres.hits.hits
+                  if rr._source.AuthorId # which it seems they all do, along with OriginalAuthor and OriginalAffiliation
                     obj.author ?= []
-                    obj.author.push name: rr.OriginalAuthor, sequence: rr.AuthorSequenceNumber, id: rr.AuthorId, affiliation: name: rr.OriginalAffiliation, id: rr.AffiliationId
+                    obj.author.push name: rr._source.OriginalAuthor, sequence: rr._source.AuthorSequenceNumber, id: rr._source.AuthorId, affiliation: {name: rr._source.OriginalAffiliation, id: rr._source.AffiliationId}'''
                   #if rr.AuthorId and author = await @src.microsoft.graph.author rr.AuthorId.toString()
                   #  author.relation = rr
                   #  if author.LastKnownAffiliationId

@@ -18,6 +18,7 @@ P.src.microsoft.bing = (q, key) ->
     return {total: 0, data: []}
 
 
+
 P.src.microsoft.graph = _prefix: false, _index: settings: number_of_shards: 9
 P.src.microsoft.graph.journal = _prefix: false, _index: true
 P.src.microsoft.graph.author = _prefix: false, _index: settings: number_of_shards: 9
@@ -26,49 +27,64 @@ P.src.microsoft.graph.urls = _prefix: false, _index: settings: number_of_shards:
 P.src.microsoft.graph.abstract = _prefix: false, _index: settings: number_of_shards: 6
 P.src.microsoft.graph.relation = _prefix: false, _index: settings: number_of_shards: 12
 
+P.src.microsoft.graph.paper = (q) -> # can be a search or a record to get urls and relations for
+  url_source_types = # defined by MAG
+    '1': 'html'
+    '2': 'text'
+    '3': 'pdf'
+    '4': 'doc'
+    '5': 'ppt'
+    '6': 'xls'
+    '8': 'rtf'
+    '12': 'xml'
+    '13': 'rss'
+    '20': 'swf'
+    '27': 'ics'
+    '31': 'pub'
+    '33': 'ods'
+    '34': 'odp'
+    '35': 'odt'
+    '36': 'zip'
+    '40': 'mp3'
 
-'''
-P.src.microsoft.graph = (q) ->
-  # NOTE: although there are about 250m papers only about 90m have JournalId - the rest could be books, etc. Import them all?
-  _append = (rec) ->
-    if rec.JournalId
-      j = await @src.microsoft.graph.journal rec.JournalId
-      if j
-        rec.journal = j
-    #if ma = await @src.microsoft.graph.abstract rec.PaperId
-    #  rec.abstract = ma
-    #rec.relation = await @src.microsoft.graph._relations rec.PaperId, false, false
-    return rec
+  if @params.title and not q
+    return @src.microsoft.graph.paper.title()
 
-  q ?= @params.graph ? @params.doi ? @params.title ? @params
-  q = q.toString() if typeof q is 'number' # an MS ID like 2517073914 may turn up as number, if so convert to string
-  if typeof q is 'string' and q.indexOf('/') isnt -1 and q.indexOf('10.') is 0 and paper = await @src.microsoft.graph.paper 'Doi.exact:"' + q + '"'
-    return await _append paper
-  else if typeof q is 'string' and q.indexOf(' ') is -1 and q.length is 10 and paper = await @src.microsoft.graph.paper q
-    return await _append paper
-  else if typeof q is 'string' and q.indexOf(' ') isnt -1
+  q = @params.q ? @params.paper ? @params
+  res = if typeof q is 'object' and q.PaperId and q.Rank then q else await @src.microsoft.graph q
+  for r in (res?.hits?.hits ? (if res then [res] else []))
+    #if ma = await @src.microsoft.graph.abstract r._source.PaperId, 1
+    #  r._source.abstract = ma
+    try
+      urlres = await @src.microsoft.graph.urls 'PaperId:"' + r._source.PaperId + '"' # don't bother for-looping these because result size should be low, and saves on creating and deleting a scrol context for every one
+      for ur in urlres.hits.hits
+        r._source.url ?= []
+        puo = url: ur._source.SourceUrl, language: ur._source.LanguageCode
+        try puo.type = url_source_types[ur._source.SourceType.toString()]
+        r._source.url.push puo
+    try
+      rres = await @src.microsoft.graph.relation 'PaperId:"' + r._source.PaperId + '"', 100 # 100 authors should be enough...
+      for rr in rres.hits.hits
+        if rr._source.AuthorId # which it seems they all do, along with OriginalAuthor and OriginalAffiliation
+          r._source.author ?= []
+          r._source.author.push name: rr._source.OriginalAuthor, sequence: rr._source.AuthorSequenceNumber, id: rr._source.AuthorId, affiliation: {name: rr._source.OriginalAffiliation, id: rr._source.AffiliationId}
+    
+  return res
+  
+
+P.src.microsoft.graph.title = (q) ->
+  q ?= @params.title ? @params.q
+  if typeof q is 'string'
     title = q.toLowerCase().replace(/['".,\/\^&\*;:!\?#\$%{}=\-\+_`~()]/g,' ').replace(/\s{2,}/g,' ').trim() # MAG PaperTitle is lowercased. OriginalTitle isnt
-    res = await @src.microsoft.graph.paper 'PaperTitle:"' + title + '"'
+    res = await @src.microsoft.graph 'PaperTitle:"' + title + '"', 1
+    res = res.hits.hits[0]?._source if res?.hits?.hits
     if res?.PaperTitle
       rt = res.PaperTitle.replace(/['".,\/\^&\*;:!\?#\$%{}=\-\+_`~()]/g,' ').replace(/\s{2,}/g,' ').trim()
       if typeof this?.tdm?.levenshtein is 'function'
         lvs = await @tdm.levenshtein title, rt, false
         longest = if lvs.length.a > lvs.length.b then lvs.length.a else lvs.length.b
         if lvs.distance < 2 or longest/lvs.distance > 10
-          #res.relation = await @src.microsoft.graph._relations res.PaperId
-          return res
-        else
-          return
+          return @src.microsoft.graph.paper res
       else if title.length < (rt.length * 1.2) and (title.length > rt.length * .8)
-        #res.relation = await @src.microsoft.graph._relations res.PaperId
-        return res
-    return
-  else
-    return await @src.microsoft.graph.paper q
-  
-P.src.microsoft.graph.paper = (q) ->
-  # for now just get from old index
-  url = 'https://dev.api.cottagelabs.com/use/microsoft/graph/paper/?q=' + q
-  res = await @fetch url
-  return if res?.hits?.total then res.hits.hits[0]._source else undefined
-'''
+        return @src.microsoft.graph.paper res
+  return

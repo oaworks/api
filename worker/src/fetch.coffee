@@ -87,7 +87,7 @@ P.fetch = (url, params) ->
         return fetch url, params # (and response body can be used as stream if desired, or can await text() or json() etc
       else
         response = await fetch url, params
-        console.log(response.status + ' ' + url) if S.dev and S.bg is true # status code can be found here
+        console.log(response.status + ' ' + url) if (not url.includes('localhost') or response.status isnt 200) and S.dev and S.bg is true # status code can be found here
         # content type could be read from: response.headers.get('content-type')
         r = await response.text() # await response.json() can get json direct, but it will error if the wrong sort of data is provided, so just try it here
         try r = JSON.parse(r) if typeof r is 'string' and (r.indexOf('{') is 0 or r.indexOf('[') is 0)

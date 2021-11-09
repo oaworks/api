@@ -7,12 +7,12 @@ module.exports = {
     filename: 'server.min.js',
     path: path.join(__dirname, 'dist')
   },
-  mode: 'production',
+  mode: 'development',
   resolve: {
     extensions: ['.js', '.json'],
     plugins: []
   },
   optimization: {
-    minimize: false
+    minimize: true
   }
 };

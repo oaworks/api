@@ -5,7 +5,7 @@ S.example ?= {}
 S.example.example = 3
 P.example = ->
   res = name: S.name, version: S.version, built: S.built
-  try res.caller = (new Error()).stack.split("\n")[3].split('FetchEvent.')[1].split(' ')[0] #.split(" ")[5].replace('FetchEvent.e','').replace(/\./,'')
+  try res.caller = (new Error()).stack.split("\n")[3].split('FetchEvent.')[1].split(' ')[0]
   try res.fn = @fn
   if S.dev
     try res.headers ?= @headers
@@ -23,20 +23,20 @@ P.example.restricted._auth = true
 
 P.example.deep = ->
   res = {example: 'deep', deeper: await @example.deep.deeper()}
-  try res.caller = (new Error()).stack.split("\n")[3].split('FetchEvent.')[1].split(' ')[0] #.split(" ")[5].replace('FetchEvent.e','').replace(/\./,'')
+  try res.caller = (new Error()).stack.split("\n")[3].split('FetchEvent.')[1].split(' ')[0]
   try res.fn = @fn
   return res
 
 P.example.deep.deeper = ->
   res = {hello: 'deeper'}
-  try res.caller = (new Error()).stack.split("\n")[3].split('FetchEvent.')[1].split(' ')[0] #.split(" ")[5].replace('FetchEvent.e','').replace(/\./,'')
+  try res.caller = (new Error()).stack.split("\n")[3].split('FetchEvent.')[1].split(' ')[0]
   try res.fn = @fn
   try res.deepest = await @example.deep.deeper.deepest()
   return res
 
 P.example.deep.deeper.deepest = ->
   res = {hello: 'deepest'}
-  try res.caller = (new Error()).stack.split("\n")[3].split('FetchEvent.')[1].split(' ')[0] #.split(" ")[5].replace('FetchEvent.e','').replace(/\./,'')
+  try res.caller = (new Error()).stack.split("\n")[3].split('FetchEvent.')[1].split(' ')[0]
   try res.fn = @fn
   return res
 
@@ -44,3 +44,10 @@ P.example.inbetween = ->
   # call a url like example/thing/inbetween and this should give you thing
   console.log typeof @params.example
   return @params
+
+P.example.cron = ->
+  dn = Date.now()
+  console.log 'cron example fn', dn
+  return dn
+P.example.cron._schedule = '* * * * *' # every minute default
+P.example.cron._notify = false

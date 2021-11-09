@@ -1,11 +1,5 @@
-var ref;
-
 if (P.service == null) {
   P.service = void 0; // optionally set the name of the service using the login
-}
-
-if (P.api == null) {
-  P.api = (ref = this.api) != null ? ref : '//' + window.location.host;
 }
 
 P.oauthRedirectUri = void 0; // this can be set, but if not, current page will be used (whatever is used has to be authorised as a redirect URI with the oauth provider)
@@ -49,7 +43,7 @@ P.token = function(e) {
 };
 
 P.loginSuccess = function(data) {
-  var ph, ref1;
+  var ph, ref;
   if (P._loggingin) {
     clearInterval(P._loggingin);
     delete P._loggingin;
@@ -61,7 +55,7 @@ P.loginSuccess = function(data) {
     P.account = data;
     P.cookie(data);
   }
-  if (((ref1 = P.account) != null ? ref1.email : void 0) && P('.PWelcome')) {
+  if (((ref = P.account) != null ? ref.email : void 0) && P('.PWelcome')) {
     ph = P.html('.PWelcome');
     ph = ph.length ? ph + ' ' + P.account.email.split('@')[0] : P.account.email;
     P.html('.PWelcome', ph);
@@ -110,7 +104,7 @@ P.loginError = function(err, xhr) {
 };
 
 P.login = function(e) {
-  var account, k, oauthcookie, opts, p, pt, pts, ref1, v;
+  var account, k, oauthcookie, opts, p, pt, pts, ref, v;
   try {
     e.preventDefault();
   } catch (error) {}
@@ -141,7 +135,7 @@ P.login = function(e) {
     opts.data.email = account.email;
     opts.data.resume = account.resume;
   }
-  if ((opts.data.email && opts.data.resume) || opts.data.hash || opts.data.token || ((ref1 = opts.data.oauth) != null ? ref1.state : void 0) === (oauthcookie != null ? oauthcookie.state : void 0)) {
+  if ((opts.data.email && opts.data.resume) || opts.data.hash || opts.data.token || ((ref = opts.data.oauth) != null ? ref.state : void 0) === (oauthcookie != null ? oauthcookie.state : void 0)) {
     P.hide('.PEmail');
     P.hide('.PToken');
     P.show('.PLoading');
@@ -166,7 +160,7 @@ P.logout = function(e) {
   } catch (error) {}
   P.show('.PLoading');
   if (account = P.loggedin()) {
-    return P.ajax('/auth/logout' + (P.api.indexOf(window.location.host) === -1 ? '?apikey=' + account.apikey : ''), {
+    return P.ajax('/auth/logout?apikey=' + account.apikey, {
       success: function() {
         P.account = void 0;
         P.cookie(false);
@@ -192,7 +186,7 @@ P.requestPermission = function() {
 };
 
 P.ready(function() {
-  var grl, loggedin, ref1, state;
+  var grl, loggedin, ref, state;
   try {
     P.on('enter', '#PEmail', P.token);
   } catch (error) {}
@@ -210,7 +204,7 @@ P.ready(function() {
     if (P.val('#POauthGoogle').length && P.oauthGoogleClientId) {
       state = Math.random().toString(36).substring(2, 8);
       grl = 'https://accounts.google.com/o/oauth2/v2/auth?response_type=token&include_granted_scopes=true&scope=https://www.googleapis.com/auth/userinfo.email+https://www.googleapis.com/auth/userinfo.profile';
-      grl += '&state=' + state + '&redirect_uri=' + ((ref1 = P.oauthRedirectUri) != null ? ref1 : window.location.href.split('#')[0].split('?')[0]) + '&client_id=' + P.oauthGoogleClientId;
+      grl += '&state=' + state + '&redirect_uri=' + ((ref = P.oauthRedirectUri) != null ? ref : window.location.href.split('#')[0].split('?')[0]) + '&client_id=' + P.oauthGoogleClientId;
       P.set('#POauthGoogle', 'href', grl);
       P.on('click', '#POauthGoogle', function() {
         return P.cookie('poauth', {

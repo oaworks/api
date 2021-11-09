@@ -22,8 +22,8 @@ P.src.wikidata.load = () ->
   # get latest dump from: https://dumps.wikimedia.org/wikidatawiki/entities/
   # e.g. the latest-all.json.gz at about 95gb. Content is a json array, objects each on a new line 
   # read the compressed file line by line and ensure the line is an object, then use it
-  infile = '/mnt/volume_nyc3_01/wikidata/latest-all.json.gz' # where the lines should be read from
-  lastfile = '/mnt/volume_nyc3_01/wikidata/last' # where to record the ID of the last item read from the file
+  infile = @S.directory + '/wikidata/latest-all.json.gz' # where the lines should be read from
+  lastfile = @S.directory + '/wikidata/last' # where to record the ID of the last item read from the file
   try lastrecord = (await fs.readFile lastfile).toString() if not @refresh
 
   await @src.wikidata('') if not lastrecord

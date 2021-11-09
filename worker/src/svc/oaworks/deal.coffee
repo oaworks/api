@@ -11,16 +11,16 @@ P.svc.oaworks.deal.import = () ->
   institutions = {}
   for rec in recs
     try
-      rec.value = parseInt rec.packageprice.replace /[^0-9]+/g, ''
+      rec.value = parseInt rec.packageprice.replace /[^0-9]/g, ''
       if typeof rec.fte is 'string'
         try
           rec.fte = parseInt rec.fte
         catch
           delete rec.fte
-      if rec.notes.toLowerCase().indexOf('canadian') isnt -1
+      if typeof rec.notes is 'string' and rec.notes.toLowerCase().includes 'canadian'
         rec.gbpvalue = Math.floor rec.value * .57
         rec.usdvalue = Math.floor rec.value * .75
-      else if rec.packageprice.indexOf('$') isnt -1
+      else if rec.packageprice.includes '$'
         rec.gbpvalue = Math.floor rec.value * .77
         rec.usdvalue = Math.floor rec.value
       else

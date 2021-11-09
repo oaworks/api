@@ -1,6 +1,5 @@
 
 P.service ?= undefined # optionally set the name of the service using the login
-P.api ?= @api ? '//' + window.location.host
 P.oauthRedirectUri = undefined # this can be set, but if not, current page will be used (whatever is used has to be authorised as a redirect URI with the oauth provider)
 P.oauthGoogleClientId = undefined # this must be provided for oauth to work
 P.account = undefined # set to the account object once retrieved
@@ -115,7 +114,7 @@ P.logout = (e) ->
   try e.preventDefault()
   P.show '.PLoading'
   if account = P.loggedin()
-    P.ajax '/auth/logout' + (if P.api.indexOf(window.location.host) is -1 then '?apikey=' + account.apikey else ''), success: () ->
+    P.ajax '/auth/logout?apikey=' + account.apikey, success: () ->
       P.account = undefined
       P.cookie false
       P.hide '.PLoading' # just in case anything made this visible
