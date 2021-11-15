@@ -382,7 +382,7 @@ P.svc.oaworks.report.citations = (filter) ->
     filter = 'type:"journal-article"' + if ror then ' AND ("' + ror.name + '" OR "' + ror._id + '")' else ''
 
   if ror is '0456r8d26'
-    for await rec from @index._for 'svc_oaworks_gates_oachecks', 'citations:*', {include: ['citations', 'is_oa']}
+    for await rec from @index._for 'svc_oaworks_report_supplements', 'citations:*', {include: ['citations', 'is_oa']}
       counts.papers += 1
       counts.citations += rec.citations
       counts[if rec.is_oa then 'oa' else 'closed'].papers += 1

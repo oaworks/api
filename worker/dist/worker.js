@@ -2227,6 +2227,13 @@ if (S.example == null) {
 
 S.example.example = 3;
 
+P.hello = function() {
+  var ref;
+  return 'hi ' + ((ref = this.params.hello) != null ? ref : 'world');
+};
+
+P.hello._hides = true;
+
 P.example = function() {
   var res;
   res = {
@@ -4269,6 +4276,8 @@ P.subroutes = async function(top) {
   _lp(typeof top === 'string' ? (await this.dot(P, top)) : top != null ? top : P);
   return subroutes;
 };
+
+P.subroutes._hides = true;
 
 `P.limit = (fn, ms=300) ->
   p = 0
@@ -9043,6 +9052,8 @@ P.svc.lantern = async function(jid) {
     }
   }
 };
+
+P.svc.lantern._hides = true;
 
 P.svc.lantern.job = {
   _index: true
@@ -14222,7 +14233,8 @@ P.svc.oaworks.scrape._hide = true;
 var indexOf = [].indexOf;
 
 P.svc.rscvd = {
-  _index: true
+  _index: true,
+  _hides: true
 };
 
 P.svc.rscvd.form = async function() {
@@ -14567,7 +14579,7 @@ P.svc.rscvd.overdue = async function() {
 };
 
 
-S.built = "Tue Nov 09 2021 05:00:17 GMT+0000";
+S.built = "Tue Nov 09 2021 05:44:49 GMT+0000";
 P.puppet = {_bg: true}// added by constructor
 
 P.puppet._auth = 'system';// added by constructor

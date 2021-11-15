@@ -321,6 +321,8 @@ P.subroutes = (top) ->
   _lp if typeof top is 'string' then await @dot(P, top) else (top ? P)
   return subroutes
 
+P.subroutes._hides = true
+
 '''
 P.limit = (fn, ms=300) ->
   p = 0

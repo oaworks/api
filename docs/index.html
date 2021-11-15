@@ -51,20 +51,22 @@ declared functions? Let's turn that around.</p>
 providing a wrapper for things like auth, caching, search, and more. 
 So if you can write a function, you can create an API.</p>
 
-<p>We use Paradigm to build and run the <a target="_blank" href="https://api.oa.works">OA.Works API service</a></p>
+<p>We use Paradigm to build and run the <a target="_blank" href="https://api.oa.works">OA.Works API</a>.</p>
 <!--, 
 which also serves as working examples for these docs.</p>-->
 
 <!-- <code class="request curl">curl <a target="_blank" href="//paradigm.oa.works">https://paradigm.oa.works</a> -->
 <pre class="shadow">
-curl <a target="_blank" href="//api.oa.works">https://api.oa.works</a>
+<code class="request curl">P.hello = -> return 'hi ' + (@params.hello ? 'world')
+
+curl <a target="_blank" href="/hello">/hello</a>
 </code><code style="display:none;" class="request node"># you may first need to install node-fetch using npm or your preferred package manager
 import fetch from 'node-fetch'
-res = await fetch('https://api.oa.works')
+res = await fetch('https://api.oa.works/hello')
 console.log(res)
 </code><code style="display:none;" class="request python"># you may first need to install requests using pip or your preferred package manager
 import requests
-res = requests.get('https://api.oa.works')
+res = requests.get('https://api.oa.works/hello')
 print(res.json())
 </code>
 <a class="requesting" href="node">Node</a> | <a class="requesting" href="python">Python</a>
@@ -206,9 +208,16 @@ a JSON response.</p>
 two per second and include an email address in a <b>User-Agent</b> header 
 (or <a class="goto" href="#auth">sign up and use an API key</a>) in case we need to contact you.</p>
 
+<p>The <a target="_blank" href="/status">/status</a> page lists available routes.
+Some routes may only be visible or accessible with authorisation, so use your 
+API key (or email and resume key) on your requests.</p>
+
 <pre class="shadow">
-<code>curl -X GET '<a target="_blank" href="https://api.oa.works">https://api.oa.works</a>' -H 'User-Agent: youremail@yourdomain.com'</code>
+<code>curl -X GET '<a target="_blank" href="https://api.oa.works">https://api.oa.works</a>' -H 'User-Agent: youremail@yourdomain.com'
+curl '<a target="_blank" href="https://api.oa.works/status">https://api.oa.works/status</a>' -H 'x-apikey: ...'
+curl '<a target="_blank" href="https://api.oa.works/status">https://api.oa.works/status?apikey=...</a>'</code>
 </pre>
+
 
 
 <h3 name="auth">Auth</h3>
@@ -218,38 +227,30 @@ all that is necessary to start an account is to provide a valid email address - 
 receive a login token to type back into the login page, and then you're logged in. Repeat 
 the process any time you need to get logged in again.</p>
 
-<p>Custom signup/login pages can be made when developing your own service, but the 
-API also gives a basic default UI for it - just use the aforementioned convention of 
-appending the <b>.html</b> extension to the <b>/auth</b> URL and you can sign in!</p>
+<p>Signing in using the browser UI sets a cookie so 
+further browser-based requests won't require another login or an API key. 
+Custom signup/login pages should be made when developing your own service, but the 
+API also gives a basic UI for it - just append <b>.html</b> to the <b>/auth</b> URL and you can sign in!</p>
 
 <p><a href="/auth.html">Sign up at /auth.html</a></p>
-
-<p>Signing in using the UI also sets a cookie so 
-further browser-based requests won't require another login or an API key (the cookie 
-will be sent with the requests automatically).</p>
 
 <!--For this reason, the most useful client 
 library provided with Paradigm is probably the login library; read more about the 
 <a class="goto" href="#client">client libraries</a> to learn how to use it.</p>
 -->
 
-<p>To login directly via the API, start by requesting an auth token for your email address:</p>
+<p>To login directly via the API, start by requesting an auth token to be sent to your email 
+address; once it arrives, send it back to the <b>/auth</b> endpoint:</p>
 
 <pre class="shadow">
-<code>curl 'https://api.oa.works/auth/token?email=...'</code>
+<code>curl 'https://api.oa.works/auth/token?email=...'
+curl 'https://api.oa.works/auth?token=...'</code>
 </pre>
 
-<p>Retrieve the token from your email account then send it back to the <b>/auth</b> endpoint:</p>
-
-<pre class="shadow">
-<code>curl 'https://api.oa.works/auth?token=...'</code>
-</pre>
-
-<p>That's it, you'll be logged in. The response object will include a <b>resume</b> key, 
-you can use the value provided there along with the email address you logged in with to 
-authenticate further requests by including <b>email</b> and <b>resume</b> URL parameters. 
-You can logout at <b>/auth/logout</b> - include your API key, or do it from the browser 
-if you signed in via the UI and set a cookie.</p>
+<p>That's it, you're logged in, and can include <b>email</b> and <b>resume</b> 
+parameters to subsequent requests - you'll find the <b>resume</b> value in the response object. 
+You can logout at <a href="/auth/logout">/auth/logout</a> - if you did this via the browser 
+it will include the cookie to log you out, otherwise remember to add the parameters.</p>
 
 
 <h4>Roles</h4>
@@ -257,18 +258,6 @@ if you signed in via the UI and set a cookie.</p>
 <p>Some endpoints will require you to have a particular <b>role</b> as well as being logged in. 
 If you're logged in and still refused access, the refusal response will include a URL 
 you can open to create a request to be assigned the role.</p>
-
-
-<h3>Routes</h3>
-
-<p>The <a target="_blank" href="/status">/status</a> page lists available routes.
-Some routes may only be visible or accessible with authorisation, so use your 
-API key on your requests.</p>
-
-<pre class="shadow">
-<code>curl '<a target="_blank" href="https://api.oa.works/status">https://api.oa.works/status</a>' -H 'x-apikey: ...'
-curl '<a target="_blank" href="https://api.oa.works/status">https://api.oa.works/status?apikey=...</a>'</code>
-</pre>
 
 
 <h3>Sources</h3>
@@ -306,7 +295,7 @@ about extending Paradigm to suit your needs.</p>
 <p><b>/svc</b> routes are for particular services that have been built using Paradigm. 
 For example OA.Works is an API service that we've written with Paradigm, and we've 
 deployed it with our main Paradigm API code, so you can find 
-a <b>/svc/oaworks</b> route in our <a href="/status">status page</a> response.</p>
+a <b>/svc/oaworks</b> route in our <a target="_blank" href="/status">status page</a> response.</p>
 
 <p>Like OA.Works, a service can be written using Paradigm and then exposed as a
 virtually standalone API. So documentation for individual services is left up to each 
@@ -337,12 +326,8 @@ See the <a class="goto" href="#development">Development</a> section for more inf
 <h3>Search</h3>
 
 <p>One of the most powerful features of Paradigm is easy integration with an Elasticsearch 
-index for storing, searching, and analysing data. Any endpoint that needs to store data can 
-be configured as a data endpoint with just one config option and then, like our OA.Works 
-Permissions API mentioned above, all that data can be made available via a search endpoint.</p>
-
-<p>Simple searches can be created by adding a search query in a <b>q</b> URL parameter.
-Creating an index with Paradigm also automatically adds some convenient endpoints to every index:</p>
+index for storing, searching, and analysing data. A data endpoint can be created with just 
+one setting, which enables search and also automatically configures some additional endpoints:</p>
 
 <pre class="shadow">
 <code>curl '<a target="_blank" href='/svc/oaworks/permissions/publishers?q="public%20library%20of%20science"'>/permissions/publishers?q="public%20library%20of%20science"</a>'
@@ -358,9 +343,11 @@ curl '<a target="_blank" href="/svc/oaworks/permissions/publishers/range">/permi
 
 <p>The full documentation for Elasticsearch queries is very good, so we recommend
 <a target="_blank" href="https://www.elastic.co/guide/en/elasticsearch/reference/7.10/query-dsl.html">
-checking out their docs directly</a>. However our built-in user interfaces make use of Elasticsearch queries, so 
+checking out their docs directly</a>.</p>
+
+<!--However our built-in user interfaces make use of Elasticsearch queries, so 
 read on to learn about them and see some examples of how queries can be used for 
-very powerful results.</p>
+very powerful results.</p>-->
 
 
 <!--
@@ -441,16 +428,15 @@ read our <a class="goto" href="#development">Development</a> section.</p>
 
 <h3>Cloudflare worker</h3>
 
-<p>To deploy to your own cloudflare worker, first 
+<p>To deploy your own cloudflare worker, first 
 <a href="https://workers.cloudflare.com">sign up or login</a> to cloudflare. 
 Everything you need for the demo and even to run a pretty powerful API is available 
-in the free tier.</p>
+in the free tier. Once signed up, copy your account ID and API token from the cloudflare dashboard main page. 
+You'll find it displayed near the bottom right.</p>
 
-<p>Once signed up, copy your account ID and API token from the cloudflare dashboard main page. 
-You'll find it displayed near the bottom right. Optionally, go to the <b>Workers</b> tab and 
+<!--Optionally, go to the <b>Workers</b> tab and 
 create a KV namespace, and note down the name you gave it (you can call it Paradigm).</p>
-
-<p>(Workers KV is also available free on cloudflare. There are limits on free usage, but they're plenty to start with.)</p>
+<p>(Workers KV is also available free on cloudflare. There are limits on free usage, but they're plenty to start with.)</p>-->
 
 <p>Next, <a class="goto" href="#install">clone our git repo</a> (if you haven't already) and create a folder 
 called <b>secrets</b> in the main Paradigm folder, and in there create a file called 
@@ -502,42 +488,26 @@ But you can also put settings in any file in the code, or create new files and p
 in them. We have one in our worker code called <b>settings.json</b>, for example, and it can 
 be seen in the repo because it's not inside a secrets folder (and we don't put secrets in it).</p>
 
-<p>There's also a hierarchy to the secrets and settings.</p>
+<p>There's also a hierarchy to the secrets and settings. At the top level there's 
+the main secrets folder where you would have created your <b>construct</b> file - 
+it's secret because your cloudflare API keys are in there. 
+Nothing from that file gets included in the main code, it's only used by the constructor 
+for deployments. Note, you can also provide a list of objects in that file if you want 
+to deploy identical workers to different cloudflare accounts.</p>
 
-<ul>
-  <li>At the top level there's the main secrets folder where you would have created 
-  your <b>construct</b> file - it's secret because your cloudflare API keys are in there. 
-  Nothing from that file gets included in the main code, it's only used by the constructor 
-  for deployments. Note, you can also provide a list of objects in that file if you want 
-  to deploy identical workers to different cloudflare accounts.
-  </li>
-  <li>Anything set in the worker folder will be 
-  available in the worker and also in the server, if you do run and build your own server, 
-  because the server runs a local copy of the worker.</li>
-  <li>Any setting in the server folder will only be available if you run your own server, 
-  they won't be copied into a worker deployed to cloudflare.</li>
-</ul>
+<p>Anything set in the worker folder will be 
+available in the worker and also in the server, if you do run and build your own server, 
+because the server runs a local copy of the worker.</p>
 
-<p>Here are the most useful secrets to put in your first settings file so your API can save data - 
-we put ours in <b>worker/secrets/settings.json</b>:</p>
+<p>Any setting in the server folder will only be available if you run your own server, 
+they won't be copied into a worker deployed to cloudflare.</p>
 
-<pre class="shadow">
-<code>{
-  "index": {
-    "url": "https://username:password@your.index.com" # A URL to your elasticsearch
-  },
-  "kv": "your_kv" # Your cloudflare KV namespace for your worker to use, if any
-}</code>
-</pre>
-
-<p>Of course you'll need some real values to put in it. If you did the optional step
-of creating a KV namespace, insert the namespace you created for your worker. 
-Otherwise, remove the <b>kv</b> key from your settings file. For managing data, KV is 
-optional but Elasticsearch is necessary, so read on to find out how to 
-set up your own Elasticsearch instance to save data to.</p>
+<p>The most useful secrets to put in your first settings file will be the ones that 
+enable your API to save data so your API can save data - so read on about setting 
+up Elasticsearch.</p>
 
 
-<h3>Elasticsearch (data)</h3>
+<h3>Elasticsearch</h3>
 
 <p>We use Elasticsearch 7.10.0, and we use the Amazon Open Distro version. You can 
 use any version you like, as long as it's new enough to be compatible with 7.x index 
@@ -555,7 +525,15 @@ run a cluster, and you can just
 later if you want.</p>
 
 <p>Once you sign up and start an Elasticsearch service, you'll get a URL to your own cluster, and probably a 
-<b>username:password</b> combination. Put those in your settings file as described above.</p>
+<b>username:password</b> combination. Put those in your <b>worker/secrets/settings.json</b> like so:</p>
+
+<pre class="shadow">
+<code>{
+  "index": {
+    "url": "https://username:password@your.index.com" # A URL to your elasticsearch
+  }
+}</code>
+</pre>
 
 <p>Installing Elasticsearch to try out is pretty easy on Linux, we're not sure about Apple 
 or Windows though - their documentation does explain how, but we've never tried it. Managing 
@@ -564,11 +542,20 @@ in comparison to paying a service provider for it. Also, whilst Elasticsearch it
 and open source, and you can run it on your own laptop to start with, you'll need to pay for 
 a machine or cluster of machines to run it in production, so keep that in mind.</p>
 
-<p>Rather than us writing instructions that will get out of date, it's best to go straight to the source - 
+<p>Rather than us writing more instructions that will get out of date, it's best to go straight to the source - 
 check out the 
 <a target="_blank" href="https://www.elastic.co/elastic-stack">Elasticsearch</a> or
 <a target="_blank" href="https://opendistro.github.io/for-elasticsearch-docs/docs/install">Open Distro</a>
-docs</p>
+docs.</p>
+
+<!--  "kv": "your_kv" # Optional cloudflare KV namespace for your worker to use
+<p>A simpler data storage solution that just stores and retrieves records is 
+Cloudflare KV. It has very limited search capability, but may be useful, cheaper, 
+faster for basic storage. If you create a KV namespace in Cloudflare, insert 
+the namespace you created for your worker in the <b>kv</b> setting key shown above. 
+Otherwise, remove the <b>kv</b> key from your settings file.</p>
+-->
+
 
 
 <!--
