@@ -13811,7 +13811,7 @@ P.svc.oaworks.report.citations = async function(filter) {
     filter = 'type:"journal-article"' + (ror ? ' AND ("' + ror.name + '" OR "' + ror._id + '")' : '');
   }
   if (ror === '0456r8d26') {
-    ref1 = this.index._for('svc_oaworks_gates_oachecks', 'citations:*', {
+    ref1 = this.index._for('svc_oaworks_report_supplements', 'citations:*', {
       include: ['citations', 'is_oa']
     });
     for await (rec of ref1) {
@@ -14579,7 +14579,7 @@ P.svc.rscvd.overdue = async function() {
 };
 
 
-S.built = "Tue Nov 09 2021 05:44:49 GMT+0000";
+S.built = "Mon Nov 15 2021 06:32:45 GMT+0000";
 P.puppet = {_bg: true}// added by constructor
 
 P.puppet._auth = 'system';// added by constructor
