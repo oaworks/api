@@ -407,10 +407,6 @@ P._response = (res, fn) ->
             res = pt + at
           else if res.includes 'id="title"'
             ret += '<title>' + res.split('id="title"')[1].split('>')[1].split('<')[0] + '</title>\n'
-          ret += '<link href="//fonts.googleapis.com/css?family=Lustria|Noto+Sans|Roboto+Slab|Nixie+One" rel="stylesheet" type="text/css">\n'
-          ret += '<link rel="stylesheet" href="/client/pradm.min.css?v=' + @S.version + '">\n'
-          ret += '<script type="text/javascript" src="/client/pradm.min.js?v=' + @S.version + '"></script>\n'
-          ret += '<script type="text/javascript" src="/client/pradmLogin.min.js?v=' + @S.version + '"></script>\n'
           for hdr in ['<meta ', '<link ']
             if res.includes hdr
               for m in res.split hdr
@@ -638,11 +634,6 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
       @log lg
 
     return res
-
-
-P.command = ->
-  @format = 'html'
-  return '<script type="text/javascript" src="/client/pradmCommand.min.js?v=' + @S.version + '"></script><body></body><script>P.command();</script>'
 
 
 P.src = {}

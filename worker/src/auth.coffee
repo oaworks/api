@@ -60,27 +60,18 @@ P.auth = (key) ->
   if not @format and (@fn is 'auth' or @unauthorised) and @headers['user-agent'] and @headers['user-agent'].toLowerCase().includes('mozilla') and @headers.accept and @headers.accept.includes('/html') and not @headers.accept.includes '/json'
     @format = 'html'
   if not key and @format is 'html'
-    ret = '<body class="black">' # or times to decide when just a normal body? '<body>'
-    ret += '<div class="flex" style="margin-top: 10%;"><div class="c6 off3"><h1 id="title" class="centre statement" style="font-size:40px;">' + (if @base then @base.replace('bg.', '(bg) ') else @S.name) + '</h1></div></div>'
-    ret += '<div class="flex" style="margin-top: 5%;"><div class="c6 off3">'
+    ret = '<body>'
+    ret += '<script type="text/javascript" src="/client/pradm.min.js?v=' + @S.version + '"></script>\n'
+    ret += '<script type="text/javascript" src="/client/pradmLogin.min.js?v=' + @S.version + '"></script>\n'
+    ret += '<h1>' + (if @base then @base.replace('bg.', '(bg) ') else @S.name) + '</h1>'
     if not @user?
-      ret += '<input autofocus id="PEmail" class="PEmail big shadow" type="text" name="email" placeholder="email">'
-      ret += '<input id="PToken" class="PToken big shadow" style="display:none;" type="text" name="token" placeholder="token (check your email)">'
+      ret += '<input autofocus id="PEmail" class="PEmail" type="text" name="email" placeholder="email">'
+      ret += '<input id="PToken" class="PToken" style="display:none;" type="text" name="token" placeholder="token (check your email)">'
       ret += '<p class="PWelcome" style="display:none;">Welcome back</p>'
-      ret += '<p class="PLogout" style="display:none;"><a id="PLogout" class="button action" href="#">logout</a></p>'
+      ret += '<p class="PLogout" style="display:none;"><a id="PLogout" href="#">logout</a></p>'
     else
-      if false #key is false # unauthorised
-        ret += '<p>You do not have permission to access this resource</p>'
-        ret += '<p class="PRequestPermission"><a id="PRequestPermission" class="button action" href="#">Request permission</p>'
-        ret += '<p class="PRequestedPermission" style="display:none;">Thanks, you will receive an email once permission has been granted</p>'
-      ret += '<p>' + user.email + '</p><p><a id="PLogout" class="button action" href="#">logout</a></p>'
-    ret += '<div class="PLoading" style="display:none;"><div class="loading big"></div></div>'
-    ret += '</div></div></body>'
-    ret += '<script>'
-    ret += 'P.afterLogout = function() { location.reload(); }; ' if @fn is 'auth'
-    ret += 'P.loginNext = true;' if @fn isnt 'auth' or @user?
-    ret += '</script>'
-    return ret
+      ret += '<p>' + user.email + '</p><p><a id="PLogout" href="#">logout</a></p>'
+    return ret + '</body>'
   else
     return user
 

@@ -155,11 +155,8 @@ P.convert.json2html = (recs, params) ->
       else
         break
   if Array.isArray(recs) or (recs?.hits?.hits? and params.es isnt false)
-    if params.search
-      return '<script type="text/javascript" src="/client/pradmSearch.min.js"></script><script>P.search()</script>'
-    else
-      params.subset = parts.join('.') if parts?
-      return @convert.csv2html await @convert.json2csv recs, params
+    params.subset = parts.join('.') if parts?
+    return @convert.csv2html await @convert.json2csv recs, params
   else
     res = '<div>'
     if params.flatten
@@ -203,9 +200,6 @@ P.convert.json2html = (recs, params) ->
           res += '</div></div>'
     _draw recs
     res += '</div>'
-    if params.edit
-      res = '<script type="text/javascript" src="/client/pradm.min.js"></script><script type="text/javascript" src="/client/pradmEdit.min.js"></script>' + res
-      res += '<script type="text/javascript">P.edit()</script>'
     return res
 
 P.convert.json2txt = (content) ->

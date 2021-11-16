@@ -671,10 +671,6 @@ P._response = async function(res, fn) {
           } else if (res.includes('id="title"')) {
             ret += '<title>' + res.split('id="title"')[1].split('>')[1].split('<')[0] + '</title>\n';
           }
-          ret += '<link href="//fonts.googleapis.com/css?family=Lustria|Noto+Sans|Roboto+Slab|Nixie+One" rel="stylesheet" type="text/css">\n';
-          ret += '<link rel="stylesheet" href="/client/pradm.min.css?v=' + this.S.version + '">\n';
-          ret += '<script type="text/javascript" src="/client/pradm.min.js?v=' + this.S.version + '"></script>\n';
-          ret += '<script type="text/javascript" src="/client/pradmLogin.min.js?v=' + this.S.version + '"></script>\n';
           ref2 = ['<meta ', '<link '];
           for (i = 0, len = ref2.length; i < len; i++) {
             hdr = ref2[i];
@@ -1062,11 +1058,6 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
   };
 };
 
-P.command = function() {
-  this.format = 'html';
-  return '<script type="text/javascript" src="/client/pradmCommand.min.js?v=' + this.S.version + '"></script><body></body><script>P.command();</script>';
-};
-
 P.src = {};
 
 P.svc = {};
@@ -1157,33 +1148,19 @@ P.auth = async function(key) {
     this.format = 'html';
   }
   if (!key && this.format === 'html') {
-    ret = '<body class="black">'; // or times to decide when just a normal body? '<body>'
-    ret += '<div class="flex" style="margin-top: 10%;"><div class="c6 off3"><h1 id="title" class="centre statement" style="font-size:40px;">' + (this.base ? this.base.replace('bg.', '(bg) ') : this.S.name) + '</h1></div></div>';
-    ret += '<div class="flex" style="margin-top: 5%;"><div class="c6 off3">';
+    ret = '<body>';
+    ret += '<script type="text/javascript" src="/client/pradm.min.js?v=' + this.S.version + '"></script>\n';
+    ret += '<script type="text/javascript" src="/client/pradmLogin.min.js?v=' + this.S.version + '"></script>\n';
+    ret += '<h1>' + (this.base ? this.base.replace('bg.', '(bg) ') : this.S.name) + '</h1>';
     if (this.user == null) {
-      ret += '<input autofocus id="PEmail" class="PEmail big shadow" type="text" name="email" placeholder="email">';
-      ret += '<input id="PToken" class="PToken big shadow" style="display:none;" type="text" name="token" placeholder="token (check your email)">';
+      ret += '<input autofocus id="PEmail" class="PEmail" type="text" name="email" placeholder="email">';
+      ret += '<input id="PToken" class="PToken" style="display:none;" type="text" name="token" placeholder="token (check your email)">';
       ret += '<p class="PWelcome" style="display:none;">Welcome back</p>';
-      ret += '<p class="PLogout" style="display:none;"><a id="PLogout" class="button action" href="#">logout</a></p>';
+      ret += '<p class="PLogout" style="display:none;"><a id="PLogout" href="#">logout</a></p>';
     } else {
-      if (false) { //key is false # unauthorised
-        ret += '<p>You do not have permission to access this resource</p>';
-        ret += '<p class="PRequestPermission"><a id="PRequestPermission" class="button action" href="#">Request permission</p>';
-        ret += '<p class="PRequestedPermission" style="display:none;">Thanks, you will receive an email once permission has been granted</p>';
-      }
-      ret += '<p>' + user.email + '</p><p><a id="PLogout" class="button action" href="#">logout</a></p>';
+      ret += '<p>' + user.email + '</p><p><a id="PLogout" href="#">logout</a></p>';
     }
-    ret += '<div class="PLoading" style="display:none;"><div class="loading big"></div></div>';
-    ret += '</div></div></body>';
-    ret += '<script>';
-    if (this.fn === 'auth') {
-      ret += 'P.afterLogout = function() { location.reload(); }; ';
-    }
-    if (this.fn !== 'auth' || (this.user != null)) {
-      ret += 'P.loginNext = true;';
-    }
-    ret += '</script>';
-    return ret;
+    return ret + '</body>';
   } else {
     return user;
   }
@@ -1829,14 +1806,10 @@ P.convert.json2html = async function(recs, params) {
     }
   }
   if (Array.isArray(recs) || (((recs != null ? (ref2 = recs.hits) != null ? ref2.hits : void 0 : void 0) != null) && params.es !== false)) {
-    if (params.search) {
-      return '<script type="text/javascript" src="/client/pradmSearch.min.js"></script><script>P.search()</script>';
-    } else {
-      if (parts != null) {
-        params.subset = parts.join('.');
-      }
-      return this.convert.csv2html((await this.convert.json2csv(recs, params)));
+    if (parts != null) {
+      params.subset = parts.join('.');
     }
+    return this.convert.csv2html((await this.convert.json2csv(recs, params)));
   } else {
     res = '<div>';
     if (params.flatten) {
@@ -1917,10 +1890,6 @@ P.convert.json2html = async function(recs, params) {
     };
     _draw(recs);
     res += '</div>';
-    if (params.edit) {
-      res = '<script type="text/javascript" src="/client/pradm.min.js"></script><script type="text/javascript" src="/client/pradmEdit.min.js"></script>' + res;
-      res += '<script type="text/javascript">P.edit()</script>';
-    }
     return res;
   }
 };
@@ -13123,7 +13092,7 @@ var indexOf = [].indexOf;
 
 P.svc.oaworks.report = function() {
   this.format = 'html';
-  return '<script type="text/javascript" src="/client/pradmSuggest.min.js?v=' + this.S.version + '"></script> <script src="/client/svc/oaworks/report.min.js"></script>';
+  return '<script src="/client/svc/oaworks/report.min.js"></script>';
 };
 
 P.svc.oaworks.report.supplements = {
@@ -14579,7 +14548,7 @@ P.svc.rscvd.overdue = async function() {
 };
 
 
-S.built = "Mon Nov 15 2021 06:32:45 GMT+0000";
+S.built = "Mon Nov 15 2021 09:47:11 GMT+0000";
 P.puppet = {_bg: true}// added by constructor
 
 P.puppet._auth = 'system';// added by constructor

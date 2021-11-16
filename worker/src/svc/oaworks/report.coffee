@@ -1,8 +1,7 @@
 
 P.svc.oaworks.report = () ->
   @format = 'html'
-  return '<script type="text/javascript" src="/client/pradmSuggest.min.js?v=' + @S.version + '"></script>
-    <script src="/client/svc/oaworks/report.min.js"></script>'
+  return '<script src="/client/svc/oaworks/report.min.js"></script>'
 
 P.svc.oaworks.report.supplements = _index: true, _prefix: false, _key: 'DOI'
 P.svc.oaworks.report.check = (ror, reload) ->

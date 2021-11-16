@@ -42,10 +42,10 @@ P.svc.oaworks.bug = () ->
       subject += ' Other'
     subject += ' ' + Date.now()
     if @params?.form in ['wrong','uninstall']
-      whoto.push 'natalia@oa.works'
+      whoto.push 'help@openaccessbutton.org'
     @waitUntil @mail
       service: 'openaccessbutton'
-      from: 'help@oa.works'
+      from: 'help@openaccessbutton.org'
       to: whoto
       subject: subject
       text: text

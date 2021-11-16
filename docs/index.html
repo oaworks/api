@@ -11,26 +11,150 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
 
   <link href="//fonts.googleapis.com/css?family=Lustria|Noto+Sans|Roboto+Slab|Nixie+One" rel="stylesheet" type="text/css">
-  <link rel="stylesheet" href="/client/pradm.min.css">
   <script type="text/javascript" src="/client/pradm.min.js"></script>
-  <script type="text/javascript" src="/client/pradmWriter.min.js"></script>
 
+  <style>
+    html { height: 100%; }
+    html, body {
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      min-height: 100%;
+      background: #FFFFFC;
+      color: #5F5C64;
+      font-size: 1em;
+      font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+
+    .nav {
+      background: #24201e;
+      height: 50px;
+      top: 0;
+      position: -webkit-sticky;
+      position: sticky;
+      z-index: 1101;
+    }
+    .page {
+      max-width: 800px;
+      margin: 0 auto 200px auto;
+    }
+    #panel {
+      position: fixed;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      min-width: 23%;
+      border-right: 2px solid #ccc;
+      padding: 90px 5px 5px 10px;
+      background: #eee; 
+      z-index: 1000;
+    }
+    @media (max-width: 1000px) { #panel { width: 99%; } }
+    #panel + .page { margin: 0 auto 200px 33%; }
+    @media (max-width: 1200px) { #panel + .page { margin: 0 auto 200px 29%; } }
+    @media (max-width: 1130px) { #panel + .page { margin: 0 auto 200px auto; } }
+
+    code, pre { 
+      font-family: Menlo, Monaco, Consolas, "Courier New", monospace; 
+    }
+    code {
+      padding: 2px 4px;
+      font-size: 90%;
+      color: #c7254e;
+      white-space: nowrap;
+      background: #f9f2f4;
+      border-radius: 0.2em;
+    }
+    pre {
+      background: #333;
+      color: white;
+      margin-bottom: 0 0 35px 10px;
+      display: block;
+      padding: 9.5px;
+      font-size: 13px;
+      line-height: 1.428571429;
+      word-break: break-all;
+      word-wrap: break-word;
+      border: 1px solid #ccc;
+      border-radius: 0.2em;
+    }
+    pre code {
+      padding: 0;
+      font-size: inherit;
+      color: inherit;
+      white-space: pre-wrap;
+      background-color: transparent;
+      border-radius: 0;
+    }
+
+    a {
+      color: #428bca;
+      text-decoration: none;
+    }
+    a:hover { text-decoration: underline; }
+    a:focus { outline: thin dotted; }
+    
+    h1, h2, h3, h4, h5, h6 {
+      word-wrap: break-word;
+      font-family: 'Roboto Slab', 'Noto Sans', Arial, Verdana, sans-serif;
+      margin-top: 40px;
+      margin-bottom: 5px;
+    }
+    h3 {
+      line-height: 1.6em;
+      font-size: 1.4em;
+    }
+    h4 {
+      line-height: 1.6em;
+      font-size: 1.3em;
+    }
+    h5 {
+      line-height: 1.6em;
+      font-size: 1.2em;
+    }
+    h6 {
+      line-height: 1.6em;
+      font-size: 1.1em;
+    }
+    
+    p {
+      margin: 0px 0px 18px 2px;
+      text-align: justify;
+      line-height: 1.6em;
+      letter-spacing: 0.1em;
+      word-wrap: break-word;
+    }
+    
+    ul {
+      margin-bottom: 30px;
+      margin-left: -40px;
+      list-style-type: none;
+    }
+    ul li {
+      margin-top: 5px;
+      line-height: 1.3em;
+      letter-spacing: 0.1em;
+      word-wrap: break-word;
+    }
+
+    hr {
+      margin: 40px 0px 40px 0px;
+    }
+  </style>
 </head>
 
 <body>
 
-<div class="nav sticky shadow">
-  <label for="panel-toggle" class="button black transparent toggle right"></label>
+<div class="nav">
   <p style="line-height:0.9em;padding-top:10px;"><a style="color:#FFFFFC;" href="/docs">&nbsp;&nbsp;OA.<br>&nbsp;&nbsp;&nbsp;Works docs</a></p>
 </div>
 
-<input type="checkbox" id="panel-toggle" class="toggle">
-<div id="panel" class="screen">
-  <!--<label for="panel-toggle" class="toggle close right"></label>-->
+<div id="panel">
   <div class="contents"></div>
 </div>
 
-<div class="container page">
+<div class="page">
 
 <a name="quickstart"></a>
 <h1 style="text-align:center;">Paradigm</h1>
@@ -38,171 +162,29 @@
   A "radically distributed, powerfully simple" API framework<br>
 </p>
 
-<div class="contents print"></div>
-
 <hr></hr>
-
-<p>An API is commonly thought of as something we use for remote requests -
-but any function has a signature input and an output, and that's an API too.
-So why is it that frameworks tend to make us do more work defining routes onto 
-declared functions? Let's turn that around.</p>
-
 <p>Paradigm is a minimalist node.js framework with an API-first approach, 
-providing a wrapper for things like auth, caching, search, and more. 
-So if you can write a function, you can create an API.</p>
+providing a wrapper for things like auth, caching, search, and more.</p>
 
-<p>We use Paradigm to build and run the <a target="_blank" href="https://api.oa.works">OA.Works API</a>.</p>
-<!--, 
-which also serves as working examples for these docs.</p>-->
+<p>We use Paradigm to build and run the <a target="_blank" href="/">OA.Works API</a>.</p>
 
-<!-- <code class="request curl">curl <a target="_blank" href="//paradigm.oa.works">https://paradigm.oa.works</a> -->
-<pre class="shadow">
-<code class="request curl">P.hello = -> return 'hi ' + (@params.hello ? 'world')
-
-curl <a target="_blank" href="/hello">/hello</a>
+<pre>
+<code class="request curl">curl <a target="_blank" href="/">https://api.oa.works</a>
 </code><code style="display:none;" class="request node"># you may first need to install node-fetch using npm or your preferred package manager
 import fetch from 'node-fetch'
-res = await fetch('https://api.oa.works/hello')
+res = await fetch('https://api.oa.works')
 console.log(res)
 </code><code style="display:none;" class="request python"># you may first need to install requests using pip or your preferred package manager
 import requests
-res = requests.get('https://api.oa.works/hello')
+res = requests.get('https://api.oa.works')
 print(res.json())
 </code>
 <a class="requesting" href="node">Node</a> | <a class="requesting" href="python">Python</a>
 </pre>
-<!-- <a class="goto" href="#usingoaworks">OA.Works API docs</a> | <a class="goto" href="#usingparadigm">Paradigm API docs</a> | <a class="goto" href="#deployment">Deployment docs</a> | <a class="goto" href="#development">Development docs</a> -->
-
-<!--
-<p><br>We also included some convenient <a class="goto" href="#client">js client libraries</a> and css framework for rapid prototyping, data manipulation, 
-or integration into UI developments.</p>
-
-<p>Paradigm is open source so you could also <a href="#deployment">run your own copy</a>, or use it to <a href="#development">develop your own services</a>.</p>
--->
 
 
-<!--
-<hr></hr>
 
-<h2 name="usingoaworks">Using OA.Works API</h2>
-
-<p>OA.Works started as Open Access Button, and 
-<a href="https://openaccessbutton.org/api">our old API</a> provides legacy functionality while we transition during 2021.
-It's an API for accessing papers (through <a href="#find">Open Access</a>, <a href="#subscriptions">subscriptions</a>, 
-<a href="#ill">Interlibrary Loans</a>, and <a href="#request">emails to authors</a>), <a href="#metadata">finding metadata</a>, 
-and <a href="#deposit">depositing papers</a>.</p>
-
-<p>Please limit your requests to two per second, and include an email address in a <b>User-Agent</b> header. 
-Or if you've signed up for an account, include your API key in an <b>x-apikey</b> header. 
-It helps us tell our funders how we're doing, and if we have to restrict high usage to keep the API stable for everyone then
-we'd love to be able to contact you about increasing limits.</p>
-
-<p>If you're looking to integrate OA.Works with your tools but aren't able to code, our 
-<a href="https://openaccessbutton.org/libraries">tools for librarians</a>, 
-especially <a href="https://openaccessbutton.org/integrations">integration guides</a>, 
-may be a better fit.</p>
-
-<h3>/find</h3>
-
-<p>Returns a URL to any Open Access paper, along with all the metadata we can find about it.</p>
-
-<p>Accepts a DOI appended to the URL, or a parameter called <b>id</b>, which should contain (in order of preference) a URL-encoded DOI, PMC ID, PMID, url, title, or citation.</p>
-
-<p><b>/metadata</b> is a convenient alternative that only returns the <b>metadata</b> section of the response.</p>
-
-<pre class="shadow">
-<code>curl -X GET '<a target="_blank" href="https://api.oa.works">https://api.oa.works</a>' -H 'User-Agent: youremail@yourdomain.com'
-curl -X GET '<a target="_blank" href="https://api.oa.works/find?id=10.1126/science.196.4287.293">https://api.oa.works/find?id=10.1126/science.196.4287.293</a>' -H 'x-apikey: APIKEY'
-curl -X GET '<a target="_blank" href="https://api.oa.works/metadata/10.1126/science.196.4287.293">https://api.oa.works/metadata/10.1126/science.196.4287.293</a>'</code>
-</pre>
-
-<h3>/permissions</h3>
-
-<h4 class="m2">/permissions/:doi<br>
-/permissions/:issn<br>
-/permissions/:crossref-name<br>
-/permissions/:ror</h4>
-
-<p>Returns results specific to a particular paper, journal, or publisher, 
-if present in our records. The response will include a calculated <b>best_permission</b> 
-and a list of <b>all_permissions</b> so that you can also review yourself.</p>
-
-<pre class="shadow">
-<code>curl <a target="_blank" href="https://api.oa.works/permissions/10.1126/science.196.4287.293">https://api.oa.works/permissions/10.1126/science.196.4287.293</a>
-curl <a target="_blank" href="https://api.oa.works/permissions/2514-1775">https://api.oa.works/permissions/2514-1775</a>
-curl <a target="_blank" href="https://api.oa.works/permissions/Public%20Library%20of%20Science">https://api.oa.works/permissions/Public Library of Science</a></code>
-</pre>
-
-<p>When providing a DOI, an <b>affiliation</b> URL parameter containing a <a target="_blank" href="https://ror.org">ROR ID</a> 
-can optionally be added to include any relevant institutional policies in the response.</p>
-
-<pre class="shadow">
-<code>curl <a target="_blank" href="https://api.oa.works/permissions/10.1126/science.196.4287.293?affiliation=02tyrky19">https://api.oa.works/permissions/10.1126/science.196.4287.293?affiliation=02tyrky19</a></code>
-</pre>
-
-<h4>/permissions/:type</h4>
-
-<p>Returns all policies of a particular <b>type</b> available in our records, for review. 
-<b>Type</b> can be one of <b>journals</b>, <b>publishers</b>, or <b>affiliations</b>.</p>
-
-<pre class="shadow">
-curl <a target="_blank" href="https://api.oa.works/permissions/journals">https://api.oa.works/permissions/journals</a>
-curl <a target="_blank" href="https://api.oa.works/permissions/journals">https://api.oa.works/permissions/publishers</a>
-curl <a target="_blank" href="https://api.oa.works/permissions/journals">https://api.oa.works/permissions/affiliations</a></code>
-</pre>
-
-<p>The response is an Elasticsearch v7.10.0 search endpoint. Simple searches can be created by adding a search query in a <b>q</b> 
-URL parameter. Check out the 
-<a target="_blank" href="https://www.elastic.co/guide/en/elasticsearch/reference/7.10/query-dsl.html">Elasticsearch docs</a> to learn more about search queries.</p>
-
-
-<h3>/ill</h3>
-
-<p>Starts an ILL request by returning a link to a completed ILL form or sending an email. 
-This requires prior signup and configuration. Go to <a target="_blank" href="https://instantill.org">InstantILL</a>
-for more information about signing up.</p>
-
-<pre class="shadow">
-<code>curl -X POST 'https://api.oa.works/ill/10.1234/567890'</code>
-</pre>
-
-<p>Provide an ID for a paper either as a DOI appended on the URL, or as URL parameters, or in a JSON body. Suitable IDs are the same 
-as those for <a class="goto" href="#/find">/find</a>. If you have any additional metadata for the article, 
-such as <b>title</b>, <b>journal</b>, etc, include those as parameters on the URL or in the JSON body. The metadata key 
-names we typically use can be viewed in one of our <a class="goto" href="#/find">/metadata</a> responses. 
-We'll add what we can to whatever metadata you give us.</p>
-
-<p>We will then attempt to start an ILL according to your InstantILL configuration. By default, we will send an email to your account email, 
-and you'll need to pass the requestor's email in an <b>email</b> URL parameter. If InstantILL is configured to do so, we can pass you a 
-link to your completed ILL form.</p>
-
-
-<h4>/ills</h4>
-
-<p>Search ILLs made at your institution.</p>
-
-<pre class="shadow">
-<code>curl -X GET 'https://api.oa.works/ills' -H 'x-apikey: APIKEY'</code>
-</pre>
-
-<p>This is useful for developing your own custom integrations with <a target="_blank" href="https://instantill.org">InstantILL</a>. 
-This route can be used to retrieve all activity from your embed(s) then you can process them as you wish.</p>
-
-<p>The response is an Elasticsearch v7.10.0 search endpoint. Simple searches can be created by adding a search query in a <b>q</b> 
-URL parameter. See the above for an example query, and view the response to see field names you can use to customise the query. 
-Note, responses will not necessarily have all fields - it depends what we can find in each case. Check out the 
-<a target="_blank" href="https://www.elastic.co/guide/en/elasticsearch/reference/7.10/query-dsl.html">Elasticsearch docs</a> to learn more about search queries.</p>
--->
-
-
-<hr></hr>
-
-<h2 name="usingparadigm">Using Paradigm API</h2>
-
-<p>Paradigm API returns JSON by default, although many routes can also return an HTML
-or CSV response for convenience, if <b>.html</b> or <b>.csv</b> are appended. Some 
-endpoints may return HTML by default in which case appending <b>.json</b> may provide 
-a JSON response.</p>
+<h2>Using Paradigm API</h2>
 
 <p>We run a full copy of the API for you to try out. Please limit your requests to 
 two per second and include an email address in a <b>User-Agent</b> header 
@@ -212,7 +194,7 @@ two per second and include an email address in a <b>User-Agent</b> header
 Some routes may only be visible or accessible with authorisation, so use your 
 API key (or email and resume key) on your requests.</p>
 
-<pre class="shadow">
+<pre>
 <code>curl -X GET '<a target="_blank" href="https://api.oa.works">https://api.oa.works</a>' -H 'User-Agent: youremail@yourdomain.com'
 curl '<a target="_blank" href="https://api.oa.works/status">https://api.oa.works/status</a>' -H 'x-apikey: ...'
 curl '<a target="_blank" href="https://api.oa.works/status">https://api.oa.works/status?apikey=...</a>'</code>
@@ -227,37 +209,30 @@ all that is necessary to start an account is to provide a valid email address - 
 receive a login token to type back into the login page, and then you're logged in. Repeat 
 the process any time you need to get logged in again.</p>
 
-<p>Signing in using the browser UI sets a cookie so 
-further browser-based requests won't require another login or an API key. 
-Custom signup/login pages should be made when developing your own service, but the 
-API also gives a basic UI for it - just append <b>.html</b> to the <b>/auth</b> URL and you can sign in!</p>
-
-<p><a href="/auth.html">Sign up at /auth.html</a></p>
-
-<!--For this reason, the most useful client 
-library provided with Paradigm is probably the login library; read more about the 
-<a class="goto" href="#client">client libraries</a> to learn how to use it.</p>
--->
-
 <p>To login directly via the API, start by requesting an auth token to be sent to your email 
 address; once it arrives, send it back to the <b>/auth</b> endpoint:</p>
 
-<pre class="shadow">
+<pre>
 <code>curl 'https://api.oa.works/auth/token?email=...'
 curl 'https://api.oa.works/auth?token=...'</code>
 </pre>
 
 <p>That's it, you're logged in, and can include <b>email</b> and <b>resume</b> 
 parameters to subsequent requests - you'll find the <b>resume</b> value in the response object. 
-You can logout at <a href="/auth/logout">/auth/logout</a> - if you did this via the browser 
-it will include the cookie to log you out, otherwise remember to add the parameters.</p>
+You can logout by sending an authorised GET request to <a href="/auth/logout">/auth/logout</a>.</p>
+
+<p>Custom signup/login pages should be made when developing your own service.
+When a user signs in using the browser UI your code should set a cookie so 
+further browser-based requests won't require another login. Subsequent UI 
+requests should then be coded to send the cookie, or read the email and resume 
+keys and send them as parameters.</p>
 
 
 <h4>Roles</h4>
 
 <p>Some endpoints will require you to have a particular <b>role</b> as well as being logged in. 
-If you're logged in and still refused access, the refusal response will include a URL 
-you can open to create a request to be assigned the role.</p>
+If you're logged in and still refused access, the refusal response object may include a URL 
+or email address to send a request to be assigned the role.</p>
 
 
 <h3>Sources</h3>
@@ -270,24 +245,40 @@ and caching useful remote datasets. For example we have a <b>/src</b> route to q
 <p>The point of these routes is to make it really easy to use Paradigm to integrate with other 
 services. Instead of having to remember how to use some other API, or write a separate library 
 to use them, one endpoint can be added to Paradigm to encapsulate that knowledge. It can then 
-also benefit from the features of Paradigm, such as being cached, or loaded into Elasticsearch 
-for powerful querying and analysis.</p>
+also benefit from the features of Paradigm, such as being cached or loaded into Elasticsearch.</p>
 
-<p>The status page lists available routes, including all the <b>/src</b> routes. Go 
-directly to the main route of a <b>/src</b> to find more information about it.</p>
+<p>Go directly to the main route of a <b>/src</b> to find more information about it.</p>
 
-<pre class="shadow">
+<pre>
 <code>curl <a target="_blank" href="/src/crossref">https://api.oa.works/src/crossref</a></code>
 </pre>
 
 <p>(These parts of documentation are still in progress - sorry if you don't find anything 
 useful; looking at the code of a src and the notes surrounding it will have to suffice for now.)</p>
 
-<!--
-<p>Sources can be added for any API you'd like to integrate with - go to the 
-<a class="goto" href="#development">Development</a> section for more information 
-about extending Paradigm to suit your needs.</p>
--->
+
+
+<h4>Search</h4>
+
+<p>One of the most powerful features of Paradigm is easy integration with an Elasticsearch 
+index for storing, searching, and analysing data. A data endpoint can be created with just 
+one setting, which enables search and also automatically configures some additional endpoints:</p>
+
+<pre>
+<code>curl '<a target="_blank" href='/src/crossref/works?q="public%20library%20of%20science"'>/src/crossref/works?q="public%20library%20of%20science"</a>'
+curl '<a target="_blank" href="/src/crossref/works/keys">/src/crossref/works/keys</a>'
+curl '<a target="_blank" href="/src/crossref/works/terms">/src/crossref/works/terms</a>'
+curl '<a target="_blank" href="/src/crossref/works/suggest">/src/crossref/works/suggest</a>'
+curl '<a target="_blank" href="/src/crossref/works/count">/src/crossref/works/count</a>'
+curl '<a target="_blank" href="/src/crossref/works/min">/src/crossref/works/min</a>'
+curl '<a target="_blank" href="/src/crossref/works/max">/src/crossref/works/max</a>'
+curl '<a target="_blank" href="/src/crossref/works/range">/src/crossref/works/range</a>'</code>
+</pre>
+
+<p>The full documentation for Elasticsearch queries is very good, so we recommend
+<a target="_blank" href="https://www.elastic.co/guide/en/elasticsearch/reference/7.10/query-dsl.html">
+checking out their docs directly</a>.</p>
+
 
 
 <h3>Services</h3>
@@ -301,16 +292,15 @@ a <b>/svc/oaworks</b> route in our <a target="_blank" href="/status">status page
 virtually standalone API. So documentation for individual services is left up to each 
 service. Like <b>src</b> routes, the main route of a service should display useful 
 information about it.</p>
-<!--, and further documentation may be written separately as we have 
-done above for OA.Works.</p>-->
 
-<pre class="shadow">
+
+<pre>
 <code>curl <a target="_blank" href="/svc/oaworks">https://api.oa.works/svc/oaworks</a></code>
 </pre>
 
 <p>You may also notice that this is the same:</p>
 
-<pre class="shadow">
+<pre>
 <code>curl <a target="_blank" href="/">https://api.oa.works</a></code>
 </pre>
 
@@ -323,66 +313,13 @@ See the <a class="goto" href="#development">Development</a> section for more inf
 -->
 
 
-<h3>Search</h3>
-
-<p>One of the most powerful features of Paradigm is easy integration with an Elasticsearch 
-index for storing, searching, and analysing data. A data endpoint can be created with just 
-one setting, which enables search and also automatically configures some additional endpoints:</p>
-
-<pre class="shadow">
-<code>curl '<a target="_blank" href='/svc/oaworks/permissions/publishers?q="public%20library%20of%20science"'>/permissions/publishers?q="public%20library%20of%20science"</a>'
-curl '<a target="_blank" href="/svc/oaworks/permissions/publishers/keys">/permissions/publishers/keys</a>'
-curl '<a target="_blank" href="/svc/oaworks/permissions/publishers/terms">/permissions/publishers/terms</a>'
-curl '<a target="_blank" href="/svc/oaworks/permissions/publishers/suggest">/permissions/publishers/suggest</a>'
-curl '<a target="_blank" href="/svc/oaworks/permissions/publishers/count">/permissions/publishers/count</a>'
-curl '<a target="_blank" href="/svc/oaworks/permissions/publishers/min">/permissions/publishers/min</a>'
-curl '<a target="_blank" href="/svc/oaworks/permissions/publishers/max">/permissions/publishers/max</a>'
-curl '<a target="_blank" href="/svc/oaworks/permissions/publishers/range">/permissions/publishers/range</a>'
-</code>
-</pre>
-
-<p>The full documentation for Elasticsearch queries is very good, so we recommend
-<a target="_blank" href="https://www.elastic.co/guide/en/elasticsearch/reference/7.10/query-dsl.html">
-checking out their docs directly</a>.</p>
-
-<!--However our built-in user interfaces make use of Elasticsearch queries, so 
-read on to learn about them and see some examples of how queries can be used for 
-very powerful results.</p>-->
-
-
-<!--
-<h3>Handling files</h3>
-
-<p>Coming soon, details of our file handling API, integrating with local disk, Amazon s3, Cloudflare storage.</p>
-
-
-<h3>Built-in UIs</h3>
-
-
-<h3 name="client">Client libraries</h3>
-
-<p>Paradigm is intentionally designed to place no constraints on what sort of user 
-interface can be used with it - you could build a website, a mobile app, a widget - 
-or all of those! We did experiment with integrated backend/frontend architectures 
-and various UI frameworks from small ones like backbone or skeleton right up to 
-things like React and Meteor. But none of them meet any of our specific requirements, 
-and all of them introduce additional complexity. So, since we DO require to keep things 
-as light as possible for access on the worst internet connections, we built a small 
-set of useful but entirely optional javascript libraries that make it even easier 
-to use the Paradigm API, and can be used alongside whatever other frontend frameworks 
-you may want to implement yourself. As our built-in UIs described in the previous 
-section demonstrates, it's possible to build quite a lot with not very much.</p>
-
-<p><a href="/docs/client">Read the client libraries documentation</a>.</p>
--->
-
 <hr></hr>
 
 <h2 name="deployment">Deployment</h2>
 
 <p>How and why to run a bg server (the demo already is one)</p>
 
-<pre class="shadow">
+<pre>
 <code class="install linux">sudo apt install nodejs
 git clone <a target="_blank" href="https://github.com/oaworks/paradigm">https://github.com/oaworks/paradigm.git</a>
 cd paradigm
@@ -412,18 +349,11 @@ node server/dist/server.min.js
 </pre>
 <!-- | <a class="goto" href="#development">Development docs</a> -->
 
-<p>Note bg is optional, cloudflare workers / unbound may also be enough for some: https://blog.cloudflare.com/workers-unbound-ga/</p>
-
 <p>We use Cloudflare Workers however we don't want to be tied
 to one provider, so Paradigm can run anywhere that node.js can run. 
 Where we use particular Cloudflare infrastructure such as Workers KV, we also consider our 
 fallback position such as writing to Elasticsearch if KV is not available, and planning that 
 later we could easily update our key/value store code to use Redis instead.</p>
-
-<!--
-<p>If you want to know more about why we chose Cloudflare, and the other choices we made, 
-read our <a class="goto" href="#development">Development</a> section.</p>
--->
 
 
 <h3>Cloudflare worker</h3>
@@ -434,15 +364,11 @@ Everything you need for the demo and even to run a pretty powerful API is availa
 in the free tier. Once signed up, copy your account ID and API token from the cloudflare dashboard main page. 
 You'll find it displayed near the bottom right.</p>
 
-<!--Optionally, go to the <b>Workers</b> tab and 
-create a KV namespace, and note down the name you gave it (you can call it Paradigm).</p>
-<p>(Workers KV is also available free on cloudflare. There are limits on free usage, but they're plenty to start with.)</p>-->
-
 <p>Next, <a class="goto" href="#install">clone our git repo</a> (if you haven't already) and create a folder 
 called <b>secrets</b> in the main Paradigm folder, and in there create a file called 
 <b>construct.json</b>.</p>
 
-<pre class="shadow">
+<pre>
 <code>cd paradigm
 mkdir secrets && touch secrets/construct.json
 vim secrets/construct.json</code>
@@ -453,7 +379,7 @@ and <b>SCRIPT_ID</b>. Use the values you copied from cloudflare for the first tw
 script ID can be whatever you want to call your worker. Once you've saved your construct file, 
 run the constructor!</p>
 
-<pre class="shadow">
+<pre>
 <code>coffee construct.coffee</code>
 </pre>
 
@@ -527,7 +453,7 @@ later if you want.</p>
 <p>Once you sign up and start an Elasticsearch service, you'll get a URL to your own cluster, and probably a 
 <b>username:password</b> combination. Put those in your <b>worker/secrets/settings.json</b> like so:</p>
 
-<pre class="shadow">
+<pre>
 <code>{
   "index": {
     "url": "https://username:password@your.index.com" # A URL to your elasticsearch
@@ -548,132 +474,9 @@ check out the
 <a target="_blank" href="https://opendistro.github.io/for-elasticsearch-docs/docs/install">Open Distro</a>
 docs.</p>
 
-<!--  "kv": "your_kv" # Optional cloudflare KV namespace for your worker to use
-<p>A simpler data storage solution that just stores and retrieves records is 
-Cloudflare KV. It has very limited search capability, but may be useful, cheaper, 
-faster for basic storage. If you create a KV namespace in Cloudflare, insert 
-the namespace you created for your worker in the <b>kv</b> setting key shown above. 
-Otherwise, remove the <b>kv</b> key from your settings file.</p>
--->
-
 
 
 <!--
-<h3>Scheduled tasks</h3>
-
-<p>Use CF workers tasks. In the code _schedule can be specified on tasks that need it (link to the code docs).</p>
-
-<p>Just set one CF workers task to run every minute, it will poll the worker and trigger the schedules.</p>
-
-<p>For long term non-vendor-lock-in concerns, we have already considered Redis and know how we would use it 
-to replace CF workers task schedules. It could even be done with a simple cron job, or a monitor service like 
-uptimerobot hitting a certain URL, so not a big deal. For peace of mind, just making it clear this isn't a 
-deal-breaker for anyone worried about vendor lock-in.</p>
--->
-
-
-<!--
-<h3>Sysadmin considerations</h3>
-
-<p>Logs, monitors, alerts</p>
-
-Built-in logging
-
-Uptimerobot, Updown, Ghost inspector, Kibana (which has alerts and scheduling too), pm2, Digital Ocean alerts, etc
--->
-
-
-<!--
-<hr></hr>
-
-<h2 name="development">Development</h2>
-
-<p>Our projects are about exploring a problem (such as increasing access to publicly 
-funded research) rather than building apps. Specificity in app development tends to 
-happen at the UI level (OA.Works offers ShareYourPaper, InstantILL, etc) with a strong 
-focus on user experience and ease of use. So our approach to development is to have a core 
-set of abilities readily deployed - like being able to load and analyse large datasets, 
-cache our own results and remote requests, sync with smaller sources managed by administrators 
-(such as from CSVs or Google sheets).</p>
-
-<p>Over the years, with changing funding priorities, we had to present powerful prototypes 
-quickly with zero budget, yet still benefit long term from the effort that went into them, 
-so we always try to generalise solutions. Separate teams had to be able to build simple static 
-sites, widgets, plugins etc that could make use of our powerful API functionality, and we often 
-deploy embeds for use on websites beyond our control. Our users are spread around the world with 
-varying levels of internet access, so we need to keep things small with minimal dependencies.</p>
-
-<p>API development is often not seen as high priority from a project or funding perspective, 
-because it's not very visible to normal users until there is a UI they can understand. So 
-we also generalised some UI prototyping into our API, along with some handy (but optional) 
-javascript client libraries.</p>
-
-<p>Now that we have more time and funding available, we are doing more to document and share 
-our API work as a standalone project deliverable. It's gone through four major versions 
-already, and now we're releasing version five as the Paradigm API framework, with OA.Works 
-as the exemplar service built with it.</p>
-
-<p>Once we solve one problem we want to move on to new ones. But if our project ends, 
-or our preferred platform/service/commercial provider goes bust, we want our work to 
-remain useful for others. And we use many open source tools ourselves, building on what 
-others did before us. So of course, Paradigm is open source as well.</p>
-
-<h3>Principles</h3>
-
-<ol>
-  <li>Build powerfully simple solutions where they don't already exist.</li>
-  <li>Make use of existing things that provide features worth the size/complexity/dependency they introduce (don't get locked in).</li>
-  <li>Aim for fast 100% global uptime with graceful degradation, easily deployed with minimal sysadmin (radically distributed).</li>
-  <hr class="small">
-  <li>Processing should only happen when there's no suitable cache.</li>
-  <li>Cache process results, and cascade caches, wherever possible.</li>
-  <li>Logs are just a cache of requests and responses.</li>
-  <li>Tests are just diffs of results vs logs.</li>
-  <li>Data is just a cache that lasts a long time.</li>
-  <li>Backups are just data that can't be (or that would be too time/resource intensive to be) regenerated.</li>
-  <hr class="small">
-  <li>Avoid relational complexity - if it looks like a document (API responses often do), treat it like a document.</li>
-  <li>Eventual consistency is good enough except when it's not, so deal with those cases explicitly.</li>
-  <li>If things are getting complicated, GOTO 1.</li>
-</ol>
-
-Why cloudflare? Radical deployment - cloudflare workers by default
-it may be necessary to deploy without using cloudflare. We will always need at 
-least one backend server anyway to handle co-ordination and long term storage / 
-backup management, and certain processes that have to appear to run from one place such as Proxies.
-
-* NOTE: We prefer Cloudflare to services such as Docker or Heroku because cloudflare 
-are offering workers as secondary to the USP of cloudflare (which is network caching). 
-So workers are free / extremely cheap. Also, we never really had much to gain from 
-Docker or Heroku sorts of service because we could already do deployments to 
-clusters of Linux machines easily because we had the skills, and it was much cheaper. 
-
-Digital Ocean provides snapshots which are just as useful as Docker for our use case. 
-But with cloudflare workers we could gain the benefit of reducing dependence on our 
-cluster for no extra cost, and also if we built it in such a way to be able to 
-optionally run on a normal server OR run on cloudflare workers, we can increase 
-robustness whilst decreasing deployment complexity. It also adds even better 
-performance gains to the main reason for using cloudflare, because it allows us 
-greater control of what cloudflare caches under different circumstances.
-
-Why elasticsearch / Amazon Elastic?
-
-NOTE: Questions: Why aren't there any prototypes/classes used? Answer to be expanded upon: What would the actual benefit be?
-It's not that we don't know about these, and OOP approach in general, but why use something that there is not a specific 
-purpose for, particularly when there ARE benefits to doing it a different way? Those being easier wrapping and less 
-effort to configure new additions to the code. But of course - DO use prototypes/classes when adding new functionality 
-that WOULD benefit from them. This was most obvious when writing the Index functions, and directly relates to the old code 
-where these WERE prototyped and then instantiated with "new ..."
-
-<h4>Document orientation</h4>
-
-<h4>Eventual consistency</h4>
-
-<h4>No tests! Just diffs!</h4>
-
-<p>Why difftest... why not normal tests</p>
-
-
 <h3>Code structure</h3>
 
 <p>Code is split into <b>worker</b> and <b>server</b>. Worker is where the vast bulk of code is, and where 
@@ -743,42 +546,34 @@ function name with an underscore.)</p>
 -->
 
 
-<!--
-<h3>Build your own service</h3>
-
-<p>Write your own service standalone, and talk to ours over the API where necessary.</p>
-
-<p>Fork paradigm, write your own service, deploy it - like we do for OA.Works.</p>
-
-<p>Fork and run your own paradigm, AND write your own service, and deploy that separately.</p>
-
-<p>If you have a specific service 
-that you'd like to use the framework for, you're probably best to write your 
-service separately then just include it in your own instance of Paradigm. We 
-could host relevant services, so contact us if you need that.</p>
-
-<p>If you want to contribute directly to the core of Paradigm, have a look at our github repo. 
-The process is usually fork, change, request a merge. Long term contributors 
-will be given access to develop feature branches and request PRs directly on our repo.</p>
-
-<p>See the code repo and explore the issues, tags, project board etc.</p>
-
-<p>Also our other relevant projects, UI repo, and so on.</p>
-
-<p>Suggest stuff you need / would like to see added.</p>
--->
-
-
-<!--
-<h2>Our funders and supporters</h2>
--->
-
 
 
 </body>
 
 <script>
-P.writer.toc();
+var toc = '<div class="P_contents" style="font-size:0.9em; overflow-y:auto; height:100%;"><ul>';
+var counter = 0;
+P('h2,h3', function(el) {
+  counter++;
+  if (P.classes(el).indexOf('ignore') === -1) {
+    header = P.html(el);
+    P.prepend(el, '<a name="toc' + counter + '"></a>');
+    toc += '<li>';
+    var spaces = 0;
+    var ms = 2 * (parseInt(el.nodeName.toLowerCase().replace('h','')) - 2);
+    while (spaces < ms) {
+      toc += '&nbsp;'
+      spaces++;
+    }
+    toc += '<a class="goto" href="#toc' + counter + '">' + header + '</a></li>';
+  }
+});
+P.html('.contents', toc + '</ul></div>');
+
+P.on('click', '.goto', function(e) {
+  e.preventDefault();
+  window.scrollTo(0, P(P.attr(e.target, 'href').replace('#', '')).offsetTop - 70);
+});
 
 P.on('click', '.installing', function(e) {
   e.preventDefault();
