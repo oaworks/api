@@ -11,7 +11,7 @@ try
   S[k] = SS[k] for k of SS
 S ?= {} # and just in case it wasn't found
 S.name ?= 'Paradigm' # this will also be used as the default name for the KV store
-S.version ?= '5.5.0' # the construct script will use this to overwrite any version in the worker and server package.json files
+S.version ?= '5.5.1' # the construct script will use this to overwrite any version in the worker and server package.json files
 # S.pass can be set to false if there is a bg URL but worker errors should NOT pass through on exception to it (otherwise they will by default)
 S.pass = ['docs', 'client', '.well-known'] # if this is a list of strings, any route starting with these will throw error and pass back to bg (this would happen anyway with no function defined for them, but this avoids unnecessary processing)
 S.dev ?= true

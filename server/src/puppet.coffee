@@ -18,8 +18,9 @@ P.puppet = (url, proxy, headers, idle=false) ->
 
   try
     pid = false
-    bopts = ignoreHTTPSErrors:true, dumpio:false, timeout:12000, headless: true
-    bopts.args = ['--no-sandbox', '--disable-setuid-sandbox', '--single-process', '--no-zygote']
+    bopts = ignoreHTTPSErrors:true, dumpio:false, timeout:12000 #, headless: true # see https://github.com/puppeteer/puppeteer/issues/665
+    # uncomment the following 2 options if found not to be cause of unexplained timeouts, as they seemed like good options to use
+    bopts.args = ['--no-sandbox', '--disable-setuid-sandbox'] #, '--single-process', '--no-zygote']
     bopts.args.push('--proxy-server='+proxy) if proxy
     try
       browser = await puppeteer.launch bopts

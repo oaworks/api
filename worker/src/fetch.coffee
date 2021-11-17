@@ -86,6 +86,7 @@ P.fetch = (url, params) ->
         # return full response with status, ok, redirected, bodyUsed, size, timeout url, statusText, clone, body, arrayBuffer, blob, json, text, buffer, textConverted 
         return fetch url, params # (and response body can be used as stream if desired, or can await text() or json() etc
       else
+        console.log(url) if S?.bg is true # extra for finding out unexplained timeout issue
         response = await fetch url, params
         console.log(response.status + ' ' + url) if (not url.includes('localhost') or response.status isnt 200) and S.dev and S.bg is true # status code can be found here
         # content type could be read from: response.headers.get('content-type')

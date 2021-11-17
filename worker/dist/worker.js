@@ -25,7 +25,7 @@ if (S.name == null) {
 }
 
 if (S.version == null) {
-  S.version = '5.5.0'; // the construct script will use this to overwrite any version in the worker and server package.json files
+  S.version = '5.5.1'; // the construct script will use this to overwrite any version in the worker and server package.json files
 }
 
 // S.pass can be set to false if there is a bg URL but worker errors should NOT pass through on exception to it (otherwise they will by default)
@@ -2480,6 +2480,9 @@ P.fetch = async function(url, params) {
         // return full response with status, ok, redirected, bodyUsed, size, timeout url, statusText, clone, body, arrayBuffer, blob, json, text, buffer, textConverted 
         return fetch(url, params); // (and response body can be used as stream if desired, or can await text() or json() etc
       } else {
+        if ((typeof S !== "undefined" && S !== null ? S.bg : void 0) === true) { // extra for finding out unexplained timeout issue
+          console.log(url);
+        }
         response = (await fetch(url, params));
         if ((!url.includes('localhost') || response.status !== 200) && S.dev && S.bg === true) { // status code can be found here
           console.log(response.status + ' ' + url);
@@ -9901,11 +9904,11 @@ P.svc.oaworks.bug = async function() {
     }
     subject += ' ' + Date.now();
     if ((ref4 = (ref5 = this.params) != null ? ref5.form : void 0) === 'wrong' || ref4 === 'uninstall') {
-      whoto.push('natalia@oa.works');
+      whoto.push('help@openaccessbutton.org');
     }
     this.waitUntil(this.mail({
       service: 'openaccessbutton',
-      from: 'help@oa.works',
+      from: 'help@openaccessbutton.org',
       to: whoto,
       subject: subject,
       text: text
@@ -14548,7 +14551,7 @@ P.svc.rscvd.overdue = async function() {
 };
 
 
-S.built = "Mon Nov 15 2021 09:47:11 GMT+0000";
+S.built = "Wed Nov 17 2021 03:12:10 GMT+0000";
 P.puppet = {_bg: true}// added by constructor
 
 P.puppet._auth = 'system';// added by constructor
