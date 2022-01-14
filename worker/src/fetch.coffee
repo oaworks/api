@@ -38,22 +38,37 @@ P.fetch = (url, params) ->
     if params[ct]?
       params.body = params[ct]
       delete params[ct]
-  if params.body?
+  if params.file?
+    params.form = params.body if params.body? and not params.form?
+    #if not FormData?
+    #  FormData = (await new Response(new URLSearchParams()).formData()).constructor
+    # TODO does content-type need to be checked? Would need to be multipart/form-data AND have a boundary
+    # or is that getting set by sending the FormData anyway?
+    # e.g. Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryIn312MOjBWdkffIM
+    fd = new FormData()
+    fd.append 'file', params.file, params.filename
+    params.body = fd
+    delete params.filename
+    params.method ?= 'POST'
+  else if params.body?
     params.headers ?= {} # content-type is necessary for ES to accept, for example
     if not params.headers['Content-Type']? and not params.headers['content-type']?
       params.headers['Content-Type'] = if typeof params.body is 'object' then 'application/json' else 'text/plain'
     params.body = JSON.stringify(params.body) if typeof params.body in ['object', 'boolean', 'number'] # or just everything?
     params.method ?= 'POST'
   if params.form?
-    # note, to send form and more data, form-data would be needed
-    params.headers ?= {}
-    if not params.headers['Content-Type']? and not params.headers['content-type']?
-      params.headers['Content-Type'] = 'application/x-www-form-urlencoded'
-    if typeof params.form is 'object'
-      try params.form = await @form params.form
-    params.body = params.form
+    if params.file?
+      params.body.append(fk, params.form[fk]) for fk of params.form
+    else
+      params.headers ?= {}
+      if not params.headers['Content-Type']? and not params.headers['content-type']?
+        params.headers['Content-Type'] = 'application/x-www-form-urlencoded'
+      if typeof params.form is 'object'
+        try params.form = await @form params.form
+      params.body = params.form
     delete params.form
     params.method ?= 'POST'
+  delete params.file
 
   if typeof url isnt 'string'
     return
@@ -86,12 +101,19 @@ P.fetch = (url, params) ->
         # return full response with status, ok, redirected, bodyUsed, size, timeout url, statusText, clone, body, arrayBuffer, blob, json, text, buffer, textConverted 
         return fetch url, params # (and response body can be used as stream if desired, or can await text() or json() etc
       else
-        console.log(url) if S?.bg is true # extra for finding out unexplained timeout issue
+        #console.log(url) if S?.bg is true # extra for finding out unexplained timeout issue
+        buff = false
+        if params.buffer
+          buff = true
+          delete params.buffer
         response = await fetch url, params
         console.log(response.status + ' ' + url) if (not url.includes('localhost') or response.status isnt 200) and S.dev and S.bg is true # status code can be found here
         # content type could be read from: response.headers.get('content-type')
-        r = await response.text() # await response.json() can get json direct, but it will error if the wrong sort of data is provided, so just try it here
-        try r = JSON.parse(r) if typeof r is 'string' and (r.indexOf('{') is 0 or r.indexOf('[') is 0)
+        if buff
+          r = await response.buffer()
+        else
+          r = await response.text() # await response.json() can get json direct, but it will error if the wrong sort of data is provided, so just try it here
+          try r = JSON.parse(r) if typeof r is 'string' and (r.indexOf('{') is 0 or r.indexOf('[') is 0)
         if response.status is 404
           return
         else if response.status >= 400

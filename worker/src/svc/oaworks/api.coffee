@@ -18,7 +18,7 @@ P.svc.oaworks = () ->
       user: if @user?.email then @user.email else undefined
       routes: rts
 
-P.svc.oaworks.templates = _key: 'name', _sheet: '16Qm8n3Rmx3QyttFpSGj81_7T6ehfLAtYRSvmDf3pAzg/1', _hide: true
+P.svc.oaworks.templates = _key: 'name', _sheet: '1Xg-dBpCkVWglditd6gESYRgMtve4CAImXe-321ra2fo/Templates', _hide: true
 
 P.svc.oaworks.bug = () ->
   if @params.contact # verify humanity

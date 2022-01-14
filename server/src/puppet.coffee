@@ -18,7 +18,7 @@ P.puppet = (url, proxy, headers, idle=false) ->
 
   try
     pid = false
-    bopts = ignoreHTTPSErrors:true, dumpio:false, timeout:12000 #, headless: true # see https://github.com/puppeteer/puppeteer/issues/665
+    bopts = ignoreHTTPSErrors: true, dumpio: false, timeout: 12000, headless: true # see https://github.com/puppeteer/puppeteer/issues/665
     # uncomment the following 2 options if found not to be cause of unexplained timeouts, as they seemed like good options to use
     bopts.args = ['--no-sandbox', '--disable-setuid-sandbox'] #, '--single-process', '--no-zygote']
     bopts.args.push('--proxy-server='+proxy) if proxy
@@ -28,6 +28,15 @@ P.puppet = (url, proxy, headers, idle=false) ->
       bopts.executablePath = '/usr/bin/google-chrome'
       browser = await puppeteer.launch bopts
     try pid = browser.process().pid
+    tmpDir = null
+    try
+      chromeArgs = browser.process().spawnargs
+      si = 0
+      while si < chromeArgs.length
+        if chromeArgs[si].startsWith '--user-data-dir='
+          tmpDir = chromeArgs[si].replace '--user-data-dir=', ''
+          break
+        si++
 
     try
       page = await browser.newPage()
@@ -50,6 +59,8 @@ P.puppet = (url, proxy, headers, idle=false) ->
       console.log err
     finally
       await browser.close()
+    if tmpDir
+      try await fs.remove tmpDir
     try process.kill(pid) if pid
     return content
   catch

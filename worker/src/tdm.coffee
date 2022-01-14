@@ -101,7 +101,7 @@ P.tdm.hamming = (a, b, lowercase) ->
 
 P.tdm.extract = (opts) ->
 	# opts expects url,content,matchers (a list, or singular "match" string),start,end,convert,format,lowercase,ascii
-	#opts ?= @params
+	opts ?= @copy @params
 	if opts.url and not opts.content
 		if opts.url.indexOf('.pdf') isnt -1 or opts.url.indexOf('/pdf') isnt -1
 			opts.convert ?= 'pdf'

@@ -215,6 +215,8 @@ P.index.terms = (route, key, qry, size=100, counts=true, order="count") ->
   order = ords[order] if typeof order is 'string' and ords[order]?
   query.aggregations[key] = terms: field: key + (if key.endsWith('.keyword') then '' else '.keyword'), size: size, order: order
   ret = await @index._send '/' + route + '/_search', query, 'POST'
+  console.log JSON.stringify query
+  console.log JSON.stringify ret
   res = []
   for p in ret?.aggregations?[key]?.buckets ? []
     res.push if counts then {term: p.key, count: p.doc_count} else p.key
@@ -235,10 +237,9 @@ P.index.suggest = (route, key, qry, size=100, include) ->
   if typeof qry is 'string'
     qry = qry.trim()
     ql = qry.toLowerCase()
-    if include
-      tqr = should: [{match: {}}, {prefix: {}}, {query_string: {query: key + ':' + qry.split(' ').join(' AND ' + key + ':') + '*'}}]
-      tqr.should[0].match[key] = query: qry, boost: 3
-      tqr.should[1].prefix[key] = value: qry, boost: 2
+    tqr = should: [{match: {}}, {prefix: {}}, {query_string: {query: key + ':' + qry.split(' ').join(' AND ' + key + ':') + '*'}}]
+    tqr.should[0].match[key] = query: qry, boost: 3
+    tqr.should[1].prefix[key] = value: qry, boost: 2
 
   res = []
   seen = []
@@ -254,6 +255,7 @@ P.index.suggest = (route, key, qry, size=100, include) ->
   else
     for k in await @index.terms route, key, (tqr ? qry), size, false, 'term'
       kl = k.toLowerCase()
+      console.log kl
       res.push(k) if kl not in seen and (not ql or kl.includes ql)
       seen.push kl
   return res

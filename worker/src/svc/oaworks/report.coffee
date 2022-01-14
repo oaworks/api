@@ -36,6 +36,11 @@ P.svc.oaworks.report.check = (ror, reload) ->
         for aff in a.affiliation ? []
           if aff.name and aff.name.toLowerCase().includes('gates') and aff.name not in crf.author_affiliation
             crf.author_affiliation.push aff.name
+      try
+        for lc in cr.license
+          if lc['content-version'] in ['am', 'vor', 'tdm', 'unspecified']
+            crf['crossref_license_url_' + lc['content-version']] ?= []
+            crf['crossref_license_url_' + lc['content-version']].push lc.URL
       crf.crossref = cr
       delete crf.crossref[x] for x in ['assertion', 'reference', 'relation']
       return crf
@@ -94,7 +99,8 @@ P.svc.oaworks.report.check = (ror, reload) ->
           recs[rec.DOI].matches = matches
 
   sheets = # https://docs.google.com/spreadsheets/d/.../edit
-    finance: '1xD-5e8TTEpgRL1iCJVOEnSYiddC-K0npkCWCaqx2--4'
+    #finance: '1xD-5e8TTEpgRL1iCJVOEnSYiddC-K0npkCWCaqx2--4'
+    finance: '1nhykkqxYQ4DNPAj-WnXHcYnSd4dmt_Hf0xEVDZxaPLY'
     oasupport: '180562eXtmMANfIlioclUrQDaUSWkTOz7igOymfnv2pg'
     staff: '1EZI0iNAXnJ-qbIJFGmtplHWP03NVT7hhf0ICazI0YXw'
     grants: '1lDNHAwH-8x89fgLK-JLs9bBv2cdHsJRnb1Pj86QYWZI'
@@ -185,13 +191,14 @@ P.svc.oaworks.report.check = (ror, reload) ->
       "DOI", "PMCID", "in_oadoi", "in_crossref", "doi_resolves", "compliant", "can_archive", "journal_oa_type", "crossref_is_oa", "oadoi_is_oa", "is_oa", 
       "oadoi_oa_status", "best_oa_location_url", "best_oa_location_url_for_pdf", "has_repository_copy", "repository_license", 
       "repository_url_for_pdf", "repository_url", "repository_url_in_pmc", "repository_version", "publisher_license", "publisher_url_for_pdf", "publisher_version", 
-      "epmc_licence", "epmc_licence_source", 
+      "has_oa_locations_embargoed", "epmc_licence", "epmc_licence_source", 
       "title", "journal", "ISSN", "publisher", "published", "crossref_published", "oadoi_published", "year", "crossref_year", "oadoi_year", "author_names", "author_affiliation", "funder_name", "funder_grant_ids", 
+      "crossref_license_url_am", "crossref_license_url_vor", "crossref_license_url_tdm", "crossref_license_url_unspecified", 
       # keys examples from OAreport Gates live: https://docs.google.com/spreadsheets/d/1Ufh_xs3NQjzbPRgwlFnHxK5nY2cjn4SsnCqvVnY4Nk8/edit#gid=1145124691
       "grant_id", "invoice_date", "invoice_number",
       # and others suggested by Joe, to be sourced from sheets inputs if not already known:
       "apc_cost", "oawork_finance_internal_id", "type", "to", "status", "sent", "last_contact", "last_heard_from",
-      "completed", "follow_up_due", "follow_ups_sent", "author_name", "email",
+      "completed", "follow_up_due", "follow_ups_sent", "clicked", "author_name", "email",
       "author_email_name", "citations", "sheets", "matches_targets", "matches_found"]
     for key in keys
       await fs.appendFile out, (if key isnt 'DOI' then ',"' else '"') + (alternates[key] ? key) + '"'
@@ -235,6 +242,7 @@ P.svc.oaworks.report.check = (ror, reload) ->
         res.is_oa = res.oadoi_is_oa or res.crossref_is_oa
         res.oadoi_oa_status = oadoi.oa_status
         res.has_repository_copy = oadoi.has_repository_copy
+        res.has_oa_locations_embargoed = if oadoi.oa_locations_embargoed? and oadoi.oa_locations_embargoed.length then true else false
   
         res.title ?= oadoi.title
         res.journal ?= oadoi.journal_name
@@ -298,7 +306,7 @@ P.svc.oaworks.report.check = (ror, reload) ->
           if best_score < .7
             res.author_email_name = 'Dr. ' + best_name.split(' ').pop()
           if not res.author_email_name and best_initial
-            res.author_email_name = best_initial
+            res.author_email_name = 'Dr. ' + best_initial
 
       batch.push res
       if not reload
@@ -322,9 +330,9 @@ P.svc.oaworks.report.check = (ror, reload) ->
   console.log 'OA check done after ' + took + ' minutes', reload
   if not reload
     @mail
-      to: 'mark@oa.works'
+      to: ['mark@oa.works', 'joe@oa.works', 'sarah@oa.works']
       subject: 'Gates OA check done ' + batch.length + ' in ' + took + ' minutes'
-      text: 'https://static.oa.works/report/' + ts
+      text: '/https://static.oa.works/report/' + (out ? '').split('/report/').pop()
   return batch.length
 
 P.svc.oaworks.report._hides = true
@@ -351,6 +359,7 @@ P.svc.oaworks.report.compliant = (rec, ror) ->
     return 'unknown'
   else
     return 'no'
+
 
 P.svc.oaworks.report.compliance = (ror) ->
   ror ?= @params.report ? @params.compliance ? @params.ror

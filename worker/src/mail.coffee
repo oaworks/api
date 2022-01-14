@@ -41,9 +41,14 @@ P.mail = (opts) ->
 
   url = 'https://api.mailgun.net/v3/' + ms.domain + '/messages'
   opts.to = opts.to.join(',') if Array.isArray opts.to
-  f = this?.fetch ? P.fetch
-  fo = await @form opts
-  return await f url, {method: 'POST', form: fo, auth:'api:'+ms.apikey}
+  if opts.to
+    f = this?.fetch ? P.fetch
+    fo = await @form opts
+    return await f url, {method: 'POST', form: fo, auth:'api:'+ms.apikey}
+  else
+    console.log opts
+    console.log 'NO ADDRESS TO EMAIL TO'
+    return {}
 
 P.mail._hide = true
 P.mail._auth = 'system'

@@ -228,6 +228,9 @@ P = async function() {
   } else if (ct.includes('/json')) {
     this.body = (await this.request.json());
   } else if (ct.includes('form')) { // NOTE below, multipart may need to go to bg if receiving a file to save
+    // TODO consider checking for request.arrayBuffer() as file content not in a multipart.
+    // and for multipart, check to see if there actually is a file
+    // https://stackoverflow.com/questions/14872460/how-to-detect-a-file-upload-examining-the-http-message
     bd = {};
     fd = (await this.request.formData());
     for (entry in fd.entries()) {
@@ -744,7 +747,7 @@ P._response = async function(res, fn) {
 // the wrapepr logs the function call (whether it was the main API call or subsequent)
 P._wrapper = function(f, n) { // the function to wrap and the string name of the function
   return async function() {
-    var _as, args, base, bup, c, exists, i, j, len, len1, lg, limited, qrs, qry, rec, ref, ref1, ref10, ref11, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, rt, sht, started;
+    var _as, args, base, bup, c, exists, i, j, l, len, len1, len2, lg, limited, qrs, qry, rec, ref, ref1, ref10, ref11, ref12, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, rt, sht, started, t;
     started = Date.now(); // not accurate in a workers environment, but close enough
     rt = n.replace(/\./g, '_');
     lg = {
@@ -961,10 +964,18 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
         if (typeof f === 'function') { // process the sheet with the function if necessary, then create or empty the index
           sht = (await f.apply(this, [sht]));
         }
+        if (f._key) {
+          for (l = 0, len2 = sht.length; l < len2; l++) {
+            t = sht[l];
+            if (t._id == null) {
+              t._id = (ref11 = t[f._key]) != null ? ref11 : this.uid();
+            }
+          }
+        }
         await this.index(rt, '');
         await this.index(rt, typeof f._index !== 'object' ? {} : {
           settings: f._index.settings,
-          mappings: (ref11 = f._index.mappings) != null ? ref11 : f._index.mapping,
+          mappings: (ref12 = f._index.mappings) != null ? ref12 : f._index.mapping,
           aliases: f._index.aliases
         });
         if (arguments.length || JSON.stringify(this.params) !== '{}') {
@@ -988,7 +999,7 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
     // _async, _limit
     if ((res == null) && (!f._index || rec !== '') && typeof f === 'function') {
       _as = async(rt, f, ar, notify) => {
-        var ends, id, l, len2, r, ref12, ref13, txt;
+        var ends, id, len3, o, r, ref13, ref14, txt;
         if (f._limit) {
           ends = f._limit === true ? 86400 : f._limit;
           await this.kv('limit/' + n, started + ends, ends); // max limit for one day
@@ -996,14 +1007,14 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
         r = (await f.apply(this, ar));
         if (typeof r === 'object' && (f._kv || f._index) && (r.took == null) && (r.hits == null)) {
           if (f._key && Array.isArray(r) && r.length && (r[0]._id == null) && (r[0][f._key] != null)) {
-            for (l = 0, len2 = r.length; l < len2; l++) {
-              c = r[l];
+            for (o = 0, len3 = r.length; o < len3; o++) {
+              c = r[o];
               if (c._id == null) {
                 c._id = c[f._key];
               }
             }
           }
-          id = Array.isArray(r) ? '' : '/' + ((ref12 = (ref13 = r[f._key]) != null ? ref13 : r._id) != null ? ref12 : this.uid()).replace(/\//g, '_').toLowerCase();
+          id = Array.isArray(r) ? '' : '/' + ((ref13 = (ref14 = r[f._key]) != null ? ref14 : r._id) != null ? ref13 : this.uid()).replace(/\//g, '_').toLowerCase();
           if (f._kv && !Array.isArray(r)) {
             this.kv(rt + id, res, f._kv);
           }
@@ -2322,7 +2333,7 @@ P.example.cron._notify = false;
 
 // NOTE TODO for getting certain file content, adding encoding: null to headers (or correct encoding required) can be helpful
 P.fetch = async function(url, params) {
-  var _f, base, ct, err, i, j, k, len, len1, name, nu, pt, pts, qp, ref, ref1, ref2, ref3, res, v;
+  var _f, base, ct, err, fd, fk, i, j, k, len, len1, name, nu, pt, pts, qp, ref, ref1, ref2, ref3, res, v;
   if ((url == null) && (params == null)) {
     try {
       params = this.copy(this.params);
@@ -2382,7 +2393,23 @@ P.fetch = async function(url, params) {
       delete params[ct];
     }
   }
-  if (params.body != null) {
+  if (params.file != null) {
+    if ((params.body != null) && (params.form == null)) {
+      params.form = params.body;
+    }
+    //if not FormData?
+    //  FormData = (await new Response(new URLSearchParams()).formData()).constructor
+    // TODO does content-type need to be checked? Would need to be multipart/form-data AND have a boundary
+    // or is that getting set by sending the FormData anyway?
+    // e.g. Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryIn312MOjBWdkffIM
+    fd = new FormData();
+    fd.append('file', params.file, params.filename);
+    params.body = fd;
+    delete params.filename;
+    if (params.method == null) {
+      params.method = 'POST';
+    }
+  } else if (params.body != null) {
     if (params.headers == null) {
       params.headers = {};
     }
@@ -2397,24 +2424,30 @@ P.fetch = async function(url, params) {
     }
   }
   if (params.form != null) {
-    // note, to send form and more data, form-data would be needed
-    if (params.headers == null) {
-      params.headers = {};
+    if (params.file != null) {
+      for (fk in params.form) {
+        params.body.append(fk, params.form[fk]);
+      }
+    } else {
+      if (params.headers == null) {
+        params.headers = {};
+      }
+      if ((params.headers['Content-Type'] == null) && (params.headers['content-type'] == null)) {
+        params.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+      }
+      if (typeof params.form === 'object') {
+        try {
+          params.form = (await this.form(params.form));
+        } catch (error) {}
+      }
+      params.body = params.form;
     }
-    if ((params.headers['Content-Type'] == null) && (params.headers['content-type'] == null)) {
-      params.headers['Content-Type'] = 'application/x-www-form-urlencoded';
-    }
-    if (typeof params.form === 'object') {
-      try {
-        params.form = (await this.form(params.form));
-      } catch (error) {}
-    }
-    params.body = params.form;
     delete params.form;
     if (params.method == null) {
       params.method = 'POST';
     }
   }
+  delete params.file;
   if (typeof url !== 'string') {
 
   } else {
@@ -2474,26 +2507,33 @@ P.fetch = async function(url, params) {
       }
     }
     _f = async() => {
-      var r, response;
+      var buff, r, response;
       if (params.stream) {
         delete params.stream;
         // return full response with status, ok, redirected, bodyUsed, size, timeout url, statusText, clone, body, arrayBuffer, blob, json, text, buffer, textConverted 
         return fetch(url, params); // (and response body can be used as stream if desired, or can await text() or json() etc
       } else {
-        if ((typeof S !== "undefined" && S !== null ? S.bg : void 0) === true) { // extra for finding out unexplained timeout issue
-          console.log(url);
+        //console.log(url) if S?.bg is true # extra for finding out unexplained timeout issue
+        buff = false;
+        if (params.buffer) {
+          buff = true;
+          delete params.buffer;
         }
         response = (await fetch(url, params));
         if ((!url.includes('localhost') || response.status !== 200) && S.dev && S.bg === true) { // status code can be found here
           console.log(response.status + ' ' + url);
         }
         // content type could be read from: response.headers.get('content-type')
-        r = (await response.text()); // await response.json() can get json direct, but it will error if the wrong sort of data is provided, so just try it here
-        try {
-          if (typeof r === 'string' && (r.indexOf('{') === 0 || r.indexOf('[') === 0)) {
-            r = JSON.parse(r);
-          }
-        } catch (error) {}
+        if (buff) {
+          r = (await response.buffer());
+        } else {
+          r = (await response.text()); // await response.json() can get json direct, but it will error if the wrong sort of data is provided, so just try it here
+          try {
+            if (typeof r === 'string' && (r.indexOf('{') === 0 || r.indexOf('[') === 0)) {
+              r = JSON.parse(r);
+            }
+          } catch (error) {}
+        }
         if (response.status === 404) {
 
         } else if (response.status >= 400) {
@@ -3062,13 +3102,19 @@ P.mail = async function(opts) {
   if (Array.isArray(opts.to)) {
     opts.to = opts.to.join(',');
   }
-  f = (ref13 = this != null ? this.fetch : void 0) != null ? ref13 : P.fetch;
-  fo = (await this.form(opts));
-  return (await f(url, {
-    method: 'POST',
-    form: fo,
-    auth: 'api:' + ms.apikey
-  }));
+  if (opts.to) {
+    f = (ref13 = this != null ? this.fetch : void 0) != null ? ref13 : P.fetch;
+    fo = (await this.form(opts));
+    return (await f(url, {
+      method: 'POST',
+      form: fo,
+      auth: 'api:' + ms.apikey
+    }));
+  } else {
+    console.log(opts);
+    console.log('NO ADDRESS TO EMAIL TO');
+    return {};
+  }
 };
 
 P.mail._hide = true;
@@ -3514,7 +3560,9 @@ P.tdm.hamming = function(a, b, lowercase) {
 P.tdm.extract = async function(opts) {
   var l, lastslash, len, m, match, mopts, mr, parts, ref, ref1, res, text;
   // opts expects url,content,matchers (a list, or singular "match" string),start,end,convert,format,lowercase,ascii
-  //opts ?= @params
+  if (opts == null) {
+    opts = this.copy(this.params);
+  }
   if (opts.url && !opts.content) {
     if (opts.url.indexOf('.pdf') !== -1 || opts.url.indexOf('/pdf') !== -1) {
       if (opts.convert == null) {
@@ -4827,6 +4875,8 @@ P.index.terms = async function(route, key, qry, size = 100, counts = true, order
     }
   };
   ret = (await this.index._send('/' + route + '/_search', query, 'POST'));
+  console.log(JSON.stringify(query));
+  console.log(JSON.stringify(ret));
   res = [];
   ref7 = (ref4 = ret != null ? (ref5 = ret.aggregations) != null ? (ref6 = ref5[key]) != null ? ref6.buckets : void 0 : void 0 : void 0) != null ? ref4 : [];
   for (l = 0, len1 = ref7.length; l < len1; l++) {
@@ -4868,31 +4918,29 @@ P.index.suggest = async function(route, key, qry, size = 100, include) {
   if (typeof qry === 'string') {
     qry = qry.trim();
     ql = qry.toLowerCase();
-    if (include) {
-      tqr = {
-        should: [
-          {
-            match: {}
-          },
-          {
-            prefix: {}
-          },
-          {
-            query_string: {
-              query: key + ':' + qry.split(' ').join(' AND ' + key + ':') + '*'
-            }
+    tqr = {
+      should: [
+        {
+          match: {}
+        },
+        {
+          prefix: {}
+        },
+        {
+          query_string: {
+            query: key + ':' + qry.split(' ').join(' AND ' + key + ':') + '*'
           }
-        ]
-      };
-      tqr.should[0].match[key] = {
-        query: qry,
-        boost: 3
-      };
-      tqr.should[1].prefix[key] = {
-        value: qry,
-        boost: 2
-      };
-    }
+        }
+      ]
+    };
+    tqr.should[0].match[key] = {
+      query: qry,
+      boost: 3
+    };
+    tqr.should[1].prefix[key] = {
+      value: qry,
+      boost: 2
+    };
   }
   res = [];
   seen = [];
@@ -4921,6 +4969,7 @@ P.index.suggest = async function(route, key, qry, size = 100, include) {
     for (j = 0, len = ref4.length; j < len; j++) {
       k = ref4[j];
       kl = k.toLowerCase();
+      console.log(kl);
       if (indexOf.call(seen, kl) < 0 && (!ql || kl.includes(ql))) {
         res.push(k);
       }
@@ -6221,7 +6270,7 @@ P.src.crossref.works._prefix = false;
 // TODO this really should be handled by the main crossref.works function, then 
 // the wrapper should query in advance, like it does, but then be able to tell 
 // the difference between an actual query and an attempt to get a specific record
-P.src.crossref.works.title = function(title) {
+P.src.crossref.works.title = async function(title) {
   var i, j, len, len1, ltitle, qr, r, ref, ref1, ref2, ref3, ref4, rem, res, rt, st, t;
   if (title == null) {
     title = (ref = this.params.title) != null ? ref : this.params.q;
@@ -6239,7 +6288,7 @@ P.src.crossref.works.title = function(title) {
     }
     qr += ')';
   }
-  rem = this.src.crossref.works(qr);
+  rem = (await this.src.crossref.works(qr));
   ltitle = title.toLowerCase().replace(/['".,\/\^&\*;:!\?#\$%{}=\-\+_`~()]/g, ' ').replace(/\s{2,}/g, ' ').trim();
   ref4 = (ref2 = rem != null ? (ref3 = rem.hits) != null ? ref3.hits : void 0 : void 0) != null ? ref2 : [];
   for (j = 0, len1 = ref4.length; j < len1; j++) {
@@ -7248,8 +7297,8 @@ P.src.microsoft.bing = async function(q, key) {
   }));
   if (res != null ? (ref8 = res.webPages) != null ? ref8.value : void 0 : void 0) {
     return {
-      total: res.data.webPages.totalEstimatedMatches,
-      data: res.data.webPages.value
+      total: res.webPages.totalEstimatedMatches,
+      data: res.webPages.value
     };
   } else {
     return {
@@ -8478,7 +8527,7 @@ P.src.zenodo = {
 // zenodo can now be searched, technically in test, at zenodo.org/api/records
 // see search page for instructions (it is ES) https://help.zenodo.org/guides/search/
 P.src.zenodo.records.search = function(q, dev) {
-  var url;
+  var ref, size, url;
   // it does have sort but does not seem to parse direction yet, so not much use sorting on publication_date
   // does not seem to do paging or cursors yet either - but size works
   if (q == null) {
@@ -8487,7 +8536,8 @@ P.src.zenodo.records.search = function(q, dev) {
   if (dev == null) {
     dev = this.params.dev;
   }
-  url = 'https://' + (this.S.dev || dev ? 'sandbox.' : '') + 'zenodo.org/api/records?size=' + size + '&q=' + q; // just do simple string queries for now
+  size = (ref = this.params.size) != null ? ref : 10;
+  url = 'https://' + (this.S.dev || dev ? 'sandbox.' : '') + 'zenodo.org/api/records?size=' + size + '&q=' + encodeURIComponent(q); // just do simple string queries for now
   return this.fetch(url); // could do a post if q is more complex... so far this just returns an ES search endpoint
 };
 
@@ -8663,16 +8713,16 @@ P.src.zenodo.records.format = async function(rec) {
 };
 
 P.src.zenodo.deposition.create = async function(metadata, up, token, dev) {
-  var base, data, ref, ref1, ref2, ref3, rs, url;
+  var base, data, ref, ref1, ref2, ref3, ref4, rs, url;
   // https://zenodo.org/dev#restapi-rep-meta
   if (dev == null) {
-    dev = this.params.dev;
+    dev = (ref = this.params.dev) != null ? ref : this.S.dev;
   }
   if (token == null) {
     token = this.params.token;
   }
   if (token == null) {
-    token = this.S.dev || dev ? (ref = this.S.src) != null ? (ref1 = ref.zenodo) != null ? ref1.sandbox : void 0 : void 0 : (ref2 = this.S.src) != null ? (ref3 = ref2.zenodo) != null ? ref3.token : void 0 : void 0;
+    token = dev ? (ref1 = this.S.src) != null ? (ref2 = ref1.zenodo) != null ? ref2.sandbox : void 0 : void 0 : (ref3 = this.S.src) != null ? (ref4 = ref3.zenodo) != null ? ref4.token : void 0 : void 0;
   }
   if (metadata == null) {
     metadata = this.params.metadata; // or try to retrieve from oaworks.metadata?
@@ -8680,7 +8730,7 @@ P.src.zenodo.deposition.create = async function(metadata, up, token, dev) {
   if ((token == null) || (metadata == null) || (metadata.title == null) || (metadata.description == null)) {
     return false;
   }
-  url = 'https://' + (this.S.dev || dev ? 'sandbox.' : '') + 'zenodo.org/api/deposit/depositions?access_token=' + token;
+  url = 'https://' + (dev ? 'sandbox.' : '') + 'zenodo.org/api/deposit/depositions?access_token=' + token;
   data = {
     metadata: metadata
   };
@@ -8702,10 +8752,10 @@ P.src.zenodo.deposition.create = async function(metadata, up, token, dev) {
       body: data
     }));
     if (((rs != null ? rs.id : void 0) != null) && (up.content || up.file)) {
-      rs.uploaded = (await this.src.zenodo.deposition.upload(rs.id, up.content, up.file, up.name, up.url, token));
+      rs.uploaded = (await this.src.zenodo.deposition.upload(rs.id, up.content, up.file, up.name, up.url, token, dev));
     }
     if (up.publish) {
-      rs.published = (await this.src.zenodo.deposition.publish(rs.id, token));
+      rs.published = (await this.src.zenodo.deposition.publish(rs.id, token, dev));
     }
     return rs;
   } else {
@@ -8717,7 +8767,7 @@ P.src.zenodo.deposition.create = async function(metadata, up, token, dev) {
   }
 };
 
-P.src.zenodo.deposition.upload = async function(id, content, file, name, url, token, dev) {
+P.src.zenodo.deposition.upload = async function(id, content, file, filename, url, token, dev) {
   var ref, ref1, ref2, ref3;
   if (id == null) {
     id = (ref = this.params.upload) != null ? ref : this.params.id;
@@ -8725,8 +8775,8 @@ P.src.zenodo.deposition.upload = async function(id, content, file, name, url, to
   if (content == null) {
     content = this.params.content;
   }
-  if (name == null) {
-    name = this.params.name;
+  if (filename == null) {
+    filename = this.params.filename;
   }
   if (!content && !file) {
     try {
@@ -8735,7 +8785,9 @@ P.src.zenodo.deposition.upload = async function(id, content, file, name, url, to
   }
   if (url && !content && !file) {
     try {
-      content = (await this.fetch(url));
+      content = (await this.fetch(url, {
+        buffer: true
+      }));
     } catch (error) {}
   }
   if (token == null) {
@@ -8752,10 +8804,8 @@ P.src.zenodo.deposition.upload = async function(id, content, file, name, url, to
   }
   url = 'https://' + (this.S.dev || dev ? 'sandbox.' : '') + 'zenodo.org/api/deposit/depositions/' + id + '/files?access_token=' + token;
   return this.fetch(url, {
-    method: 'POST',
-    body: content != null ? content : file
-  }, {
-    name: name // TODO how to send file and params such as name - make fetch do multipart
+    file: content != null ? content : file,
+    filename: filename
   });
 };
 
@@ -9875,7 +9925,7 @@ P.svc.oaworks = async function() {
 
 P.svc.oaworks.templates = {
   _key: 'name',
-  _sheet: '16Qm8n3Rmx3QyttFpSGj81_7T6ehfLAtYRSvmDf3pAzg/1',
+  _sheet: '1Xg-dBpCkVWglditd6gESYRgMtve4CAImXe-321ra2fo/Templates',
   _hide: true
 };
 
@@ -10064,10 +10114,8 @@ P.svc.oaworks.deal.import = async function() {
 // and/or given a uid, find the most recent URL that this users uid submitted a deposit for
 // need to handle old/new user configs somehow - just store all the old ones and let the UI pick them up
 // make sure all users submit the config with the incoming query (for those that still don't, temporarily copy them from old imported ones)
-
-// NOTE to receive files cloudflare should be setup to DNS route this directly to backend, and any calls to it should call that dns subdomain
-// because otherwise cloudflare will limit file upload size (100mb by default, and enterprise plans required for more)
-// however also busboy is required, so needs to be a direct call to backend
+// NOTE to receive files should send to background server
+// cloudflare will limit file upload size (100mb by default, and enterprise plans required for more)
 var indexOf = [].indexOf;
 
 P.svc.oaworks.deposits = {
@@ -10075,11 +10123,14 @@ P.svc.oaworks.deposits = {
 };
 
 P.svc.oaworks.deposit = async function(params, file, dev) {
-  var a, arch, as, at, author, bcc, ccm, com, creators, dep, description, ed, exists, i, improved, in_zenodo, j, k, len, len1, len2, len3, len4, m, meta, ml, n, o, perms, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref4, ref5, ref6, ref7, ref8, ref9, tk, tmpl, tos, uc, z, zn;
+  var a, as, at, author, bcc, ccm, com, creators, dep, description, ee, i, in_zenodo, j, k, len, len1, len2, len3, len4, m, meta, ml, n, o, parts, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref5, ref6, ref7, ref8, ref9, tk, tmpl, tos, uc, z, zn, zs;
   if (params == null) {
     params = this.copy(this.params);
   }
-  if (this.request.files) { // TODO check where these will end up - will they only work on bg with busboy?
+  if (((ref = params.metadata) != null ? ref.doi : void 0) && !params.doi) {
+    params.doi = params.metadata.doi;
+  }
+  if (this.request.files) {
     if (file == null) {
       file = this.request.files[0];
     }
@@ -10090,19 +10141,22 @@ P.svc.oaworks.deposit = async function(params, file, dev) {
   if (dev == null) {
     dev = this.S.dev;
   }
-  dep = {};
-  ref = ['embedded', 'demo', 'pilot', 'live', 'email', 'plugin'];
-  for (i = 0, len = ref.length; i < len; i++) {
-    k = ref[i];
+  dep = {
+    createdAt: Date.now()
+  };
+  dep.created_date = (await this.datetime(dep.createdAt));
+  ref1 = ['embedded', 'demo', 'pilot', 'live', 'email', 'plugin'];
+  for (i = 0, len = ref1.length; i < len; i++) {
+    k = ref1[i];
     dep[k] = params[k];
   }
-  if (dep.pilot) {
+  if (dep.pilot === true) {
     dep.pilot = Date.now();
   }
   if (dep.live === true) {
     dep.live = Date.now();
   }
-  dep.name = (ref1 = file != null ? file.filename : void 0) != null ? ref1 : file != null ? file.name : void 0;
+  dep.name = (ref2 = file != null ? file.filename : void 0) != null ? ref2 : file != null ? file.name : void 0;
   if (params.from !== 'anonymous') {
     dep.from = params.from;
   }
@@ -10110,10 +10164,11 @@ P.svc.oaworks.deposit = async function(params, file, dev) {
     // if confirmed is true the submitter has confirmed this is the right file (and decode saves it as a "true" string, not bool, so doesn't clash in ES). If confirmed is the checksum this is a resubmit by an admin
     dep.confirmed = decodeURIComponent(params.confirmed);
   }
-  dep.doi = (ref2 = params.doi) != null ? ref2 : (ref3 = params.metadata) != null ? ref3.doi : void 0;
+  dep.doi = (ref3 = params.doi) != null ? ref3 : (ref4 = params.metadata) != null ? ref4.doi : void 0;
   if ((params.metadata == null) && params.doi) {
     params.metadata = (await this.svc.oaworks.metadata(params.doi));
   }
+  dep.metadata = params.metadata;
   uc = params.config; // should exist but may not
   if (typeof params.config === 'string') {
     uc = JSON.parse(params.config);
@@ -10121,18 +10176,21 @@ P.svc.oaworks.deposit = async function(params, file, dev) {
   if (!params.config && params.from) {
     uc = (await this.fetch('https://' + (dev ? 'dev.' : '') + 'api.cottagelabs.com/service/oab/deposit/config?uid=' + params.from));
   }
-  perms = (await this.svc.oaworks.permissions((ref4 = params.metadata) != null ? ref4 : params.doi)); // SYP only works on DOI so far, so deposit only works if permissions can work, which requires a DOI if about a specific article
-  arch = (await this.svc.oaworks.archivable(file, void 0, (dep.confirmed && dep.confirmed !== true ? dep.confirmed : void 0), params.metadata));
-  if ((arch != null ? arch.archivable : void 0) && (!dep.confirmed || dep.confirmed === arch.checksum)) { // if the depositor confirms we don't deposit, we manually review - only deposit on admin confirmation (but on dev allow it)
+  dep.permissions = (ref5 = params.permissions) != null ? ref5 : (await this.svc.oaworks.permissions((ref6 = params.metadata) != null ? ref6 : params.doi)); // SYP only works on DOI so far, so deposit only works if permissions can work, which requires a DOI if about a specific article
+  dep.archivable = (await this.svc.oaworks.archivable(file, void 0, dep.confirmed, params.metadata, dep.permissions, dev));
+  if (((ref7 = dep.archivable) != null ? ref7.metadata : void 0) != null) {
+    delete dep.archivable.metadata;
+  }
+  if (((ref8 = dep.archivable) != null ? ref8.archivable : void 0) && (!dep.confirmed || dep.confirmed === dep.archivable.checksum)) { // if the depositor confirms we don't deposit, we manually review - only deposit on admin confirmation (but on dev allow it)
     zn = {
       content: file.data,
-      name: arch.name
+      name: dep.archivable.name
     };
-    zn.publish = ((ref5 = this.S.svc.oaworks) != null ? (ref6 = ref5.deposit) != null ? ref6.zenodo : void 0 : void 0) === true;
+    zn.publish = true;
     creators = [];
-    ref9 = (ref7 = (ref8 = params.metadata) != null ? ref8.author : void 0) != null ? ref7 : [];
-    for (j = 0, len1 = ref9.length; j < len1; j++) {
-      a = ref9[j];
+    ref11 = (ref9 = (ref10 = params.metadata) != null ? ref10.author : void 0) != null ? ref9 : [];
+    for (j = 0, len1 = ref11.length; j < len1; j++) {
+      a = ref11[j];
       if (a.family != null) {
         at = {
           name: a.family + (a.given ? ', ' + a.given : '')
@@ -10158,7 +10216,7 @@ P.svc.oaworks.deposit = async function(params, file, dev) {
       ];
     }
     description = params.metadata.abstract ? params.metadata.abstract + '<br><br>' : '';
-    description += (ref10 = (ref11 = perms.best_permission) != null ? ref11.deposit_statement : void 0) != null ? ref10 : (params.metadata.doi != null ? 'The publisher\'s final version of this work can be found at https://doi.org/' + d.metadata.doi : '');
+    description += (ref12 = (ref13 = dep.permissions.best_permission) != null ? ref13.deposit_statement : void 0) != null ? ref12 : (params.metadata.doi != null ? 'The publisher\'s final version of this work can be found at https://doi.org/' + params.metadata.doi : '');
     description = description.trim();
     if (description.lastIndexOf('.') !== description.length - 1) {
       description += '.';
@@ -10168,20 +10226,24 @@ P.svc.oaworks.deposit = async function(params, file, dev) {
     }
     description += '<br><br>Deposited by shareyourpaper.org and openaccessbutton.org. We\'ve taken reasonable steps to ensure this content doesn\'t violate copyright. However, if you think it does you can request a takedown by emailing help@openaccessbutton.org.';
     meta = {
-      title: (ref12 = params.metadata.title) != null ? ref12 : 'Unknown',
+      title: (ref14 = params.metadata.title) != null ? ref14 : 'Unknown',
       description: description.trim(),
       creators: creators,
-      version: arch.version === 'preprint' ? 'Submitted Version' : arch.version === 'postprint' ? 'Accepted Version' : arch.version === 'publisher pdf' ? 'Published Version' : 'Accepted Version',
+      version: dep.archivable.version === 'preprint' ? 'Submitted Version' : dep.archivable.version === 'postprint' ? 'Accepted Version' : dep.archivable.version === 'publisher pdf' ? 'Published Version' : 'Accepted Version',
       journal_title: params.metadata.journal,
       journal_volume: params.metadata.volume,
       journal_issue: params.metadata.issue,
       journal_pages: params.metadata.page
     };
     if (params.doi) {
-      in_zenodo = (await this.src.zenodo.records.doi(params.doi));
-      if (in_zenodo && dep.confirmed !== arch.checksum && !dev) {
+      //in_zenodo = await @src.zenodo.records.doi params.doi, dev
+      zs = (await this.src.zenodo.records.search('"' + params.doi + '"', dev));
+      if (zs != null ? (ref15 = zs.hits) != null ? ref15.total : void 0 : void 0) {
+        in_zenodo = zs.hits.hits[0];
+      }
+      if (in_zenodo && dep.confirmed !== dep.archivable.checksum && !dev) {
         dep.zenodo = {
-          already: in_zenodo.id // we don't put it in again although we could with doi as related field - but leave for review for now
+          already: in_zenodo.id
         };
       } else {
         meta['related_identifiers'] = [
@@ -10194,21 +10256,24 @@ P.svc.oaworks.deposit = async function(params, file, dev) {
     }
     meta.prereserve_doi = true;
     meta['access_right'] = 'open';
-    meta.license = (ref13 = (ref14 = perms.best_permission) != null ? ref14.licence : void 0) != null ? ref13 : 'cc-by'; // zenodo also accepts other-closed and other-nc, possibly more
-    if (meta.license.indexOf('other') !== -1 && meta.license.indexOf('closed') !== -1) {
+    meta.license = (ref16 = (ref17 = dep.permissions.best_permission) != null ? ref17.licence : void 0) != null ? ref16 : 'cc-by'; // zenodo also accepts other-closed and other-nc, possibly more
+    if (meta.license.includes('other') && meta.license.includes('closed')) {
       meta.license = 'other-closed';
     }
-    if (meta.license.indexOf('other') !== -1 && meta.license.indexOf('non') !== -1 && meta.license.indexOf('commercial') !== -1) {
+    if (meta.license.includes('other') && meta.license.includes('non') && meta.license.includes('commercial')) {
       meta.license = 'other-nc';
     }
-    if (meta.license.toLowerCase().indexOf('cc') === 0 && isNaN(parseInt(meta.license.substring(meta.license.length - 1)))) {
+    if (meta.license.toLowerCase().startsWith('cc') && isNaN(parseInt(meta.license.substring(meta.license.length - 1)))) {
       meta.license += '-4.0';
     }
     try {
-      if (((ref15 = perms.best_permission) != null ? ref15.embargo_end : void 0) && moment(perms.best_permission.embargo_end, 'YYYY-MM-DD').valueOf() > Date.now()) {
-        meta['access_right'] = 'embargoed';
-        meta['embargo_date'] = perms.best_permission.embargo_end; // check date format required by zenodo
-        dep.embargo = perms.best_permission.embargo_end;
+      if ((ref18 = dep.permissions.best_permission) != null ? ref18.embargo_end : void 0) {
+        ee = (await this.epoch(dep.permissions.best_permission.embargo_end));
+        if (ee > Date.now()) {
+          meta['access_right'] = 'embargoed';
+          meta['embargo_date'] = dep.permissions.best_permission.embargo_end; // check date format required by zenodo
+          dep.embargo = dep.permissions.best_permission.embargo_end;
+        }
       }
     } catch (error) {}
     try {
@@ -10216,7 +10281,8 @@ P.svc.oaworks.deposit = async function(params, file, dev) {
         meta['publication_date'] = params.metadata.published;
       }
     } catch (error) {}
-    if (uc) {
+    if (uc != null) {
+      dep.config = uc;
       if ((uc.community_ID != null) && (uc.community == null)) {
         uc.community = uc.community_ID;
       }
@@ -10224,9 +10290,9 @@ P.svc.oaworks.deposit = async function(params, file, dev) {
         if (uc.communities == null) {
           uc.communities = [];
         }
-        ref16 = (typeof uc.community === 'string' ? uc.community.split(',') : uc.community);
-        for (m = 0, len2 = ref16.length; m < len2; m++) {
-          ccm = ref16[m];
+        ref19 = (typeof uc.community === 'string' ? uc.community.split(',') : uc.community);
+        for (m = 0, len2 = ref19.length; m < len2; m++) {
+          ccm = ref19[m];
           uc.communities.push({
             identifier: ccm
           });
@@ -10239,25 +10305,28 @@ P.svc.oaworks.deposit = async function(params, file, dev) {
         if (!Array.isArray(uc.communities)) {
           uc.communities = [uc.communities];
         }
-        meta['communities'] = [];
-        ref17 = uc.communities;
-        for (n = 0, len3 = ref17.length; n < len3; n++) {
-          com = ref17[n];
+        meta.communities = [];
+        ref20 = uc.communities;
+        for (n = 0, len3 = ref20.length; n < len3; n++) {
+          com = ref20[n];
           meta.communities.push(typeof com === 'string' ? {
             identifier: com
           } : com);
         }
       }
+      if (meta.communities && meta.communities.length) {
+        dep.community = meta.communities[0].identifier;
+      }
     }
-    if (tk = (dev || dep.demo ? (ref18 = this.S.svc.oaworks) != null ? (ref19 = ref18.zenodo) != null ? ref19.sandbox : void 0 : void 0 : (ref20 = this.S.svc.oaworks) != null ? (ref21 = ref20.zenodo) != null ? ref21.token : void 0 : void 0)) {
-      if (!((ref22 = dep.zenodo) != null ? ref22.already : void 0)) {
-        z = (await this.src.zenodo.deposition.create(meta, zn, tk));
+    if (tk = (dev || dep.demo ? (ref21 = this.S.svc.oaworks) != null ? (ref22 = ref21.zenodo) != null ? ref22.sandbox : void 0 : void 0 : (ref23 = this.S.svc.oaworks) != null ? (ref24 = ref23.zenodo) != null ? ref24.token : void 0 : void 0)) {
+      if (!((ref25 = dep.zenodo) != null ? ref25.already : void 0)) {
+        z = (await this.src.zenodo.deposition.create(meta, zn, tk, dev));
         if (z.id) {
           dep.zenodo = {
             id: z.id,
             url: 'https://' + (dev || dep.demo ? 'sandbox.' : '') + 'zenodo.org/record/' + z.id,
-            doi: ((ref23 = z.metadata) != null ? (ref24 = ref23.prereserve_doi) != null ? ref24.doi : void 0 : void 0) != null ? z.metadata.prereserve_doi.doi : void 0,
-            file: (ref25 = (ref26 = z.uploaded) != null ? (ref27 = ref26.links) != null ? ref27.download : void 0 : void 0) != null ? ref25 : (ref28 = z.uploaded) != null ? (ref29 = ref28.links) != null ? ref29.download : void 0 : void 0
+            doi: ((ref26 = z.metadata) != null ? (ref27 = ref26.prereserve_doi) != null ? ref27.doi : void 0 : void 0) != null ? z.metadata.prereserve_doi.doi : void 0,
+            file: (ref28 = (ref29 = z.uploaded) != null ? (ref30 = ref29.links) != null ? ref30.download : void 0 : void 0) != null ? ref28 : (ref31 = z.uploaded) != null ? (ref32 = ref31.links) != null ? ref32.download : void 0 : void 0
           };
           if (dep.doi == null) {
             dep.doi = dep.zenodo.doi;
@@ -10276,8 +10345,8 @@ P.svc.oaworks.deposit = async function(params, file, dev) {
       dep.type = 'review';
     }
   }
-  dep.version = arch != null ? arch.version : void 0;
-  if (!dep.type && params.from && (!dep.embedded || (dep.embedded.indexOf('oa.works') === -1 && dep.embedded.indexOf('openaccessbutton.org') === -1 && dep.embedded.indexOf('shareyourpaper.org') === -1))) {
+  dep.version = (ref33 = dep.archivable) != null ? ref33.version : void 0;
+  if (!dep.type && params.from && (!dep.embedded || (!dep.embedded.includes('oa.works') && !dep.embedded.includes('openaccessbutton.org') && !dep.embedded.includes('shareyourpaper.org')))) {
     dep.type = params.redeposit ? 'redeposit' : file ? 'forward' : 'dark';
   }
   if (dep.doi && !dep.error) {
@@ -10285,79 +10354,49 @@ P.svc.oaworks.deposit = async function(params, file, dev) {
       dep.type = 'review';
     }
     dep.url = typeof params.redeposit === 'string' ? params.redeposit : params.url ? params.url : void 0;
-    if (!(exists = (await this.svc.oaworks.deposits('doi:"' + dep.doi + '"' + (dep.from ? ' AND from:"' + dep.from + '"' : ''))))) {
-      dep.createdAt = Date.now();
-      this.waitUntil(this.svc.oaworks.deposits(dep));
-    } else {
-      improved = false;
-      if (dep.name && !exists.name) {
-        improved = true;
-        exists.name = dep.name;
-      }
-      if (dep.confirmed && (!exists.confirmed || (exists.confirmed === 'true' && dep.confirmed !== 'true'))) {
-        improved = true;
-        exists.confirmed = dep.confirmed;
-      }
-      if (typeof exists.type === 'string') {
-        exists.type = [exists.type];
-      }
-      if (ref30 = dep.type, indexOf.call(exists.type, ref30) < 0) {
-        improved = true;
-        exists.type.push(dep.type);
-      }
-      if ((dep.zenodo != null) && (dep.zenodo.already == null) && !exists.zenodo) {
-        improved = true;
-        exists.zenodo = dep.zenodo;
-      }
-      if (improved) {
-        exists.updatedAt = Date.now();
-        if (exists.duplicate == null) {
-          exists.duplicate = 0;
-        }
-        exists.duplicate += 1;
-        this.waitUntil(this.svc.oaworks.deposits(exists));
-      }
-      dep.duplicate = (ref31 = exists.duplicate) != null ? ref31 : 1;
-    }
-    if ((dep.type !== 'review' || (file != null)) && (arch != null ? arch.archivable : void 0) !== false && !dep.duplicate) { // so when true or when undefined if no file is given
+    await this.svc.oaworks.deposits(dep);
+    if ((dep.type !== 'review' || (file != null)) && ((ref34 = dep.archivable) != null ? ref34.archivable : void 0) !== false && (!(typeof exists !== "undefined" && exists !== null ? (ref35 = exists.zenodo) != null ? ref35.already : void 0 : void 0) || dev)) {
       bcc = ['joe@oa.works'];
+      if (dev) {
+        bcc.push('mark@oa.works');
+      }
       tos = [];
-      if (typeof (uc != null ? uc.owner : void 0) === 'string' && uc.owner.indexOf('@') !== -1) {
+      if (typeof (uc != null ? uc.owner : void 0) === 'string' && uc.owner.includes('@')) {
         tos.push(uc.owner);
-      } else if (uc.email) {
+      } else if (uc != null ? uc.email : void 0) {
         tos.push(uc.email);
       }
       if (tos.length === 0) {
         tos = this.copy(bcc);
         bcc = [];
       }
-      ed = this.copy(dep);
-      ed.metadata = (ref32 = params.metadata) != null ? ref32 : {};
       as = [];
-      ref34 = (ref33 = ed.metadata.author) != null ? ref33 : [];
-      for (o = 0, len4 = ref34.length; o < len4; o++) {
-        author = ref34[o];
+      ref38 = (ref36 = (ref37 = dep.metadata) != null ? ref37.author : void 0) != null ? ref36 : [];
+      for (o = 0, len4 = ref38.length; o < len4; o++) {
+        author = ref38[o];
         if (author.family) {
           as.push((author.given ? author.given + ' ' : '') + author.family);
         }
       }
-      ed.metadata.author = as;
-      ed.adminlink = (ed.embedded ? ed.embedded : 'https://shareyourpaper.org' + (ed.metadata.doi ? '/' + ed.metadata.doi : ''));
-      ed.adminlink += ed.adminlink.includes('?') ? '&' : '?';
-      if ((arch != null ? arch.checksum : void 0) != null) {
-        ed.confirmed = encodeURIComponent(arch.checksum);
-        ed.adminlink += 'confirmed=' + ed.confirmed + '&';
+      dep.metadata.author = as;
+      dep.adminlink = (dep.embedded ? dep.embedded : 'https://shareyourpaper.org' + (dep.metadata.doi ? '/' + dep.metadata.doi : ''));
+      dep.adminlink += dep.adminlink.includes('?') ? '&' : '?';
+      if (((ref39 = dep.archivable) != null ? ref39.checksum : void 0) != null) {
+        dep.confirmed = encodeURIComponent(dep.archivable.checksum);
+        dep.adminlink += 'confirmed=' + dep.confirmed + '&';
       }
-      ed.adminlink += 'email=' + ed.email;
-      tmpl = (await this.svc.oaworks.templates(dep.type + '_deposit.html'));
-      tmpl = tmpl.content;
+      if (ref40 = dep.email, indexOf.call(dep.adminlink, ref40) < 0) {
+        dep.adminlink += 'email=' + dep.email;
+      }
+      tmpl = (await this.svc.oaworks.templates(dep.type + '_deposit'));
+      parts = (await this.template(tmpl.content, dep));
+      delete dep.adminlink;
+      delete dep.confirmed;
       ml = {
         from: 'deposits@oa.works',
         to: tos,
-        template: tmpl,
-        vars: ed,
-        subject: (ref35 = sub.subject) != null ? ref35 : dep.type + ' deposit',
-        html: sub.content
+        subject: (ref41 = parts.subject) != null ? ref41 : dep.type + ' deposit',
+        html: parts.content
       };
       if (bcc && bcc.length) { // passing undefined to mail seems to cause errors, so only set if definitely exists
         ml.bcc = bcc;
@@ -10365,22 +10404,35 @@ P.svc.oaworks.deposit = async function(params, file, dev) {
       if (file) {
         ml.attachments = [
           {
-            filename: (ref36 = file.filename) != null ? ref36 : file.name,
+            filename: (ref42 = file.filename) != null ? ref42 : file.name,
             content: file.data
           }
         ];
       }
-      this.waitUntil(this.mail(ml));
+      await this.mail(ml);
     }
+  }
+  // embargo_UI is a legacy value for old embeds, can be removed once we switch to new separate embed repo code
+  if (dep.embargo) {
+    try {
+      dep.embargo_UI = (new Date(dep.embargo)).toLocaleString('en-GB', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      }).replace(/(11|12|13) /, '$1th ').replace('1 ', '1st ').replace('2 ', '2nd ').replace('3 ', '3rd ').replace(/([0-9]) /, '$1th ');
+    } catch (error) {}
   }
   return dep;
 };
 
 P.svc.oaworks.deposit._bg = true;
 
-P.svc.oaworks.archivable = async function(file, url, confirmed, meta = {}) {
-  var _clean, a, af, an, authorsfound, content, contentsmall, f, fd, ft, i, inc, j, l, len, len1, len2, lowercontentsmall, lowercontentstart, ls, m, matched, re, ref, ref1, ref10, ref11, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, sc, wtm, wts;
-  if (this.request.files) { // TODO check where these will end up - will they only work on bg with busboy?
+P.svc.oaworks.archivable = async function(file, url, confirmed, meta, permissions, dev) {
+  var a, af, an, authorsfound, content, contentsmall, f, ft, i, inc, j, l, len, len1, len2, lowercontentsmall, lowercontentstart, ls, m, matched, re, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, sc, wtm, wts;
+  if (dev == null) {
+    dev = this.S.dev;
+  }
+  if (this.request.files) {
     if (file == null) {
       file = this.request.files[0];
     }
@@ -10395,6 +10447,12 @@ P.svc.oaworks.archivable = async function(file, url, confirmed, meta = {}) {
     same_paper: void 0,
     licence: void 0
   };
+  if (typeof meta === 'string' || ((meta == null) && (this.params.doi || this.params.title))) {
+    meta = (await this.svc.oaworks.metadata((ref = meta != null ? meta : this.params.doi) != null ? ref : this.params.title));
+  }
+  if (meta == null) {
+    meta = {};
+  }
   // handle different sorts of file passing
   if (typeof file === 'string') {
     file = {
@@ -10414,35 +10472,11 @@ P.svc.oaworks.archivable = async function(file, url, confirmed, meta = {}) {
     try {
       f.format = (file.name != null) && file.name.includes('.') ? file.name.split('.').pop() : 'html';
     } catch (error) {}
+    f.format = f.format.toLowerCase();
     if (file.data) {
-      if (f.format === 'pdf') {
-        try {
-          content = (await this.convert.pdf2txt(file.data));
-        } catch (error) {}
-      }
-      if ((content == null) && (f.format != null) && (this.convert[f.format + '2txt'] != null)) {
+      if ((typeof content === "undefined" || content === null) && (f.format != null) && (this.convert[f.format + '2txt'] != null)) {
         try {
           content = (await this.convert[f.format + '2txt'](file.data));
-        } catch (error) {}
-      }
-      if (content == null) {
-        content = (await this.convert.file2txt(file.data, {
-          name: file.name
-        }));
-      }
-      if (content == null) {
-        fd = file.data;
-        if (typeof file.data !== 'string') {
-          try {
-            fd = file.data.toString();
-          } catch (error) {}
-        }
-        try {
-          if (fd.startsWith('<html')) {
-            content = (await this.convert.html2txt(fd));
-          } else if (file.data.startsWith('<xml')) {
-            content = (await this.convert.xml2txt(fd));
-          }
         } catch (error) {}
       }
       try {
@@ -10457,15 +10491,12 @@ P.svc.oaworks.archivable = async function(file, url, confirmed, meta = {}) {
   }
   if ((content == null) && !confirmed) {
     if ((file != null) || (url != null)) {
-      f.error = (ref = file.error) != null ? ref : 'Could not extract any content';
+      f.error = (ref1 = file.error) != null ? ref1 : 'Could not extract any content';
     }
   } else {
-    _clean = function(str) {
-      return str.toLowerCase().replace(/[^a-z0-9\/\.]+/g, "").replace(/\s\s+/g, ' ').trim();
-    };
     contentsmall = content.length < 20000 ? content : content.substring(0, 6000) + content.substring(content.length - 6000, content.length);
     lowercontentsmall = contentsmall.toLowerCase();
-    lowercontentstart = _clean(lowercontentsmall.length < 6000 ? lowercontentsmall : lowercontentsmall.substring(0, 6000));
+    lowercontentstart = (lowercontentsmall.length < 6000 ? lowercontentsmall : lowercontentsmall.substring(0, 6000)).replace(/[^a-z0-9\/]+/g, "");
     if (f.name == null) {
       f.name = meta.title;
     }
@@ -10480,12 +10511,10 @@ P.svc.oaworks.archivable = async function(file, url, confirmed, meta = {}) {
       f.same_paper_evidence.words_more_than_threshold = f.same_paper_evidence.words_count > 500 ? true : false;
     } catch (error) {}
     try {
-      f.same_paper_evidence.doi_match = meta.doi && lowercontentstart.indexOf(_clean(meta.doi)) !== -1 ? true : false; // should have the doi in it near the front
+      f.same_paper_evidence.doi_match = meta.doi && lowercontentstart.includes(meta.doi.toLowerCase().replace(/[^a-z0-9\/]+/g, "")) ? true : false;
     } catch (error) {}
     try {
-      //if content and not f.same_paper_evidence.doi_match and not meta.title?
-      //  meta = API.service.oab.metadata undefined, meta, content # get at least title again if not already tried to get it, and could not find doi in the file
-      f.same_paper_evidence.title_match = meta.title && lowercontentstart.replace(/\./g, '').includes(_clean(meta.title.replace(/ /g, '').replace(/\./g, ''))) ? true : false;
+      f.same_paper_evidence.title_match = meta.title && lowercontentstart.includes(meta.title.toLowerCase().replace(/[^a-z0-9\/]+/g, "")) ? true : false;
     } catch (error) {}
     if (meta.author != null) {
       try {
@@ -10500,17 +10529,17 @@ P.svc.oaworks.archivable = async function(file, url, confirmed, meta = {}) {
         if (!Array.isArray(meta.author)) {
           meta.author = [meta.author];
         }
-        ref1 = meta.author;
-        for (i = 0, len = ref1.length; i < len; i++) {
-          a = ref1[i];
+        ref2 = meta.author;
+        for (i = 0, len = ref2.length; i < len; i++) {
+          a = ref2[i];
           if (f.same_paper_evidence.author_match === true) {
             break;
           } else {
             try {
-              an = ((ref2 = (ref3 = (ref4 = (ref5 = a.last) != null ? ref5 : a.lastname) != null ? ref4 : a.family) != null ? ref3 : a.surname) != null ? ref2 : a.name).trim().split(',')[0].split(' ')[0];
-              af = ((ref6 = (ref7 = (ref8 = a.first) != null ? ref8 : a.firstname) != null ? ref7 : a.given) != null ? ref6 : a.name).trim().split(',')[0].split(' ')[0];
-              inc = lowercontentstart.indexOf(_clean(an));
-              if (an.length > 2 && af.length > 0 && inc !== -1 && lowercontentstart.substring(inc - 20, inc + an.length + 20).includes(_clean(af))) {
+              an = ((ref3 = (ref4 = (ref5 = (ref6 = a.last) != null ? ref6 : a.lastname) != null ? ref5 : a.family) != null ? ref4 : a.surname) != null ? ref3 : a.name).trim().split(',')[0].split(' ')[0].toLowerCase().replace(/[^a-z0-9\/]+/g, "");
+              af = ((ref7 = (ref8 = (ref9 = a.first) != null ? ref9 : a.firstname) != null ? ref8 : a.given) != null ? ref7 : a.name).trim().split(',')[0].split(' ')[0].toLowerCase().replace(/[^a-z0-9\/]+/g, "");
+              inc = lowercontentstart.indexOf(an);
+              if (an.length > 2 && af.length > 0 && inc !== -1 && lowercontentstart.substring(inc - 20, inc + an.length + 20).includes(af)) {
                 authorsfound += 1;
                 if ((meta.author.length < 3 && authorsfound === 1) || (meta.author.length > 2 && authorsfound > 1)) {
                   f.same_paper_evidence.author_match = true;
@@ -10523,10 +10552,10 @@ P.svc.oaworks.archivable = async function(file, url, confirmed, meta = {}) {
       } catch (error) {}
     }
     if (f.format != null) {
-      ref9 = ['doc', 'tex', 'pdf', 'htm', 'xml', 'txt', 'rtf', 'odf', 'odt', 'page'];
-      for (j = 0, len1 = ref9.length; j < len1; j++) {
-        ft = ref9[j];
-        if (f.format.indexOf(ft) !== -1) {
+      ref10 = ['doc', 'tex', 'pdf', 'htm', 'xml', 'txt', 'rtf', 'odf', 'odt', 'page'];
+      for (j = 0, len1 = ref10.length; j < len1; j++) {
+        ft = ref10[j];
+        if (f.format.includes(ft)) {
           f.same_paper_evidence.document_format = true;
           break;
         }
@@ -10544,11 +10573,11 @@ P.svc.oaworks.archivable = async function(file, url, confirmed, meta = {}) {
       strings_matched: []
     };
     try {
-      ref10 = (await this.src.google.sheets((this.S.dev ? '1XA29lqVPCJ2FQ6siLywahxBTLFaDCZKaN5qUeoTuApg' : '10DNDmOG19shNnuw6cwtCpK-sBnexRCCtD4WnxJx_DPQ')));
+      ref11 = (await this.src.google.sheets((dev ? '1XA29lqVPCJ2FQ6siLywahxBTLFaDCZKaN5qUeoTuApg' : '10DNDmOG19shNnuw6cwtCpK-sBnexRCCtD4WnxJx_DPQ')));
       // dev https://docs.google.com/spreadsheets/d/1XA29lqVPCJ2FQ6siLywahxBTLFaDCZKaN5qUeoTuApg/edit#gid=0
       // live https://docs.google.com/spreadsheets/d/10DNDmOG19shNnuw6cwtCpK-sBnexRCCtD4WnxJx_DPQ/edit#gid=0
-      for (m = 0, len2 = ref10.length; m < len2; m++) {
-        l = ref10[m];
+      for (m = 0, len2 = ref11.length; m < len2; m++) {
+        l = ref11[m];
         try {
           f.version_evidence.strings_checked += 1;
           wts = l.whattosearch;
@@ -10560,13 +10589,13 @@ P.svc.oaworks.archivable = async function(file, url, confirmed, meta = {}) {
           }
           matched = false;
           if (l.howtosearch === 'string') {
-            matched = (l.wheretosearch === 'file' && contentsmall.indexOf(wts) !== -1) || (l.wheretosearch !== 'file' && (((meta.title != null) && meta.title.indexOf(wts) !== -1) || ((f.name != null) && f.name.indexOf(wts) !== -1))) ? true : false;
+            matched = (l.wheretosearch === 'file' && contentsmall.includes(wts)) || (l.wheretosearch !== 'file' && (((meta.title != null) && meta.title.includes(wts)) || ((f.name != null) && f.name.includes(wts)))) ? true : false;
           } else {
             re = new RegExp(wts, 'gium');
             matched = (l.wheretosearch === 'file' && lowercontentsmall.match(re) !== null) || (l.wheretosearch !== 'file' && (((meta.title != null) && meta.title.match(re) !== null) || ((f.name != null) && f.name.match(re) !== null))) ? true : false;
           }
           if (matched) {
-            sc = (ref11 = l.score) != null ? ref11 : l.score_value;
+            sc = (ref12 = l.score) != null ? ref12 : l.score_value;
             if (typeof sc === 'string') {
               try {
                 sc = parseInt(sc);
@@ -10600,7 +10629,7 @@ P.svc.oaworks.archivable = async function(file, url, confirmed, meta = {}) {
       f.version = 'acceptedVersion';
     }
     try {
-      ls = (await this.svc.lantern.licence(void 0, void 0, lowercontentsmall)); // check lantern for licence info in the file content
+      ls = (await this.svc.lantern.licence(void 0, lowercontentsmall)); // check lantern for licence info in the file content
       if ((ls != null ? ls.licence : void 0) != null) {
         f.licence = ls.licence;
         f.licence_evidence = {
@@ -10629,8 +10658,21 @@ P.svc.oaworks.archivable = async function(file, url, confirmed, meta = {}) {
         f.archivable_reason = 'It appears this file contains a ' + f.lantern.licence + ' licence statement. Under this licence the article can be archived';
       }
       if (!f.archivable) {
-        if (f.version === 'publishedVersion') {
-          f.archivable_reason = 'The file given is a Publisher PDF, and only postprints are allowed';
+        if ((ref13 = f.version) === 'publishedVersion' || ref13 === 'acceptedVersion') {
+          if ((meta != null) && JSON.stringify(meta) !== '{}') {
+            if (permissions == null) {
+              permissions = (await this.svc.oaworks.permissions(meta));
+            }
+          }
+          if ((permissions != null ? (ref14 = permissions.best_permission) != null ? ref14.version : void 0 : void 0) === 'publishedVersion' || f.version !== 'publishedVersion') {
+            f.archivable = true;
+            f.archivable_reason = 'The file given is the ' + f.version.split('V')[0] + ' version, and permissions indicates that is allowed';
+          } else {
+            f.archivable_reason = 'The file given is the ' + f.version.split('V')[0] + ' version, and only ' + ((ref15 = permissions != null ? (ref16 = permissions.best_permission) != null ? ref16.version : void 0 : void 0) != null ? ref15 : 'unknown').split('V')[0] + ' version is allowed';
+          }
+        } else if (f.version === 'submittedVersion') {
+          f.archivable = true;
+          f.archivable_reason = 'The file given is a submitted version, which are allowed';
         } else {
           f.archivable_reason = 'We cannot confirm if it is an archivable version or not';
         }
@@ -10641,8 +10683,11 @@ P.svc.oaworks.archivable = async function(file, url, confirmed, meta = {}) {
       }
     }
   }
+  f.metadata = meta;
   return f;
 };
+
+P.svc.oaworks.archivable._bg = true;
 
 var indexOf = [].indexOf;
 
@@ -10653,7 +10698,7 @@ P.svc.oaworks.metadata = async function(doi) {
 };
 
 P.svc.oaworks.find = async function(options, metadata = {}, content) {
-  var _ill, _metadata, _permissions, _searches, bct, bong, dd, dps, i, len, mct, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, res, uo;
+  var _ill, _metadata, _permissions, _searches, bct, bong, dd, dps, epmc, i, len, mag, mct, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, res, uo;
   res = {};
   _metadata = async(input) => {
     var ct, k;
@@ -10672,8 +10717,10 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
     return true;
   };
   if (typeof options === 'string') {
-    options = {
+    options = options.split('doi.org/').pop().startsWith('10.') ? {
       doi: options
+    } : {
+      title: options
     };
   }
   try {
@@ -10691,7 +10738,7 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
     options.find = options.metadata;
   }
   if (options.find) {
-    if (options.find.indexOf('10.') === 0 && options.find.indexOf('/') !== -1) {
+    if (options.find.startsWith('10.') && options.find.includes('/')) {
       options.doi = options.find;
     } else {
       options.url = options.find;
@@ -10705,11 +10752,11 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
     if (typeof options.url === 'number') {
       options.url = options.url.toString();
     }
-    if (options.url.indexOf('/10.') !== -1) {
+    if (options.url.startsWith('/10.')) {
       // we don't use a regex to try to pattern match a DOI because people often make mistakes typing them, so instead try to find one
       // in ways that may still match even with different expressions (as long as the DOI portion itself is still correct after extraction we can match it)
       dd = '10.' + options.url.split('/10.')[1].split('&')[0].split('#')[0];
-      if (dd.indexOf('/') !== -1 && dd.split('/')[0].length > 6 && dd.length > 8) {
+      if (dd.includes('/') && dd.split('/')[0].length > 6 && dd.length > 8) {
         dps = dd.split('/');
         if (dps.length > 2) {
           dd = dps.join('/');
@@ -10719,33 +10766,33 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
         }
       }
     }
-    if (options.url.replace('doi:', '').replace('doi.org/', '').trim().indexOf('10.') === 0) {
+    if (options.url.replace('doi:', '').replace('doi.org/', '').trim().startsWith('10.')) {
       if (metadata.doi == null) {
         metadata.doi = options.url.replace('doi:', '').replace('doi.org/', '').trim();
       }
       options.url = 'https://doi.org/' + metadata.doi;
-    } else if (options.url.toLowerCase().indexOf('pmc') === 0) {
+    } else if (options.url.toLowerCase().startsWith('pmc')) {
       if (metadata.pmcid == null) {
         metadata.pmcid = options.url.toLowerCase().replace('pmcid', '').replace('pmc', '');
       }
       options.url = 'http://europepmc.org/articles/PMC' + metadata.pmcid;
-    } else if (options.url.replace(/pmid/i, '').replace(':', '').length < 10 && options.url.indexOf('.') === -1 && !isNaN(parseInt(options.url.replace(/pmid/i, '').replace(':', '').trim()))) {
+    } else if (options.url.replace(/pmid/i, '').replace(':', '').length < 10 && options.url.includes('.') && !isNaN(parseInt(options.url.replace(/pmid/i, '').replace(':', '').trim()))) {
       if (metadata.pmid == null) {
         metadata.pmid = options.url.replace(/pmid/i, '').replace(':', '').trim();
       }
       options.url = 'https://www.ncbi.nlm.nih.gov/pubmed/' + metadata.pmid;
-    } else if ((metadata.title == null) && options.url.indexOf('http') !== 0) {
-      if (options.url.indexOf('{') !== -1 || ((ref2 = options.url.replace('...', '').match(/\./gi)) != null ? ref2 : []).length > 3 || ((ref3 = options.url.match(/\(/gi)) != null ? ref3 : []).length > 2) {
+    } else if ((metadata.title == null) && !options.url.startsWith('http')) {
+      if (options.url.includes('{') || ((ref2 = options.url.replace('...', '').match(/\./gi)) != null ? ref2 : []).length > 3 || ((ref3 = options.url.match(/\(/gi)) != null ? ref3 : []).length > 2) {
         options.citation = options.url;
       } else {
         metadata.title = options.url;
       }
     }
-    if (options.url.indexOf('http') !== 0 || options.url.indexOf('.') === -1) {
+    if (!options.url.startsWith('http') || !options.url.includes('.')) {
       delete options.url;
     }
   }
-  if (typeof options.title === 'string' && (options.title.indexOf('{') !== -1 || ((ref4 = options.title.replace('...', '').match(/\./gi)) != null ? ref4 : []).length > 3 || ((ref5 = options.title.match(/\(/gi)) != null ? ref5 : []).length > 2)) {
+  if (typeof options.title === 'string' && (options.title.includes('{') || ((ref4 = options.title.replace('...', '').match(/\./gi)) != null ? ref4 : []).length > 3 || ((ref5 = options.title.match(/\(/gi)) != null ? ref5 : []).length > 2)) {
     options.citation = options.title; // titles that look like citations
     delete options.title;
   }
@@ -10773,11 +10820,11 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
   try {
     metadata.doi = metadata.doi.split(' ')[0].replace('http://', '').replace('https://', '').replace('doi.org/', '').replace('doi:', '').trim();
   } catch (error) {}
-  if (typeof metadata.doi !== 'string' || metadata.doi.indexOf('10.') !== 0) {
+  if (typeof metadata.doi !== 'string' || !metadata.doi.startsWith('10.')) {
     delete metadata.doi;
   }
   // switch exlibris URLs for titles, which the scraper knows how to extract, because the exlibris url would always be the same
-  if (!metadata.title && content && typeof options.url === 'string' && (options.url.indexOf('alma.exlibrisgroup.com') !== -1 || options.url.indexOf('/exlibristest') !== -1)) {
+  if (!metadata.title && content && typeof options.url === 'string' && (options.url.includes('alma.exlibrisgroup.com') || options.url.includes('/exlibristest'))) {
     delete options.url;
   }
   if (options.demo != null) {
@@ -10785,7 +10832,7 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
     // e.g. for instantill/shareyourpaper/other demos - dev and live demo accounts
     res.demo = options.demo;
   }
-  if ((metadata.doi === '10.1234/567890' || ((metadata.doi != null) && metadata.doi.indexOf('10.1234/oab-syp-') === 0)) || metadata.title === 'Engineering a Powerfully Simple Interlibrary Loan Experience with InstantILL' || ((ref7 = options.from) === 'qZooaHWRz9NLFNcgR' || ref7 === 'eZwJ83xp3oZDaec86')) {
+  if ((metadata.doi === '10.1234/567890' || ((metadata.doi != null) && metadata.doi.startsWith('10.1234/oab-syp-'))) || metadata.title === 'Engineering a Powerfully Simple Interlibrary Loan Experience with InstantILL' || ((ref7 = options.from) === 'qZooaHWRz9NLFNcgR' || ref7 === 'eZwJ83xp3oZDaec86')) {
     if (res.demo == null) {
       res.demo = true;
     }
@@ -10795,8 +10842,10 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
       res.test = true;
     }
   }
+  epmc = false;
+  mag = false;
   _searches = async() => {
-    var _crd, _fatcat, _oad, cr, epmc, mag, ref8, scraped;
+    var _crd, _fatcat, _oad, cr, ref8, scraped;
     if (((content != null) || (options.url != null)) && !(metadata.doi || (metadata.pmid != null) || (metadata.pmcid != null) || (metadata.title != null))) {
       scraped = (await this.svc.oaworks.scrape(content != null ? content : options.url));
       await _metadata(scraped);
@@ -10814,13 +10863,15 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
         }
         if (!metadata.doi) {
           mag = (await this.src.microsoft.graph(metadata.title));
-          if (mag != null ? mag.PaperTitle : void 0) {
+          if (mag !== false && (mag != null ? mag.PaperTitle : void 0)) {
             await _metadata(mag);
           }
         }
-        if (!metadata.doi && (epmc == null)) { // run this only if we don't find in our own stores
+        if (!metadata.doi && !epmc) {
           epmc = (await this.src.epmc.title(metadata.title));
-          await _metadata(epmc);
+          if (epmc !== false) {
+            await _metadata(epmc);
+          }
         }
       }
     }
@@ -10834,7 +10885,7 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
             f = ref9[i];
             // there are also hashes and revision IDs, but without knowing details about which is most recent just grab the first
             // looks like the URLs are timestamped, and looks like first is most recent, so let's just assume that.
-            if (f.mimetype.toLowerCase().indexOf('pdf') !== -1 && f.state === 'active') { // presumably worth knowing...
+            if (f.mimetype.toLowerCase().includes('pdf') && f.state === 'active') { // presumably worth knowing...
               ref10 = f.urls;
               for (j = 0, len1 = ref10.length; j < len1; j++) {
                 fu = ref10[j];
@@ -10890,30 +10941,27 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
   };
   await _searches();
   // if nothing useful can be found and still only have title try using bing - or drop this ability?
-  // TODO what to do if this finds anything? re-call the whole find?
-  if (!metadata.doi && !content && !options.url && (typeof epmc === "undefined" || epmc === null) && metadata.title && metadata.title.length > 8 && metadata.title.split(' ').length > 1) {
-    try {
-      mct = unidecode(metadata.title.toLowerCase()).replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' ');
-      bong = (await this.src.microsoft.bing.search(mct));
-      if (bong != null ? bong.data : void 0) {
-        bct = unidecode(bong.data[0].name.toLowerCase()).replace('(pdf)', '').replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' ');
-        if (mct.replace(/ /g, '').indexOf(bct.replace(/ /g, '')) === 0) { //and not await @svc.oaworks.blacklist bong.data[0].url
-          // if the URL is usable and tidy bing title is a partial match to the start of the provided title, try using it
-          options.url = bong.data[0].url.replace(/"/g, '');
-          if (typeof options.url === 'string' && options.url.indexOf('pubmed.ncbi') !== -1) {
-            metadata.pmid = options.url.replace(/\/$/, '').split('/').pop();
-          }
-          if (typeof options.url === 'string' && options.url.indexOf('/10.') !== -1) {
-            if (metadata.doi == null) {
-              metadata.doi = '10.' + options.url.split('/10.')[1];
-            }
+  if (mag !== false && !metadata.doi && !content && !options.url && !epmc && metadata.title && metadata.title.length > 8 && metadata.title.split(' ').length > 1) {
+    mct = metadata.title.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' '); // this previously had a unidecode on it...
+    bong = (await this.src.microsoft.bing(mct));
+    if (bong != null ? bong.data : void 0) {
+      bct = bong.data[0].name.toLowerCase().replace('(pdf)', '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s\s+/g, ' '); // this had unidecode to match to above...
+      if (mct.replace(/ /g, '').startsWith(bct.replace(/ /g, ''))) { //and not await @svc.oaworks.blacklist bong.data[0].url
+        // if the URL is usable and tidy bing title is a partial match to the start of the provided title, try using it
+        options.url = bong.data[0].url.replace(/"/g, '');
+        if (typeof options.url === 'string' && options.url.includes('pubmed.ncbi')) {
+          metadata.pmid = options.url.replace(/\/$/, '').split('/').pop();
+        }
+        if (typeof options.url === 'string' && options.url.includes('/10.')) {
+          if (metadata.doi == null) {
+            metadata.doi = '10.' + options.url.split('/10.')[1];
           }
         }
       }
-      if (metadata.doi || metadata.pmid || options.url) {
-        await _searches(); // run again if anything more useful found
-      }
-    } catch (error) {}
+    }
+    if (metadata.doi || metadata.pmid || options.url) {
+      await _searches(); // run again if anything more useful found
+    }
   }
   _ill = async() => {
     var ref8;
@@ -10953,7 +11001,7 @@ P.svc.oaworks.find = async function(options, metadata = {}, content) {
 
 // Yi-Jeng Chen. (2016). Young Children's Collaboration on the Computer with Friends and Acquaintances. Journal of Educational Technology & Society, 19(1), 158-170. Retrieved November 19, 2020, from http://www.jstor.org/stable/jeductechsoci.19.1.158
 // Baker, T. S., Eisenberg, D., & Eiserling, F. (1977). Ribulose Bisphosphate Carboxylase: A Two-Layered, Square-Shaped Molecule of Symmetry 422. Science, 196(4287), 293-295. doi:10.1126/science.196.4287.293
-P.svc.oaworks.citation = function(citation) {
+P.svc.oaworks.citation = async function(citation) {
   var a, aff, ak, au, bt, cf, clc, cn, i, j, k, key, l, len, len1, len2, len3, len4, len5, len6, len7, len8, len9, m, mn, n, o, p, pt, pts, q, r, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref45, ref46, ref47, ref48, ref49, ref5, ref50, ref51, ref52, ref53, ref54, ref55, ref56, ref57, ref6, ref7, ref8, ref9, res, rmn, rt, s, sy, t, u, v;
   res = {};
   try {
@@ -10961,7 +11009,7 @@ P.svc.oaworks.citation = function(citation) {
       citation = (ref = this.params.citation) != null ? ref : this.params;
     }
   } catch (error) {}
-  if (typeof citation === 'string' && (citation.indexOf('{') === 0 || citation.indexOf('[') === 0)) {
+  if (typeof citation === 'string' && (citation.startsWith('{') || citation.startsWith('['))) {
     try {
       citation = JSON.parse(citation);
     } catch (error) {}
@@ -11028,6 +11076,9 @@ P.svc.oaworks.citation = function(citation) {
     try {
       res.shortname = (ref14 = citation.journalInfo.journal.isoabbreviation) != null ? ref14 : citation.journalInfo.journal.medlineAbbreviation;
     } catch (error) {}
+    if (res.shortname && !res.journal_short) { // temporary fix for change to metadata field name
+      res.journal_short = res.shortname;
+    }
     if (res.journal == null) {
       res.journal = (ref15 = (ref16 = citation.journal_name) != null ? ref16 : (ref17 = citation.journalInfo) != null ? (ref18 = ref17.journal) != null ? ref18.title : void 0 : void 0) != null ? ref15 : (ref19 = citation.journal) != null ? ref19.title : void 0;
     }
@@ -11088,11 +11139,11 @@ P.svc.oaworks.citation = function(citation) {
     if (citation.abstract || citation.abstractText) {
       res.abstract = (ref23 = citation.abstract) != null ? ref23 : citation.abstractText;
     }
-    try {
-      if (res.abstract) {
-        res.abstract = this.convert.html2txt(res.abstract).replace(/\n/g, ' ').replace('Abstract ', '');
-      }
-    } catch (error) {}
+    if (res.abstract) {
+      try {
+        res.abstract = (await this.convert.html2txt(res.abstract).replace(/\n/g, ' ').replace('Abstract ', ''));
+      } catch (error) {}
+    }
     ref24 = ['published-print', 'journal-issue.published-print', 'journalInfo.printPublicationDate', 'firstPublicationDate', 'journalInfo.electronicPublicationDate', 'published', 'published_date', 'issued', 'published-online', 'created', 'deposited'];
     for (j = 0, len1 = ref24.length; j < len1; j++) {
       p = ref24[j];
@@ -11117,9 +11168,9 @@ P.svc.oaworks.citation = function(citation) {
             } catch (error) {}
           }
           if (typeof rt === 'string') {
-            res.published = rt.indexOf('T') !== -1 ? rt.split('T')[0] : rt;
+            res.published = rt.includes('T') ? rt.split('T')[0] : rt;
             res.published = res.published.replace(/\//g, '-').replace(/-(\d)-/g, "-0$1-").replace(/-(\d)$/, "-0$1");
-            if (res.published.indexOf('-') === -1) {
+            if (!res.published.includes('-')) {
               res.published += '-01';
             }
             if (res.published.split('-').length !== 3) {
@@ -11237,7 +11288,7 @@ P.svc.oaworks.citation = function(citation) {
         ref48 = citation.assertion;
         for (r = 0, len5 = ref48.length; r < len5; r++) {
           a = ref48[r];
-          if (a.label === 'OPEN ACCESS' && a.URL && a.URL.indexOf('creativecommons') !== -1) {
+          if (a.label === 'OPEN ACCESS' && a.URL && a.URL.includes('creativecommons')) {
             if (res.licence == null) {
               res.licence = a.URL; // and if the record has a URL, it can be used as an open URL rather than a paywall URL, or the DOI can be used
             }
@@ -11248,7 +11299,7 @@ P.svc.oaworks.citation = function(citation) {
         ref50 = (ref49 = citation.license) != null ? ref49 : [];
         for (s = 0, len6 = ref50.length; s < len6; s++) {
           l = ref50[s];
-          if (l.URL && l.URL.indexOf('creativecommons') !== -1 && (!res.licence || res.licence.indexOf('creativecommons') === -1)) {
+          if (l.URL && l.URL.includes('creativecommons') && (!res.licence || !res.licence.includes('creativecommons'))) {
             if (res.licence == null) {
               res.licence = l.URL;
             }
@@ -11256,7 +11307,7 @@ P.svc.oaworks.citation = function(citation) {
         }
       }
     }
-    if (typeof res.licence === 'string' && res.licence.indexOf('/licenses/') !== -1) {
+    if (typeof res.licence === 'string' && res.licence.includes('/licenses/')) {
       res.licence = 'cc-' + res.licence.split('/licenses/')[1].replace(/$\//, '').replace(/\//g, '-').replace(/-$/, '');
     }
     // if there is a URL to use but not open, store it as res.paywall
@@ -11267,7 +11318,7 @@ P.svc.oaworks.citation = function(citation) {
       ref55 = citation.fullTextUrlList.fullTextUrl;
       for (t = 0, len7 = ref55.length; t < len7; t++) {
         cf = ref55[t];
-        if (((ref56 = cf.availabilityCode.toLowerCase()) === 'oa' || ref56 === 'f') && (!res.url || (cf.documentStyle === 'pdf' && res.url.indexOf('pdf') === -1))) {
+        if (((ref56 = cf.availabilityCode.toLowerCase()) === 'oa' || ref56 === 'f') && (!res.url || (cf.documentStyle === 'pdf' && !res.url.includes('pdf')))) {
           res.url = cf.url;
         }
       }
@@ -11275,21 +11326,21 @@ P.svc.oaworks.citation = function(citation) {
   } else if (typeof citation === 'string') {
     try {
       citation = citation.replace(/citation\:/gi, '').trim();
-      if (citation.indexOf('title') !== -1) {
+      if (citation.includes('title')) {
         citation = citation.split('title')[1].trim();
       }
       citation = citation.replace(/^"/, '').replace(/^'/, '').replace(/"$/, '').replace(/'$/, '');
-      if (citation.indexOf('doi:') !== -1) {
+      if (citation.includes('doi:')) {
         res.doi = citation.split('doi:')[1].split(',')[0].split(' ')[0].trim();
       }
-      if (citation.indexOf('doi.org/') !== -1) {
+      if (citation.includes('doi.org/')) {
         res.doi = citation.split('doi.org/')[1].split(',')[0].split(' ')[0].trim();
       }
-      if (!res.doi && citation.indexOf('http') !== -1) {
+      if (!res.doi && citation.includes('http')) {
         res.url = 'http' + citation.split('http')[1].split(' ')[0].trim();
       }
       try {
-        if (citation.indexOf('|') !== -1 || citation.indexOf('}') !== -1) {
+        if (citation.includes('|') || citation.includes('}')) {
           res.title = citation.split('|')[0].split('}')[0].trim();
         }
         if (citation.split('"').length > 2) {
@@ -11318,7 +11369,7 @@ P.svc.oaworks.citation = function(citation) {
       try {
         if (!res.title && res.year && citation.indexOf(res.year) < (citation.length / 4)) {
           res.title = citation.split(res.year)[1].trim();
-          if (res.title.indexOf('(') === -1 || res.title.indexOf(')') < res.title.indexOf('(')) {
+          if (!res.title.includes('(') || res.title.indexOf(')') < res.title.indexOf('(')) {
             res.title = res.title.replace(')', '');
           }
           if (res.title.indexOf('.') < 3) {
@@ -11328,9 +11379,9 @@ P.svc.oaworks.citation = function(citation) {
             res.title = res.title.replace(',', '');
           }
           res.title = res.title.trim();
-          if (res.title.indexOf('.') !== -1) {
+          if (res.title.includes('.')) {
             res.title = res.title.split('.')[0];
-          } else if (res.title.indexOf(',') !== -1) {
+          } else if (res.title.includes(',')) {
             res.title = res.title.split(',')[0];
           }
         }
@@ -11338,16 +11389,16 @@ P.svc.oaworks.citation = function(citation) {
       if (res.title) {
         try {
           bt = citation.split(res.title)[0];
-          if (res.year && bt.indexOf(res.year) !== -1) {
+          if (res.year && bt.includes(res.year)) {
             bt = bt.split(res.year)[0];
           }
           if (res.url && bt.indexOf(res.url) > 0) {
             bt = bt.split(res.url)[0];
           }
-          if (res.url && bt.indexOf(res.url) === 0) {
+          if (res.url && bt.startsWith(res.url)) {
             bt = bt.replace(res.url);
           }
-          if (res.doi && bt.indexOf(res.doi) === 0) {
+          if (res.doi && bt.startsWith(res.doi)) {
             bt = bt.replace(res.doi);
           }
           if (bt.indexOf('.') < 3) {
@@ -11370,7 +11421,7 @@ P.svc.oaworks.citation = function(citation) {
           }
           bt = bt.trim();
           if (bt.length > 6) {
-            if (bt.indexOf(',') !== -1) {
+            if (bt.includes(',')) {
               res.author = [];
               ref57 = bt.split(',');
               for (v = 0, len9 = ref57.length; v < len9; v++) {
@@ -11390,10 +11441,10 @@ P.svc.oaworks.citation = function(citation) {
         } catch (error) {}
         try {
           rmn = citation.split(res.title)[1];
-          if (res.url && rmn.indexOf(res.url) !== -1) {
+          if (res.url && rmn.includes(res.url)) {
             rmn = rmn.replace(res.url);
           }
-          if (res.doi && rmn.indexOf(res.doi) !== -1) {
+          if (res.doi && rmn.includes(res.doi)) {
             rmn = rmn.replace(res.doi);
           }
           if (rmn.indexOf('.') < 3) {
@@ -11405,7 +11456,7 @@ P.svc.oaworks.citation = function(citation) {
           rmn = rmn.trim();
           if (rmn.length > 6) {
             res.journal = rmn;
-            if (rmn.indexOf(',') !== -1) {
+            if (rmn.includes(',')) {
               res.journal = res.journal.split(',')[0].replace(/in /gi, '').trim();
             }
             if (res.journal.indexOf('.') < 3) {
@@ -11421,10 +11472,10 @@ P.svc.oaworks.citation = function(citation) {
       try {
         if (res.journal) {
           rmn = citation.split(res.journal)[1];
-          if (res.url && rmn.indexOf(res.url) !== -1) {
+          if (res.url && rmn.includes(res.url)) {
             rmn = rmn.replace(res.url);
           }
-          if (res.doi && rmn.indexOf(res.doi) !== -1) {
+          if (res.doi && rmn.includes(res.doi)) {
             rmn = rmn.replace(res.doi);
           }
           if (rmn.indexOf('.') < 3) {
@@ -11435,14 +11486,14 @@ P.svc.oaworks.citation = function(citation) {
           }
           rmn = rmn.trim();
           if (rmn.length > 4) {
-            if (rmn.indexOf('retrieved') !== -1) {
+            if (rmn.includes('retrieved')) {
               rmn = rmn.split('retrieved')[0];
             }
-            if (rmn.indexOf('Retrieved') !== -1) {
+            if (rmn.includes('Retrieved')) {
               rmn = rmn.split('Retrieved')[0];
             }
             res.volume = rmn;
-            if (res.volume.indexOf('(') !== -1) {
+            if (res.volume.includes('(')) {
               res.volume = res.volume.split('(')[0];
               res.volume = res.volume.trim();
               try {
@@ -11450,7 +11501,7 @@ P.svc.oaworks.citation = function(citation) {
                 res.issue = res.issue.trim();
               } catch (error) {}
             }
-            if (res.volume.indexOf(',') !== -1) {
+            if (res.volume.includes(',')) {
               res.volume = res.volume.split(',')[0];
               res.volume = res.volume.trim();
               try {
@@ -11466,7 +11517,7 @@ P.svc.oaworks.citation = function(citation) {
               } catch (error) {}
             }
             if (res.issue) {
-              if (res.issue.indexOf(',') !== -1) {
+              if (res.issue.includes(',')) {
                 res.issue = res.issue.split(',')[0].trim();
               }
               try {
@@ -11478,16 +11529,16 @@ P.svc.oaworks.citation = function(citation) {
             if (res.volume && res.issue) {
               try {
                 rmn = citation.split(res.journal)[1];
-                if (rmn.indexOf('retriev') !== -1) {
+                if (rmn.includes('retriev')) {
                   rmn = rmn.split('retriev')[0];
                 }
-                if (rmn.indexOf('Retriev') !== -1) {
+                if (rmn.includes('Retriev')) {
                   rmn = rmn.split('Retriev')[0];
                 }
-                if (res.url && rmn.indexOf(res.url) !== -1) {
+                if (res.url && rmn.includes(res.url)) {
                   rmn = rmn.split(res.url)[0];
                 }
-                if (res.doi && rmn.indexOf(res.doi) !== -1) {
+                if (res.doi && rmn.includes(res.doi)) {
                   rmn = rmn.split(res.doi)[0];
                 }
                 rmn = rmn.substring(rmn.indexOf(res.volume) + (res.volume + '').length);
@@ -11513,9 +11564,9 @@ P.svc.oaworks.citation = function(citation) {
           }
         }
       } catch (error) {}
-      if (!res.author && citation.indexOf('et al') !== -1) {
+      if (!res.author && citation.includes('et al')) {
         cn = citation.split('et al')[0].trim();
-        if (citation.indexOf(cn) === 0) {
+        if (citation.startsWith(cn)) {
           res.author = [
             {
               name: cn + 'et al'
@@ -11526,13 +11577,13 @@ P.svc.oaworks.citation = function(citation) {
       if (res.title && !res.volume) {
         try {
           clc = citation.split(res.title)[1].toLowerCase().replace('volume', 'vol').replace('vol.', 'vol').replace('issue', 'iss').replace('iss.', 'iss').replace('pages', 'page').replace('pp', 'page');
-          if (clc.indexOf('vol') !== -1) {
+          if (clc.includes('vol')) {
             res.volume = clc.split('vol')[1].split(',')[0].split('(')[0].split('.')[0].split(' ')[0].trim();
           }
-          if (!res.issue && clc.indexOf('iss') !== -1) {
+          if (!res.issue && clc.includes('iss')) {
             res.issue = clc.split('iss')[1].split(',')[0].split('.')[0].split(' ')[0].trim();
           }
-          if (!res.pages && clc.indexOf('page') !== -1) {
+          if (!res.pages && clc.includes('page')) {
             res.pages = clc.split('page')[1].split('.')[0].split(', ')[0].split(' ')[0].trim();
           }
         } catch (error) {}
@@ -11554,9 +11605,9 @@ P.svc.oaworks.availability = async function(params, v2) {
   }
   delete this.params.dom;
   if (params.availability) {
-    if (params.availability.startsWith('10.') && params.availability.indexOf('/') !== -1) {
+    if (params.availability.startsWith('10.') && params.availability.includes('/')) {
       params.doi = params.availability;
-    } else if (params.availability.indexOf(' ') !== -1) {
+    } else if (params.availability.includes(' ')) {
       params.title = params.availability;
     } else {
       params.id = params.availability;
@@ -11756,7 +11807,7 @@ P.svc.oaworks.ill = async function(opts) { // only worked on POST with optional 
     }
     vars.worldcatsearchurl = su;
   }
-  tmpl = (await this.svc.oaworks.templates('instantill_create.html'));
+  tmpl = (await this.svc.oaworks.templates('instantill_create'));
   tmpl = tmpl.content;
   if (!opts.forwarded && !opts.resolved && (config.email || opts.email)) {
     this.mail({
@@ -12764,7 +12815,7 @@ P.svc.oaworks.permissions.journals.oa.type = async function(issns, jrnl, oadoi, 
   if (((crossref != null ? crossref.type : void 0) != null) && crossref.type !== 'journal-article') {
     js = 'not applicable';
   } else if (!(crossref != null ? crossref.type : void 0) || crossref.type === 'journal-article') {
-    js = (oadoi != null ? oadoi.oa_status : void 0) === 'gold' ? 'gold' : (oadoi != null ? oadoi.oa_status : void 0) === 'bronze' ? 'closed' : (oadoi != null ? oadoi.oa_status : void 0) === 'hybrid' ? 'hybrid' : '';
+    js = (oadoi != null ? oadoi.oa_status : void 0) === 'gold' ? 'gold' : (oadoi != null ? oadoi.oa_status : void 0) === 'bronze' ? 'closed' : (oadoi != null ? oadoi.oa_status : void 0) === 'hybrid' ? 'hybrid' : 'closed';
     if ((oadoi != null ? oadoi.journal_is_oa : void 0) || (oadoi != null ? oadoi.journal_is_in_doaj : void 0)) { // double check for gold
       js = 'gold';
     }
@@ -13053,7 +13104,7 @@ P.svc.oaworks.journal = {
 
 //P.svc.oaworks.journal._prefix = false
 P.svc.oaworks.journal.load = async function() {
-  var batch, batchsize, counter, from, i, len, r, ref, res, size, total;
+  var base, batch, batchsize, counter, from, i, j, len, len1, li, r, ref, ref1, res, size, total;
   counter = 0;
   total = false;
   batchsize = 20000; // how many records to batch upload at a time
@@ -13071,6 +13122,18 @@ P.svc.oaworks.journal.load = async function() {
     for (i = 0, len = ref.length; i < len; i++) {
       r = ref[i];
       counter += 1;
+      if (r._source.issn) {
+        if ((base = r._source).ISSN == null) {
+          base.ISSN = [];
+        }
+        ref1 = (typeof r._source.issn === 'string' ? [r._source.issn] : r._source.issn);
+        for (j = 0, len1 = ref1.length; j < len1; j++) {
+          li = ref1[j];
+          if (indexOf.call(r._source.ISSN, li) < 0) {
+            r._source.ISSN.push(li);
+          }
+        }
+      }
       batch.push(r._source);
       if (batch.length >= batchsize) {
         await this.svc.oaworks.journal(batch);
@@ -13113,7 +13176,7 @@ P.svc.oaworks.report.check = async function(ror, reload) {
   ts = (await this.datetime(false).replace(/[-T\: ]/g, '_'));
   console.log('OA check running', ts, reload);
   _from_crossref = async(cr) => {
-    var a, aff, an, crf, f, fid, fidc, i, l, len, len1, len2, len3, len4, len5, n, o, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, t, u, x;
+    var a, aff, an, crf, f, fid, fidc, i, l, lc, len, len1, len2, len3, len4, len5, len6, n, name, o, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, t, u, v, x;
     cr.published = (await this.src.crossref.works.published(cr));
     try {
       cr.year = cr.published.split('-')[0];
@@ -13179,10 +13242,22 @@ P.svc.oaworks.report.check = async function(ror, reload) {
           }
         }
       }
+      try {
+        ref17 = cr.license;
+        for (u = 0, len5 = ref17.length; u < len5; u++) {
+          lc = ref17[u];
+          if ((ref18 = lc['content-version']) === 'am' || ref18 === 'vor' || ref18 === 'tdm' || ref18 === 'unspecified') {
+            if (crf[name = 'crossref_license_url_' + lc['content-version']] == null) {
+              crf[name] = [];
+            }
+            crf['crossref_license_url_' + lc['content-version']].push(lc.URL);
+          }
+        }
+      } catch (error) {}
       crf.crossref = cr;
-      ref17 = ['assertion', 'reference', 'relation'];
-      for (u = 0, len5 = ref17.length; u < len5; u++) {
-        x = ref17[u];
+      ref19 = ['assertion', 'reference', 'relation'];
+      for (v = 0, len6 = ref19.length; v < len6; v++) {
+        x = ref19[v];
         delete crf.crossref[x];
       }
       return crf;
@@ -13280,7 +13355,8 @@ P.svc.oaworks.report.check = async function(ror, reload) {
     }
   }
   sheets = { // https://docs.google.com/spreadsheets/d/.../edit
-    finance: '1xD-5e8TTEpgRL1iCJVOEnSYiddC-K0npkCWCaqx2--4',
+    //finance: '1xD-5e8TTEpgRL1iCJVOEnSYiddC-K0npkCWCaqx2--4'
+    finance: '1nhykkqxYQ4DNPAj-WnXHcYnSd4dmt_Hf0xEVDZxaPLY',
     oasupport: '180562eXtmMANfIlioclUrQDaUSWkTOz7igOymfnv2pg',
     staff: '1EZI0iNAXnJ-qbIJFGmtplHWP03NVT7hhf0ICazI0YXw',
     grants: '1lDNHAwH-8x89fgLK-JLs9bBv2cdHsJRnb1Pj86QYWZI',
@@ -13445,6 +13521,7 @@ P.svc.oaworks.report.check = async function(ror, reload) {
       "publisher_license",
       "publisher_url_for_pdf",
       "publisher_version",
+      "has_oa_locations_embargoed",
       "epmc_licence",
       "epmc_licence_source",
       "title",
@@ -13461,6 +13538,10 @@ P.svc.oaworks.report.check = async function(ror, reload) {
       "author_affiliation",
       "funder_name",
       "funder_grant_ids",
+      "crossref_license_url_am",
+      "crossref_license_url_vor",
+      "crossref_license_url_tdm",
+      "crossref_license_url_unspecified",
       
       // keys examples from OAreport Gates live: https://docs.google.com/spreadsheets/d/1Ufh_xs3NQjzbPRgwlFnHxK5nY2cjn4SsnCqvVnY4Nk8/edit#gid=1145124691
       "grant_id",
@@ -13478,6 +13559,7 @@ P.svc.oaworks.report.check = async function(ror, reload) {
       "completed",
       "follow_up_due",
       "follow_ups_sent",
+      "clicked",
       "author_name",
       "email",
       "author_email_name",
@@ -13555,6 +13637,7 @@ P.svc.oaworks.report.check = async function(ror, reload) {
         res.is_oa = res.oadoi_is_oa || res.crossref_is_oa;
         res.oadoi_oa_status = oadoi.oa_status;
         res.has_repository_copy = oadoi.has_repository_copy;
+        res.has_oa_locations_embargoed = (oadoi.oa_locations_embargoed != null) && oadoi.oa_locations_embargoed.length ? true : false;
         if (res.title == null) {
           res.title = oadoi.title;
         }
@@ -13640,7 +13723,7 @@ P.svc.oaworks.report.check = async function(ror, reload) {
             res.author_email_name = 'Dr. ' + best_name.split(' ').pop();
           }
           if (!res.author_email_name && best_initial) {
-            res.author_email_name = best_initial;
+            res.author_email_name = 'Dr. ' + best_initial;
           }
         }
       }
@@ -13681,9 +13764,9 @@ P.svc.oaworks.report.check = async function(ror, reload) {
   console.log('OA check done after ' + took + ' minutes', reload);
   if (!reload) {
     this.mail({
-      to: 'mark@oa.works',
+      to: ['mark@oa.works', 'joe@oa.works', 'sarah@oa.works'],
       subject: 'Gates OA check done ' + batch.length + ' in ' + took + ' minutes',
-      text: 'https://static.oa.works/report/' + ts
+      text: '/https://static.oa.works/report/' + (out != null ? out : '').split('/report/').pop()
     });
   }
   return batch.length;
@@ -14551,7 +14634,13 @@ P.svc.rscvd.overdue = async function() {
 };
 
 
-S.built = "Wed Nov 17 2021 03:12:10 GMT+0000";
+S.built = "Fri Jan 14 2022 09:09:41 GMT+0000";
+P.convert.doc2txt = {_bg: true}// added by constructor
+
+P.convert.docx2txt = {_bg: true}// added by constructor
+
+P.convert.pdf2txt = {_bg: true}// added by constructor
+
 P.puppet = {_bg: true}// added by constructor
 
 P.puppet._auth = 'system';// added by constructor

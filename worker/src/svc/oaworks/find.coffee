@@ -16,14 +16,15 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
         metadata[k] ?= ct[k]
     return true
 
-  options = {doi: options} if typeof options is 'string'
+  if typeof options is 'string'
+    options = if options.split('doi.org/').pop().startsWith('10.') then {doi: options} else {title: options}
   try options ?= @copy @params
   options ?= {}
   content ?= options.dom ? (if typeof @body is 'string' then @body else undefined)
   
   options.find = options.metadata if options.metadata
   if options.find
-    if options.find.indexOf('10.') is 0 and options.find.indexOf('/') isnt -1
+    if options.find.startsWith('10.') and options.find.includes '/'
       options.doi = options.find
     else
       options.url = options.find
@@ -31,30 +32,30 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
   options.url ?= options.q ? options.id
   if options.url
     options.url = options.url.toString() if typeof options.url is 'number'
-    if options.url.indexOf('/10.') isnt -1
+    if options.url.startsWith '/10.'
       # we don't use a regex to try to pattern match a DOI because people often make mistakes typing them, so instead try to find one
       # in ways that may still match even with different expressions (as long as the DOI portion itself is still correct after extraction we can match it)
       dd = '10.' + options.url.split('/10.')[1].split('&')[0].split('#')[0]
-      if dd.indexOf('/') isnt -1 and dd.split('/')[0].length > 6 and dd.length > 8
+      if dd.includes('/') and dd.split('/')[0].length > 6 and dd.length > 8
         dps = dd.split('/')
         dd = dps.join('/') if dps.length > 2
         metadata.doi ?= dd
-    if options.url.replace('doi:','').replace('doi.org/','').trim().indexOf('10.') is 0
+    if options.url.replace('doi:','').replace('doi.org/','').trim().startsWith '10.'
       metadata.doi ?= options.url.replace('doi:','').replace('doi.org/','').trim()
       options.url = 'https://doi.org/' + metadata.doi
-    else if options.url.toLowerCase().indexOf('pmc') is 0
+    else if options.url.toLowerCase().startsWith 'pmc'
       metadata.pmcid ?= options.url.toLowerCase().replace('pmcid','').replace('pmc','')
       options.url = 'http://europepmc.org/articles/PMC' + metadata.pmcid
-    else if options.url.replace(/pmid/i,'').replace(':','').length < 10 and options.url.indexOf('.') is -1 and not isNaN(parseInt(options.url.replace(/pmid/i,'').replace(':','').trim()))
+    else if options.url.replace(/pmid/i,'').replace(':','').length < 10 and options.url.includes('.') and not isNaN(parseInt(options.url.replace(/pmid/i,'').replace(':','').trim()))
       metadata.pmid ?= options.url.replace(/pmid/i,'').replace(':','').trim()
       options.url = 'https://www.ncbi.nlm.nih.gov/pubmed/' + metadata.pmid
-    else if not metadata.title? and options.url.indexOf('http') isnt 0
-      if options.url.indexOf('{') isnt -1 or (options.url.replace('...','').match(/\./gi) ? []).length > 3 or (options.url.match(/\(/gi) ? []).length > 2
+    else if not metadata.title? and not options.url.startsWith 'http'
+      if options.url.includes('{') or (options.url.replace('...','').match(/\./gi) ? []).length > 3 or (options.url.match(/\(/gi) ? []).length > 2
         options.citation = options.url
       else
         metadata.title = options.url
-    delete options.url if options.url.indexOf('http') isnt 0 or options.url.indexOf('.') is -1
-  if typeof options.title is 'string' and (options.title.indexOf('{') isnt -1 or (options.title.replace('...','').match(/\./gi) ? []).length > 3 or (options.title.match(/\(/gi) ? []).length > 2)
+    delete options.url if not options.url.startsWith('http') or not options.url.includes '.'
+  if typeof options.title is 'string' and (options.title.includes('{') or (options.title.replace('...','').match(/\./gi) ? []).length > 3 or (options.title.match(/\(/gi) ? []).length > 2)
     options.citation = options.title # titles that look like citations
     delete options.title
 
@@ -66,18 +67,20 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
   try metadata.title = metadata.title.replace(/(<([^>]+)>)/g,'').replace(/\+/g,' ').trim()
   try metadata.title = await @decode metadata.title
   try metadata.doi = metadata.doi.split(' ')[0].replace('http://','').replace('https://','').replace('doi.org/','').replace('doi:','').trim()
-  delete metadata.doi if typeof metadata.doi isnt 'string' or metadata.doi.indexOf('10.') isnt 0
+  delete metadata.doi if typeof metadata.doi isnt 'string' or not metadata.doi.startsWith '10.'
 
   # switch exlibris URLs for titles, which the scraper knows how to extract, because the exlibris url would always be the same
-  if not metadata.title and content and typeof options.url is 'string' and (options.url.indexOf('alma.exlibrisgroup.com') isnt -1 or options.url.indexOf('/exlibristest') isnt -1)
+  if not metadata.title and content and typeof options.url is 'string' and (options.url.includes('alma.exlibrisgroup.com') or options.url.includes '/exlibristest')
     delete options.url
 
   # set a demo tag in certain cases
   # e.g. for instantill/shareyourpaper/other demos - dev and live demo accounts
   res.demo = options.demo if options.demo?
-  res.demo ?= true if (metadata.doi is '10.1234/567890' or (metadata.doi? and metadata.doi.indexOf('10.1234/oab-syp-') is 0)) or metadata.title is 'Engineering a Powerfully Simple Interlibrary Loan Experience with InstantILL' or options.from in ['qZooaHWRz9NLFNcgR','eZwJ83xp3oZDaec86']
+  res.demo ?= true if (metadata.doi is '10.1234/567890' or (metadata.doi? and metadata.doi.startsWith '10.1234/oab-syp-')) or metadata.title is 'Engineering a Powerfully Simple Interlibrary Loan Experience with InstantILL' or options.from in ['qZooaHWRz9NLFNcgR','eZwJ83xp3oZDaec86']
   res.test ?= true if res.demo # don't save things coming from the demo accounts into the catalogue later
 
+  epmc = false
+  mag = false
   _searches = () =>
     if (content? or options.url?) and not (metadata.doi or metadata.pmid? or metadata.pmcid? or metadata.title?)
       scraped = await @svc.oaworks.scrape content ? options.url
@@ -90,15 +93,13 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
       if not metadata.doi and metadata.title and metadata.title.length > 8 and metadata.title.split(' ').length > 1
         metadata.title = metadata.title.replace /\+/g, ' ' # some+titles+come+in+like+this
         cr = await @src.crossref.works.title metadata.title
-        if cr?.type and cr?.DOI
-          await _metadata cr
+        await _metadata(cr) if cr?.type and cr?.DOI
         if not metadata.doi
           mag = await @src.microsoft.graph metadata.title
-          if mag?.PaperTitle
-            await _metadata mag
-        if not metadata.doi and not epmc? # run this only if we don't find in our own stores
+          await _metadata(mag) if mag isnt false and mag?.PaperTitle
+        if not metadata.doi and not epmc
           epmc = await @src.epmc.title metadata.title
-          await _metadata epmc
+          await _metadata(epmc) if epmc isnt false
 
     if metadata.doi
       _fatcat = () =>
@@ -107,7 +108,7 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
           for f in fat.files
             # there are also hashes and revision IDs, but without knowing details about which is most recent just grab the first
             # looks like the URLs are timestamped, and looks like first is most recent, so let's just assume that.
-            if f.mimetype.toLowerCase().indexOf('pdf') isnt -1 and f.state is 'active' # presumably worth knowing...
+            if f.mimetype.toLowerCase().includes('pdf') and f.state is 'active' # presumably worth knowing...
               for fu in f.urls
                 if fu.url and fu.rel is 'webarchive' # would we want the web or the webarchive version?
                   res.url = fu.url
@@ -137,22 +138,19 @@ P.svc.oaworks.find = (options, metadata={}, content) ->
 
   await _searches()
 
-
   # if nothing useful can be found and still only have title try using bing - or drop this ability?
-  # TODO what to do if this finds anything? re-call the whole find?
-  if not metadata.doi and not content and not options.url and not epmc? and metadata.title and metadata.title.length > 8 and metadata.title.split(' ').length > 1
-    try
-      mct = unidecode(metadata.title.toLowerCase()).replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' ')
-      bong = await @src.microsoft.bing.search mct
-      if bong?.data
-        bct = unidecode(bong.data[0].name.toLowerCase()).replace('(pdf)','').replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' ')
-        if mct.replace(/ /g,'').indexOf(bct.replace(/ /g,'')) is 0 #and not await @svc.oaworks.blacklist bong.data[0].url
-          # if the URL is usable and tidy bing title is a partial match to the start of the provided title, try using it
-          options.url = bong.data[0].url.replace /"/g, ''
-          metadata.pmid = options.url.replace(/\/$/,'').split('/').pop() if typeof options.url is 'string' and options.url.indexOf('pubmed.ncbi') isnt -1
-          metadata.doi ?= '10.' + options.url.split('/10.')[1] if typeof options.url is 'string' and options.url.indexOf('/10.') isnt -1
-      if metadata.doi or metadata.pmid or options.url
-        await _searches() # run again if anything more useful found
+  if mag isnt false and not metadata.doi and not content and not options.url and not epmc and metadata.title and metadata.title.length > 8 and metadata.title.split(' ').length > 1
+    mct = metadata.title.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' ') # this previously had a unidecode on it...
+    bong = await @src.microsoft.bing mct
+    if bong?.data
+      bct = bong.data[0].name.toLowerCase().replace('(pdf)', '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s\s+/g, ' ') # this had unidecode to match to above...
+      if mct.replace(/ /g, '').startsWith bct.replace(/ /g, '') #and not await @svc.oaworks.blacklist bong.data[0].url
+        # if the URL is usable and tidy bing title is a partial match to the start of the provided title, try using it
+        options.url = bong.data[0].url.replace /"/g, ''
+        metadata.pmid = options.url.replace(/\/$/,'').split('/').pop() if typeof options.url is 'string' and options.url.includes 'pubmed.ncbi'
+        metadata.doi ?= '10.' + options.url.split('/10.')[1] if typeof options.url is 'string' and options.url.includes '/10.'
+    if metadata.doi or metadata.pmid or options.url
+      await _searches() # run again if anything more useful found
 
   _ill = () =>
     if (metadata.doi or (metadata.title and metadata.title.length > 8 and metadata.title.split(' ').length > 1)) and (options.from or options.config?) and (options.plugin is 'instantill' or options.ill is true)
@@ -179,7 +177,7 @@ P.svc.oaworks.citation = (citation) ->
   res = {}
   
   try citation ?= @params.citation ? @params
-  if typeof citation is 'string' and (citation.indexOf('{') is 0 or citation.indexOf('[') is 0)
+  if typeof citation is 'string' and (citation.startsWith('{') or citation.startsWith '[')
     try citation = JSON.parse citation
 
   if typeof citation is 'object'
@@ -203,6 +201,7 @@ P.svc.oaworks.citation = (citation) ->
     try res.journal ?= citation['container-title'][0]
     try res.shortname = citation['short-container-title'][0]
     try res.shortname = citation.journalInfo.journal.isoabbreviation ? citation.journalInfo.journal.medlineAbbreviation
+    res.journal_short = res.shortname if res.shortname and not res.journal_short # temporary fix for change to metadata field name
     res.journal ?= citation.journal_name ? citation.journalInfo?.journal?.title ? citation.journal?.title
     res.journal = citation.journal.split('(')[0].trim() if citation.journal
     try res[key] = res[key].charAt(0).toUpperCase() + res[key].slice(1) for key in ['title','journal']
@@ -215,7 +214,8 @@ P.svc.oaworks.citation = (citation) ->
     try res.page ?= citation.page.toString() if citation.page?
     res.page = citation.pageInfo.toString() if citation.pageInfo
     res.abstract = citation.abstract ? citation.abstractText if citation.abstract or citation.abstractText
-    try res.abstract = @convert.html2txt(res.abstract).replace(/\n/g,' ').replace('Abstract ','') if res.abstract
+    if res.abstract
+      try res.abstract = await @convert.html2txt(res.abstract).replace(/\n/g,' ').replace 'Abstract ', ''
 
     for p in ['published-print', 'journal-issue.published-print', 'journalInfo.printPublicationDate', 'firstPublicationDate', 'journalInfo.electronicPublicationDate', 'published', 'published_date', 'issued', 'published-online', 'created', 'deposited']
       if typeof res.published isnt 'string'
@@ -228,9 +228,9 @@ P.svc.oaworks.citation = (citation) ->
                 rt['date-parts'][0][k] = '01' if typeof rt['date-parts'][0][k] not in ['number', 'string']
               rt = rt['date-parts'][0].join '-'
           if typeof rt is 'string'
-            res.published = if rt.indexOf('T') isnt -1 then rt.split('T')[0] else rt
+            res.published = if rt.includes('T') then rt.split('T')[0] else rt
             res.published = res.published.replace(/\//g, '-').replace(/-(\d)-/g, "-0$1-").replace /-(\d)$/, "-0$1"
-            res.published += '-01' if res.published.indexOf('-') is -1
+            res.published += '-01' if not res.published.includes '-'
             res.published += '-01' if res.published.split('-').length isnt 3
             res.year ?= res.published.split('-')[0]
             delete res.published if res.published.split('-').length isnt 3
@@ -275,33 +275,33 @@ P.svc.oaworks.citation = (citation) ->
     if not res.licence
       if Array.isArray citation.assertion
         for a in citation.assertion
-          if a.label is 'OPEN ACCESS' and a.URL and a.URL.indexOf('creativecommons') isnt -1
+          if a.label is 'OPEN ACCESS' and a.URL and a.URL.includes 'creativecommons'
             res.licence ?= a.URL # and if the record has a URL, it can be used as an open URL rather than a paywall URL, or the DOI can be used
       if Array.isArray citation.license
         for l in citation.license ? []
-          if l.URL and l.URL.indexOf('creativecommons') isnt -1 and (not res.licence or res.licence.indexOf('creativecommons') is -1)
+          if l.URL and l.URL.includes('creativecommons') and (not res.licence or not res.licence.includes 'creativecommons')
             res.licence ?= l.URL
-    if typeof res.licence is 'string' and res.licence.indexOf('/licenses/') isnt -1
+    if typeof res.licence is 'string' and res.licence.includes '/licenses/'
       res.licence = 'cc-' + res.licence.split('/licenses/')[1].replace(/$\//,'').replace(/\//g, '-').replace(/-$/, '')
 
     # if there is a URL to use but not open, store it as res.paywall
     res.url ?= citation.best_oa_location?.url_for_pdf ? citation.best_oa_location?.url #? citation.url # is this always an open URL? check the sources, and check where else the open URL could be. Should it be blacklist checked and dereferenced?
     if not res.url and citation.fullTextUrlList?.fullTextUrl? # epmc fulltexts
       for cf in citation.fullTextUrlList.fullTextUrl
-        if cf.availabilityCode.toLowerCase() in ['oa','f'] and (not res.url or (cf.documentStyle is 'pdf' and res.url.indexOf('pdf') is -1))
+        if cf.availabilityCode.toLowerCase() in ['oa','f'] and (not res.url or (cf.documentStyle is 'pdf' and not res.url.includes 'pdf'))
           res.url = cf.url
 
   else if typeof citation is 'string'
     try
       citation = citation.replace(/citation\:/gi,'').trim()
-      citation = citation.split('title')[1].trim() if citation.indexOf('title') isnt -1
+      citation = citation.split('title')[1].trim() if citation.includes 'title'
       citation = citation.replace(/^"/,'').replace(/^'/,'').replace(/"$/,'').replace(/'$/,'')
-      res.doi = citation.split('doi:')[1].split(',')[0].split(' ')[0].trim() if citation.indexOf('doi:') isnt -1
-      res.doi = citation.split('doi.org/')[1].split(',')[0].split(' ')[0].trim() if citation.indexOf('doi.org/') isnt -1
-      if not res.doi and citation.indexOf('http') isnt -1
+      res.doi = citation.split('doi:')[1].split(',')[0].split(' ')[0].trim() if citation.includes 'doi:'
+      res.doi = citation.split('doi.org/')[1].split(',')[0].split(' ')[0].trim() if citation.includes  'doi.org/'
+      if not res.doi and citation.includes 'http'
         res.url = 'http' + citation.split('http')[1].split(' ')[0].trim()
       try
-        if citation.indexOf('|') isnt -1 or citation.indexOf('}') isnt -1
+        if citation.includes('|') or citation.includes '}'
           res.title = citation.split('|')[0].split('}')[0].trim()
         if citation.split('"').length > 2
           res.title = citation.split('"')[1].trim()
@@ -318,21 +318,21 @@ P.svc.oaworks.citation = (citation) ->
       try
         if not res.title and res.year and citation.indexOf(res.year) < (citation.length/4)
           res.title = citation.split(res.year)[1].trim()
-          res.title = res.title.replace(')','') if res.title.indexOf('(') is -1 or res.title.indexOf(')') < res.title.indexOf('(')
+          res.title = res.title.replace(')','') if not res.title.includes('(') or res.title.indexOf(')') < res.title.indexOf('(')
           res.title = res.title.replace('.','') if res.title.indexOf('.') < 3
           res.title = res.title.replace(',','') if res.title.indexOf(',') < 3
           res.title = res.title.trim()
-          if res.title.indexOf('.') isnt -1
+          if res.title.includes '.'
             res.title = res.title.split('.')[0]
-          else if res.title.indexOf(',') isnt -1
+          else if res.title.includes ','
             res.title = res.title.split(',')[0]
       if res.title
         try
           bt = citation.split(res.title)[0]
-          bt = bt.split(res.year)[0] if res.year and bt.indexOf(res.year) isnt -1
+          bt = bt.split(res.year)[0] if res.year and bt.includes res.year
           bt = bt.split(res.url)[0] if res.url and bt.indexOf(res.url) > 0
-          bt = bt.replace(res.url) if res.url and bt.indexOf(res.url) is 0
-          bt = bt.replace(res.doi) if res.doi and bt.indexOf(res.doi) is 0
+          bt = bt.replace(res.url) if res.url and bt.startsWith res.url
+          bt = bt.replace(res.doi) if res.doi and bt.startsWith res.doi
           bt = bt.replace('.','') if bt.indexOf('.') < 3
           bt = bt.replace(',','') if bt.indexOf(',') < 3
           bt = bt.substring(0,bt.lastIndexOf('(')) if bt.lastIndexOf('(') > (bt.length-3)
@@ -341,43 +341,43 @@ P.svc.oaworks.citation = (citation) ->
           bt = bt.substring(0,bt.lastIndexOf('.')) if bt.lastIndexOf('.') > (bt.length-3)
           bt = bt.trim()
           if bt.length > 6
-            if bt.indexOf(',') isnt -1
+            if bt.includes ','
               res.author = []
               res.author.push({name: ak}) for ak in bt.split(',')
             else
               res.author = [{name: bt}]
         try
           rmn = citation.split(res.title)[1]
-          rmn = rmn.replace(res.url) if res.url and rmn.indexOf(res.url) isnt -1
-          rmn = rmn.replace(res.doi) if res.doi and rmn.indexOf(res.doi) isnt -1
+          rmn = rmn.replace(res.url) if res.url and rmn.includes res.url
+          rmn = rmn.replace(res.doi) if res.doi and rmn.includes res.doi
           rmn = rmn.replace('.','') if rmn.indexOf('.') < 3
           rmn = rmn.replace(',','') if rmn.indexOf(',') < 3
           rmn = rmn.trim()
           if rmn.length > 6
             res.journal = rmn
-            res.journal = res.journal.split(',')[0].replace(/in /gi,'').trim() if rmn.indexOf(',') isnt -1
+            res.journal = res.journal.split(',')[0].replace(/in /gi,'').trim() if rmn.includes ','
             res.journal = res.journal.replace('.','') if res.journal.indexOf('.') < 3
             res.journal = res.journal.replace(',','') if res.journal.indexOf(',') < 3
             res.journal = res.journal.trim()
       try
         if res.journal
           rmn = citation.split(res.journal)[1]
-          rmn = rmn.replace(res.url) if res.url and rmn.indexOf(res.url) isnt -1
-          rmn = rmn.replace(res.doi) if res.doi and rmn.indexOf(res.doi) isnt -1
+          rmn = rmn.replace(res.url) if res.url and rmn.includes res.url
+          rmn = rmn.replace(res.doi) if res.doi and rmn.includes res.doi
           rmn = rmn.replace('.','') if rmn.indexOf('.') < 3
           rmn = rmn.replace(',','') if rmn.indexOf(',') < 3
           rmn = rmn.trim()
           if rmn.length > 4
-            rmn = rmn.split('retrieved')[0] if rmn.indexOf('retrieved') isnt -1
-            rmn = rmn.split('Retrieved')[0] if rmn.indexOf('Retrieved') isnt -1
+            rmn = rmn.split('retrieved')[0] if rmn.includes 'retrieved'
+            rmn = rmn.split('Retrieved')[0] if rmn.includes 'Retrieved'
             res.volume = rmn
-            if res.volume.indexOf('(') isnt -1
+            if res.volume.includes '('
               res.volume = res.volume.split('(')[0]
               res.volume = res.volume.trim()
               try
                 res.issue = rmn.split('(')[1].split(')')[0]
                 res.issue = res.issue.trim()
-            if res.volume.indexOf(',') isnt -1
+            if res.volume.includes ','
               res.volume = res.volume.split(',')[0]
               res.volume = res.volume.trim()
               try
@@ -387,17 +387,17 @@ P.svc.oaworks.citation = (citation) ->
               try
                 delete res.volume if isNaN parseInt res.volume
             if res.issue
-              if res.issue.indexOf(',') isnt -1
+              if res.issue.includes ','
                 res.issue = res.issue.split(',')[0].trim()
               try
                 delete res.issue if isNaN parseInt res.issue
             if res.volume and res.issue
               try
                 rmn = citation.split(res.journal)[1]
-                rmn = rmn.split('retriev')[0] if rmn.indexOf('retriev') isnt -1
-                rmn = rmn.split('Retriev')[0] if rmn.indexOf('Retriev') isnt -1
-                rmn = rmn.split(res.url)[0] if res.url and rmn.indexOf(res.url) isnt -1
-                rmn = rmn.split(res.doi)[0] if res.doi and rmn.indexOf(res.doi) isnt -1
+                rmn = rmn.split('retriev')[0] if rmn.includes 'retriev'
+                rmn = rmn.split('Retriev')[0] if rmn.includes 'Retriev'
+                rmn = rmn.split(res.url)[0] if res.url and rmn.includes res.url
+                rmn = rmn.split(res.doi)[0] if res.doi and rmn.includes res.doi
                 rmn = rmn.substring(rmn.indexOf(res.volume)+(res.volume+'').length)
                 rmn = rmn.substring(rmn.indexOf(res.issue)+(res.issue+'').length)
                 rmn = rmn.replace('.','') if rmn.indexOf('.') < 2
@@ -407,18 +407,18 @@ P.svc.oaworks.citation = (citation) ->
                 if not isNaN parseInt rmn.substring(0,1)
                   res.pages = rmn.split(' ')[0].split('.')[0].trim()
                   res.pages = res.pages.split(', ')[0] if res.pages.length > 5
-      if not res.author and citation.indexOf('et al') isnt -1
+      if not res.author and citation.includes 'et al'
         cn = citation.split('et al')[0].trim()
-        if citation.indexOf(cn) is 0
+        if citation.startsWith cn
           res.author = [{name: cn + 'et al'}]
       if res.title and not res.volume
         try
           clc = citation.split(res.title)[1].toLowerCase().replace('volume','vol').replace('vol.','vol').replace('issue','iss').replace('iss.','iss').replace('pages','page').replace('pp','page')
-          if clc.indexOf('vol') isnt -1
+          if clc.includes 'vol'
             res.volume = clc.split('vol')[1].split(',')[0].split('(')[0].split('.')[0].split(' ')[0].trim()
-          if not res.issue and clc.indexOf('iss') isnt -1
+          if not res.issue and clc.includes 'iss'
             res.issue = clc.split('iss')[1].split(',')[0].split('.')[0].split(' ')[0].trim()
-          if not res.pages and clc.indexOf('page') isnt -1
+          if not res.pages and clc.includes 'page'
             res.pages = clc.split('page')[1].split('.')[0].split(', ')[0].split(' ')[0].trim()
 
   res.year = res.year.toString() if typeof res.year is 'number'
@@ -431,9 +431,9 @@ P.svc.oaworks.availability = (params, v2) ->
   params ?= @copy @params
   delete @params.dom
   if params.availability
-    if params.availability.startsWith('10.') and params.availability.indexOf('/') isnt -1
+    if params.availability.startsWith('10.') and params.availability.includes '/'
       params.doi = params.availability
-    else if params.availability.indexOf(' ') isnt -1
+    else if params.availability.includes ' '
       params.title = params.availability
     else
       params.id = params.availability

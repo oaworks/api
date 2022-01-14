@@ -380,7 +380,7 @@ P.svc.oaworks.permissions.journals.oa.type = (issns, jrnl, oadoi, crossref) ->
   if crossref?.type? and crossref.type isnt 'journal-article'
     js = 'not applicable'
   else if not crossref?.type or crossref.type is 'journal-article'
-    js = if oadoi?.oa_status is 'gold' then 'gold' else if oadoi?.oa_status is 'bronze' then 'closed' else if oadoi?.oa_status is 'hybrid' then 'hybrid' else ''
+    js = if oadoi?.oa_status is 'gold' then 'gold' else if oadoi?.oa_status is 'bronze' then 'closed' else if oadoi?.oa_status is 'hybrid' then 'hybrid' else 'closed'
     js = 'gold' if oadoi?.journal_is_oa or oadoi?.journal_is_in_doaj # double check for gold
     if issns
       # check if it really is closed because sometimes OADOI says it is for one particular DOI but really it isn't
@@ -585,6 +585,10 @@ P.svc.oaworks.journal.load = () ->
     total = res.hits.total if total is false
     for r in res.hits.hits
       counter += 1
+      if r._source.issn
+        r._source.ISSN ?= []
+        for li in (if typeof r._source.issn is 'string' then [r._source.issn] else r._source.issn)
+          r._source.ISSN.push(li) if li not in r._source.ISSN
       batch.push r._source
       if batch.length >= batchsize
         await @svc.oaworks.journal batch

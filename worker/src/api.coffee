@@ -144,6 +144,9 @@ P = () ->
   else if ct.includes '/json'
     @body = await @request.json()
   else if ct.includes 'form' # NOTE below, multipart may need to go to bg if receiving a file to save
+    # TODO consider checking for request.arrayBuffer() as file content not in a multipart.
+    # and for multipart, check to see if there actually is a file
+    # https://stackoverflow.com/questions/14872460/how-to-detect-a-file-upload-examining-the-http-message
     bd = {}
     fd = await @request.formData()
     for entry of fd.entries()
@@ -575,6 +578,9 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
         sht = await @src.google.sheets f._sheet
       if Array.isArray(sht) and sht.length
         sht = await f.apply(@, [sht]) if typeof f is 'function' # process the sheet with the function if necessary, then create or empty the index
+        if f._key
+          for t in sht
+            t._id ?= t[f._key] ? @uid()
         await @index rt, ''
         await @index rt, if typeof f._index isnt 'object' then {} else {settings: f._index.settings, mappings: (f._index.mappings ? f._index.mapping), aliases: f._index.aliases}
         if arguments.length or JSON.stringify(@params) isnt '{}'

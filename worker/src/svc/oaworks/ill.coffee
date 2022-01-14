@@ -64,7 +64,7 @@ P.svc.oaworks.ill = (opts) -> # only worked on POST with optional auth
       su += if opts.issn then opts.issn else opts.journal
     vars.worldcatsearchurl = su
 
-  tmpl = await @svc.oaworks.templates 'instantill_create.html'
+  tmpl = await @svc.oaworks.templates 'instantill_create'
   tmpl = tmpl.content
   if not opts.forwarded and not opts.resolved and (config.email or opts.email)
     @mail svc: 'oaworks', vars: vars, template: tmpl, to: (config.email ? opts.email), from: "InstantILL <InstantILL@openaccessbutton.org>", subject: "ILL request " + opts._id

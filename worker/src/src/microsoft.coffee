@@ -13,7 +13,7 @@ P.src.microsoft.bing = (q, key) ->
   url = 'https://api.cognitive.microsoft.com/bing/v7.0/search?mkt=en-GB&count=20&q=' + q
   res = await @fetch url, {headers: {'Ocp-Apim-Subscription-Key': key}, cache: 259200} # cache for 3 days
   if res?.webPages?.value
-    return {total: res.data.webPages.totalEstimatedMatches, data: res.data.webPages.value}
+    return {total: res.webPages.totalEstimatedMatches, data: res.webPages.value}
   else
     return {total: 0, data: []}
 
