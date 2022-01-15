@@ -303,26 +303,29 @@ P.svc.oaworks.archivable = (file, url, confirmed, meta, permissions, dev) ->
     else if f.same_paper
       if f.format isnt 'pdf'
         f.archivable = true
-        f.archivable_reason = 'Since the file is not a PDF, we assume it is a Postprint.'
+        f.archivable_reason = 'Since the file is not a PDF, we assume it is an accepted version'
       if not f.archivable and f.licence? and f.licence.toLowerCase().startsWith 'cc'
         f.archivable = true
         f.archivable_reason = 'It appears this file contains a ' + f.lantern.licence + ' licence statement. Under this licence the article can be archived'
       if not f.archivable
-        if f.version in ['publishedVersion', 'acceptedVersion']
+        if f.version
           if meta? and JSON.stringify(meta) isnt '{}'
             permissions ?= await @svc.oaworks.permissions meta
-          if permissions?.best_permission?.version is 'publishedVersion' or f.version isnt 'publishedVersion'
+          if f.version is permissions?.best_permission?.version
             f.archivable = true
-            f.archivable_reason = 'The file given is the ' + f.version.split('V')[0] + ' version, and permissions indicates that is allowed'
+            f.archivable_reason = 'We believe this is a ' + f.version.split('V')[0] + ' version and our permission system says that version can be shared'
           else
-            f.archivable_reason = 'The file given is the ' + f.version.split('V')[0] + ' version, and only ' + (permissions?.best_permission?.version ? 'unknown').split('V')[0] + ' version is allowed'
-        else if f.version is 'submittedVersion'
-          f.archivable = true
-          f.archivable_reason = 'The file given is a submitted version, which are allowed'
+            f.archivable_reason ?= 'We believe this file is a ' + f.version.split('V')[0] + ' version and our permission system does not list that as an archivable version'
         else
           f.archivable_reason = 'We cannot confirm if it is an archivable version or not'
     else
       f.archivable_reason ?= if not f.same_paper_evidence.words_more_than_threshold then 'The file is less than 500 words, and so does not appear to be a full article' else if not f.same_paper_evidence.document_format then 'File is an unexpected format ' + f.format else if not meta.doi and not meta.title then 'We have insufficient metadata to validate file is for the correct paper ' else 'File does not contain expected metadata such as DOI or title'
+
+  if f.archivable and not f.licence?
+    if permissions?.best_permission?.licence
+      f.licence = permissions.best_permission.licence
+    else if (permissions?.best_permission?.deposit_statement ? '').toLowerCase().startsWith 'cc'
+      f.licence = permissions.best_permission.deposit_statement
 
   f.metadata = meta
   return f

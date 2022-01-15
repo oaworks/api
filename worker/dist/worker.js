@@ -10651,28 +10651,27 @@ P.svc.oaworks.archivable = async function(file, url, confirmed, meta, permission
     } else if (f.same_paper) {
       if (f.format !== 'pdf') {
         f.archivable = true;
-        f.archivable_reason = 'Since the file is not a PDF, we assume it is a Postprint.';
+        f.archivable_reason = 'Since the file is not a PDF, we assume it is an accepted version';
       }
       if (!f.archivable && (f.licence != null) && f.licence.toLowerCase().startsWith('cc')) {
         f.archivable = true;
         f.archivable_reason = 'It appears this file contains a ' + f.lantern.licence + ' licence statement. Under this licence the article can be archived';
       }
       if (!f.archivable) {
-        if ((ref13 = f.version) === 'publishedVersion' || ref13 === 'acceptedVersion') {
+        if (f.version) {
           if ((meta != null) && JSON.stringify(meta) !== '{}') {
             if (permissions == null) {
               permissions = (await this.svc.oaworks.permissions(meta));
             }
           }
-          if ((permissions != null ? (ref14 = permissions.best_permission) != null ? ref14.version : void 0 : void 0) === 'publishedVersion' || f.version !== 'publishedVersion') {
+          if (f.version === (permissions != null ? (ref13 = permissions.best_permission) != null ? ref13.version : void 0 : void 0)) {
             f.archivable = true;
-            f.archivable_reason = 'The file given is the ' + f.version.split('V')[0] + ' version, and permissions indicates that is allowed';
+            f.archivable_reason = 'We believe this is a ' + f.version.split('V')[0] + ' version and our permission system says that version can be shared';
           } else {
-            f.archivable_reason = 'The file given is the ' + f.version.split('V')[0] + ' version, and only ' + ((ref15 = permissions != null ? (ref16 = permissions.best_permission) != null ? ref16.version : void 0 : void 0) != null ? ref15 : 'unknown').split('V')[0] + ' version is allowed';
+            if (f.archivable_reason == null) {
+              f.archivable_reason = 'We believe this file is a ' + f.version.split('V')[0] + ' version and our permission system does not list that as an archivable version';
+            }
           }
-        } else if (f.version === 'submittedVersion') {
-          f.archivable = true;
-          f.archivable_reason = 'The file given is a submitted version, which are allowed';
         } else {
           f.archivable_reason = 'We cannot confirm if it is an archivable version or not';
         }
@@ -10681,6 +10680,13 @@ P.svc.oaworks.archivable = async function(file, url, confirmed, meta, permission
       if (f.archivable_reason == null) {
         f.archivable_reason = !f.same_paper_evidence.words_more_than_threshold ? 'The file is less than 500 words, and so does not appear to be a full article' : !f.same_paper_evidence.document_format ? 'File is an unexpected format ' + f.format : !meta.doi && !meta.title ? 'We have insufficient metadata to validate file is for the correct paper ' : 'File does not contain expected metadata such as DOI or title';
       }
+    }
+  }
+  if (f.archivable && (f.licence == null)) {
+    if (permissions != null ? (ref14 = permissions.best_permission) != null ? ref14.licence : void 0 : void 0) {
+      f.licence = permissions.best_permission.licence;
+    } else if (((ref15 = permissions != null ? (ref16 = permissions.best_permission) != null ? ref16.deposit_statement : void 0 : void 0) != null ? ref15 : '').toLowerCase().startsWith('cc')) {
+      f.licence = permissions.best_permission.deposit_statement;
     }
   }
   f.metadata = meta;
@@ -14634,7 +14640,7 @@ P.svc.rscvd.overdue = async function() {
 };
 
 
-S.built = "Fri Jan 14 2022 09:09:41 GMT+0000";
+S.built = "Sat Jan 15 2022 04:24:00 GMT+0000";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
