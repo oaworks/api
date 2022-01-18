@@ -286,7 +286,7 @@ P.convert.buf2bin = (buf) ->
   ret = ''
   c = 0
   while c < buf.length
-    ret += P.convert.hex2bin buf[c]
+    ret += await P.convert.hex2bin buf[c]
     c++
   return ret
 

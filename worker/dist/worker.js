@@ -2012,7 +2012,7 @@ P.convert.bin2hex = function(ls) {
   return new Buffer(res).toString();
 };
 
-P.convert.buf2bin = function(buf) {
+P.convert.buf2bin = async function(buf) {
   var c, ret;
   if (Buffer.isBuffer(buf)) {
     buf = buf.toString('hex');
@@ -2021,7 +2021,7 @@ P.convert.buf2bin = function(buf) {
   ret = '';
   c = 0;
   while (c < buf.length) {
-    ret += P.convert.hex2bin(buf[c]);
+    ret += (await P.convert.hex2bin(buf[c]));
     c++;
   }
   return ret;
@@ -2333,7 +2333,7 @@ P.example.cron._notify = false;
 
 // NOTE TODO for getting certain file content, adding encoding: null to headers (or correct encoding required) can be helpful
 P.fetch = async function(url, params) {
-  var _f, base, ct, err, fd, fk, i, j, k, len, len1, name, nu, pt, pts, qp, ref, ref1, ref2, ref3, res, v;
+  var _f, av, base, ct, err, fk, fll, flo, i, j, k, l, len, len1, len2, len3, len4, m, n, name, nu, p, po, ppt, pt, pts, qp, ref, ref1, ref10, ref11, ref12, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, v;
   if ((url == null) && (params == null)) {
     try {
       params = this.copy(this.params);
@@ -2393,18 +2393,46 @@ P.fetch = async function(url, params) {
       delete params[ct];
     }
   }
+  if (params.attachment == null) {
+    params.attachment = params.attachments;
+  }
+  if (params.file == null) {
+    params.file = params.attachment;
+  }
   if (params.file != null) {
+    if (params.headers == null) {
+      params.headers = {};
+    }
     if ((params.body != null) && (params.form == null)) {
+      //params.headers['Content-Type'] = 'multipart/form-data'
       params.form = params.body;
     }
-    //if not FormData?
-    //  FormData = (await new Response(new URLSearchParams()).formData()).constructor
-    // TODO does content-type need to be checked? Would need to be multipart/form-data AND have a boundary
-    // or is that getting set by sending the FormData anyway?
-    // e.g. Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryIn312MOjBWdkffIM
-    fd = new FormData();
-    fd.append('file', params.file, params.filename);
-    params.body = fd;
+    params.body = new FormData();
+    if (!Array.isArray(params.file)) {
+      if (typeof params.file === 'object' && (params.file.file != null)) {
+        fll = [
+          {
+            file: params.file.file,
+            filename: (ref1 = (ref2 = params.file.filename) != null ? ref2 : params.file.name) != null ? ref1 : params.filename
+          }
+        ];
+      } else {
+        fll = [
+          {
+            file: params.file,
+            filename: params.filename
+          }
+        ];
+      }
+      params.file = fll;
+    }
+    ref3 = params.file;
+    for (j = 0, len1 = ref3.length; j < len1; j++) {
+      flo = ref3[j];
+      if (((flo != null ? flo.file : void 0) != null) || ((flo != null ? flo.data : void 0) != null)) {
+        params.body.append((params.attachment != null ? 'attachment' : 'file'), (ref4 = flo.file) != null ? ref4 : flo.data, (ref5 = (ref6 = (ref7 = flo.filename) != null ? ref7 : flo.name) != null ? ref6 : params.filename) != null ? ref5 : 'file');
+      }
+    }
     delete params.filename;
     if (params.method == null) {
       params.method = 'POST';
@@ -2416,7 +2444,7 @@ P.fetch = async function(url, params) {
     if ((params.headers['Content-Type'] == null) && (params.headers['content-type'] == null)) {
       params.headers['Content-Type'] = typeof params.body === 'object' ? 'application/json' : 'text/plain';
     }
-    if ((ref1 = typeof params.body) === 'object' || ref1 === 'boolean' || ref1 === 'number') { // or just everything?
+    if ((ref8 = typeof params.body) === 'object' || ref8 === 'boolean' || ref8 === 'number') { // or just everything?
       params.body = JSON.stringify(params.body);
     }
     if (params.method == null) {
@@ -2425,8 +2453,14 @@ P.fetch = async function(url, params) {
   }
   if (params.form != null) {
     if (params.file != null) {
-      for (fk in params.form) {
-        params.body.append(fk, params.form[fk]);
+      if (typeof params.form === 'object') {
+        for (fk in params.form) {
+          ref9 = (Array.isArray(params.form[fk]) ? params.form[fk] : [params.form[fk]]);
+          for (l = 0, len2 = ref9.length; l < len2; l++) {
+            av = ref9[l];
+            params.body.append(fk, typeof av === 'object' ? JSON.stringify(av) : av);
+          }
+        }
       }
     } else {
       if (params.headers == null) {
@@ -2436,9 +2470,23 @@ P.fetch = async function(url, params) {
         params.headers['Content-Type'] = 'application/x-www-form-urlencoded';
       }
       if (typeof params.form === 'object') {
-        try {
-          params.form = (await this.form(params.form));
-        } catch (error) {}
+        po = ''; // params object to string x-www-form-urlencoded
+        for (p in params.form) {
+          if (po !== '') {
+            po += '&';
+          }
+          ref10 = (Array.isArray(params.form[p]) ? params.form[p] : [params.form[p]]);
+          for (m = 0, len3 = ref10.length; m < len3; m++) {
+            ppt = ref10[m];
+            if (ppt != null) {
+              if (!po.endsWith('&')) {
+                po += '&';
+              }
+              po += p + '=' + encodeURIComponent((typeof ppt === 'object' ? JSON.stringify(ppt) : ppt));
+            }
+          }
+        }
+        params.form = po;
       }
       params.body = params.form;
     }
@@ -2448,6 +2496,8 @@ P.fetch = async function(url, params) {
     }
   }
   delete params.file;
+  delete params.attachment;
+  delete params.attachments;
   if (typeof url !== 'string') {
 
   } else {
@@ -2463,9 +2513,9 @@ P.fetch = async function(url, params) {
     if (url.includes('?')) {
       pts = url.split('?');
       nu = pts.shift() + '?';
-      ref2 = pts.join('?').split('&');
-      for (j = 0, len1 = ref2.length; j < len1; j++) {
-        qp = ref2[j];
+      ref11 = pts.join('?').split('&');
+      for (n = 0, len4 = ref11.length; n < len4; n++) {
+        qp = ref11[n];
         if (!nu.endsWith('?')) {
           nu += '&';
         }
@@ -2483,9 +2533,9 @@ P.fetch = async function(url, params) {
       if (url.indexOf('?') === -1) {
         url += '?';
       }
-      ref3 = params.params;
-      for (k in ref3) {
-        v = ref3[k];
+      ref12 = params.params;
+      for (k in ref12) {
+        v = ref12[k];
         if (!url.endsWith('&') && !url.endsWith('?')) {
           url += '&';
         }
@@ -2549,7 +2599,7 @@ P.fetch = async function(url, params) {
       }
     };
     try {
-      if (params.timeout && ((this != null ? this._timeout : void 0) != null)) { // should timeout be here at all or could/should @retry be used to handle that?
+      if (params.timeout && ((this != null ? this._timeout : void 0) != null)) {
         pt = params.timeout === true ? 30000 : params.timeout;
         delete params.timeout;
         res = (await this._timeout(pt, _f()));
@@ -2574,33 +2624,6 @@ P.fetch = async function(url, params) {
     }
   }
 };
-
-`limiting = (fetcher, retries=1) ->
-  # notice if someone else is limiting us, and how long to wait for
-  while retries
-    retries--
-    response = await fetcher()
-    switch (response.status) ->
-      default:
-        return response
-      case 403:
-      case 429:
-        # header names differ by API we're hitting, these examples are for github. 
-        # It's the timestamp of when the rate limit window would reset, generalise this
-        # e.g. look for any header containing ratelimit? or rate? then see if it's a big
-        # number which would be a timestamp (and check if need *1000 for unix to ms version) 
-        # or a small number which is probably ms to wait
-        resets = parseInt response.headers.get "x-ratelimit-reset"
-        ms = if isNaN(resets) then 0 else new Date(resets * 1000).getTime() - Date.now()
-        if ms is 0
-          # this one is like a count of ms to wait?
-          remaining = parseInt response.headers.get "x-ratelimit-remaining"
-          ms = remaining if not isNaN remaining
-
-        if ms <= 0
-          return response
-        else
-          await new Promise resolve => setTimeout resolve, ms`;
 
 P.fetch._auth = 'system';
 
@@ -3049,7 +3072,7 @@ try {
 }
 
 P.mail = async function(opts) {
-  var f, fo, ms, p, parts, ref, ref1, ref10, ref11, ref12, ref13, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, url;
+  var f, fa, i, len, ms, p, parts, pl, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, url;
   if ((ref = S.mail) != null ? ref.disabled : void 0) {
     return {};
   }
@@ -3086,10 +3109,7 @@ P.mail = async function(opts) {
     opts.html = opts.text;
   }
   // can also take opts.headers
-  // also takes opts.attachments, but not required. Should be a list of objects
-  // how do attachments work if not on mail_url, can they be sent by API?
-  // https://github.com/nodemailer/mailcomposer/blob/v4.0.1/README.md#attachments
-  // could use mailgun-js, but prefer to just send direct to API
+  // also takes opts.attachment, but not required. Should be a list of objects
   ms = (opts.svc || opts.service) && (((ref8 = this.S.svc[(ref9 = opts.svc) != null ? ref9 : opts.service]) != null ? ref8.mail : void 0) != null) ? this.S.svc[(ref10 = opts.svc) != null ? ref10 : opts.service].mail : (ref11 = this != null ? (ref12 = this.S) != null ? ref12.mail : void 0 : void 0) != null ? ref11 : S.mail;
   if (opts.from == null) {
     opts.from = ms.from;
@@ -3104,12 +3124,20 @@ P.mail = async function(opts) {
   }
   if (opts.to) {
     f = (ref13 = this != null ? this.fetch : void 0) != null ? ref13 : P.fetch;
-    fo = (await this.form(opts));
-    return (await f(url, {
+    pl = {
       method: 'POST',
-      form: fo,
       auth: 'api:' + ms.apikey
-    }));
+    };
+    ref14 = ['file', 'files', 'attachment', 'attachments'];
+    for (i = 0, len = ref14.length; i < len; i++) {
+      fa = ref14[i];
+      if (opts[fa] != null) {
+        pl[fa] = opts[fa];
+        delete opts[fa];
+      }
+    }
+    pl.form = opts;
+    return (await f(url, pl));
   } else {
     console.log(opts);
     console.log('NO ADDRESS TO EMAIL TO');
@@ -3839,31 +3867,6 @@ P._timeout = function(ms, fn) { // where fn is a promise-able function that has 
       return reject(reason);
     }));
   });
-};
-
-P.form = function(params) {
-  var j, len1, p, po, ppt, ref;
-  // return params object x-www-form-urlencoded
-  if (params == null) {
-    params = this.params;
-  }
-  po = '';
-  for (p in params) {
-    if (po !== '') {
-      po += '&';
-    }
-    ref = (Array.isArray(params[p]) ? params[p] : [params[p]]);
-    for (j = 0, len1 = ref.length; j < len1; j++) {
-      ppt = ref[j];
-      if (ppt != null) {
-        if (!po.endsWith('&')) {
-          po += '&';
-        }
-        po += p + '=' + encodeURIComponent((typeof ppt === 'object' ? JSON.stringify(ppt) : ppt));
-      }
-    }
-  }
-  return po;
 };
 
 P.decode = async function(content) {
@@ -10123,7 +10126,7 @@ P.svc.oaworks.deposits = {
 };
 
 P.svc.oaworks.deposit = async function(params, file, dev) {
-  var a, as, at, author, bcc, ccm, com, creators, dep, description, ee, i, in_zenodo, j, k, len, len1, len2, len3, len4, m, meta, ml, n, o, parts, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref5, ref6, ref7, ref8, ref9, tk, tmpl, tos, uc, z, zn, zs;
+  var a, as, at, author, bcc, ccm, com, creators, dep, description, ee, i, in_zenodo, j, k, len, len1, len2, len3, len4, m, meta, ml, n, o, parts, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref5, ref6, ref7, ref8, ref9, tk, tmpl, tos, uc, z, zn, zs;
   if (params == null) {
     params = this.copy(this.params);
   }
@@ -10402,12 +10405,10 @@ P.svc.oaworks.deposit = async function(params, file, dev) {
         ml.bcc = bcc;
       }
       if (file) {
-        ml.attachments = [
-          {
-            filename: (ref42 = file.filename) != null ? ref42 : file.name,
-            content: file.data
-          }
-        ];
+        ml.attachment = {
+          file: file.data,
+          filename: (ref42 = (ref43 = (ref44 = dep.archivable) != null ? ref44.name : void 0) != null ? ref43 : file.name) != null ? ref42 : file.filename
+        };
       }
       await this.mail(ml);
     }
@@ -14640,7 +14641,7 @@ P.svc.rscvd.overdue = async function() {
 };
 
 
-S.built = "Sat Jan 15 2022 04:24:00 GMT+0000";
+S.built = "Tue Jan 18 2022 09:43:35 GMT+0000";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor

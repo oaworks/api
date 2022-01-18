@@ -29,10 +29,7 @@ P.mail = (opts) ->
   opts.html = opts.text if not opts.html and typeof opts.text is 'string' and opts.text.indexOf('<') isnt -1 and opts.text.indexOf('>') isnt -1
 
   # can also take opts.headers
-  # also takes opts.attachments, but not required. Should be a list of objects
-  # how do attachments work if not on mail_url, can they be sent by API?
-  # https://github.com/nodemailer/mailcomposer/blob/v4.0.1/README.md#attachments
-  # could use mailgun-js, but prefer to just send direct to API
+  # also takes opts.attachment, but not required. Should be a list of objects
 
   ms = if (opts.svc or opts.service) and @S.svc[opts.svc ? opts.service]?.mail? then @S.svc[opts.svc ? opts.service].mail else (this?.S?.mail ? S.mail)
   opts.from ?= ms.from
@@ -43,8 +40,13 @@ P.mail = (opts) ->
   opts.to = opts.to.join(',') if Array.isArray opts.to
   if opts.to
     f = this?.fetch ? P.fetch
-    fo = await @form opts
-    return await f url, {method: 'POST', form: fo, auth:'api:'+ms.apikey}
+    pl = method: 'POST', auth:'api:' + ms.apikey
+    for fa in ['file', 'files', 'attachment', 'attachments']
+      if opts[fa]?
+        pl[fa] = opts[fa]
+        delete opts[fa]
+    pl.form = opts
+    return await f url, pl
   else
     console.log opts
     console.log 'NO ADDRESS TO EMAIL TO'

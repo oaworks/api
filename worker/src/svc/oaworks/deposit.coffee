@@ -166,7 +166,7 @@ P.svc.oaworks.deposit = (params, file, dev) ->
         subject: (parts.subject ? dep.type + ' deposit')
         html: parts.content
       ml.bcc = bcc if bcc and bcc.length # passing undefined to mail seems to cause errors, so only set if definitely exists
-      ml.attachments = [{filename: (file.filename ? file.name), content: file.data}] if file
+      ml.attachment = {file: file.data, filename: dep.archivable?.name ? file.name ? file.filename} if file
       await @mail ml
 
   # embargo_UI is a legacy value for old embeds, can be removed once we switch to new separate embed repo code

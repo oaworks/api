@@ -38,16 +38,22 @@ P.fetch = (url, params) ->
     if params[ct]?
       params.body = params[ct]
       delete params[ct]
+  params.attachment ?= params.attachments
+  params.file ?= params.attachment
   if params.file?
+    params.headers ?= {}
+    #params.headers['Content-Type'] = 'multipart/form-data'
     params.form = params.body if params.body? and not params.form?
-    #if not FormData?
-    #  FormData = (await new Response(new URLSearchParams()).formData()).constructor
-    # TODO does content-type need to be checked? Would need to be multipart/form-data AND have a boundary
-    # or is that getting set by sending the FormData anyway?
-    # e.g. Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryIn312MOjBWdkffIM
-    fd = new FormData()
-    fd.append 'file', params.file, params.filename
-    params.body = fd
+    params.body = new FormData()
+    if not Array.isArray params.file
+      if typeof params.file is 'object' and params.file.file?
+        fll = [{file: params.file.file, filename: params.file.filename ? params.file.name ? params.filename}]
+      else
+        fll = [{file: params.file, filename: params.filename}]
+      params.file = fll
+    for flo in params.file
+      if flo?.file? or flo?.data?
+        params.body.append (if params.attachment? then 'attachment' else 'file'), (flo.file ? flo.data), (flo.filename ? flo.name ? params.filename ? 'file')
     delete params.filename
     params.method ?= 'POST'
   else if params.body?
@@ -58,17 +64,29 @@ P.fetch = (url, params) ->
     params.method ?= 'POST'
   if params.form?
     if params.file?
-      params.body.append(fk, params.form[fk]) for fk of params.form
+      if typeof params.form is 'object'
+        for fk of params.form
+          for av in (if Array.isArray(params.form[fk]) then params.form[fk] else [params.form[fk]])
+            params.body.append fk, if typeof av is 'object' then JSON.stringify(av) else av
     else
       params.headers ?= {}
       if not params.headers['Content-Type']? and not params.headers['content-type']?
         params.headers['Content-Type'] = 'application/x-www-form-urlencoded'
       if typeof params.form is 'object'
-        try params.form = await @form params.form
+        po = '' # params object to string x-www-form-urlencoded
+        for p of params.form
+          po += '&' if po isnt ''
+          for ppt in (if Array.isArray(params.form[p]) then params.form[p] else [params.form[p]])
+            if ppt?
+              po += '&' if not po.endsWith '&'
+              po += p + '=' + encodeURIComponent (if typeof ppt is 'object' then JSON.stringify(ppt) else ppt)
+        params.form = po
       params.body = params.form
     delete params.form
     params.method ?= 'POST'
   delete params.file
+  delete params.attachment
+  delete params.attachments
 
   if typeof url isnt 'string'
     return
@@ -123,7 +141,7 @@ P.fetch = (url, params) ->
           return r
 
     try
-      if params.timeout and this?._timeout? # should timeout be here at all or could/should @retry be used to handle that?
+      if params.timeout and this?._timeout?
         pt = if params.timeout is true then 30000 else params.timeout
         delete params.timeout
         res = await @_timeout pt, _f()
@@ -137,36 +155,6 @@ P.fetch = (url, params) ->
       console.log(err, JSON.stringify(err), 'ERROR TRYING TO CALL FETCH') if S.dev and S.bg is true
       try @log err
       return
-
-
-'''
-limiting = (fetcher, retries=1) ->
-  # notice if someone else is limiting us, and how long to wait for
-  while retries
-    retries--
-    response = await fetcher()
-    switch (response.status) ->
-      default:
-        return response
-      case 403:
-      case 429:
-        # header names differ by API we're hitting, these examples are for github. 
-        # It's the timestamp of when the rate limit window would reset, generalise this
-        # e.g. look for any header containing ratelimit? or rate? then see if it's a big
-        # number which would be a timestamp (and check if need *1000 for unix to ms version) 
-        # or a small number which is probably ms to wait
-        resets = parseInt response.headers.get "x-ratelimit-reset"
-        ms = if isNaN(resets) then 0 else new Date(resets * 1000).getTime() - Date.now()
-        if ms is 0
-          # this one is like a count of ms to wait?
-          remaining = parseInt response.headers.get "x-ratelimit-remaining"
-          ms = remaining if not isNaN remaining
-
-        if ms <= 0
-          return response
-        else
-          await new Promise resolve => setTimeout resolve, ms
-'''
 
 P.fetch._auth = 'system'
 P.fetch._hide = true

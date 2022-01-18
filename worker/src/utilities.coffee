@@ -86,18 +86,6 @@ P._timeout = (ms, fn) -> # where fn is a promise-able function that has been cal
         clearTimeout timer
         reject reason
 
-P.form = (params) ->
-  # return params object x-www-form-urlencoded
-  params ?= @params
-  po = ''
-  for p of params
-    po += '&' if po isnt ''
-    for ppt in (if Array.isArray(params[p]) then params[p] else [params[p]])
-      if ppt?
-        po += '&' if not po.endsWith '&'
-        po += p + '=' + encodeURIComponent (if typeof ppt is 'object' then JSON.stringify(ppt) else ppt)
-  return po
-
 P.decode = (content) ->
   content ?= @params.decode ? @params.content ? @params.text ? @body
   _decode = (content) ->
