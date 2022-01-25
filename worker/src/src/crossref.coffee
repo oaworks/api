@@ -6,8 +6,8 @@ P.src.crossref = () ->
   return 'Crossref API wrapper'
 
 P.src.crossref.journals = (issn) ->
-  issn ?= @params.journals ? @.params.issn
-  res = await @fetch 'https://api.crossref.org/journals/' + issn, {headers: {'User-Agent': @S.name + '; mailto:' + @S.mail?.to}}
+  issn ?= @params.journals ? @params.issn
+  res = await @fetch 'https://api.crossref.org/journals/' + (issn ? ''), {headers: {'User-Agent': @S.name + '; mailto:' + @S.mail?.to}}
   return res?.message
 
 #P.src.crossref.journals._index = true

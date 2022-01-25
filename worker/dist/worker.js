@@ -6205,7 +6205,7 @@ P.src.crossref.journals = async function(issn) {
   if (issn == null) {
     issn = (ref = this.params.journals) != null ? ref : this.params.issn;
   }
-  res = (await this.fetch('https://api.crossref.org/journals/' + issn, {
+  res = (await this.fetch('https://api.crossref.org/journals/' + (issn != null ? issn : ''), {
     headers: {
       'User-Agent': this.S.name + '; mailto:' + ((ref1 = this.S.mail) != null ? ref1.to : void 0)
     }
@@ -14641,7 +14641,7 @@ P.svc.rscvd.overdue = async function() {
 };
 
 
-S.built = "Tue Jan 18 2022 09:43:35 GMT+0000";
+S.built = "Tue Jan 25 2022 01:48:33 GMT+0000";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
