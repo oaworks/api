@@ -48,8 +48,8 @@ P.auth = (key) ->
       @users._update user
 
     if not user.resume? and not @apikey
-      user.resume = @uid() # could add extra info to resume object like machine logged in on etc to enable device management
-      @kv 'auth/resume/' + user._id + '/' + user.resume, {createdAt: Date.now(), device: @device()}, 7890000 # resume token lasts three months (could make six at 15768000)
+      user.resume = @uid()
+      @kv 'auth/resume/' + user._id + '/' + user.resume, {createdAt: Date.now()}, 7890000 # resume token lasts three months (could make six at 15768000)
 
     if await @auth.role 'root', @user
       @log msg: 'root login' #, notify: true
@@ -80,7 +80,7 @@ P.auth.token = (email, from, subject, text, html, template, url) ->
   email ?= @params.email
   if email
     email = email.trim().toLowerCase()
-    from ?= S.auth?.from ? 'login@example.com'
+    from ?= S.auth?.from ? 'login@oa.works'
     token = @uid 8
     console.log(email, token) if @S.dev and @S.bg is true
     url ?= @params.url
@@ -191,19 +191,6 @@ P.auth.logout = (user) -> # how about triggering a logout on a different user ac
     return false
     
 
-# add a 2FA mechanism to auth (authenticator, sms...)
-# https://stackoverflow.com/questions/8529265/google-authenticator-implementation-in-python/8549884#8549884
-# https://github.com/google/google-authenticator
-# http://blog.tinisles.com/2011/10/google-authenticator-one-time-password-algorithm-in-javascript/
-#P.authenticator = () ->
-# TODO if an authenticator app token is provided, check it within the 30s window
-# delay responses to 1 per second to stop brute force attacks
-# also need to provide the token/qr to initialise the authenticator app with the service
-#  return false
-
-# device fingerprinting was available in the old code but no explicit requirement for it so not added here yet
-# old code also had xsrf tokens for FORM POSTs, add that back in if relevant
-
 P.auth._oauth = (token, cid) ->
   # https://developers.google.com/identity/protocols/OAuth2UserAgent#validatetoken
   sets = {}
@@ -232,7 +219,7 @@ P.auth._oauth = (token, cid) ->
 # if the states match, send the access_token into the above method and if it validates then we can login the user
 
 
-P.users = _index: true, _hides: true, _auth: 'system'
+P.users = _index: true, _auth: 'system'
 
 P.users._get = (uid, apikey) ->
   if apikey

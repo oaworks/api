@@ -1,14 +1,11 @@
 
-proxy_read_timeout 180s;
-underscores_in_headers on;
-
 limit_req_zone $http_cf_connecting_ip zone=pradm:200m rate=10r/s;
 limit_conn_status 429;
 limit_req_status 429;
 
 server {
     listen          80;
-    server_name     api.EXAMPLE.com bg.EXAMPLE.com dev.EXAMPLE.com;
+    server_name     api.EXAMPLE.com bg.EXAMPLE.com beta.EXAMPLE.com;
 
     location ^~ /.well-known/acme-challenge/ {
         default_type "text/plain";
@@ -58,13 +55,12 @@ server {
 
 server {
     listen          443 ssl;
-    server_name     dev.EXAMPLE.com;
+    server_name     beta.EXAMPLE.com;
 
-    ssl_certificate /etc/letsencrypt/live/dev.EXAMPLE.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/dev.EXAMPLE.com/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/beta.EXAMPLE.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/beta.EXAMPLE.com/privkey.pem;
 
     location / {
-        limit_req zone=pradm burst=6000; # could also add nodelay to this, so anything after the limit immediately gets 503. Without that, later requests just wait
         proxy_pass http://localhost:4000;
         proxy_redirect off;
         proxy_set_header Host $host;
