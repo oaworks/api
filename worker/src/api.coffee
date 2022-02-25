@@ -12,7 +12,7 @@ try
 S ?= {} # and just in case it wasn't found
 S.name ?= 'OA.Works' # this would also be used as the default name for the KV store, if one was not set specifically, as below or in settings
 S.kv ?= 'oaworks'
-S.version ?= '6.0.1' # the construct script will use this to overwrite any version in the worker and server package.json files
+S.version ?= '6.1.0' # the construct script will use this to overwrite any version in the worker and server package.json files
 # S.pass can be set to false if there is a bg URL but worker errors should NOT pass through on exception to it (otherwise they will by default)
 S.pass = ['docs', 'client', '.well-known'] # if this is a list of strings, any route starting with these will throw error and pass back to bg (this would happen anyway with no function defined for them, but this avoids unnecessary processing)
 S.dev ?= true

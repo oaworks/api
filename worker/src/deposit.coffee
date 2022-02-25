@@ -6,7 +6,7 @@
 # NOTE to receive files should send to background server
 # cloudflare will limit file upload size (100mb by default, and enterprise plans required for more)
 
-P.deposits = _index: true # store a record of all deposits
+P.deposits = _index: true # store a record of all deposits. This used to filter to only those for the logged in user, that should be changed to deposited endpoint
 
 P.deposit = (params, file, dev) ->
   params ?= @copy @params
@@ -335,3 +335,121 @@ P.archivable = (file, url, confirmed, meta, permissions, dev) ->
   return f
 
 P.archivable._bg = true
+
+
+'''
+P.deposited = () ->
+  uid ?= @params.uid ? @user.id
+  params = await @copy @params
+  restrict = [{exists:{field:'deposit.type'}}]
+  restrict.push({term:{'deposit.from.exact':uid}}) if uid
+  restrict.push({exists:{field:'deposit.zenodo.url'}}) if @params.submitted # means filter to only those that are actually deposited, not just records of a deposit occurring
+  params.size ?= 10000
+  params.sort ?= 'createdAt:asc'
+  fields = ['metadata','permissions.permissions','permissions.ricks','permissions.best_permission','permissions.file','deposit','url']
+  if params.fields
+    fields = params.fields.split ','
+    delete params.fields
+  res = oab_catalogue.search params, {restrict:restrict}
+  re = []
+  for r in res.hits.hits
+    dr = r._source
+    if csv and dr.metadata?.reference?
+      delete dr.metadata.reference
+    if csv and dr.error
+      try
+        dr.error = dr.error.split(':')[0].split('{')[0].trim()
+      catch
+        delete dr.error
+    if csv and dr.metadata?.author?
+      for a of dr.metadata.author
+        dr.metadata.author[a] = if dr.metadata.author[a].name then dr.metadata.author[a].name else if dr.metadata.author[a].given and dr.metadata.author[a].family then dr.metadata.author[a].given + ' ' + dr.metadata.author[a].family else ''
+    for d in dr.deposit
+      if (not uid? or d.from is uid) and (not @params.submitted or d.zenodo?.file?)
+        red = {doi: dr.metadata.doi, title: dr.metadata.title, type: d.type, createdAt: d.createdAt}
+        already = false
+        if @params.submitted
+          red.file = d.zenodo.file
+          for ad in re
+            if ad.doi is red.doi and ad.file is red.file
+              already = true
+              break
+        if not already
+          for f in fields
+            if f not in ['metadata.doi','metadata.title','deposit.type','deposit.createdAt','metadata.reference']
+              if f is 'deposit'
+                red[f] = d
+              else
+                red[f] = API.collection.dot dr, f
+          re.push red
+  if params.sort is 'createdAt:asc'
+    re = _.sortBy re, 'createdAt'
+  if 'deposit.createdAt' not in fields
+    for dr in re
+      delete dr.createdAt
+  if @format is 'csv'
+    for f of re
+      re[f] = API.collection.flatten re[f]
+  return re
+'''
+
+'''
+P.deposit.config = (user, config) -> # should require an authorised user
+  if not config? and @body?
+    config = @body
+    config[o] ?= @params[o] for o of @params
+  if config.uid and await @auth 'openaccessbutton.admin', @user
+    user = @users._get config.uid
+    delete config.uid
+  else
+    user = @user
+  user ?= @params.uid ? @user.id ? @params.url
+  if typeof user is 'string' and user.includes '.' # user is actually url where an embed has been called from
+    try
+      res = oab_find.search q
+      res = oab_find.search 'plugin.exact:shareyourpaper AND config:* AND embedded:"' + user.split('?')[0].split('#')[0] + '"'
+      return JSON.parse res.hits.hits[0]._source.config
+    catch
+      return {}
+  else
+    user = @users._get(user) if typeof user is 'string'
+    user ?= @user
+    if typeof user is 'object' and config?
+      # ['depositdate','community','institution_name','repo_name','email_domains','terms','old_way','deposit_help','email_for_manual_review','file_review_time','if_no_doi_go_here','email_for_feedback','sayarticle','oa_deposit_off','library_handles_dark_deposit_requests','dark_deposit_off','ror','live','pilot','activate_try_it_and_learn_more','not_library']
+      config.pilot = Date.now() if config.pilot is true
+      config.live = Date.now() if config.live is true
+      try config.community = config.community.split('communities/')[1].split('/')[0] if typeof config.community is 'string' and config.community.includes 'communities/'
+      delete config.autorunparams if config.autorunparams is false
+      if JSON.stringify(config).indexOf('<script') is -1
+        if not user.service?
+          @users._update user._id, {service: {openaccessbutton: {deposit: {config: config}}}}
+        else if not user.service.openaccessbutton?
+          @users._update user._id, {'service.openaccessbutton': {deposit: {config: config}}}
+        else if not user.service.openaccessbutton.deposit?
+          @users._update user._id, {'service.openaccessbutton.deposit': {config: config}}
+        else
+          upd = {'service.openaccessbutton.deposit.config': config}
+          if user.service.openaccessbutton.deposit.config? and not user.service.openaccessbutton.deposit.old_config? and user.service.openaccessbutton.deposit.had_old isnt false
+            upd['service.openaccessbutton.deposit.old_config'] = user.service.openaccessbutton.deposit.config
+          @users._update user._id, upd
+    try
+      config ?= user.service.openaccessbutton.deposit?.config ? {}
+      try config.owner ?= user.email ? user.emails[0].address
+      return config
+    catch
+      return {}
+'''
+
+'''
+P.deposit.url = (uid) ->
+  # given a uid, find the most recent URL that this users uid submitted a deposit for
+  uid ?= @params.uid ? @user?.id
+  q = {size: 0, query: {filtered: {query: {bool: {must: [{term: {plugin: "shareyourpaper"}},{term: {"from.exact": uid}}]}}}}}
+  q.aggregations = {embeds: {terms: {field: "embedded.exact"}}}
+  res = oab_find.search q
+  for eu in res.aggregations.embeds.buckets
+    eur = eu.key.split('?')[0].split('#')[0]
+    if eur.indexOf('shareyourpaper.org') is -1 and eur.indexOf('openaccessbutton.org') is -1
+      return eur
+  return false
+'''
