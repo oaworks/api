@@ -428,7 +428,7 @@ P.dot = function(o, k, v, d) {
   } else {
     if (o[k[0]] == null) {
       if (v != null) {
-        o[k[0]] = isNaN(parseInt(k[0])) ? {} : [];
+        o[k[0]] = typeof k[0] === 'number' || !isNaN(parseInt(k[0])) ? [] : {};
         return P.dot(o[k[0]], k.slice(1), v, d);
       } else {
         return void 0;

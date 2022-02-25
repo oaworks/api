@@ -201,7 +201,7 @@ P.dot = (o, k, v, d) ->
   else
     if not o[k[0]]?
       if v?
-        o[k[0]] = if isNaN(parseInt(k[0])) then {} else []
+        o[k[0]] = if typeof k[0] is 'number' or not isNaN(parseInt(k[0])) then [] else {}
         return P.dot o[k[0]], k.slice(1), v, d
       else
         return undefined

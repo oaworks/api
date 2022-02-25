@@ -10,8 +10,9 @@ try
   SS = JSON.parse SECRETS_SERVER # backend server can provide overrides in a server.json secrets file
   S[k] = SS[k] for k of SS
 S ?= {} # and just in case it wasn't found
-S.name ?= 'Paradigm' # this will also be used as the default name for the KV store
-S.version ?= '5.5.1' # the construct script will use this to overwrite any version in the worker and server package.json files
+S.name ?= 'OA.Works' # this would also be used as the default name for the KV store, if one was not set specifically, as below or in settings
+S.kv ?= 'oaworks'
+S.version ?= '6.1.0' # the construct script will use this to overwrite any version in the worker and server package.json files
 # S.pass can be set to false if there is a bg URL but worker errors should NOT pass through on exception to it (otherwise they will by default)
 S.pass = ['docs', 'client', '.well-known'] # if this is a list of strings, any route starting with these will throw error and pass back to bg (this would happen anyway with no function defined for them, but this avoids unnecessary processing)
 S.dev ?= true
@@ -20,7 +21,6 @@ S.headers ?=
   'Access-Control-Allow-Origin': '*'
   'Access-Control-Allow-Headers': 'X-apikey, X-id, Origin, X-Requested-With, Content-Type, Content-Disposition, Accept, DNT, Keep-Alive, User-Agent, If-Modified-Since, Cache-Control'
   'Permissions-Policy': 'interest-cohort=()'
-S.formats ?= ['html', 'csv', 'json'] # allow formatted responses in this list
 S.svc ?= {}
 S.src ?= {}
 
@@ -33,8 +33,6 @@ S.src ?= {}
 # _cache - can be false or a number of seconds for how long the cache value is valid) (pass refresh param with incoming request to override a cache)
 # _caches - can be used to cascade the cache setting to everything below it
 # NOTE _auth and _cache are ALWAYS checked first at the incoming request level, and NOT checked for subsequent called functions (fetch can also use cache internally)
-
-# _wrap - can be set to false so that a function that would otherwise be wrapped won't be
 
 # if an _async param was provided, check the async index for a completed result
 # if found, delete it and save it to wherever it should be (if anywhere), just as if a normal result had been processed
@@ -66,19 +64,6 @@ S.src ?= {}
 # cache the result unless _cache is false or it was an index creation or sheet load
 
 # log the request, and whether or not data was sent, and if a result was achieved, and other useful info
-# if _history, and new data was sent, store the POST content rather than just whether or not there was any, so it can be recreated
-
-# _diff can be true or a list of arguments for the function. It will check to see if a process gives the same result 
-# (compared against a previously stored one). If it doesn't it should log something that then gets 
-# picked up by the alert mechanism
-
-# _hide can be set to hide a function that should otherwise show up on the routes list, 
-# or _hides can be used to hide a function and anything under it
-# e.g. one that doesn't start with _ but should be hidden for some reason anyway. NOTE this 
-# doesn't stop it being ACCESSIBLE on the API, only hidden, whereas starting it with _ makes it inaccessible
-
-# TODO add a way for a function to result in a file url on local disk or s3, or perhaps even a URL somewhere else, 
-# and to serve the location redirect as the result. Could be a _file option
 
 try
   addEventListener 'fetch', (event) ->
@@ -89,7 +74,7 @@ try
   addEventListener 'scheduled', (event) ->
     # https://developers.cloudflare.com/workers/runtime-apis/scheduled-event
     # event.type will always be 'scheduled'. event.scheduledTime ms timestamp of the scheduled time. Can be parsed with new Date(event.scheduledTime)
-    event.waitUntil P.call event, true # Fails will be recorded on Cron past events UI. Otherwise will record as success'''
+    event.waitUntil P.call event # Fails will be recorded on Cron past events UI. Otherwise will record as success'''
 
 _schedule = {}
 
@@ -195,28 +180,13 @@ P = () ->
     @parts = (du ? @url).split '/'
     @base = @parts.shift()
   if typeof @headers.accept is 'string'
-    @format = 'csv' if @headers.accept.includes('/csv') and 'csv' in @S.formats
+    @format = 'csv' if @headers.accept.includes '/csv'
   if @parts.length and @parts[@parts.length-1].includes '.' # format specified in url takes precedence over header
     pf = @parts[@parts.length-1].split('.').pop()
-    if pf in @S.formats
-      @format = pf
-      @parts[@parts.length-1] = @parts[@parts.length-1].replace '.' + pf, ''
+    @format = pf
+    @parts[@parts.length-1] = @parts[@parts.length-1].replace '.' + pf, ''
   if typeof @S.bg is 'string' and Array.isArray(@S.pass) and @parts.length and @parts[0] in @S.pass
     throw new Error() # send to backend to handle requests for anything that should be served from folders on disk
-  for d of @S.domains ? {} # allows requests from specific domains to route directly to a subroute, or more usefully, a specific service
-    @S.domains[d] = {parts: @S.domains[d], exclusive: false} if Array.isArray @S.domains[d]
-    if @base.includes d
-      exclusive = @S.domains[d].exclusive # if exclusive, ONLY routes that match within the defined parts will be served
-      if not exclusive # for non-exclusive, only restrict if there IS something to match at or after the defined parts
-        pp = [...@S.domains[d].parts]
-        tp = P
-        while cp = pp.shift()
-          try tp = tp[cp]
-        exclusive = true if tp? and ((not @parts.length and typeof tp is 'function') or tp[@parts[0]]?)
-      if exclusive
-        @domain = d
-        @parts = [...@S.domains[d].parts, ...@parts]
-        break
 
   shn = 'x-' + @S.name.toLowerCase() + '-system'
   if @S.name and @S.system and @headers[shn] is @S.system
@@ -233,13 +203,11 @@ P = () ->
   @routes = []
   @fn = '' # the function name that was mapped to by the URL routes in the request will be stored here
 
-  if @route is '' #don't bother doing anything, just serve a direct P._response with the API details
-    return P._response.call @, if @request.method in ['HEAD', 'OPTIONS'] then '' else name: @S.name, version: @S.version, base: (if @S.dev then @base else undefined), built: (if @S.dev then @S.built else undefined)
-
-  # TODO add a way to identify and iterate multiple functions either parallel or serial, adding to results
-  # e.g. split url at // for multi functions. Params parallel gives on obj of named results
-  # with merge for one result overwriting as they're received, or if only merge then merge in order
-  # auth would need to be present for every stage
+  if @route is '' # don't bother doing anything, just serve a direct P._response with the API details
+    if @request.method in ['HEAD', 'OPTIONS']
+      return P._response.call @, ''
+    else
+      return P._response.call @, name: (@S.name ? 'OA.Works API'), version: @S.version, base: (if @S.dev then @base else undefined), built: @S.built, user: (@user?.email ? undefined)
 
   # loop through everything defined on P, wrap and configure all functions, and set them onto @ so they can be called in relation to this fetch event
   # also pick up any URL params provided along the way - anything that doesn't map to a function or an object is considered some sort of param
@@ -250,7 +218,7 @@ P = () ->
   prs = [...@parts]
   pk = undefined
   pks = []
-  _lp = (p, a, n, hides, auths, wraps, caches) =>
+  _lp = (p, a, n, auths, caches) =>
     if pk and @fn.startsWith n
       while prs.length and not p[prs[0]]?
         @params[pk] = (if @params[pk] then @params[pk] + '/' else '') + prs.shift()
@@ -263,20 +231,16 @@ P = () ->
         if typeof p[k] is 'object' and not p[k]._index and not p[k]._indexed and not p[k]._sheet and not p[k]._kv and not p[k]._bg # index, kv, or bg could be objects that need wrapped
           a[k] = JSON.parse JSON.stringify p[k]
         else
-          p[k]._hide ?= p[k]._hides ?= hides
           p[k]._auth ?= p[k]._auths ?= auths
           p[k]._auths = nd.split('.') if Array.isArray(p[k]._auths) and p[k]._auths.length is 0 # an empty auth array defaults to group names corresponding to the function subroutes
           p[k]._auth = nd.split('.') if Array.isArray(p[k]._auth) and p[k]._auth.length is 0 # an empty auth array defaults to group names corresponding to the function subroutes
-          p[k]._wrap ?= p[k]._wraps ?= wraps
           p[k]._cache ?= p[k]._caches ?= caches
           p[k]._cache ?= false if nd.startsWith 'auth'
           p[k]._index ?= true if p[k]._sheet
           if p[k]._index # add index functions to index endpoints
             for ik in ['keys', 'terms', 'suggest', 'count', 'min', 'max', 'range', 'mapping', 'history', '_for', '_each', '_bulk', '_refresh'] # of P.index
               p[k][ik] ?= {_indexed: ik, _auth: (if ik.startsWith('_') then 'system' else p[k]._auth)}
-          for sk of fs = P.dot @S, n
-            p[k][sk] = fs[sk] if sk.startsWith '_' # try to find anything in settings and treat it as an override
-          if typeof p[k] is 'function' and not p[k]._index and not p[k]._indexed and not p[k]._kv and not p[k]._bg and (not nd.includes('.') or p[k]._wrap is false or nd.split('.').pop().startsWith '_')
+          if typeof p[k] is 'function' and not p[k]._index and not p[k]._indexed and not p[k]._kv and not p[k]._bg and (not nd.includes('.') or n.startsWith('index') or nd.split('.').pop().startsWith '_')
             a[k] = p[k].bind @
           else
             a[k] = P._wrapper(p[k], nd).bind @
@@ -295,19 +259,18 @@ P = () ->
               try _schedule[nd].result = JSON.stringify(crd).substr 0, 200
               _schedule[nd].success = true
               console.log 'scheduled task result', crd
+              @refresh = undefined
             catch
               _schedule[nd].success = false
-            if _schedule[nd].fn._notify isnt false
-              @src.google.chat 'Scheduled ' + nd ' executed ' + (if _schedule[nd].success then 'successfully' else 'unsuccessfully') + ' at ' + await @datetime undefined, false
 
         if not k.startsWith '_' # underscored methods cannot be accessed from URLs
           if prs.length and prs[0] is k and @fn.startsWith n
             pk = prs.shift()
             @fn += (if @fn is '' then '' else '.') + pk
             fn = a[k] if typeof a[k] is 'function' and not n.includes '._' # URL routes can't call _abc functions or ones under them
-          if typeof a[k] is 'function' and not a[k]._hide and nd.replace('svc.','').replace('src.','').split('.').length is 1 #and ((not nd.startsWith('svc') and not nd.startsWith('src')) or nd.split('.').length < 3)
+          if typeof a[k] is 'function' and nd.replace('svc.','').replace('src.','').split('.').length is 1 #and ((not nd.startsWith('svc') and not nd.startsWith('src')) or nd.split('.').length < 3)
             @routes.push nd.replace /\./g, '/' # TODO this could check the auth method, and only show things the current user can access, and also search for description / comment? NOTE this is just about visibility, they're still accessible if given right auth (if any)
-        _lp(p[k], a[k], nd, (hides ? p[k]._hides), (auths ? p[k]._auths), (wraps ? p[k]._wraps), (caches ? p[k]._caches)) if not Array.isArray(p[k]) and (not k.startsWith('_') or typeof a[k] is 'function')
+        _lp(p[k], a[k], nd, (auths ? p[k]._auths), (caches ? p[k]._caches)) if not Array.isArray(p[k]) and (not k.startsWith('_') or typeof a[k] is 'function')
   _lp P, @, ''
   if pk and prs.length # catch any remaining url params beyond the max depth of P
     @params[pk] = if @params[pk] then @params[pk] + '/' + prs.join('/') else prs.join '/'
@@ -334,7 +297,6 @@ P = () ->
     else
       authd = true
 
-    # TODO check the blacklist
     if authd or @system
       if @request.method in ['HEAD', 'OPTIONS']
         res = ''
@@ -440,7 +402,7 @@ P._response = (res, fn) ->
 
 
 # API calls this to wrap functions on P, apart from top level functions and ones 
-# that start with _ or that indicate no wrapping with _wrap: false
+# that start with _
 # wrapper settings declared on each P function specify which wrap actions to apply
 # _auth and _cache settings on a P function are handled by API BEFORE _wrapper is 
 # used, so _auth and _cache are not handled within the wrapper
@@ -514,11 +476,11 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
 
       if typeof rec is 'object'
         if not Array.isArray rec
-          rec._id ?= lg.key ? rec[f._key] ? @uid()
+          rec._id ?= (lg.key ? rec[f._key] ? @uid()).replace(/\//g, '_').toLowerCase()
           lg.key ?= rec._id
         else if rec.length
           for c in rec
-            c._id ?= c[f._key] ? @uid()
+            c._id ?= (c[f._key] ? @uid()).replace(/\//g, '_').toLowerCase()
       #console.log(n, lg.key, JSON.stringify(rec), JSON.stringify(qry), res, @refresh, typeof f, exists) if @S.dev and @S.bg is true
       
       if rec? or not @refresh or typeof f isnt 'function'
@@ -548,12 +510,6 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
       lg.cached = 'index' if res? and not rec? and not lg.cached
       @cached = lg.cached if lg.cached and @fn is n
 
-    # if _history is required, record more about the incoming record change, if that's what happened
-    # _history
-    if f._history and typeof rec is 'object' and not Array.isArray(rec) and rec._id
-      lg.history = rec._id
-      lg.rec = JSON.stringify rec # record the incoming rec to record a history of changes to the record
-
     # if nothing yet, send to bg for _bg or _sheet functions, if bg is available and not yet on bg
     # _bg, _sheet
     if not res? and (f._bg or f._sheet) and typeof @S.bg is 'string' and @S.bg.startsWith 'http'
@@ -580,7 +536,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
         sht = await f.apply(@, [sht]) if typeof f is 'function' # process the sheet with the function if necessary, then create or empty the index
         if f._key
           for t in sht
-            t._id ?= t[f._key] ? @uid()
+            t._id ?= (t[f._key] ? @uid()).replace(/\//g, '_').toLowerCase()
         await @index rt, ''
         await @index rt, if typeof f._index isnt 'object' then {} else {settings: f._index.settings, mappings: (f._index.mappings ? f._index.mapping), aliases: f._index.aliases}
         if arguments.length or JSON.stringify(@params) isnt '{}'
@@ -590,9 +546,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
           res = sht.length # if there are args, don't set the res, so the function can run afterwards if present
       else
         res = 0
-      if @fn is n and f._notify isnt false
-        @waitUntil @src.google.chat @fn + ' refresh done at ' + (await @datetime undefined, false) + '\n' + JSON.stringify res
-    
+
     # if still nothing happened, and the function defined on P really IS a function
     # (it could also be an index or kv config object with no default function)
     # call the function, either _async if the function indicates it, or directly
@@ -606,7 +560,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
         r = await f.apply @, ar
         if typeof r is 'object' and (f._kv or f._index) and not r.took? and not r.hits?
           if f._key and Array.isArray(r) and r.length and not r[0]._id? and r[0][f._key]?
-            c._id ?= c[f._key] for c in r
+            c._id ?= c[f._key].replace(/\//g, '_').toLowerCase() for c in r
           id = if Array.isArray(r) then '' else '/' + (r[f._key] ? r._id ? @uid()).replace(/\//g, '_').toLowerCase()
           @kv(rt + id, res, f._kv) if f._kv and not Array.isArray r
           @waitUntil(@index(rt + id, r)) if f._index
@@ -617,7 +571,6 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
           if @fn is n and f._notify isnt false
             txt = @fn + ' done at ' + (await @datetime undefined, false) + '\n\n' + JSON.stringify(r) + '\n\n' + @base + '/' + rt + '?_async=' + @rid
             @mail({to: notify, text: txt}) if notify
-            @waitUntil @src.google.chat txt
         return r
       if f._async
         lg.async = true
@@ -626,14 +579,6 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
       else
         res = await _as rt, f, arguments
 
-    # if _diff checking is required, save the args and res and the "log" will alert 
-    # if there is a difference in the result for the same args
-    # _diff
-    if f._diff and res? and not lg.cached and not lg.async
-      lg.args = JSON.stringify if arguments.length then arguments else if @fn is n then @params else ''
-      lg.res = JSON.stringify res # what if this is huge? just checksum it?
-      try lg.checksum = @shorthash lg.res
-
     # _log
     if f._log isnt false
       lg.took = Date.now() - started
@@ -641,6 +586,35 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
 
     return res
 
-
-P.src = {}
 P.svc = {}
+P.src = {}
+
+
+
+
+P.status = ->
+  res = name: S.name, version: S.version, built: S.built
+  for k in ['rid', 'params', 'base', 'parts', 'opts', 'routes']
+    try res[k] ?= @[k]
+  if @S.bg is true
+    try
+      res.schedule = {}
+      for ss of _schedule
+        res.schedule[ss] = {}
+        for k of _schedule[ss]
+          res.schedule[ss][k] = _schedule[ss][k] if k not in ['fn']
+  res.bg = true if @S.bg is true
+  res.kv = if typeof @S.kv is 'string' and global[@S.kv] then @S.kv else if typeof @S.kv is 'string' then @S.kv else false
+  try res.index = await @index.status()
+  if S.dev
+    res.bg = @S.bg
+    if @S.bg isnt true
+      try res.request = @request
+    for k in ['headers', 'cookie', 'user', 'body']
+      try res[k] ?= @[k]
+  else
+    try res.index = res.index.status
+    res.kv = true if res.kv
+    res.user = @user?.email
+      
+  return res

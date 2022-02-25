@@ -330,7 +330,7 @@ _w = () ->
         res.on 'end', () -> 
           try
             body = JSON.parse body
-            console.log 'Ping', BG, (if VERSION.includes(body.version) then 'confirms' else 'FAILED TO FIND'), 'expected version', body.version
+            console.log 'Ping', BG, if VERSION.includes(body.version) then 'confirms ' + body.version else 'FAILED TO FIND expected version ' + VERSION + ', got ' + body.version
           catch
             console.log 'Ping ERROR'
       req.end()

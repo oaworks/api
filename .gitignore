@@ -1,10 +1,8 @@
 *node_modules*
 *package-lock*
 *secrets*
-worker/src/svc/*
-!worker/src/svc/oaworks
-server/src/svc/*
-!server/src/svc/oaworks
+worker/src/schedule.coffee
+server/src/schedule.coffee
 server/dist/
 *.tmp
 *.swp
