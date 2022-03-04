@@ -131,7 +131,7 @@ P.src.pubmed.aheadofprint = (pmid) ->
 P.src.pubmed.availabilities = _sheet: '1ZQa6tOqFsm_nF3XUk9-FhDk5gmVtXeRC4I3uldDl-gM/Export', _prefix: false, _key: 'PMC'
 P.src.pubmed.availability = (pmcid) ->
   pmcid ?= @params.pubmed ? @params.availability ? @params.pmc ? @params.pmcid ? @params.PMC ? @params.PMCID
-  pmcid = 'PMC' + (pmcid + '').toLowerCase().replace('pmc', '')
+  pmcid = 'pmc' + (pmcid + '').toLowerCase().replace('pmc', '')
   if exists = await @src.pubmed.availabilities pmcid
     return true
   else

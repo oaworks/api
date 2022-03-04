@@ -25,7 +25,7 @@ P.src.epmc.search = (qrystr, from, size) ->
   url += '&pageSize=' + size if size? #can handle 1000, have not tried more, docs do not say
   url += '&cursorMark=' + from if from? # used to be a from pager, but now uses a cursor
   ret = {}
-  await @sleep 200
+  await @sleep 250
   res = await @fetch url
   ret.total = res.hitCount
   ret.data = res.resultList?.result ? []
@@ -36,6 +36,7 @@ P.src.epmc.search = (qrystr, from, size) ->
 
 P.src.epmc.doi = (ident) ->
   ident ?= @params.doi
+  console.log ident
   if res = await @src.epmc 'doi:"' + ident + '"', 1
     return res
   else

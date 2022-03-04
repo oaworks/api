@@ -21,6 +21,7 @@ S.headers ?=
   'Access-Control-Allow-Origin': '*'
   'Access-Control-Allow-Headers': 'X-apikey, X-id, Origin, X-Requested-With, Content-Type, Content-Disposition, Accept, DNT, Keep-Alive, User-Agent, If-Modified-Since, Cache-Control'
   'Permissions-Policy': 'interest-cohort=()'
+S.formats ?= ['html', 'csv', 'json'] # formats to allow to check for
 S.svc ?= {}
 S.src ?= {}
 
@@ -182,9 +183,10 @@ P = () ->
   if typeof @headers.accept is 'string'
     @format = 'csv' if @headers.accept.includes '/csv'
   if @parts.length and @parts[@parts.length-1].includes '.' # format specified in url takes precedence over header
-    pf = @parts[@parts.length-1].split('.').pop()
-    @format = pf
-    @parts[@parts.length-1] = @parts[@parts.length-1].replace '.' + pf, ''
+    pf = @parts[@parts.length-1].split('.').pop().toLowerCase()
+    if pf in @S.formats
+      @format = pf
+      @parts[@parts.length-1] = @parts[@parts.length-1].replace '.' + pf, ''
   if typeof @S.bg is 'string' and Array.isArray(@S.pass) and @parts.length and @parts[0] in @S.pass
     throw new Error() # send to backend to handle requests for anything that should be served from folders on disk
 
@@ -356,7 +358,7 @@ P._response = (res, fn) ->
     status = 200
   
   if not @S.headers['Content-Type'] and not @S.headers['content-type']
-    if @format and @format in ['html', 'csv']
+    if @format and @format in @S.formats
       if typeof res isnt 'string'
         try
           res = await @convert['json2' + @format] res

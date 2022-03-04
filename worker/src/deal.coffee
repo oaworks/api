@@ -10,6 +10,10 @@ P.deal.import = () ->
   recs = await @src.google.sheets '1dPG7Xxvk4qnPajTu9jG_uNuz2R5jvjfeaKI-ylX4NXs'
   institutions = {}
   for rec in recs
+    for tk in ['Institution', 'Publisher', 'Collection', 'Year(s)', 'Length of Agreement', 'Package Price', '2015 Carnegie Basic Classification', 'FTE', 'Source', 'URL', 'Share URL Publicly?', 'Notes']
+      tl = tk.toLowerCase().replace(/ /g, '').replace('?', '').replace('(','').replace(')','')
+      rec[tl] = rec[tk]
+      delete rec[tk]
     try
       rec.value = parseInt rec.packageprice.replace /[^0-9]/g, ''
       if typeof rec.fte is 'string'
