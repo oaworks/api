@@ -110,6 +110,7 @@ P.report.check = (ror, reload) ->
     oacheck: '1hRZGE-LfHdloHOEVVbt_ULjvwU76gECfa8MrthF9EV8'
     asap: '14Cs80bpyKym6R1kKqIrI1R5MMELms7ArPQzF67YOOgM'
     gates_funded_pmc: '1tE6it4EcW83-ZUCotdFMnj6LsyKfQCPdkBcrr36PkVM'
+    oaworks_das: '1GoZ2s0x6VEqsiTnL4BOhVFEz1wKjGn7n-_dDVZWbvMI'
 
   if reload
     if sr = sheets[reload]
@@ -194,11 +195,12 @@ P.report.check = (ror, reload) ->
       "oadoi_oa_status", "best_oa_location_url", "best_oa_location_url_for_pdf", "has_repository_copy", "repository_license", 
       "repository_url_for_pdf", "repository_url", "repository_url_in_pmc", "repository_version", "publisher_license", "publisher_url_for_pdf", "publisher_version", 
       "has_oa_locations_embargoed", "epmc_licence", "epmc_licence_source", "pmc_has_data_availability_statement",
-      "title", "journal", "ISSN", "publisher", "published", "crossref_published", "oadoi_published", "year", "crossref_year", "oadoi_year", "author_names", "author_affiliation", "funder_name", "funder_grant_ids", 
+      "title", "journal", "ISSN", "publisher", "published", "crossref_published", "oadoi_published", "year", "crossref_year", "oadoi_year", "author_affiliation", "funder_name", "funder_grant_ids", 
       "crossref_license_url_am", "crossref_license_url_vor", "crossref_license_url_tdm", "crossref_license_url_unspecified", "crossref_subject",
       # keys examples from OAreport Gates live: https://docs.google.com/spreadsheets/d/1Ufh_xs3NQjzbPRgwlFnHxK5nY2cjn4SsnCqvVnY4Nk8/edit#gid=1145124691
       "grant_id", "invoice_date", "invoice_number",
       # and others suggested by Joe, to be sourced from sheets inputs if not already known:
+      "mturk_has_data_availability_statement", "mturk_data_availability_statement",
       "tdm_is_oa", "mturk_is_oa", "staff_is_oa",
       "apc_cost", "oawork_finance_internal_id", "type", "to", "status", "sent", "last_contact", "last_heard_from",
       "completed", "follow_up_due", "follow_ups_sent", "clicked", "author_name", "email",
@@ -276,12 +278,13 @@ P.report.check = (ror, reload) ->
         if res.pmcid and (not Array.isArray(res.pmcid) or res.pmcid.length) # may be present from sheets?
           res.PMCID = 'PMC' + res.pmcid.toString().toLowerCase().replace('pmc', '')
           res.PMCID = res.PMCID[0] if Array.isArray res.PMCID
-        else if pubmed = await @src.pubmed.doi res.DOI
-          if pubmed.identifier?.pmc
+        else
+          pubmed = await @src.pubmed.doi res.DOI # pubmed is faster to lookup but can't rely on it being right if no PMC found in it, e.g. 10.1111/nyas.14608
+          if pubmed?.identifier?.pmc
             res.PMCID = pubmed.identifier.pmc
             res.PMCID = 'PMC' + res.PMCID.toLowerCase().replace('pmc', '')
-        else if res.repository_url_in_pmc and epmc = await @src.epmc.doi res.DOI
-          res.PMCID = epmc.pmcid
+          if (not res.PMCID or res.repository_url_in_pmc) and epmc = await @src.epmc.doi res.DOI
+            res.PMCID = epmc.pmcid
       if res.PMCID and res.repository_url_in_pmc and not res.epmc_licence
         lic = await @src.epmc.licence res.PMCID, epmc
         res.epmc_licence = lic?.licence

@@ -52,6 +52,14 @@ if (S.headers == null) {
   };
 }
 
+if (S.formats == null) {
+  S.formats = [
+    'html',
+    'csv',
+    'json' // formats to allow to check for
+  ];
+}
+
 if (S.svc == null) {
   S.svc = {};
 }
@@ -316,9 +324,11 @@ P = async function() {
     }
   }
   if (this.parts.length && this.parts[this.parts.length - 1].includes('.')) { // format specified in url takes precedence over header
-    pf = this.parts[this.parts.length - 1].split('.').pop();
-    this.format = pf;
-    this.parts[this.parts.length - 1] = this.parts[this.parts.length - 1].replace('.' + pf, '');
+    pf = this.parts[this.parts.length - 1].split('.').pop().toLowerCase();
+    if (indexOf.call(this.S.formats, pf) >= 0) {
+      this.format = pf;
+      this.parts[this.parts.length - 1] = this.parts[this.parts.length - 1].replace('.' + pf, '');
+    }
   }
   if (typeof this.S.bg === 'string' && Array.isArray(this.S.pass) && this.parts.length && (ref9 = this.parts[0], indexOf.call(this.S.pass, ref9) >= 0)) {
     throw new Error(); // send to backend to handle requests for anything that should be served from folders on disk
@@ -592,7 +602,7 @@ P._response = async function(res, fn) {
     status = 200;
   }
   if (!this.S.headers['Content-Type'] && !this.S.headers['content-type']) {
-    if (this.format && ((ref1 = this.format) === 'html' || ref1 === 'csv')) {
+    if (this.format && (ref1 = this.format, indexOf.call(this.S.formats, ref1) >= 0)) {
       if (typeof res !== 'string') {
         try {
           res = (await this.convert['json2' + this.format](res));
@@ -1511,11 +1521,18 @@ P.deal.institution = {
 };
 
 P.deal.import = async function() {
-  var i, institutions, insts, j, len, name, rdc, rec, recs;
+  var i, institutions, insts, j, k, len, len1, name, rdc, rec, recs, ref, tk, tl;
   recs = (await this.src.google.sheets('1dPG7Xxvk4qnPajTu9jG_uNuz2R5jvjfeaKI-ylX4NXs'));
   institutions = {};
   for (j = 0, len = recs.length; j < len; j++) {
     rec = recs[j];
+    ref = ['Institution', 'Publisher', 'Collection', 'Year(s)', 'Length of Agreement', 'Package Price', '2015 Carnegie Basic Classification', 'FTE', 'Source', 'URL', 'Share URL Publicly?', 'Notes'];
+    for (k = 0, len1 = ref.length; k < len1; k++) {
+      tk = ref[k];
+      tl = tk.toLowerCase().replace(/ /g, '').replace('?', '').replace('(', '').replace(')', '');
+      rec[tl] = rec[tk];
+      delete rec[tk];
+    }
     try {
       rec.value = parseInt(rec.packageprice.replace(/[^0-9]/g, ''));
       if (typeof rec.fte === 'string') {
@@ -4856,7 +4873,8 @@ P.report.check = async function(ror, reload) {
     chronos: '1SxIFu4SoROqinOXAZMepOE0d1oxAZgC8LR_nTRi4vpU',
     oacheck: '1hRZGE-LfHdloHOEVVbt_ULjvwU76gECfa8MrthF9EV8',
     asap: '14Cs80bpyKym6R1kKqIrI1R5MMELms7ArPQzF67YOOgM',
-    gates_funded_pmc: '1tE6it4EcW83-ZUCotdFMnj6LsyKfQCPdkBcrr36PkVM'
+    gates_funded_pmc: '1tE6it4EcW83-ZUCotdFMnj6LsyKfQCPdkBcrr36PkVM',
+    oaworks_das: '1GoZ2s0x6VEqsiTnL4BOhVFEz1wKjGn7n-_dDVZWbvMI'
   };
   if (reload) {
     if (sr = sheets[reload]) {
@@ -5028,7 +5046,6 @@ P.report.check = async function(ror, reload) {
       "year",
       "crossref_year",
       "oadoi_year",
-      "author_names",
       "author_affiliation",
       "funder_name",
       "funder_grant_ids",
@@ -5042,6 +5059,8 @@ P.report.check = async function(ror, reload) {
       "invoice_date",
       "invoice_number",
       // and others suggested by Joe, to be sourced from sheets inputs if not already known:
+      "mturk_has_data_availability_statement",
+      "mturk_data_availability_statement",
       "tdm_is_oa",
       "mturk_is_oa",
       "staff_is_oa",
@@ -5177,13 +5196,15 @@ P.report.check = async function(ror, reload) {
           if (Array.isArray(res.PMCID)) {
             res.PMCID = res.PMCID[0];
           }
-        } else if (pubmed = (await this.src.pubmed.doi(res.DOI))) {
-          if ((ref26 = pubmed.identifier) != null ? ref26.pmc : void 0) {
+        } else {
+          pubmed = (await this.src.pubmed.doi(res.DOI)); // pubmed is faster to lookup but can't rely on it being right if no PMC found in it, e.g. 10.1111/nyas.14608
+          if (pubmed != null ? (ref26 = pubmed.identifier) != null ? ref26.pmc : void 0 : void 0) {
             res.PMCID = pubmed.identifier.pmc;
             res.PMCID = 'PMC' + res.PMCID.toLowerCase().replace('pmc', '');
           }
-        } else if (res.repository_url_in_pmc && (epmc = (await this.src.epmc.doi(res.DOI)))) {
-          res.PMCID = epmc.pmcid;
+          if ((!res.PMCID || res.repository_url_in_pmc) && (epmc = (await this.src.epmc.doi(res.DOI)))) {
+            res.PMCID = epmc.pmcid;
+          }
         }
       }
       if (res.PMCID && res.repository_url_in_pmc && !res.epmc_licence) {
@@ -6394,7 +6415,7 @@ P.src.epmc.search = async function(qrystr, from, size) {
     url += '&cursorMark=' + from; // used to be a from pager, but now uses a cursor
   }
   ret = {};
-  await this.sleep(200);
+  await this.sleep(250);
   res = (await this.fetch(url));
   ret.total = res.hitCount;
   ret.data = (ref3 = (ref4 = res.resultList) != null ? ref4.result : void 0) != null ? ref3 : [];
@@ -6410,6 +6431,7 @@ P.src.epmc.doi = async function(ident) {
   if (ident == null) {
     ident = this.params.doi;
   }
+  console.log(ident);
   if (res = (await this.src.epmc('doi:"' + ident + '"', 1))) {
     return res;
   } else {
@@ -7697,7 +7719,7 @@ P.src.pubmed.availability = async function(pmcid) {
   if (pmcid == null) {
     pmcid = (ref1 = (ref2 = (ref3 = (ref4 = (ref5 = this.params.pubmed) != null ? ref5 : this.params.availability) != null ? ref4 : this.params.pmc) != null ? ref3 : this.params.pmcid) != null ? ref2 : this.params.PMC) != null ? ref1 : this.params.PMCID;
   }
-  pmcid = 'PMC' + (pmcid + '').toLowerCase().replace('pmc', '');
+  pmcid = 'pmc' + (pmcid + '').toLowerCase().replace('pmc', '');
   if (exists = (await this.src.pubmed.availabilities(pmcid))) {
     return true;
   } else {
@@ -12628,7 +12650,7 @@ P.uid = function(length) {
 P.uid._cache = false;
 
 
-S.built = "Fri Feb 25 2022 07:49:52 GMT+0000";
+S.built = "Wed Mar 02 2022 08:09:37 GMT+0000";
 P.testcron = {_bg: true}// added by constructor
 
 P.convert.doc2txt = {_bg: true}// added by constructor

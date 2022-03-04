@@ -8,8 +8,7 @@ P.token = (e) ->
   try e.preventDefault()
   P.cookie false
   # TODO add a validation of the email val if email not already set?
-  if not email = P.val '#PEmail'
-    P.css '#PEmail', 'border-color', '#f04717'
+  if not email = P.get '#PEmail'
     P.focus '#PEmail'
     return
   P.hide '.PEmail'
@@ -82,7 +81,7 @@ P.login = (e) ->
     error: P.loginError
     data: service: P.service
 
-  pt = P.val '#PToken'
+  pt = P.get '#PToken'
   if window.location.hash.indexOf('access_token=') isnt -1
     opts.data.oauth = {}
     for p of pts = window.location.hash.replace('#','').split '&'
@@ -130,12 +129,13 @@ P.requestPermission = () ->
   P.show '.PRequestedPermission'
   P.ajax '/auth/request'
 
-P.ready () ->
+
+document.addEventListener 'DOMContentLoaded', () ->
   try P.on 'enter', '#PEmail', P.token
-  try P.on 'keyup', '#PToken', (e) -> P.login() if P.val('#PToken').length is 8
+  try P.on 'keyup', '#PToken', (e) -> P.login() if P.get('#PToken').length is 8
   try P.on 'click', '#PRequestPermission', P.requestPermission
   try
-    if P.val('#POauthGoogle').length and P.oauthGoogleClientId
+    if P.get('#POauthGoogle').length and P.oauthGoogleClientId
       state = Math.random().toString(36).substring(2,8)
       grl = 'https://accounts.google.com/o/oauth2/v2/auth?response_type=token&include_granted_scopes=true&scope=https://www.googleapis.com/auth/userinfo.email+https://www.googleapis.com/auth/userinfo.profile'
       grl += '&state=' + state + '&redirect_uri=' + (P.oauthRedirectUri ? window.location.href.split('#')[0].split('?')[0]) + '&client_id=' + P.oauthGoogleClientId

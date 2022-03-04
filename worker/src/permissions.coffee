@@ -65,7 +65,7 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref) -> # oadoi and crossref ar
 
   meta ?= @copy @params
   delete meta.metadata if meta?.metadata is true # just a pass-through for us to show metadata for debug
-  if meta?.permissions?
+  if meta?.permissions? and typeof meta.permissions is 'string'
     if meta.permissions.startsWith 'journal/'
       meta.issn = meta.permissions.replace 'journal/', ''
     else if meta.permissions.startsWith 'affiliation/'
