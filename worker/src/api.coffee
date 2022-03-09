@@ -240,7 +240,7 @@ P = () ->
           p[k]._cache ?= false if nd.startsWith 'auth'
           p[k]._index ?= true if p[k]._sheet
           if p[k]._index # add index functions to index endpoints
-            for ik in ['keys', 'terms', 'suggest', 'count', 'min', 'max', 'range', 'mapping', 'history', '_for', '_each', '_bulk', '_refresh'] # of P.index
+            for ik in ['keys', 'terms', 'suggest', 'count', 'percent', 'min', 'max', 'range', 'mapping', '_for', '_each', '_bulk', '_refresh'] # of P.index
               p[k][ik] ?= {_indexed: ik, _auth: (if ik.startsWith('_') then 'system' else p[k]._auth)}
           if typeof p[k] is 'function' and not p[k]._index and not p[k]._indexed and not p[k]._kv and not p[k]._bg and (not nd.includes('.') or n.startsWith('index') or nd.split('.').pop().startsWith '_')
             a[k] = p[k].bind @

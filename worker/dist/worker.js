@@ -411,7 +411,7 @@ P = async function() {
             }
           }
           if (p[k]._index) { // add index functions to index endpoints
-            ref15 = ['keys', 'terms', 'suggest', 'count', 'min', 'max', 'range', 'mapping', 'history', '_for', '_each', '_bulk', '_refresh'];
+            ref15 = ['keys', 'terms', 'suggest', 'count', 'percent', 'min', 'max', 'range', 'mapping', '_for', '_each', '_bulk', '_refresh'];
             // of P.index
             for (o = 0, len3 = ref15.length; o < len3; o++) {
               ik = ref15[o];
@@ -3974,7 +3974,7 @@ P.permissions = async function(meta, ror, getmeta, oadoi, crossref) { // oadoi a
   if ((meta != null ? meta.metadata : void 0) === true) { // just a pass-through for us to show metadata for debug
     delete meta.metadata;
   }
-  if ((meta != null ? meta.permissions : void 0) != null) {
+  if (((meta != null ? meta.permissions : void 0) != null) && typeof meta.permissions === 'string') {
     if (meta.permissions.startsWith('journal/')) {
       meta.issn = meta.permissions.replace('journal/', '');
     } else if (meta.permissions.startsWith('affiliation/')) {
@@ -6832,6 +6832,7 @@ P.src.microsoft.bing = async function(q, key, market, count, cache) {
       url += 'count=' + count + '&';
     }
     url += 'q=' + q;
+    console.log(url);
     res = (await this.fetch(url, {
       headers: {
         'Ocp-Apim-Subscription-Key': key
@@ -10560,6 +10561,64 @@ P.index.count = async function(route, qry, key) {
   }
 };
 
+P.index.percent = async function(route, qry, key) {
+  var count, cq, j, k, len, qr, ref1, ref2, ref3, ref4, ref5, ref6, ret, total;
+  if (key == null) {
+    key = (ref1 = this.params.count) != null ? ref1 : this.params.key;
+  }
+  if (route == null) {
+    route = (ref2 = this.params.index) != null ? ref2 : this.fn.replace(/\./g, '_');
+  }
+  route = route.replace('index/', '').split('/count')[0];
+  if (route.indexOf('/') !== -1) {
+    [route, key] = route.split('/');
+  }
+  cq = this.copy(this.params);
+  ref3 = ['index', 'route', 'count', 'key'];
+  for (j = 0, len = ref3.length; j < len; j++) {
+    k = ref3[j];
+    delete cq[k];
+  }
+  if ((qry == null) && (qr = (await this.index.translate(cq)))) {
+    qry = qr;
+  }
+  if (typeof qry === 'string') {
+    qry = (await this.index.translate(qry));
+  }
+  if (qry == null) {
+    qry = {
+      query: {
+        bool: {
+          must: [],
+          filter: []
+        }
+      }
+    };
+  }
+  total = (await this.index.count(route, '*'));
+  count = 0;
+  if (key) {
+    if (!key.endsWith('.keyword')) {
+      key += '.keyword';
+    }
+    qry.size = 0;
+    qry.aggs = {
+      keyed: {
+        cardinality: {
+          field: key,
+          precision_threshold: 40000 // this is high precision and will be very memory-expensive in high cardinality keys, with lots of different values going in to memory
+        }
+      }
+    };
+    ret = (await this.index._send('/' + route + '/_search', qry, 'POST'));
+    count = ret != null ? (ref4 = ret.aggregations) != null ? (ref5 = ref4.keyed) != null ? ref5.value : void 0 : void 0 : void 0;
+  } else {
+    ret = (await this.index._send('/' + route + '/_search', qry, 'POST'));
+    count = ret != null ? (ref6 = ret.hits) != null ? ref6.total : void 0 : void 0;
+  }
+  return Math.ceil((count / total) * 10000) / 100;
+};
+
 P.index.min = async function(route, key, qry, end = 'min') {
   var cq, j, k, len, query, ref1, ref2, ref3, ret;
   if (key == null) {
@@ -10641,17 +10700,6 @@ P.index.mapping = async function(route) {
   }
   ret = (await this.index._send(route));
   return ret[route.replace('/_mapping', '').replace(/\//g, '_').replace(/^_/, '')].mappings.properties;
-};
-
-P.index.history = function(route, key) {
-  var ref1;
-  try {
-    // TODO get the history of a record by a query of the log
-    if (key == null) {
-      key = (ref1 = this.params.history) != null ? ref1 : this.params.index;
-    }
-  } catch (error) {}
-  return [];
 };
 
 // use this like: for await rec from @index._for route, q, opts
@@ -12650,7 +12698,7 @@ P.uid = function(length) {
 P.uid._cache = false;
 
 
-S.built = "Wed Mar 02 2022 08:09:37 GMT+0000";
+S.built = "Tue Mar 08 2022 09:46:10 GMT+0000";
 P.testcron = {_bg: true}// added by constructor
 
 P.convert.doc2txt = {_bg: true}// added by constructor
