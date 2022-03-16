@@ -279,6 +279,30 @@ P.index.count = (route, qry, key) ->
     ret = await @index._send '/' + route + '/_search', qry, 'POST'
     return ret?.hits?.total
 
+P.index.percent = (route, qry, key) ->
+  key ?= @params.count ? @params.key
+  route ?= @params.index ? @fn.replace /\./g, '_'
+  route = route.replace('index/', '').split('/count')[0]
+  if route.indexOf('/') isnt -1
+    [route, key] = route.split '/'
+  cq = @copy @params
+  delete cq[k] for k in ['index', 'route', 'count', 'key']
+  qry = qr if not qry? and qr = await @index.translate cq
+  qry = await @index.translate(qry) if typeof qry is 'string'
+  qry ?= query: bool: must: [], filter: []
+  total = await @index.count route, '*'
+  count = 0
+  if key
+    key += '.keyword' if not key.endsWith '.keyword'
+    qry.size = 0
+    qry.aggs = keyed: cardinality: field: key, precision_threshold: 40000 # this is high precision and will be very memory-expensive in high cardinality keys, with lots of different values going in to memory
+    ret = await @index._send '/' + route + '/_search', qry, 'POST'
+    count = ret?.aggregations?.keyed?.value
+  else
+    ret = await @index._send '/' + route + '/_search', qry, 'POST'
+    count = ret?.hits?.total
+  return Math.ceil((count/total)*10000)/100
+
 P.index.min = (route, key, qry, end='min') ->
   key ?= @params[end] ? @params.key
   route ?= @params.index ? @fn.replace /\./g, '/'
@@ -306,10 +330,6 @@ P.index.mapping = (route) ->
   ret = await @index._send route
   return ret[route.replace('/_mapping', '').replace(/\//g, '_').replace(/^_/, '')].mappings.properties
 
-P.index.history = (route, key) ->
-  # TODO get the history of a record by a query of the log
-  try key ?= @params.history ? @params.index
-  return []
 
 
 # use this like: for await rec from @index._for route, q, opts

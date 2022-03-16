@@ -240,7 +240,7 @@ P = () ->
           p[k]._cache ?= false if nd.startsWith 'auth'
           p[k]._index ?= true if p[k]._sheet
           if p[k]._index # add index functions to index endpoints
-            for ik in ['keys', 'terms', 'suggest', 'count', 'min', 'max', 'range', 'mapping', 'history', '_for', '_each', '_bulk', '_refresh'] # of P.index
+            for ik in ['keys', 'terms', 'suggest', 'count', 'percent', 'min', 'max', 'range', 'mapping', '_for', '_each', '_bulk', '_refresh'] # of P.index
               p[k][ik] ?= {_indexed: ik, _auth: (if ik.startsWith('_') then 'system' else p[k]._auth)}
           if typeof p[k] is 'function' and not p[k]._index and not p[k]._indexed and not p[k]._kv and not p[k]._bg and (not nd.includes('.') or n.startsWith('index') or nd.split('.').pop().startsWith '_')
             a[k] = p[k].bind @
@@ -250,20 +250,26 @@ P = () ->
             a[k][uk] = p[k][uk] if uk.startsWith '_'
         a[k]._name ?= nd
 
-        if a[k]._schedule and not _schedule[nd] and @S.bg is true and @S.cron is false # TODO work a way for this to work with cloudflare tasks on worker too, if useful 
+        if a[k]._schedule and not _schedule[nd] and @S.bg is true and @S.cron isnt false
           console.log 'Adding schedule', a[k]._schedule, nd
           _schedule[nd] = schedule: a[k]._schedule, fn: a[k]
-          cron.schedule a[k]._schedule, () =>
-            _schedule[nd].last = await @datetime()
-            try
-              @refresh = true if fn._sheet
-              crd = await _schedule[nd].fn _schedule[nd].fn._args # args can optionally be provided for the scheduled call
-              try _schedule[nd].result = JSON.stringify(crd).substr 0, 200
-              _schedule[nd].success = true
-              console.log 'scheduled task result', crd
-              @refresh = undefined
-            catch
-              _schedule[nd].success = false
+          sfn = (fnm) =>
+            return () =>
+              console.log 'scheduled task', fnm, @datetime()
+              _schedule[fnm].last = await @datetime()
+              delete _schedule[fnm].error
+              try
+                if _schedule[fnm].fn._sheet
+                  crd = await @_loadsheet _schedule[fnm].fn, _schedule[fnm].fn._name.replace /\./g, '_'
+                else
+                  crd = await _schedule[fnm].fn _schedule[fnm].fn._args # args can optionally be provided for the scheduled call
+                try _schedule[fnm].result = JSON.stringify(crd).substr 0, 200
+                _schedule[fnm].success = true
+                console.log 'scheduled task result', crd
+              catch err
+                _schedule[fnm].success = false
+                try _schedule[fnm].error = JSON.stringify err
+          cron.schedule a[k]._schedule, sfn nd
 
         if not k.startsWith '_' # underscored methods cannot be accessed from URLs
           if prs.length and prs[0] is k and @fn.startsWith n
@@ -402,6 +408,25 @@ P._response = (res, fn) ->
     return status: status, headers: @S.headers, body: res
 
 
+P._loadsheet = (f, rt) ->
+  if f._sheet.startsWith('http') and f._sheet.includes 'csv'
+    sht = await @convert.csv2json f._sheet
+  else if f._sheet.startsWith('http') and f._sheet.includes 'json'
+    sht = await @fetch f._sheet
+    sht = [sht] if sht and not Array.isArray sht
+  else
+    sht = await @src.google.sheets f._sheet
+  if Array.isArray(sht) and sht.length
+    sht = await f._format.apply(@, [sht]) if typeof f._format is 'function'
+    if f._key
+      for t in sht
+        t._id ?= (t[f._key] ? @uid()).replace(/\//g, '_').toLowerCase()
+    await @index rt, ''
+    await @index rt, if typeof f._index isnt 'object' then {} else {settings: f._index.settings, mappings: (f._index.mappings ? f._index.mapping), aliases: f._index.aliases}
+    await @index rt, sht
+    return sht.length
+  else
+    return 0
 
 # API calls this to wrap functions on P, apart from top level functions and ones 
 # that start with _
@@ -527,27 +552,8 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
     # this will happen on background where possible, because above will have routed to bg if it was available
     # _sheet
     if not res? and f._sheet and rec isnt '' and ((@refresh and @fn is n) or not exists = await @index rt)
-      if f._sheet.startsWith('http') and f._sheet.includes 'csv'
-        sht = await @convert.csv2json f._sheet
-      else if f._sheet.startsWith('http') and f._sheet.includes 'json'
-        sht = await @fetch f._sheet
-        sht = [sht] if sht and not Array.isArray sht
-      else
-        sht = await @src.google.sheets f._sheet
-      if Array.isArray(sht) and sht.length
-        sht = await f.apply(@, [sht]) if typeof f is 'function' # process the sheet with the function if necessary, then create or empty the index
-        if f._key
-          for t in sht
-            t._id ?= (t[f._key] ? @uid()).replace(/\//g, '_').toLowerCase()
-        await @index rt, ''
-        await @index rt, if typeof f._index isnt 'object' then {} else {settings: f._index.settings, mappings: (f._index.mappings ? f._index.mapping), aliases: f._index.aliases}
-        if arguments.length or JSON.stringify(@params) isnt '{}'
-          await @index rt, sht
-        else
-          @waitUntil @index rt, sht
-          res = sht.length # if there are args, don't set the res, so the function can run afterwards if present
-      else
-        res = 0
+      res = await @_loadsheet f, rt
+      res = undefined if arguments.length or JSON.stringify(@params) isnt '{}' # if there are args, don't set the res, so the function can run afterwards if present
 
     # if still nothing happened, and the function defined on P really IS a function
     # (it could also be an index or kv config object with no default function)

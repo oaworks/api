@@ -207,6 +207,8 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref) -> # oadoi and crossref ar
     try
       for dl in af.doaj.bibjson.license
         altoa.licence = dl.type if not altoa.licence or altoa.licence.length > dl.type
+        altoa.licences ?= []
+        altoa.licences.push type: dl.type
     if not altoa.licence?
       try
         for ll in af.license
@@ -262,6 +264,9 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref) -> # oadoi and crossref ar
     perms.all_permissions.sort (a, b) => return if (a.score < b.score) then 1 else -1
     # note if enforcement_from is after published date, don't apply the permission. If no date, the permission applies to everything
     for wp in perms.all_permissions
+      if not wp.licences?
+        wp.licences = []
+        wp.licences.push(type: wp.licence) if wp.licence
       if (issns or wp.issuer?.type is 'journal') and not wp.issuer.journal_oa_type
         wp.issuer.journal_oa_type = await @permissions.journals.oa.type (issns ? wp.issuer.id), af, oadoi, crossref
       if not wp.provenance?.enforcement_from
@@ -317,17 +322,64 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref) -> # oadoi and crossref ar
 
 
 
-P.permissions.journals = (recs) -> return @permissions._format recs
-P.permissions.journals._sheet = '1ZTcYJUzhNJYIuxsjKzdVFCbOhJsviVik-8K1DpU7-eE/Main'
-P.permissions.journals._prefix = false
+P.permissions.journals = _sheet: '1ZTcYJUzhNJYIuxsjKzdVFCbOhJsviVik-8K1DpU7-eE/Main', _prefix: false, _format: (recs=[]) ->
+  ready = []
+  for rec in (if typeof recs is 'object' and not Array.isArray(recs) then [recs] else recs)
+    nr = # a controlled structure for JSON output, can't be guaranteed as not JSON spec, but Joe likes it for visual review
+      can_archive: undefined
+      version: undefined
+      versions: []
+      licence: undefined
+      locations: undefined
+      embargo_months: undefined
+      embargo_end: undefined
+      deposit_statement: undefined
+      copyright_owner: ''
+      copyright_name: ''
+      copyright_year: ''
+      issuer: {}
+      meta: {}
+      provenance: {}
+      requirements: {}
 
-P.permissions.publishers = (recs) -> return @permissions._format recs
-P.permissions.publishers._sheet = '11rsHmef1j9Q9Xb0WtQ_BklQceaSkkFEIm7tJ4qz0fJk/Main'
-P.permissions.publishers._prefix = false
+    for k of rec
+      rec[k] = rec[k].trim() if typeof rec[k] is 'string'
+      if k is 'id'
+        nr.issuer.id = if typeof rec.id is 'string' and rec.id.includes(',') then rec.id.split(',') else rec.id
+        if typeof nr.issuer.id is 'string' and nr.issuer.id.startsWith('10.') and nr.issuer.id.includes('/') and not nr.issuer.id.includes ' '
+          nr.DOI = nr.issuer.id
+        else
+          cids = []
+          for nid in (if typeof nr.issuer.id is 'string' then [nr.issuer.id] else nr.issuer.id)
+            nid = nid.trim()
+            if nr.issuer.type is 'journal' and nid.includes('-') and not nid.includes ' '
+              nid = nid.toUpperCase()
+              if af = await @journal 'ISSN:"' + nid + '"', 1
+                for an in af.issn
+                  cids.push(an) if an not in cids
+            cids.push(nid) if nid not in cids
+          nr.issuer.id = cids
+      else if k is 'embargo_months'
+        kn = if typeof rec[k] is 'number' then rec[k] else if typeof rec[k] is 'string' then parseInt(rec[k].trim()) else undefined
+        if kn and typeof kn is 'number'
+          nr.embargo_months = kn
+          nr.embargo_end = '' # just to allow neat output later - can't be calculated until compared to a particular article
+      else if k and rec[k]? and rec[k] not in ['', 'none', 'unclear']
+        if k is 'versions' and rec.versions.length
+          nr.can_archive = true
+          nr.version = if rec.versions.includes('ublish') then 'publishedVersion' else if rec.versions.includes('ccept') then 'acceptedVersion' else 'submittedVersion'
+        if k in ['versions', 'locations', 'meta.contributors', 'meta.creator', 'meta.reviewer', 'provenance.archiving_policy', 'requirements.funder', 'journal']
+          rec[k] = rec[k].trim().replace(/\, /, ',').replace(/ \,/, ',').split ','
+        await @dot nr, (if k is 'license' then 'licence' else k), rec[k]
 
-P.permissions.affiliations = (recs) -> return @permissions._format recs
-P.permissions.affiliations._sheet = '15fa1DADj6y_3aZQcP9-zBalhaThxzZw9dyEbxMBBb5Y/Main'
-P.permissions.affiliations._prefix = false
+    nr.copyright_owner = nr.issuer.type if (not nr.copyright_owner or nr.copyright_owner.toLowerCase() is 'journal') and nr.issuer.type
+    delete nr.requirements if JSON.stringify(nr.requirements) is '{}'
+    ready.push nr
+
+  return if ready.length is 1 then ready[0] else ready
+
+P.permissions.publishers = _sheet: '11rsHmef1j9Q9Xb0WtQ_BklQceaSkkFEIm7tJ4qz0fJk/Main', _prefix: false, _format: P.permissions.journals._format
+P.permissions.affiliations = _sheet: '15fa1DADj6y_3aZQcP9-zBalhaThxzZw9dyEbxMBBb5Y/Main', _prefix: false, _format: P.permissions.journals._format
 
 
 
@@ -376,9 +428,9 @@ P.permissions.journals.oa.type = (issns, jrnl, oadoi, crossref) ->
     js = 'not applicable'
   else if not crossref?.type or crossref.type is 'journal-article'
     js = if oadoi?.oa_status is 'gold' then 'gold' else if oadoi?.oa_status is 'bronze' then 'closed' else if oadoi?.oa_status is 'hybrid' then 'hybrid' else 'closed'
-    js = 'gold' if oadoi?.journal_is_oa or oadoi?.journal_is_in_doaj # double check for gold jrnl?.indoaj
+    js = 'gold' if oadoi?.journal_is_oa or oadoi?.journal_is_in_doaj or jrnl?.indoaj
     if issns
-      # check if it really is closed because sometimes OADOI says it is for one particular DOI but really it isn't
+      # check if it really is closed because sometimes OADOI says it is for one particular DOI but really it isn't (or was at time of publication of that article, but isn't now)
       js = 'hybrid' if js is 'closed' and await @src.oadoi.hybrid issns
       # check if it is a known transformative or diamond journal
       jrnl ?= await @journal 'ISSN:"' + issns.join('" OR ISSN:"') + '"', 1
@@ -403,64 +455,6 @@ P.permissions.publishers.oa = (publisher) ->
   ret.percent = Math.ceil (ret.open / ret.journals) * 100
   ret.oa = ret.journals and ret.journals is ret.open
   return ret
-
-
-
-P.permissions._format = (recs=[]) ->
-  ready = []
-  for rec in (if typeof recs is 'object' and not Array.isArray(recs) then [recs] else recs)
-    nr = # a controlled structure for JSON output, can't be guaranteed as not JSON spec, but Joe likes it for visual review
-      can_archive: undefined
-      version: undefined
-      versions: []
-      licence: undefined
-      locations: undefined
-      embargo_months: undefined
-      embargo_end: undefined
-      deposit_statement: undefined
-      copyright_owner: ''
-      copyright_name: ''
-      copyright_year: ''
-      issuer: {}
-      meta: {}
-      provenance: {}
-      requirements: {}
-
-    for k of rec
-      rec[k] = rec[k].trim() if typeof rec[k] is 'string'
-      if k is 'id'
-        nr.issuer.id = if typeof rec.id is 'string' and rec.id.includes(',') then rec.id.split(',') else rec.id
-        if typeof nr.issuer.id is 'string' and nr.issuer.id.startsWith('10.') and nr.issuer.id.includes('/') and not nr.issuer.id.includes ' '
-          nr.DOI = nr.issuer.id
-        else
-          cids = []
-          for nid in (if typeof nr.issuer.id is 'string' then [nr.issuer.id] else nr.issuer.id)
-            nid = nid.trim()
-            if nr.issuer.type is 'journal' and nid.includes('-') and not nid.includes ' '
-              nid = nid.toUpperCase()
-              if af = await @journal 'ISSN:"' + nid + '"', 1
-                for an in af.issn
-                  cids.push(an) if an not in cids
-            cids.push(nid) if nid not in cids
-          nr.issuer.id = cids
-      else if k is 'embargo_months'
-        kn = if typeof rec[k] is 'number' then rec[k] else if typeof rec[k] is 'string' then parseInt(rec[k].trim()) else undefined
-        if kn and typeof kn is 'number'
-          nr.embargo_months = kn
-          nr.embargo_end = '' # just to allow neat output later - can't be calculated until compared to a particular article
-      else if k and rec[k]? and rec[k] not in ['', 'none', 'unclear']
-        if k is 'versions' and rec.versions.length
-          nr.can_archive = true
-          nr.version = if rec.versions.includes('ublish') then 'publishedVersion' else if rec.versions.includes('ccept') then 'acceptedVersion' else 'submittedVersion'
-        if k in ['versions', 'locations', 'meta.contributors', 'meta.creator', 'meta.reviewer', 'provenance.archiving_policy', 'requirements.funder', 'licences', 'journal']
-          rec[k] = rec[k].trim().replace(/\, /, ',').replace(/ \,/, ',').split ','
-        await @dot nr, (if k is 'license' then 'licence' else k), rec[k]
-
-    nr.copyright_owner = nr.issuer.type if (not nr.copyright_owner or nr.copyright_owner.toLowerCase() is 'journal') and nr.issuer.type
-    delete nr.requirements if JSON.stringify(nr.requirements) is '{}'
-    ready.push nr
-
-  return if ready.length is 1 then ready[0] else ready
 
 
 

@@ -4,14 +4,14 @@
 <head>
   <meta charset="utf-8">
 
-  <title>Paradigm API</title>
+  <title>OA.Works API</title>
   <meta name="description" content="">
   <meta name="author" content="Mark MacGillivray">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
 
   <link href="//fonts.googleapis.com/css?family=Lustria|Noto+Sans|Roboto+Slab|Nixie+One" rel="stylesheet" type="text/css">
-  <script type="text/javascript" src="/client/pradm.min.js"></script>
+  <script type="text/javascript" src="/client/oaworksLogin.min.js"></script>
 
   <style>
     html { height: 100%; }
@@ -157,16 +157,10 @@
 <div class="page">
 
 <a name="quickstart"></a>
-<h1 style="text-align:center;">Paradigm</h1>
-<p style="text-align: center; color: #999;">
-  A "radically distributed, powerfully simple" API framework<br>
-</p>
+<h1 style="text-align:center;">OA.Works API framework</h1>
 
 <hr></hr>
-<p>Paradigm is a minimalist node.js framework with an API-first approach, 
-providing a wrapper for things like auth, caching, search, and more.</p>
-
-<p>We use Paradigm to build and run the <a target="_blank" href="/">OA.Works API</a>.</p>
+<p>The OA.Works API is minimalist node.js providing things like auth, caching, workers, search, and more.</p>
 
 <pre>
 <code class="request curl">curl <a target="_blank" href="/">https://api.oa.works</a>
@@ -184,9 +178,9 @@ print(res.json())
 
 
 
-<h2>Using Paradigm API</h2>
+<h2>Using OA.Works API</h2>
 
-<p>We run a full copy of the API for you to try out. Please limit your requests to 
+<p>We run the API four ourselves and for you to try out. Please limit your requests to 
 two per second and include an email address in a <b>User-Agent</b> header 
 (or <a class="goto" href="#auth">sign up and use an API key</a>) in case we need to contact you.</p>
 
@@ -204,7 +198,7 @@ curl '<a target="_blank" href="https://api.oa.works/status">https://api.oa.works
 
 <h3 name="auth">Auth</h3>
 
-<p><b>/auth</b> routes handle user and group management. Paradigm uses passwordless login, and 
+<p><b>/auth</b> routes handle user and group management. We use passwordless login, and 
 all that is necessary to start an account is to provide a valid email address - you will 
 receive a login token to type back into the login page, and then you're logged in. Repeat 
 the process any time you need to get logged in again.</p>
@@ -237,15 +231,14 @@ or email address to send a request to be assigned the role.</p>
 
 <h3>Sources</h3>
 
-<p><b>/src</b> routes are used to connect to some remote source that isn't part of Paradigm. As our main 
+<p><b>/src</b> routes are used to connect to some remote source. As our main 
 project goals over the years have been about academic research, most of these are for querying 
 and caching useful remote datasets. For example we have a <b>/src</b> route to query and cache the 
 <a target="_blank" href="https://www.crossref.org/documentation/retrieve-metadata/rest-api/">Crossref API</a>.</p>
 
-<p>The point of these routes is to make it really easy to use Paradigm to integrate with other 
+<p>The point of these routes is to make it really easy to integrate with other 
 services. Instead of having to remember how to use some other API, or write a separate library 
-to use them, one endpoint can be added to Paradigm to encapsulate that knowledge. It can then 
-also benefit from the features of Paradigm, such as being cached or loaded into Elasticsearch.</p>
+to use them, one endpoint can be added to encapsulate that knowledge.</p>
 
 <p>Go directly to the main route of a <b>/src</b> to find more information about it.</p>
 
@@ -260,7 +253,7 @@ useful; looking at the code of a src and the notes surrounding it will have to s
 
 <h4>Search</h4>
 
-<p>One of the most powerful features of Paradigm is easy integration with an Elasticsearch 
+<p>One of the most powerful features is easy integration with an Elasticsearch 
 index for storing, searching, and analysing data. A data endpoint can be created with just 
 one setting, which enables search and also automatically configures some additional endpoints:</p>
 
@@ -281,38 +274,6 @@ checking out their docs directly</a>.</p>
 
 
 
-<h3>Services</h3>
-
-<p><b>/svc</b> routes are for particular services that have been built using Paradigm. 
-For example OA.Works is an API service that we've written with Paradigm, and we've 
-deployed it with our main Paradigm API code, so you can find 
-a <b>/svc/oaworks</b> route in our <a target="_blank" href="/status">status page</a> response.</p>
-
-<p>Like OA.Works, a service can be written using Paradigm and then exposed as a
-virtually standalone API. So documentation for individual services is left up to each 
-service. Like <b>src</b> routes, the main route of a service should display useful 
-information about it.</p>
-
-
-<pre>
-<code>curl <a target="_blank" href="/svc/oaworks">https://api.oa.works/svc/oaworks</a></code>
-</pre>
-
-<p>You may also notice that this is the same:</p>
-
-<pre>
-<code>curl <a target="_blank" href="/">https://api.oa.works</a></code>
-</pre>
-
-<p>When you write your own service you usually want it to be the main 
-route of the API, not a subroute, so there is an optional 
-<a class="goto" href="#settings">setting</a> to bring your service up to the main 
-route.</p>
-<!--
-See the <a class="goto" href="#development">Development</a> section for more information.</p>
--->
-
-
 <hr></hr>
 
 <h2 name="deployment">Deployment</h2>
@@ -321,8 +282,8 @@ See the <a class="goto" href="#development">Development</a> section for more inf
 
 <pre>
 <code class="install linux">sudo apt install nodejs
-git clone <a target="_blank" href="https://github.com/oaworks/paradigm">https://github.com/oaworks/paradigm.git</a>
-cd paradigm
+git clone <a target="_blank" href="https://github.com/oaworks/API">https://github.com/oaworks/API.git</a>
+cd API
 npm install coffeescript uglify-js uglifycss
 coffee construct.coffee
 node server/dist/server.min.js
@@ -332,8 +293,8 @@ ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/
 brew update
 brew install git
 brew install nodejs
-git clone https://github.com/oaworks/paradigm.git
-cd paradigm
+git clone https://github.com/oaworks/API.git
+cd API
 npm install coffeescript uglify-js uglifycss
 coffee construct.coffee
 node server/dist/server.min.js
@@ -341,8 +302,8 @@ node server/dist/server.min.js
 # install git for windows: https://gitforwindows.org
 # install node.js and npm for windows...
 # use npm to install coffeescript uglify-js uglifycss
-# clone the repo: https://github.com/oaworks/paradigm.git
-# in the "paradigm" directory, run "coffee construct.coffee"
+# clone the repo: https://github.com/oaworks/API.git
+# in the "API" directory, run "coffee construct.coffee"
 # then run "node server/dist/server.min.js"
 </code>
 <a class="installing" href="apple">Apple</a> | <a class="installing" href="windows">Windows</a>
@@ -350,7 +311,7 @@ node server/dist/server.min.js
 <!-- | <a class="goto" href="#development">Development docs</a> -->
 
 <p>We use Cloudflare Workers however we don't want to be tied
-to one provider, so Paradigm can run anywhere that node.js can run. 
+to one provider, so the API can run anywhere that node.js can run. 
 Where we use particular Cloudflare infrastructure such as Workers KV, we also consider our 
 fallback position such as writing to Elasticsearch if KV is not available, and planning that 
 later we could easily update our key/value store code to use Redis instead.</p>
@@ -365,11 +326,11 @@ in the free tier. Once signed up, copy your account ID and API token from the cl
 You'll find it displayed near the bottom right.</p>
 
 <p>Next, <a class="goto" href="#install">clone our git repo</a> (if you haven't already) and create a folder 
-called <b>secrets</b> in the main Paradigm folder, and in there create a file called 
+called <b>secrets</b> in the main API folder, and in there create a file called 
 <b>construct.json</b>.</p>
 
 <pre>
-<code>cd paradigm
+<code>cd API
 mkdir secrets && touch secrets/construct.json
 vim secrets/construct.json</code>
 </pre>
@@ -389,7 +350,7 @@ which can be used to deploy and configure your worker. We don't use wrangler bec
 independent of any one platform, but if you don't have such concerns, it may be worth 
 looking into.</p>
 
-<p>Now you should have your own Paradigm API up and running in a cloudflare worker! Note it won't 
+<p>Now you should have your own API up and running in a cloudflare worker! Note it won't 
 be able to save anything yet though. So, continue on to read about Settings & 
 Secrets, and Elasticsearch.</p>
 
@@ -476,7 +437,6 @@ docs.</p>
 
 
 
-<!--
 <h3>Code structure</h3>
 
 <p>Code is split into <b>worker</b> and <b>server</b>. Worker is where the vast bulk of code is, and where 
@@ -499,19 +459,11 @@ the server one runs the code as a typical Node.js server app available on localh
 respective <b>dist</b> folders - these should not be edited directly. The worker dist file is then deployed to 
 Cloudflare (if configured) and the server dist file can be used to run locally.</p>
 
-<p>In the <b>worker/src</b> directory there are <b>data</b>, <b>src</b> and <b>svc</b> subdirectories. Data 
-contains the cloudflare cache, cloudflare KV, and Elasticsearch controllers. Src is where we put controllers 
-that connect to remote services run by other organisations. Svc is where we put our own services that we develop 
-to use within the Paradigm framework (there's an <b>oaworks</b> directory in there, for example). Worker/src 
-also contains some other files that provide the default API functions, described later.</p>
-
-<p>Every function of Paradigm is defined as a value on the global object <b>P</b>. Whenever the worker API 
+<p>Every function of the API is defined as a value on the global object <b>P</b>. Whenever the worker API 
 controller runs (which is also called by the server API controller) it provides a new instance of P to process 
 the incoming request. So any function declared on P automatically becomes an API endpoint, available at a URL named 
 after the dot notation key of the function.</p>
 
-<p>For example in <b>worker/src/example.coffee</b> there is a declaration for <b>P.example.deep.deeper</b>. 
-So the result of that function can be retrieved at <a href="/example/deep/deeper">/example/deep/deeper</a>.</p>
 
 
 <h3>Wrapper config</h3>
@@ -534,17 +486,9 @@ valid for. (Passing refresh param on an incoming request wil override a cache.)<
 
 <p><b>_bg</b> - if true run the function on the background server. Note this can happen at the top level request route or if that route calls any _bg function.</p>
 
-<p><b>_history</b> - if true and new data was sent, store the POST content with the log rather than just whether or not there was any, so prior state can be inferred.</p>
-
-<p><b>_diff</b> - if  true or a list of arguments for the function, it will check to see if a process gives the same result 
-(compared against a previously logged identical request). If the result is different the log will record it, and subsequent 
-log checking or alerting can be used to find unexpected differences.</p>
-
 <p><b>_hide</b> - if true a function will not show up on the list of available routes - but it <b>IS</b> still accessible.
 (If necessary a function can be written on the API object and yet be hidden AND inaccessible via a route, by prefixing the 
 function name with an underscore.)</p>
--->
-
 
 
 
@@ -553,37 +497,35 @@ function name with an underscore.)</p>
 <script>
 var toc = '<div class="P_contents" style="font-size:0.9em; overflow-y:auto; height:100%;"><ul>';
 var counter = 0;
-P('h2,h3', function(el) {
+_OALogin('h2,h3', function(el) {
   counter++;
-  if (P.classes(el).indexOf('ignore') === -1) {
-    header = P.html(el);
-    P.prepend(el, '<a name="toc' + counter + '"></a>');
-    toc += '<li>';
-    var spaces = 0;
-    var ms = 2 * (parseInt(el.nodeName.toLowerCase().replace('h','')) - 2);
-    while (spaces < ms) {
-      toc += '&nbsp;'
-      spaces++;
-    }
-    toc += '<a class="goto" href="#toc' + counter + '">' + header + '</a></li>';
+  header = _OALogin.html(el);
+  _OALogin.prepend(el, '<a name="toc' + counter + '"></a>');
+  toc += '<li>';
+  var spaces = 0;
+  var ms = 2 * (parseInt(el.nodeName.toLowerCase().replace('h','')) - 2);
+  while (spaces < ms) {
+    toc += '&nbsp;'
+    spaces++;
   }
+  toc += '<a class="goto" href="#toc' + counter + '">' + header + '</a></li>';
 });
-P.html('.contents', toc + '</ul></div>');
+_OALogin.html('.contents', toc + '</ul></div>');
 
-P.on('click', '.goto', function(e) {
+_OALogin.on('click', '.goto', function(e) {
   e.preventDefault();
-  window.scrollTo(0, P(P.attr(e.target, 'href').replace('#', '')).offsetTop - 70);
+  window.scrollTo(0, P(_OALogin.attr(e.target, 'href').replace('#', '')).offsetTop - 70);
 });
 
-P.on('click', '.installing', function(e) {
+_OALogin.on('click', '.installing', function(e) {
   e.preventDefault();
-  P.hide('.install');
-  P.show('.' + P.attr(e.target, 'href'));
+  _OALogin.hide('.install');
+  _OALogin.show('.' + _OALogin.attr(e.target, 'href'));
 });
-P.on('click', '.requesting', function(e) {
+_OALogin.on('click', '.requesting', function(e) {
   e.preventDefault();
-  P.hide('.request');
-  P.show('.' + P.attr(e.target, 'href'));
+  _OALogin.hide('.request');
+  _OALogin.show('.' + _OALogin.attr(e.target, 'href'));
 });
 </script>
 

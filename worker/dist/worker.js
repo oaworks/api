@@ -370,7 +370,7 @@ P = async function() {
   pk = void 0;
   pks = [];
   _lp = (p, a, n, auths, caches) => {
-    var base10, base11, base4, base5, base6, base7, base8, base9, ik, len3, nd, o, ref14, ref15, results, uk;
+    var base10, base11, base4, base5, base6, base7, base8, base9, ik, len3, nd, o, ref14, ref15, results, sfn, uk;
     if (pk && this.fn.startsWith(n)) {
       while (prs.length && (p[prs[0]] == null)) {
         this.params[pk] = (this.params[pk] ? this.params[pk] + '/' : '') + prs.shift();
@@ -411,7 +411,7 @@ P = async function() {
             }
           }
           if (p[k]._index) { // add index functions to index endpoints
-            ref15 = ['keys', 'terms', 'suggest', 'count', 'min', 'max', 'range', 'mapping', 'history', '_for', '_each', '_bulk', '_refresh'];
+            ref15 = ['keys', 'terms', 'suggest', 'count', 'percent', 'min', 'max', 'range', 'mapping', '_for', '_each', '_bulk', '_refresh'];
             // of P.index
             for (o = 0, len3 = ref15.length; o < len3; o++) {
               ik = ref15[o];
@@ -437,30 +437,39 @@ P = async function() {
         if ((base11 = a[k])._name == null) {
           base11._name = nd;
         }
-        if (a[k]._schedule && !_schedule[nd] && this.S.bg === true && this.S.cron === false) { // TODO work a way for this to work with cloudflare tasks on worker too, if useful 
+        if (a[k]._schedule && !_schedule[nd] && this.S.bg === true && this.S.cron !== false) {
           console.log('Adding schedule', a[k]._schedule, nd);
           _schedule[nd] = {
             schedule: a[k]._schedule,
             fn: a[k]
           };
-          cron.schedule(a[k]._schedule, async() => {
-            var crd;
-            _schedule[nd].last = (await this.datetime());
-            try {
-              if (fn._sheet) {
-                this.refresh = true;
-              }
-              crd = (await _schedule[nd].fn(_schedule[nd].fn._args)); // args can optionally be provided for the scheduled call
+          sfn = (fnm) => {
+            return async() => {
+              var crd, err;
+              console.log('scheduled task', fnm, this.datetime());
+              _schedule[fnm].last = (await this.datetime());
+              delete _schedule[fnm].error;
               try {
-                _schedule[nd].result = JSON.stringify(crd).substr(0, 200);
-              } catch (error) {}
-              _schedule[nd].success = true;
-              console.log('scheduled task result', crd);
-              return this.refresh = void 0;
-            } catch (error) {
-              return _schedule[nd].success = false;
-            }
-          });
+                if (_schedule[fnm].fn._sheet) {
+                  crd = (await this._loadsheet(_schedule[fnm].fn, _schedule[fnm].fn._name.replace(/\./g, '_')));
+                } else {
+                  crd = (await _schedule[fnm].fn(_schedule[fnm].fn._args)); // args can optionally be provided for the scheduled call
+                }
+                try {
+                  _schedule[fnm].result = JSON.stringify(crd).substr(0, 200);
+                } catch (error) {}
+                _schedule[fnm].success = true;
+                return console.log('scheduled task result', crd);
+              } catch (error) {
+                err = error;
+                _schedule[fnm].success = false;
+                try {
+                  return _schedule[fnm].error = JSON.stringify(err);
+                } catch (error) {}
+              }
+            };
+          };
+          cron.schedule(a[k]._schedule, sfn(nd));
         }
         if (!k.startsWith('_')) { // underscored methods cannot be accessed from URLs
           if (prs.length && prs[0] === k && this.fn.startsWith(n)) {
@@ -686,6 +695,43 @@ P._response = async function(res, fn) {
   }
 };
 
+P._loadsheet = async function(f, rt) {
+  var i, len, ref, ref1, sht, t;
+  if (f._sheet.startsWith('http') && f._sheet.includes('csv')) {
+    sht = (await this.convert.csv2json(f._sheet));
+  } else if (f._sheet.startsWith('http') && f._sheet.includes('json')) {
+    sht = (await this.fetch(f._sheet));
+    if (sht && !Array.isArray(sht)) {
+      sht = [sht];
+    }
+  } else {
+    sht = (await this.src.google.sheets(f._sheet));
+  }
+  if (Array.isArray(sht) && sht.length) {
+    if (typeof f._format === 'function') {
+      sht = (await f._format.apply(this, [sht]));
+    }
+    if (f._key) {
+      for (i = 0, len = sht.length; i < len; i++) {
+        t = sht[i];
+        if (t._id == null) {
+          t._id = ((ref = t[f._key]) != null ? ref : this.uid()).replace(/\//g, '_').toLowerCase();
+        }
+      }
+    }
+    await this.index(rt, '');
+    await this.index(rt, typeof f._index !== 'object' ? {} : {
+      settings: f._index.settings,
+      mappings: (ref1 = f._index.mappings) != null ? ref1 : f._index.mapping,
+      aliases: f._index.aliases
+    });
+    await this.index(rt, sht);
+    return sht.length;
+  } else {
+    return 0;
+  }
+};
+
 // API calls this to wrap functions on P, apart from top level functions and ones 
 // that start with _
 // wrapper settings declared on each P function specify which wrap actions to apply
@@ -694,7 +740,7 @@ P._response = async function(res, fn) {
 // the wrapepr logs the function call (whether it was the main API call or subsequent)
 P._wrapper = function(f, n) { // the function to wrap and the string name of the function
   return async function() {
-    var _as, args, base, bup, c, exists, i, j, l, len, len1, len2, lg, limited, qrs, qry, rec, ref, ref1, ref10, ref11, ref12, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, rt, sht, started, t;
+    var _as, args, base, bup, c, exists, i, j, len, len1, lg, limited, qrs, qry, rec, ref, ref1, ref10, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, rt, started;
     started = Date.now(); // not accurate in a workers environment, but close enough
     rt = n.replace(/\./g, '_');
     lg = {
@@ -890,44 +936,12 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
     // this will happen on background where possible, because above will have routed to bg if it was available
     // _sheet
     if ((res == null) && f._sheet && rec !== '' && ((this.refresh && this.fn === n) || !(exists = (await this.index(rt))))) {
-      if (f._sheet.startsWith('http') && f._sheet.includes('csv')) {
-        sht = (await this.convert.csv2json(f._sheet));
-      } else if (f._sheet.startsWith('http') && f._sheet.includes('json')) {
-        sht = (await this.fetch(f._sheet));
-        if (sht && !Array.isArray(sht)) {
-          sht = [sht];
-        }
-      } else {
-        sht = (await this.src.google.sheets(f._sheet));
-      }
-      if (Array.isArray(sht) && sht.length) {
-        if (typeof f === 'function') { // process the sheet with the function if necessary, then create or empty the index
-          sht = (await f.apply(this, [sht]));
-        }
-        if (f._key) {
-          for (l = 0, len2 = sht.length; l < len2; l++) {
-            t = sht[l];
-            if (t._id == null) {
-              t._id = ((ref11 = t[f._key]) != null ? ref11 : this.uid()).replace(/\//g, '_').toLowerCase();
-            }
-          }
-        }
-        await this.index(rt, '');
-        await this.index(rt, typeof f._index !== 'object' ? {} : {
-          settings: f._index.settings,
-          mappings: (ref12 = f._index.mappings) != null ? ref12 : f._index.mapping,
-          aliases: f._index.aliases
-        });
-        if (arguments.length || JSON.stringify(this.params) !== '{}') {
-          await this.index(rt, sht);
-        } else {
-          this.waitUntil(this.index(rt, sht));
-          res = sht.length; // if there are args, don't set the res, so the function can run afterwards if present
-        }
-      } else {
-        res = 0;
+      res = (await this._loadsheet(f, rt));
+      if (arguments.length || JSON.stringify(this.params) !== '{}') { // if there are args, don't set the res, so the function can run afterwards if present
+        res = void 0;
       }
     }
+    
     // if still nothing happened, and the function defined on P really IS a function
     // (it could also be an index or kv config object with no default function)
     // call the function, either _async if the function indicates it, or directly
@@ -935,7 +949,7 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
     // _async, _limit
     if ((res == null) && (!f._index || rec !== '') && typeof f === 'function') {
       _as = async(rt, f, ar, notify) => {
-        var ends, id, len3, o, r, ref13, ref14, txt;
+        var ends, id, l, len2, r, ref11, ref12, txt;
         if (f._limit) {
           ends = f._limit === true ? 86400 : f._limit;
           await this.kv('limit/' + n, started + ends, ends); // max limit for one day
@@ -943,14 +957,14 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
         r = (await f.apply(this, ar));
         if (typeof r === 'object' && (f._kv || f._index) && (r.took == null) && (r.hits == null)) {
           if (f._key && Array.isArray(r) && r.length && (r[0]._id == null) && (r[0][f._key] != null)) {
-            for (o = 0, len3 = r.length; o < len3; o++) {
-              c = r[o];
+            for (l = 0, len2 = r.length; l < len2; l++) {
+              c = r[l];
               if (c._id == null) {
                 c._id = c[f._key].replace(/\//g, '_').toLowerCase();
               }
             }
           }
-          id = Array.isArray(r) ? '' : '/' + ((ref13 = (ref14 = r[f._key]) != null ? ref14 : r._id) != null ? ref13 : this.uid()).replace(/\//g, '_').toLowerCase();
+          id = Array.isArray(r) ? '' : '/' + ((ref11 = (ref12 = r[f._key]) != null ? ref12 : r._id) != null ? ref11 : this.uid()).replace(/\//g, '_').toLowerCase();
           if (f._kv && !Array.isArray(r)) {
             this.kv(rt + id, res, f._kv);
           }
@@ -1859,7 +1873,7 @@ P.deposit = async function(params, file, dev) {
     dep.url = typeof params.redeposit === 'string' ? params.redeposit : params.url ? params.url : void 0;
     await this.deposits(dep);
     if ((dep.type !== 'review' || (file != null)) && ((ref32 = dep.archivable) != null ? ref32.archivable : void 0) !== false && (!(typeof exists !== "undefined" && exists !== null ? (ref33 = exists.zenodo) != null ? ref33.already : void 0 : void 0) || dev)) {
-      bcc = ['joe@oa.works'];
+      bcc = ['joe@oa.works', 'shared@oa.works'];
       if (dev) {
         bcc.push('mark@oa.works');
       }
@@ -3974,7 +3988,7 @@ P.permissions = async function(meta, ror, getmeta, oadoi, crossref) { // oadoi a
   if ((meta != null ? meta.metadata : void 0) === true) { // just a pass-through for us to show metadata for debug
     delete meta.metadata;
   }
-  if ((meta != null ? meta.permissions : void 0) != null) {
+  if (((meta != null ? meta.permissions : void 0) != null) && typeof meta.permissions === 'string') {
     if (meta.permissions.startsWith('journal/')) {
       meta.issn = meta.permissions.replace('journal/', '');
     } else if (meta.permissions.startsWith('affiliation/')) {
@@ -4191,6 +4205,12 @@ P.permissions = async function(meta, ror, getmeta, oadoi, crossref) { // oadoi a
         if (!altoa.licence || altoa.licence.length > dl.type) {
           altoa.licence = dl.type;
         }
+        if (altoa.licences == null) {
+          altoa.licences = [];
+        }
+        altoa.licences.push({
+          type: dl.type
+        });
       }
     } catch (error) {}
     if (altoa.licence == null) {
@@ -4277,6 +4297,14 @@ P.permissions = async function(meta, ror, getmeta, oadoi, crossref) { // oadoi a
     // note if enforcement_from is after published date, don't apply the permission. If no date, the permission applies to everything
     for (s = 0, len6 = ref20.length; s < len6; s++) {
       wp = ref20[s];
+      if (wp.licences == null) {
+        wp.licences = [];
+        if (wp.licence) {
+          wp.licences.push({
+            type: wp.licence
+          });
+        }
+      }
       if ((issns || ((ref21 = wp.issuer) != null ? ref21.type : void 0) === 'journal') && !wp.issuer.journal_oa_type) {
         wp.issuer.journal_oa_type = (await this.permissions.journals.oa.type(issns != null ? issns : wp.issuer.id, af, oadoi, crossref));
       }
@@ -4375,29 +4403,108 @@ P.permissions = async function(meta, ror, getmeta, oadoi, crossref) { // oadoi a
   }
 };
 
-P.permissions.journals = function(recs) {
-  return this.permissions._format(recs);
+P.permissions.journals = {
+  _sheet: '1ZTcYJUzhNJYIuxsjKzdVFCbOhJsviVik-8K1DpU7-eE/Main',
+  _prefix: false,
+  _format: async function(recs = []) {
+    var af, an, cids, i, j, k, kn, l, len, len1, len2, nid, nr, ready, rec, ref, ref1, ref2, ref3;
+    ready = [];
+    ref = (typeof recs === 'object' && !Array.isArray(recs) ? [recs] : recs);
+    for (i = 0, len = ref.length; i < len; i++) {
+      rec = ref[i];
+      nr = { // a controlled structure for JSON output, can't be guaranteed as not JSON spec, but Joe likes it for visual review
+        can_archive: void 0,
+        version: void 0,
+        versions: [],
+        licence: void 0,
+        locations: void 0,
+        embargo_months: void 0,
+        embargo_end: void 0,
+        deposit_statement: void 0,
+        copyright_owner: '',
+        copyright_name: '',
+        copyright_year: '',
+        issuer: {},
+        meta: {},
+        provenance: {},
+        requirements: {}
+      };
+      for (k in rec) {
+        if (typeof rec[k] === 'string') {
+          rec[k] = rec[k].trim();
+        }
+        if (k === 'id') {
+          nr.issuer.id = typeof rec.id === 'string' && rec.id.includes(',') ? rec.id.split(',') : rec.id;
+          if (typeof nr.issuer.id === 'string' && nr.issuer.id.startsWith('10.') && nr.issuer.id.includes('/') && !nr.issuer.id.includes(' ')) {
+            nr.DOI = nr.issuer.id;
+          } else {
+            cids = [];
+            ref1 = (typeof nr.issuer.id === 'string' ? [nr.issuer.id] : nr.issuer.id);
+            for (j = 0, len1 = ref1.length; j < len1; j++) {
+              nid = ref1[j];
+              nid = nid.trim();
+              if (nr.issuer.type === 'journal' && nid.includes('-') && !nid.includes(' ')) {
+                nid = nid.toUpperCase();
+                if (af = (await this.journal('ISSN:"' + nid + '"', 1))) {
+                  ref2 = af.issn;
+                  for (l = 0, len2 = ref2.length; l < len2; l++) {
+                    an = ref2[l];
+                    if (indexOf.call(cids, an) < 0) {
+                      cids.push(an);
+                    }
+                  }
+                }
+              }
+              if (indexOf.call(cids, nid) < 0) {
+                cids.push(nid);
+              }
+            }
+            nr.issuer.id = cids;
+          }
+        } else if (k === 'embargo_months') {
+          kn = typeof rec[k] === 'number' ? rec[k] : typeof rec[k] === 'string' ? parseInt(rec[k].trim()) : void 0;
+          if (kn && typeof kn === 'number') {
+            nr.embargo_months = kn;
+            nr.embargo_end = ''; // just to allow neat output later - can't be calculated until compared to a particular article
+          }
+        } else if (k && (rec[k] != null) && ((ref3 = rec[k]) !== '' && ref3 !== 'none' && ref3 !== 'unclear')) {
+          if (k === 'versions' && rec.versions.length) {
+            nr.can_archive = true;
+            nr.version = rec.versions.includes('ublish') ? 'publishedVersion' : rec.versions.includes('ccept') ? 'acceptedVersion' : 'submittedVersion';
+          }
+          if (k === 'versions' || k === 'locations' || k === 'meta.contributors' || k === 'meta.creator' || k === 'meta.reviewer' || k === 'provenance.archiving_policy' || k === 'requirements.funder' || k === 'journal') {
+            rec[k] = rec[k].trim().replace(/\, /, ',').replace(/ \,/, ',').split(',');
+          }
+          await this.dot(nr, (k === 'license' ? 'licence' : k), rec[k]);
+        }
+      }
+      if ((!nr.copyright_owner || nr.copyright_owner.toLowerCase() === 'journal') && nr.issuer.type) {
+        nr.copyright_owner = nr.issuer.type;
+      }
+      if (JSON.stringify(nr.requirements) === '{}') {
+        delete nr.requirements;
+      }
+      ready.push(nr);
+    }
+    if (ready.length === 1) {
+      return ready[0];
+    } else {
+      return ready;
+    }
+  }
 };
 
-P.permissions.journals._sheet = '1ZTcYJUzhNJYIuxsjKzdVFCbOhJsviVik-8K1DpU7-eE/Main';
-
-P.permissions.journals._prefix = false;
-
-P.permissions.publishers = function(recs) {
-  return this.permissions._format(recs);
+P.permissions.publishers = {
+  _sheet: '11rsHmef1j9Q9Xb0WtQ_BklQceaSkkFEIm7tJ4qz0fJk/Main',
+  _prefix: false,
+  _format: P.permissions.journals._format
 };
 
-P.permissions.publishers._sheet = '11rsHmef1j9Q9Xb0WtQ_BklQceaSkkFEIm7tJ4qz0fJk/Main';
-
-P.permissions.publishers._prefix = false;
-
-P.permissions.affiliations = function(recs) {
-  return this.permissions._format(recs);
+P.permissions.affiliations = {
+  _sheet: '15fa1DADj6y_3aZQcP9-zBalhaThxzZw9dyEbxMBBb5Y/Main',
+  _prefix: false,
+  _format: P.permissions.journals._format
 };
-
-P.permissions.affiliations._sheet = '15fa1DADj6y_3aZQcP9-zBalhaThxzZw9dyEbxMBBb5Y/Main';
-
-P.permissions.affiliations._prefix = false;
 
 P.permissions.journals.example = async function(issn) {
   var ref, res;
@@ -4472,12 +4579,12 @@ P.permissions.journals.oa.type = async function(issns, jrnl, oadoi, crossref) {
     js = 'not applicable';
   } else if (!(crossref != null ? crossref.type : void 0) || crossref.type === 'journal-article') {
     js = (oadoi != null ? oadoi.oa_status : void 0) === 'gold' ? 'gold' : (oadoi != null ? oadoi.oa_status : void 0) === 'bronze' ? 'closed' : (oadoi != null ? oadoi.oa_status : void 0) === 'hybrid' ? 'hybrid' : 'closed';
-    if ((oadoi != null ? oadoi.journal_is_oa : void 0) || (oadoi != null ? oadoi.journal_is_in_doaj : void 0)) { // double check for gold jrnl?.indoaj
+    if ((oadoi != null ? oadoi.journal_is_oa : void 0) || (oadoi != null ? oadoi.journal_is_in_doaj : void 0) || (jrnl != null ? jrnl.indoaj : void 0)) {
       js = 'gold';
     }
     if (issns) {
       if (js === 'closed' && (await this.src.oadoi.hybrid(issns))) {
-        // check if it really is closed because sometimes OADOI says it is for one particular DOI but really it isn't
+        // check if it really is closed because sometimes OADOI says it is for one particular DOI but really it isn't (or was at time of publication of that article, but isn't now)
         js = 'hybrid';
       }
       // check if it is a known transformative or diamond journal
@@ -4516,93 +4623,6 @@ P.permissions.publishers.oa = async function(publisher) {
   ret.percent = Math.ceil((ret.open / ret.journals) * 100);
   ret.oa = ret.journals && ret.journals === ret.open;
   return ret;
-};
-
-P.permissions._format = async function(recs = []) {
-  var af, an, cids, i, j, k, kn, l, len, len1, len2, nid, nr, ready, rec, ref, ref1, ref2, ref3;
-  ready = [];
-  ref = (typeof recs === 'object' && !Array.isArray(recs) ? [recs] : recs);
-  for (i = 0, len = ref.length; i < len; i++) {
-    rec = ref[i];
-    nr = { // a controlled structure for JSON output, can't be guaranteed as not JSON spec, but Joe likes it for visual review
-      can_archive: void 0,
-      version: void 0,
-      versions: [],
-      licence: void 0,
-      locations: void 0,
-      embargo_months: void 0,
-      embargo_end: void 0,
-      deposit_statement: void 0,
-      copyright_owner: '',
-      copyright_name: '',
-      copyright_year: '',
-      issuer: {},
-      meta: {},
-      provenance: {},
-      requirements: {}
-    };
-    for (k in rec) {
-      if (typeof rec[k] === 'string') {
-        rec[k] = rec[k].trim();
-      }
-      if (k === 'id') {
-        nr.issuer.id = typeof rec.id === 'string' && rec.id.includes(',') ? rec.id.split(',') : rec.id;
-        if (typeof nr.issuer.id === 'string' && nr.issuer.id.startsWith('10.') && nr.issuer.id.includes('/') && !nr.issuer.id.includes(' ')) {
-          nr.DOI = nr.issuer.id;
-        } else {
-          cids = [];
-          ref1 = (typeof nr.issuer.id === 'string' ? [nr.issuer.id] : nr.issuer.id);
-          for (j = 0, len1 = ref1.length; j < len1; j++) {
-            nid = ref1[j];
-            nid = nid.trim();
-            if (nr.issuer.type === 'journal' && nid.includes('-') && !nid.includes(' ')) {
-              nid = nid.toUpperCase();
-              if (af = (await this.journal('ISSN:"' + nid + '"', 1))) {
-                ref2 = af.issn;
-                for (l = 0, len2 = ref2.length; l < len2; l++) {
-                  an = ref2[l];
-                  if (indexOf.call(cids, an) < 0) {
-                    cids.push(an);
-                  }
-                }
-              }
-            }
-            if (indexOf.call(cids, nid) < 0) {
-              cids.push(nid);
-            }
-          }
-          nr.issuer.id = cids;
-        }
-      } else if (k === 'embargo_months') {
-        kn = typeof rec[k] === 'number' ? rec[k] : typeof rec[k] === 'string' ? parseInt(rec[k].trim()) : void 0;
-        if (kn && typeof kn === 'number') {
-          nr.embargo_months = kn;
-          nr.embargo_end = ''; // just to allow neat output later - can't be calculated until compared to a particular article
-        }
-      } else if (k && (rec[k] != null) && ((ref3 = rec[k]) !== '' && ref3 !== 'none' && ref3 !== 'unclear')) {
-        if (k === 'versions' && rec.versions.length) {
-          nr.can_archive = true;
-          nr.version = rec.versions.includes('ublish') ? 'publishedVersion' : rec.versions.includes('ccept') ? 'acceptedVersion' : 'submittedVersion';
-        }
-        if (k === 'versions' || k === 'locations' || k === 'meta.contributors' || k === 'meta.creator' || k === 'meta.reviewer' || k === 'provenance.archiving_policy' || k === 'requirements.funder' || k === 'licences' || k === 'journal') {
-          rec[k] = rec[k].trim().replace(/\, /, ',').replace(/ \,/, ',').split(',');
-        }
-        await this.dot(nr, (k === 'license' ? 'licence' : k), rec[k]);
-      }
-    }
-    if ((!nr.copyright_owner || nr.copyright_owner.toLowerCase() === 'journal') && nr.issuer.type) {
-      nr.copyright_owner = nr.issuer.type;
-    }
-    if (JSON.stringify(nr.requirements) === '{}') {
-      delete nr.requirements;
-    }
-    ready.push(nr);
-  }
-  if (ready.length === 1) {
-    return ready[0];
-  } else {
-    return ready;
-  }
 };
 
 P.journal = {
@@ -10560,6 +10580,64 @@ P.index.count = async function(route, qry, key) {
   }
 };
 
+P.index.percent = async function(route, qry, key) {
+  var count, cq, j, k, len, qr, ref1, ref2, ref3, ref4, ref5, ref6, ret, total;
+  if (key == null) {
+    key = (ref1 = this.params.count) != null ? ref1 : this.params.key;
+  }
+  if (route == null) {
+    route = (ref2 = this.params.index) != null ? ref2 : this.fn.replace(/\./g, '_');
+  }
+  route = route.replace('index/', '').split('/count')[0];
+  if (route.indexOf('/') !== -1) {
+    [route, key] = route.split('/');
+  }
+  cq = this.copy(this.params);
+  ref3 = ['index', 'route', 'count', 'key'];
+  for (j = 0, len = ref3.length; j < len; j++) {
+    k = ref3[j];
+    delete cq[k];
+  }
+  if ((qry == null) && (qr = (await this.index.translate(cq)))) {
+    qry = qr;
+  }
+  if (typeof qry === 'string') {
+    qry = (await this.index.translate(qry));
+  }
+  if (qry == null) {
+    qry = {
+      query: {
+        bool: {
+          must: [],
+          filter: []
+        }
+      }
+    };
+  }
+  total = (await this.index.count(route, '*'));
+  count = 0;
+  if (key) {
+    if (!key.endsWith('.keyword')) {
+      key += '.keyword';
+    }
+    qry.size = 0;
+    qry.aggs = {
+      keyed: {
+        cardinality: {
+          field: key,
+          precision_threshold: 40000 // this is high precision and will be very memory-expensive in high cardinality keys, with lots of different values going in to memory
+        }
+      }
+    };
+    ret = (await this.index._send('/' + route + '/_search', qry, 'POST'));
+    count = ret != null ? (ref4 = ret.aggregations) != null ? (ref5 = ref4.keyed) != null ? ref5.value : void 0 : void 0 : void 0;
+  } else {
+    ret = (await this.index._send('/' + route + '/_search', qry, 'POST'));
+    count = ret != null ? (ref6 = ret.hits) != null ? ref6.total : void 0 : void 0;
+  }
+  return Math.ceil((count / total) * 10000) / 100;
+};
+
 P.index.min = async function(route, key, qry, end = 'min') {
   var cq, j, k, len, query, ref1, ref2, ref3, ret;
   if (key == null) {
@@ -10641,17 +10719,6 @@ P.index.mapping = async function(route) {
   }
   ret = (await this.index._send(route));
   return ret[route.replace('/_mapping', '').replace(/\//g, '_').replace(/^_/, '')].mappings.properties;
-};
-
-P.index.history = function(route, key) {
-  var ref1;
-  try {
-    // TODO get the history of a record by a query of the log
-    if (key == null) {
-      key = (ref1 = this.params.history) != null ? ref1 : this.params.index;
-    }
-  } catch (error) {}
-  return [];
 };
 
 // use this like: for await rec from @index._for route, q, opts
@@ -12105,6 +12172,23 @@ P.keys = function(obj) {
   return keys;
 };
 
+P.pings = {
+  _index: true
+};
+
+P.ping = async function() {
+  var data, ref, ref1;
+  data = this.copy(this.params);
+  if (JSON.stringify(data) !== '{}') {
+    data.ip = (ref = (ref1 = this.headers['x-forwarded-for']) != null ? ref1 : this.headers['cf-connecting-ip']) != null ? ref : this.headers['x-real-ip'];
+    data.forwarded = this.headers['x-forwarded-for'];
+    await this.pings(data);
+    return true;
+  } else {
+    return false;
+  }
+};
+
 // https://jcheminf.springeropen.com/articles/10.1186/1758-2946-3-47
 P.scrape = async function(content, doi) {
   var cl, cnts, d, i, j, k, kk, l, len, len1, len2, len3, len4, m, me, meta, mk, mkp, mls, mm, mr, mstr, my, n, o, p, q, ref, ref1, ref2, ref3, ref4, str, ud;
@@ -12650,9 +12734,7 @@ P.uid = function(length) {
 P.uid._cache = false;
 
 
-S.built = "Wed Mar 02 2022 08:09:37 GMT+0000";
-P.testcron = {_bg: true}// added by constructor
-
+S.built = "Wed Mar 16 2022 08:56:39 GMT+0000";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor

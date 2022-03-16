@@ -10,9 +10,12 @@
 
 # suitable cron values for each of the five space-separated cron locations:
 # 0-59 seconds (optional) | 0-59 minutes | 0-23 hours | 1-31 monthdays | month 1-12 | 0-7 weekdays (0 and 7 are sunday)
+
 # multiple values can be provided for each location, separated by commas. 
 # ranges can be used, such as 1-5
 # or of course * wildcard can be used for any, and all * defaults to run every minute
+# NOTE these specify as for example the minute at which to run, e.g. 5 would run at 5 past the hour
+# To run every 5 minutes, use */5
 
 # options can be provided as an object after the function and are 
 # scheduled: true*/false
