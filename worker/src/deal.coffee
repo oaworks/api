@@ -6,7 +6,7 @@
 P.deal = _index: true, _prefix: false
 P.deal.institution = _index: true, _prefix: false
 
-P.deal.import = () ->
+P.deal.load = () ->
   recs = await @src.google.sheets '1dPG7Xxvk4qnPajTu9jG_uNuz2R5jvjfeaKI-ylX4NXs'
   institutions = {}
   for rec in recs
