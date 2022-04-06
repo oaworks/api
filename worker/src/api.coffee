@@ -515,7 +515,69 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
           res = await @kv rt + '/' + lg.key, rec # there may or may not be a rec, as it could just be getting the keyed record
           lg.cached = 'kv' if res? and not rec?
         if f._index
-          res = await @index rt + (if lg.key then '/' + lg.key else ''), (rec ? qry)
+          if @params.size is 'all'
+            if @S.bg isnt true
+              if typeof @S.bg is 'string'
+                throw new Error() # trip out to backend
+              else
+                res = status: 404
+            if @format is 'csv'
+              nfeml = @params.email
+              delete qry.email
+              delete @params.size
+              delete qry.size
+              tot = await @index.count rt, qry
+              if tot > 500000 or not @S.static?.folder
+                res = status: 401
+              else
+                flid = @uid()
+                eurl = @S.static.url + '/export/' + flid + '.csv'
+                @mail({to: (@S.log?.notify ? 'mark@oa.works'), text: 'Someone is creating a large csv of size ' + tot + '\n\n' + eurl}) if tot > 100000
+                out = @S.static.folder + '/export'
+                try
+                  filecount = (await fs.readdir out).length
+                  @mail({to: (@S.log?.notify ? 'mark@oa.works'), text: 'Warning, export file count is ' + filecount}) if filecount > 20
+                  # add auto deletion of old export files?
+                catch
+                  await fs.mkdir out
+                  filecount = 0
+                if filecount > 100
+                  res = status: 401
+                else
+                  out += '/' + flid  + '.csv'
+                  await fs.appendFile out, ''
+                  _makecsv = (rt, qry, out, flid, keys, notify) =>
+                    first = true
+                    for key in keys
+                      await fs.appendFile out, (if not first then ',"' else '"') + key + '"'
+                      first = false
+                    for await blr from @index._for rt, qry
+                      await fs.appendFile out, '\n'
+                      first = true
+                      for k in keys
+                        val = if not blr[k]? then '' else if Array.isArray(blr[k]) then blr[k].join(',') else if typeof blr[k] is 'object' then JSON.stringify(blr[k]) else blr[k]
+                        await fs.appendFile out, (if not first then ',"' else '"') + val.toString().replace(/"/g, '').replace(/\n/g, '').replace(/\s\s+/g, ' ') + '"'
+                        first = false
+                    @mail({to: notify, text: 'Your csv export is ready\n\n' + eurl}) if notify
+                  if @params.include?
+                    ks = @params.include
+                  else
+                    ks = []
+                    for ak in await @index.keys rt
+                      tk = ak.split('.')[0]
+                      ks.push(tk) if tk not in ks and (not @params.exclude? or tk not in @params.exclude)
+                  if tot > 5000
+                    @mail({to: nfeml, text: 'Your csv export has begun. You can download the file any time, it will keep growing until it is complete, when you will get another notification.\n\n' + eurl}) if nfeml
+                    @waitUntil _makecsv rt, qry, out, flid, ks, nfeml
+                  else
+                    await _makecsv rt, qry, out, flid, ks
+                  delete @format
+                  res = status: 302, body: eurl
+                  res.headers = Location: res.body
+            else
+              res = status: 401
+          else
+            res = await @index rt + (if lg.key then '/' + lg.key else ''), (rec ? qry)
           if not res? and (not lg.key or not rec?) # this happens if the index does not exist yet, so create it (otherwise res would be a search result object)
             await @index rt, if typeof f._index isnt 'object' then {} else {settings: f._index.settings, mappings: (f._index.mappings ? f._index.mapping), aliases: f._index.aliases}
             res = await @index(rt + (if lg.key then '/' + lg.key else ''), (rec ? (if not lg.key then qry else undefined))) if rec isnt ''

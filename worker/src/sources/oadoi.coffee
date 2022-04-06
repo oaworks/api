@@ -2,18 +2,28 @@
 S.src.oadoi ?= {}
 try S.src.oadoi = JSON.parse SECRETS_OADOI
 
-P.src.oadoi = (doi) ->
+'''P.src.oadoi = (doi) ->
   doi ?= @params?.oadoi ? @params?.doi
   if typeof doi is 'string' and doi.startsWith '10.'
     await @sleep 900
     url = 'https://api.oadoi.org/v2/' + doi + '?email=' + S.mail.to
     return @fetch url
   else
-    return
+    return'''
     
-P.src.oadoi._index = settings: number_of_shards: 9
+#P.src.oadoi._index = settings: number_of_shards: 9
+P.src.oadoi = _index: settings: number_of_shards: 9
 P.src.oadoi._key = 'doi'
 P.src.oadoi._prefix = false
+
+P.src.oadoi.search = (doi) ->
+  doi ?= @params?.oadoi ? @params?.doi ? @params?.search
+  if typeof doi is 'string' and doi.startsWith '10.'
+    await @sleep 900
+    url = 'https://api.oadoi.org/v2/' + doi + '?email=' + S.mail.to
+    return @fetch url
+  else
+    return
 
 P.src.oadoi.hybrid = (issns) ->
   # there is a concern OADOI sometimes says a journal is closed on a particular 

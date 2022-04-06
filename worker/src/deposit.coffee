@@ -60,7 +60,7 @@ P.deposit = (params, file, dev) ->
       title: params.metadata.title ? 'Unknown',
       description: description.trim(),
       creators: creators,
-      version: if dep.archivable.version is 'preprint' then 'Submitted Version' else if dep.archivable.version is 'postprint' then 'Accepted Version' else if dep.archivable.version is 'publisher pdf' then 'Published Version' else 'Accepted Version',
+      version: if dep.archivable.version is 'submittedVersion' then 'Submitted Version' else if dep.archivable.version is 'acceptedVersion' then 'Accepted Version' else if dep.archivable.version is 'publishedVersion' then 'Published Version' else 'Accepted Version',
       journal_title: params.metadata.journal
       journal_volume: params.metadata.volume
       journal_issue: params.metadata.issue
@@ -121,11 +121,15 @@ P.deposit = (params, file, dev) ->
       dep.error = 'No Zenodo credentials available'
       dep.type = 'review'
 
+  if dep.archivable?.timeout
+    dep.error = 'Archivable timeout'
+    dep.type = 'review'
+
   dep.version = dep.archivable?.version
   if not dep.type and params.from and (not dep.embedded or (not dep.embedded.includes('oa.works') and not dep.embedded.includes('openaccessbutton.org') and not dep.embedded.includes('shareyourpaper.org')))
     dep.type = if params.redeposit then 'redeposit' else if file then 'forward' else 'dark'
 
-  if dep.doi and not dep.error
+  if dep.doi #and not dep.error
     dep.type ?= 'review'
     dep.url = if typeof params.redeposit is 'string' then params.redeposit else if params.url then params.url else undefined
 
@@ -135,7 +139,7 @@ P.deposit = (params, file, dev) ->
       bcc = ['joe@oa.works', 'shared@oa.works']
       bcc.push('mark@oa.works') if dev
       tos = []
-      if typeof uc?.owner is 'string' and uc.owner.includes '@'
+      if typeof uc?.owner is 'string' and uc.owner.includes('@') and not dep.error
         tos.push uc.owner
       else if uc?.email
         tos.push uc.email
@@ -184,154 +188,162 @@ P.archivable = (file, url, confirmed, meta, permissions, dev) ->
 
   f = {archivable: undefined, archivable_reason: undefined, version: 'unknown', same_paper: undefined, licence: undefined}
 
-  if typeof meta is 'string' or (not meta? and (@params.doi or @params.title))
-    meta = await @metadata meta ? @params.doi ? @params.title
-  meta ?= {}
-
-  # handle different sorts of file passing
-  if typeof file is 'string'
-    file = data: file
-  if not file? and url?
-    file = await @fetch url # check if this gets file content
-
-  if file?
-    file.name ?= file.filename
-    try f.name = file.name
-    try f.format = if file.name? and file.name.includes('.') then file.name.split('.').pop() else 'html'
-    f.format = f.format.toLowerCase()
-    if file.data
-      if not content? and f.format? and @convert[f.format+'2txt']?
-        try content = await @convert[f.format+'2txt'] file.data
-      try content ?= file.data
-      try content = content.toString()
-
-  if not content? and not confirmed
-    if file? or url?
-      f.error = file.error ? 'Could not extract any content'
-  else
-    contentsmall = if content.length < 20000 then content else content.substring(0, 6000) + content.substring(content.length - 6000, content.length)
-    lowercontentsmall = contentsmall.toLowerCase()
-    lowercontentstart = (if lowercontentsmall.length < 6000 then lowercontentsmall else lowercontentsmall.substring(0, 6000)).replace(/[^a-z0-9\/]+/g, "")
-
-    f.name ?= meta.title
-    try f.checksum = crypto.createHash('md5').update(content, 'utf8').digest('base64')
-    f.same_paper_evidence = {} # check if the file meets our expectations
-    try f.same_paper_evidence.words_count = content.split(' ').length # will need to be at least 500 words
-    try f.same_paper_evidence.words_more_than_threshold = if f.same_paper_evidence.words_count > 500 then true else false
-    try f.same_paper_evidence.doi_match = if meta.doi and lowercontentstart.includes(meta.doi.toLowerCase().replace(/[^a-z0-9\/]+/g, "")) then true else false
-    try f.same_paper_evidence.title_match = if meta.title and lowercontentstart.includes(meta.title.toLowerCase().replace(/[^a-z0-9\/]+/g, "")) then true else false
-    if meta.author?
-      try
-        authorsfound = 0
-        f.same_paper_evidence.author_match = false
-        # get the surnames out if possible, or author name strings, and find at least one in the doc if there are three or less, or find at least two otherwise
-        meta.author = {name: meta.author} if typeof meta.author is 'string'
-        meta.author = [meta.author] if not Array.isArray meta.author
-        for a in meta.author
-          if f.same_paper_evidence.author_match is true
-            break
-          else
-            try
-              an = (a.last ? a.lastname ? a.family ? a.surname ? a.name).trim().split(',')[0].split(' ')[0].toLowerCase().replace(/[^a-z0-9\/]+/g, "")
-              af = (a.first ? a.firstname ? a.given ? a.name).trim().split(',')[0].split(' ')[0].toLowerCase().replace(/[^a-z0-9\/]+/g, "")
-              inc = lowercontentstart.indexOf an
-              if an.length > 2 and af.length > 0 and inc isnt -1 and lowercontentstart.substring(inc-20, inc + an.length+20).includes af
-                authorsfound += 1
-                if (meta.author.length < 3 and authorsfound is 1) or (meta.author.length > 2 and authorsfound > 1)
-                  f.same_paper_evidence.author_match = true
-                  break
-    if f.format?
-      for ft in ['doc','tex','pdf','htm','xml','txt','rtf','odf','odt','page']
-        if f.format.includes ft
-          f.same_paper_evidence.document_format = true
-          break
-
-    f.same_paper = if f.same_paper_evidence.words_more_than_threshold and (f.same_paper_evidence.doi_match or f.same_paper_evidence.title_match or f.same_paper_evidence.author_match) and f.same_paper_evidence.document_format then true else false
-
-    if f.same_paper_evidence.words_count < 150 and f.format is 'pdf'
-      # there was likely a pdf file reading failure due to bad PDF formatting
-      f.same_paper_evidence.words_count = 0
-      f.archivable_reason = 'We could not find any text in the provided PDF. It is possible the PDF is a scan in which case text is only contained within images which we do not yet extract. Or, the PDF may have errors in it\'s structure which stops us being able to machine-read it'
-
-    f.version_evidence = score: 0, strings_checked: 0, strings_matched: []
-    try
-      # dev https://docs.google.com/spreadsheets/d/1XA29lqVPCJ2FQ6siLywahxBTLFaDCZKaN5qUeoTuApg/edit#gid=0
-      # live https://docs.google.com/spreadsheets/d/10DNDmOG19shNnuw6cwtCpK-sBnexRCCtD4WnxJx_DPQ/edit#gid=0
-      for l in await @src.google.sheets (if dev then '1XA29lqVPCJ2FQ6siLywahxBTLFaDCZKaN5qUeoTuApg' else '10DNDmOG19shNnuw6cwtCpK-sBnexRCCtD4WnxJx_DPQ')
-        f.version_evidence.strings_checked += 1
-        wts = l['what to search']
-        rts = l['where to search']
-        hts = l['how to search']
-        ind = l['what it Indicates']
-        try
-          if wts.includes('<<') and wts.includes '>>'
-            wtm = wts.split('<<')[1].split('>>')[0]
-            wts = wts.replace('<<'+wtm+'>>', meta[wtm.toLowerCase()]) if meta[wtm.toLowerCase()]?
-          matched = false
-          if hts is 'string'
-            matched = if (rts is 'file' and contentsmall.includes wts) or (rts isnt 'file' and ((meta.title? and meta.title.includes wts) or (f.name? and f.name.includes wts))) then true else false
-          else
-            re = new RegExp wts, 'gium'
-            matched = if (rts is 'file' and lowercontentsmall.match(re) isnt null) or (rts isnt 'file' and ((meta.title? and meta.title.match(re) isnt null) or (f.name? and f.name.match(re) isnt null))) then true else false
-          if matched
-            sc = l.value
-            if typeof sc is 'string'
-              try sc = parseInt sc
-            sc = 1 if typeof sc isnt 'number'
-            if ind and ind.toLowerCase() in ['publisher pdf', 'publishedversion'] then f.version_evidence.score += sc else f.version_evidence.score -= sc
-            f.version_evidence.strings_matched.push {indicates: ind, found: hts + ' ' + wts, in: rts, score_value: sc}
-        catch err
-          f.version_evidence.strings_errored ?= []
-          f.version_evidence.strings_errored.push {tried: hts + ' ' + wts, in: rts, error: err.toString()}
-
-    f.version = 'publishedVersion' if f.version_evidence.score > 0
-    f.version = 'acceptedVersion' if f.version_evidence.score < 0
-    if f.version is 'unknown' and f.version_evidence.strings_checked > 0 #and f.format? and f.format isnt 'pdf'
-      f.version = 'acceptedVersion'
-
-    try
-      ls = await @licence undefined, lowercontentsmall # check for licence info in the file content
-      if ls?.licence?
-        f.licence = ls.licence
-        f.licence_evidence = ls
-
-    f.archivable = false
-    if confirmed
-      f.archivable = true
-      if confirmed is f.checksum
-        f.archivable_reason = 'The administrator has confirmed that this file is a version that can be archived.'
-        f.admin_confirms = true
-      else
-        f.archivable_reason = 'The depositor says that this file is a version that can be archived'
-        f.depositor_says = true
-    else if f.same_paper
-      if f.format isnt 'pdf'
-        f.archivable = true
-        f.archivable_reason = 'Since the file is not a PDF, we assume it is an accepted version'
-      if not f.archivable and f.licence? and f.licence.toLowerCase().startsWith 'cc'
-        f.archivable = true
-        f.archivable_reason = 'It appears this file contains a ' + f.licence + ' licence statement. Under this licence the article can be archived'
-      if not f.archivable
-        if f.version
-          if meta? and JSON.stringify(meta) isnt '{}'
-            permissions ?= await @permissions meta
-          if f.version is permissions?.best_permission?.version
-            f.archivable = true
-            f.archivable_reason = 'We believe this is a ' + f.version.split('V')[0] + ' version and our permission system says that version can be shared'
-          else
-            f.archivable_reason ?= 'We believe this file is a ' + f.version.split('V')[0] + ' version and our permission system does not list that as an archivable version'
-        else
-          f.archivable_reason = 'We cannot confirm if it is an archivable version or not'
+  _check = () =>
+    if typeof meta is 'string' or (not meta? and (@params.doi or @params.title))
+      meta = await @metadata meta ? @params.doi ? @params.title
+    meta ?= {}
+  
+    # handle different sorts of file passing
+    if typeof file is 'string'
+      file = data: file
+    if not file? and url?
+      file = await @fetch url # check if this gets file content
+  
+    if file?
+      file.name ?= file.filename
+      try f.name = file.name
+      try f.format = if file.name? and file.name.includes('.') then file.name.split('.').pop() else 'html'
+      f.format = f.format.toLowerCase()
+      if file.data
+        if not content? and f.format? and @convert[f.format+'2txt']?
+          try content = await @convert[f.format+'2txt'] file.data
+        try content ?= file.data
+        try content = content.toString()
+  
+    if not content? and not confirmed
+      if file? or url?
+        f.error = file.error ? 'Could not extract any content'
     else
-      f.archivable_reason ?= if not f.same_paper_evidence.words_more_than_threshold then 'The file is less than 500 words, and so does not appear to be a full article' else if not f.same_paper_evidence.document_format then 'File is an unexpected format ' + f.format else if not meta.doi and not meta.title then 'We have insufficient metadata to validate file is for the correct paper ' else 'File does not contain expected metadata such as DOI or title'
+      contentsmall = if content.length < 20000 then content else content.substring(0, 6000) + content.substring(content.length - 6000, content.length)
+      lowercontentsmall = contentsmall.toLowerCase()
+      lowercontentstart = (if lowercontentsmall.length < 6000 then lowercontentsmall else lowercontentsmall.substring(0, 6000)).replace(/[^a-z0-9\/]+/g, "")
+  
+      f.name ?= meta.title
+      try f.checksum = crypto.createHash('md5').update(content, 'utf8').digest('base64')
+      f.same_paper_evidence = {} # check if the file meets our expectations
+      try f.same_paper_evidence.words_count = content.split(' ').length # will need to be at least 500 words
+      try f.same_paper_evidence.words_more_than_threshold = if f.same_paper_evidence.words_count > 500 then true else false
+      try f.same_paper_evidence.doi_match = if meta.doi and lowercontentstart.includes(meta.doi.toLowerCase().replace(/[^a-z0-9\/]+/g, "")) then true else false
+      try f.same_paper_evidence.title_match = if meta.title and lowercontentstart.includes(meta.title.toLowerCase().replace(/[^a-z0-9\/]+/g, "")) then true else false
+      if meta.author?
+        try
+          authorsfound = 0
+          f.same_paper_evidence.author_match = false
+          # get the surnames out if possible, or author name strings, and find at least one in the doc if there are three or less, or find at least two otherwise
+          meta.author = {name: meta.author} if typeof meta.author is 'string'
+          meta.author = [meta.author] if not Array.isArray meta.author
+          for a in meta.author
+            if f.same_paper_evidence.author_match is true
+              break
+            else
+              try
+                an = (a.last ? a.lastname ? a.family ? a.surname ? a.name).trim().split(',')[0].split(' ')[0].toLowerCase().replace(/[^a-z0-9\/]+/g, "")
+                af = (a.first ? a.firstname ? a.given ? a.name).trim().split(',')[0].split(' ')[0].toLowerCase().replace(/[^a-z0-9\/]+/g, "")
+                inc = lowercontentstart.indexOf an
+                if an.length > 2 and af.length > 0 and inc isnt -1 and lowercontentstart.substring(inc-20, inc + an.length+20).includes af
+                  authorsfound += 1
+                  if (meta.author.length < 3 and authorsfound is 1) or (meta.author.length > 2 and authorsfound > 1)
+                    f.same_paper_evidence.author_match = true
+                    break
+      if f.format?
+        for ft in ['doc','tex','pdf','htm','xml','txt','rtf','odf','odt','page']
+          if f.format.includes ft
+            f.same_paper_evidence.document_format = true
+            break
+  
+      f.same_paper = if f.same_paper_evidence.words_more_than_threshold and (f.same_paper_evidence.doi_match or f.same_paper_evidence.title_match or f.same_paper_evidence.author_match) and f.same_paper_evidence.document_format then true else false
+  
+      if f.same_paper_evidence.words_count < 150 and f.format is 'pdf'
+        # there was likely a pdf file reading failure due to bad PDF formatting
+        f.same_paper_evidence.words_count = 0
+        f.archivable_reason = 'We could not find any text in the provided PDF. It is possible the PDF is a scan in which case text is only contained within images which we do not yet extract. Or, the PDF may have errors in it\'s structure which stops us being able to machine-read it'
+  
+      f.version_evidence = score: 0, strings_checked: 0, strings_matched: []
+      try
+        # dev https://docs.google.com/spreadsheets/d/1XA29lqVPCJ2FQ6siLywahxBTLFaDCZKaN5qUeoTuApg/edit#gid=0
+        # live https://docs.google.com/spreadsheets/d/10DNDmOG19shNnuw6cwtCpK-sBnexRCCtD4WnxJx_DPQ/edit#gid=0
+        for l in await @src.google.sheets (if dev then '1XA29lqVPCJ2FQ6siLywahxBTLFaDCZKaN5qUeoTuApg' else '10DNDmOG19shNnuw6cwtCpK-sBnexRCCtD4WnxJx_DPQ')
+          f.version_evidence.strings_checked += 1
+          wts = l['what to search']
+          rts = l['where to search']
+          hts = l['how to search']
+          ind = l['what it Indicates']
+          try
+            if wts.includes('<<') and wts.includes '>>'
+              wtm = wts.split('<<')[1].split('>>')[0]
+              wts = wts.replace('<<'+wtm+'>>', meta[wtm.toLowerCase()]) if meta[wtm.toLowerCase()]?
+            matched = false
+            if hts is 'string'
+              matched = if (rts is 'file' and contentsmall.includes wts) or (rts isnt 'file' and ((meta.title? and meta.title.includes wts) or (f.name? and f.name.includes wts))) then true else false
+            else
+              re = new RegExp wts, 'gium'
+              matched = if (rts is 'file' and lowercontentsmall.match(re) isnt null) or (rts isnt 'file' and ((meta.title? and meta.title.match(re) isnt null) or (f.name? and f.name.match(re) isnt null))) then true else false
+            if matched
+              sc = l.value
+              if typeof sc is 'string'
+                try sc = parseInt sc
+              sc = 1 if typeof sc isnt 'number'
+              if ind and ind.toLowerCase() in ['publisher pdf', 'publishedversion'] then f.version_evidence.score += sc else f.version_evidence.score -= sc
+              f.version_evidence.strings_matched.push {indicates: ind, found: hts + ' ' + wts, in: rts, score_value: sc}
+          catch err
+            f.version_evidence.strings_errored ?= []
+            f.version_evidence.strings_errored.push {tried: hts + ' ' + wts, in: rts, error: err.toString()}
+  
+      f.version = 'publishedVersion' if f.version_evidence.score > 0
+      f.version = 'acceptedVersion' if f.version_evidence.score < 0
+      if f.version is 'unknown' and f.version_evidence.strings_checked > 0 #and f.format? and f.format isnt 'pdf'
+        f.version = 'acceptedVersion'
+  
+      try
+        ls = await @licence undefined, lowercontentsmall # check for licence info in the file content
+        if ls?.licence?
+          f.licence = ls.licence
+          f.licence_evidence = ls
+  
+      f.archivable = false
+      if confirmed
+        f.archivable = true
+        if confirmed is f.checksum
+          f.archivable_reason = 'The administrator has confirmed that this file is a version that can be archived.'
+          f.admin_confirms = true
+        else
+          f.archivable_reason = 'The depositor says that this file is a version that can be archived'
+          f.depositor_says = true
+      else if f.same_paper
+        if f.format isnt 'pdf'
+          f.archivable = true
+          f.archivable_reason = 'Since the file is not a PDF, we assume it is an accepted version'
+        if not f.archivable and f.licence? and f.licence.toLowerCase().startsWith 'cc'
+          f.archivable = true
+          f.archivable_reason = 'It appears this file contains a ' + f.licence + ' licence statement. Under this licence the article can be archived'
+        if not f.archivable
+          if f.version
+            if meta? and JSON.stringify(meta) isnt '{}'
+              permissions ?= await @permissions meta
+            if f.version is permissions?.best_permission?.version
+              f.archivable = true
+              f.archivable_reason = 'We believe this is a ' + f.version.split('V')[0] + ' version and our permission system says that version can be shared'
+            else
+              f.archivable_reason ?= 'We believe this file is a ' + f.version.split('V')[0] + ' version and our permission system does not list that as an archivable version'
+          else
+            f.archivable_reason = 'We cannot confirm if it is an archivable version or not'
+      else
+        f.archivable_reason ?= if not f.same_paper_evidence.words_more_than_threshold then 'The file is less than 500 words, and so does not appear to be a full article' else if not f.same_paper_evidence.document_format then 'File is an unexpected format ' + f.format else if not meta.doi and not meta.title then 'We have insufficient metadata to validate file is for the correct paper ' else 'File does not contain expected metadata such as DOI or title'
+  
+    if f.archivable and not f.licence?
+      if permissions?.best_permission?.licence
+        f.licence = permissions.best_permission.licence
+      else if (permissions?.best_permission?.deposit_statement ? '').toLowerCase().startsWith 'cc'
+        f.licence = permissions.best_permission.deposit_statement
+  
+    f.metadata = meta
 
-  if f.archivable and not f.licence?
-    if permissions?.best_permission?.licence
-      f.licence = permissions.best_permission.licence
-    else if (permissions?.best_permission?.deposit_statement ? '').toLowerCase().startsWith 'cc'
-      f.licence = permissions.best_permission.deposit_statement
+  _check()
+  setTimeout (() => f.timeout = true), @params.timeout ? 60000
+  
+  while not f.archivable? and not f.timeout
+    await @sleep 500
 
-  f.metadata = meta
   return f
 
 P.archivable._bg = true

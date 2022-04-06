@@ -125,7 +125,7 @@ P.fetch = (url, params) ->
           buff = true
           delete params.buffer
         response = await fetch url, params
-        console.log(response.status + ' ' + url) if (not url.includes('localhost') or response.status isnt 200) and S.dev and S.bg is true # status code can be found here
+        console.log(response.status + ' ' + url) if (not url.includes('localhost') or response.status not in [200, 404]) and S.dev and S.bg is true # status code can be found here
         # content type could be read from: response.headers.get('content-type')
         if buff
           r = await response.buffer()
