@@ -482,6 +482,8 @@ P.report.journals = () ->
 
 
 
+#P.report.orgs = _sheet: '1d_RxBLU2yNzfSNomPbWQQr3CS0f7BhMqp6r069E8LR4'
+
 P.report.compare = () ->
   res = 
     crossref: await @src.crossref.works.count '(funder.DOI:"10.13039/100000865" OR funder.name:"gates foundation" OR funder.name:"gates cambridge trust" OR author.affiliation.name:"melinda gates" OR author.affiliation.name:"gates cambridge trust")'
@@ -539,3 +541,191 @@ P.report.compare = () ->
             res.magnotcrossrefnotpubmed += 1
   return res
 
+P.report.estimate = () ->
+  orgs = 0
+  dups = 0
+  articles = 0
+  articledups = 0
+  zeros = 0
+  seen = []
+  dois = []
+  qrys = []
+  for await rec from @index._for 'src_ror', 'types:(nonprofit OR education OR government)', include: ['acronyms', 'name', 'aliases', 'id', 'external_ids']
+    skip = false
+    rec.name = rec.name.trim().replace /"/g, ''
+    qry = '"' + rec.id.split('/').pop() + '" OR funder.name.keyword:"' + rec.name + '" OR author.affiliation.name.keyword:"' + rec.name + '"'
+    if rec.name.length > 4
+      if rec.name in seen
+        skip = true
+      else
+        seen.push rec.name
+    for k in ['acronyms', 'aliases']
+      for c in (rec[k] ? [])
+        c = c.trim().replace /"/g, ''
+        if c.length > 4
+          qry += ' OR funder.name.keyword:"' + c + '" OR author.affiliation.name.keyword:"' + c + '"'
+          if c in seen
+            skip = true
+          else
+            seen.push c
+    if rec.external_ids?.GRID?.preferred? or rec.external_ids?.GRID?.all?
+      grid = rec.external_ids.GRID.preferred ? (if Array.isArray(rec.external_ids.GRID.all) then rec.external_ids.GRID.all[0] else rec.external_ids.GRID.all.split(',')[0])
+      if grid.length > 5
+        qry += ' OR "' + grid + '"'
+        if grid in seen
+          skip = true
+        else
+          seen.push grid
+    if not skip and qry.length > 4
+      qry = '(' + qry + ') AND (type.keyword:"journal-article" OR type.keyword:"posted-content") AND (year.keyword:"2022")'
+      qrys.push qry
+    else
+      dups += 1
+
+  ql = qrys.length
+  console.log 'running ' + ql + ' queries'
+  counter = 0
+  while q = qrys.pop()
+    counter += 1
+    console.log counter + ' of ' + ql
+    orgs += 1
+    #oars = await @index.count 'src_crossref_works', qry
+    oars = 0
+    for await cr from @index._for 'src_crossref_works', q, include: ['DOI']
+      dl = cr.DOI.toLowerCase()
+      if dl not in dois
+        #dois.push dl
+        oars += 1
+      else
+        articledups += 1
+    zeros += 1 if oars is 0
+    articles += oars
+    console.log q, oars, orgs, dups, articles, articledups, zeros
+
+  await @mail to: 'mark@oa.works', text: 'orgs: ' + orgs + ', duplicates: ' + dups + ', articles: ' + articles + ', articledups: ' + articledups + ', zeros: ' + zeros
+  return true
+P.report.estimate._async = true
+
+P.report.articles = _index: true, _prefix: false, _key: 'DOI'
+P.report.articles.load = () ->
+  started = await @epoch()
+  await @report.articles ''
+  total = 0
+  batch = []
+  qry = 'type.keyword:("journal-article" OR "posted-content") AND (funder.name:* OR author.affiliation.name:*) AND year.keyword:"2022"'
+  console.log 'Starting OA report articles load'
+  for await cr from @index._for 'src_crossref_works', qry, scroll: '20m', include: ['DOI', 'ISSN', 'subject', 'title', 'subtitle', 'volume', 'issue', 'year', 'publisher', 'published', 'funder', 'author', 'license', 'is_oa']
+    total += 1
+    rec = DOI: cr.DOI, ISSN: cr.ISSN, subject: cr.subject, subtitle: cr.subtitle, volume: cr.volume, year: cr.year, issue: cr.issue, publisher: cr.publisher, published: cr.published
+    rec.title = cr.title[0] if cr.title and cr.title.length
+    rec.journal = cr['container-title'][0] if cr['container-title'] and cr['container-title'].length
+    rec.funder_grant_ids = [] # these would be for all funders - will need a way to track and filter later depending on viewing funder
+    rec.funder_names = []
+    for f in cr.funder ? []
+      rec.funder_names.push(f.name) if f.name not in rec.funder_names
+      for fid in f.award ? []
+        for fidc in fid.split ','
+          fidc = fidc.trim()
+          rec.funder_grant_ids.push(fidc) if fidc not in rec.funder_grant_ids
+    rec.author_names = [] # calculate author email name based on these, when a relevant email is provided from sheet data
+    rec.author_affiliations = []
+    #rec.funders_and_affiliations = await @copy rec.funder_names
+    for a in cr.author ? []
+      an = a.name ? (if a.given then a.given + ' ' else '') + (a.family ? '')
+      rec.author_names.push(an) if an
+      for aff in a.affiliation ? []
+        rec.author_affiliations.push(aff.name) if aff.name and aff.name not in rec.author_affiliations
+        #rec.funders_and_affiliations.push(aff.name) if aff.name and aff.name not in rec.funders_and_affiliations
+    for lc in (cr.license ? [])
+      if lc['content-version'] in ['am', 'vor', 'tdm', 'unspecified']
+        rec['crossref_license_url_' + lc['content-version']] = lc.URL
+
+    #for fa in rec.funders_and_affiliations # testing this, it would need cleaning, there is garbage in these names like newlines etc
+    #  if rr = await @src.ror fa, 1
+    #    if rr?.id
+    #      rec.ror ?= []
+    #      ror = rr.id.split('/').pop()
+    #      rec.ror.push(ror) if ror and ror not in rec.ror # useful to store other ror data such as aliases etc? or just merge aliases to RORs when user picks an entity
+
+    oadoi = await @src.oadoi cr.DOI
+
+    for loc in oadoi?.oa_locations ? []
+      if loc.host_type is 'publisher'
+        rec.publisher_license ?= loc.license
+        rec.publisher_url_for_pdf ?= loc.url_for_pdf
+        rec.publisher_version ?= loc.version
+      if loc.host_type is 'repository'
+        if loc.url and loc.url.toLowerCase().includes 'pmc'
+          if not rec.PMCID
+            pp = loc.url.toLowerCase().split('pmc')[1].split('/')[0].split('?')[0].split('#')[0]
+            rec.PMCID = 'PMC' + pp if pp.length and pp.replace(/[^0-9]/g, '').length is pp.length and not isNaN parseInt pp
+          if loc.license and not rec.epmc_licence
+            rec.epmc_licence = loc.license
+        if not rec.repository_url or not rec.repository_url.includes 'pmc'
+          for ok in ['license', 'url_for_pdf', 'url', 'version']
+            rec['repository_' + ok] = loc[ok] if loc[ok]
+    if rec.repository_url and rec.repository_url.toLowerCase().includes 'pmc'
+      rec.PMCID ?= 'PMC' + rec.repository_url.toLowerCase().split('pmc').pop().split('/')[0].split('#')[0].split('?')[0]
+      rec.repository_url_in_pmc = true
+    if oadoi?
+      rec.best_oa_location_url = oadoi.best_oa_location?.url
+      rec.best_oa_location_url_for_pdf = oadoi.best_oa_location?.url_for_pdf
+      rec.oa_status = oadoi.oa_status
+      rec.has_repository_copy = oadoi.has_repository_copy
+      rec.has_oa_locations_embargoed = if oadoi.oa_locations_embargoed? and oadoi.oa_locations_embargoed.length then true else false
+      # oadoi.best_oa_location.license
+      rec.title ?= oadoi.title
+      rec.journal ?= oadoi.journal_name
+      rec.publisher ?= oadoi.publisher
+      rec.published = oadoi.published_date if oadoi.published_date
+      rec.year = oadoi.year if oadoi.year
+      rec.updated = oadoi.updated
+
+    if oadoi?.journal_is_in_doaj #or (oadoi?.best_oa_location?.license ? '').includes('cc')
+      rec.can_archive = true
+      rec.version = oadoi.best_oa_location.version ? 'publishedVersion'
+      rec.journal_oa_type = 'gold' # is this good enough or do we have to know diamond?
+    else
+      permissions = await @permissions rec, undefined, undefined, oadoi, cr
+      rec.can_archive = permissions?.best_permission?.can_archive
+      rec.version = permissions?.best_permission?.version
+      rec.journal_oa_type = permissions?.best_permission?.issuer?.journal_oa_type #? await @permissions.journals.oa.type undefined, undefined, oadoi, cr
+
+    #if not rec.PMCID and pubmed = await @src.pubmed.doi rec.DOI # pubmed is faster to lookup but can't rely on it being right if no PMC found in it, e.g. 10.1111/nyas.14608
+    #  rec.PMCID = 'PMC' + pubmed.identifier.pmc.toLowerCase().replace('pmc', '') if pubmed?.identifier?.pmc
+    #if not rec.PMCID and epmc = await @src.epmc.doi rec.DOI
+    #  rec.PMCID = epmc.pmcid
+    #if rec.PMCID and rec.repository_url_in_pmc and not rec.epmc_licence
+    #  lic = await @src.epmc.licence rec.PMCID, epmc
+    #  rec.epmc_licence = lic?.licence
+    #rec.pmc_has_data_availability_statement = rec.PMCID and await @src.pubmed.availability rec.PMCID
+
+    rec.crossref_is_oa = if not cr.is_oa? then false else cr.is_oa
+    rec.oadoi_is_oa = oadoi?.is_oa
+    rec.is_oa = oadoi?.is_oa or cr.is_oa or rec.journal_oa_type in ['gold'] # what about transformative or diamond? or any others?
+
+    rec.has_email = true if total%5 is 0
+    rec.apc_cost = Math.floor(Math.random() * (5000 - 100 + 1) + 100) if total%2 is 0
+
+    batch.push rec
+    if batch.length is 20000
+      await @report.articles batch
+      console.log 'OA report articles loading', total, (Math.ceil ((await @epoch()) - started)/60000)
+      batch = []
+
+  if batch.length
+    await @report.articles batch
+    console.log 'OA report final articles loading', total, batch[0].published, batch[batch.length-1].published
+    batch = []
+
+  took = Math.ceil ((await @epoch()) - started)/60000
+  console.log 'OA report done loading after ' + took + ' minutes'
+  @mail
+    to: ['mark@oa.works']
+    subject: 'OA report articles loaded ' + total + ' in ' + took + ' minutes'
+    text: 'https://bg.beta.oa.works/report/articles'
+  return total
+
+P.report.articles.load._bg = true
+P.report.articles.load._async = true
+P.report.articles.load._auth = 'root'

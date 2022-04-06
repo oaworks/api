@@ -36,7 +36,6 @@ P.src.epmc.search = (qrystr, from, size) ->
 
 P.src.epmc.doi = (ident) ->
   ident ?= @params.doi
-  console.log ident
   if res = await @src.epmc 'doi:"' + ident + '"', 1
     return res
   else

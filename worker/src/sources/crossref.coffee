@@ -5,7 +5,7 @@
 P.src.crossref = () ->
   return 'Crossref API wrapper'
 
-P.src.crossref.works = (doi) ->
+'''P.src.crossref.works = (doi) ->
   doi ?= @params.works ? @params.doi ? @params.title ? @params.q
   if typeof doi is 'string'
     if doi.indexOf('10.') isnt 0
@@ -19,10 +19,10 @@ P.src.crossref.works = (doi) ->
 
     if res?.message?.DOI?
       return @src.crossref.works._format res.message
+  return'''
 
-  return
-
-P.src.crossref.works._index = settings: number_of_shards: 9
+#P.src.crossref.works._index = settings: number_of_shards: 9
+P.src.crossref.works = _index: settings: number_of_shards: 9
 P.src.crossref.works._key = 'DOI'
 P.src.crossref.works._prefix = false
 
