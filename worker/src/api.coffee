@@ -101,7 +101,7 @@ P = () ->
   @params ?= {}
   if @request.url? and @request.url.includes '?'
     pkp = ''
-    for qp in @request.url.split('?')[1].split '&'
+    for qp in (await P.decode @request.url).split('?')[1].split '&'
       kp = qp.split '='
       if kp[0].length # avoid &&
         if kp.length is 1 and pkp and (kp[0].startsWith(' ') or kp[0].includes('%'))

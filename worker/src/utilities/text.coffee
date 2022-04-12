@@ -86,7 +86,7 @@ P.extract = (opts) ->
 	return res
 
 P.decode = (content) ->
-  content ?= @params.decode ? @params.content ? @params.text ? @body
+  content ?= this?.params?.decode ? this?.params?.content ? this?.params?.text ? this?.body
   _decode = (content) ->
     # https://stackoverflow.com/questions/44195322/a-plain-javascript-way-to-decode-html-entities-works-on-both-browsers-and-node
     translator = /&(nbsp|amp|quot|lt|gt);/g

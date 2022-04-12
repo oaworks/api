@@ -160,7 +160,8 @@ P = async function() {
   }
   if ((this.request.url != null) && this.request.url.includes('?')) {
     pkp = '';
-    ref = this.request.url.split('?')[1].split('&');
+    console.log(this.request.url);
+    ref = ((await P.decode(this.request.url))).split('?')[1].split('&');
     for (i = 0, len = ref.length; i < len; i++) {
       qp = ref[i];
       kp = qp.split('=');
@@ -2502,6 +2503,7 @@ P.find = async function(options, metadata = {}, content) {
       options = this.copy(this.params);
     }
   } catch (error) {}
+  console.log(options);
   if (options == null) {
     options = {};
   }
@@ -2569,6 +2571,9 @@ P.find = async function(options, metadata = {}, content) {
   if (typeof options.title === 'string' && (options.title.includes('{') || ((ref4 = options.title.replace('...', '').match(/\./gi)) != null ? ref4 : []).length > 3 || ((ref5 = options.title.match(/\(/gi)) != null ? ref5 : []).length > 2)) {
     options.citation = options.title; // titles that look like citations
     delete options.title;
+  }
+  if (options.doi) {
+    options.doi = (await this.decode(options.doi));
   }
   if (metadata.doi == null) {
     metadata.doi = options.doi;
@@ -3678,7 +3683,6 @@ P.ill.subscription = async function(config, meta) {
       meta = this.params.meta;
       delete config.meta;
     } else if (config.doi && this.keys(config).length === 2) {
-      console.log(config.doi);
       meta = (await this.metadata(config.doi));
       delete config.doi;
     } else {
@@ -3923,6 +3927,9 @@ P.ill.subscription = async function(config, meta) {
         }
       }
     }
+  }
+  if (res.url) {
+    res.url = (await this.decode(res.url));
   }
   return res;
 };
@@ -5664,7 +5671,15 @@ P.report.journals = async function() {
   return jrnlist;
 };
 
-//P.report.orgs = _sheet: '1d_RxBLU2yNzfSNomPbWQQr3CS0f7BhMqp6r069E8LR4'
+P.report.orgs = {
+  _sheet: '1d_RxBLU2yNzfSNomPbWQQr3CS0f7BhMqp6r069E8LR4/dev'
+};
+
+P.report.emails = {
+  _sheet: '1U3YXF1DLhGvP4PgqxNQuHOSR99RWuwVeMmdTAmSM45U/Export',
+  _key: 'DOI'
+};
+
 P.report.compare = async function() {
   var cr, crs, paper, pubmednotcrossref, rec, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, res, seen;
   res = {
@@ -5846,13 +5861,22 @@ P.report.articles = {
 };
 
 P.report.articles.load = async function() {
-  var a, aff, an, batch, cr, f, fid, fidc, i, l, lc, len, len1, len2, len3, len4, len5, len6, len7, loc, n, o, oadoi, ok, permissions, pp, qry, rec, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref3, ref4, ref5, ref6, ref7, ref8, ref9, started, t, took, total, u, v, w;
+  var a, aff, amount, an, batch, cr, f, fid, fidc, i, l, lc, len, len1, len2, len3, len4, len5, len6, len7, loc, n, o, oadoi, ok, permissions, pp, qry, rec, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref3, ref4, ref5, ref6, ref7, ref8, ref9, started, t, took, total, u, v, w, year;
   started = (await this.epoch());
-  await this.report.articles('');
+  if (this.params.load != null) {
+    year = this.params.load;
+    if (typeof year === 'string' && year.includes(',')) {
+      year = '(' + year.split(',').join(' OR ') + ')';
+    }
+  } else {
+    year = '2022';
+    await this.report.articles('');
+  }
   total = 0;
   batch = [];
-  qry = 'type.keyword:("journal-article" OR "posted-content") AND (funder.name:* OR author.affiliation.name:*) AND year.keyword:"2022"';
-  console.log('Starting OA report articles load');
+  qry = 'type.keyword:("journal-article" OR "posted-content") AND (funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year;
+  amount = (await this.src.crossref.works.count(qry));
+  console.log('Starting OA report articles loading ' + amount);
   ref = this.index._for('src_crossref_works', qry, {
     scroll: '20m',
     include: ['DOI', 'ISSN', 'subject', 'title', 'subtitle', 'volume', 'issue', 'year', 'publisher', 'published', 'funder', 'author', 'license', 'is_oa']
@@ -13084,9 +13108,9 @@ P.extract = async function(opts) {
 };
 
 P.decode = async function(content) {
-  var _decode, c, k, len, re, ref, ref1, ref2, ref3, text;
+  var _decode, c, k, len, re, ref, ref1, ref2, ref3, ref4, ref5, ref6, text;
   if (content == null) {
-    content = (ref = (ref1 = (ref2 = this.params.decode) != null ? ref2 : this.params.content) != null ? ref1 : this.params.text) != null ? ref : this.body;
+    content = (ref = (ref1 = (ref2 = this != null ? (ref3 = this.params) != null ? ref3.decode : void 0 : void 0) != null ? ref2 : this != null ? (ref4 = this.params) != null ? ref4.content : void 0 : void 0) != null ? ref1 : this != null ? (ref5 = this.params) != null ? ref5.text : void 0 : void 0) != null ? ref : this != null ? this.body : void 0;
   }
   _decode = function(content) {
     var translate, translator;
@@ -13109,7 +13133,7 @@ P.decode = async function(content) {
   };
   text = (await _decode(content));
   text = text.replace(/\n/g, ' ');
-  ref3 = [
+  ref6 = [
     {
       bad: '‘',
       good: "'"
@@ -13139,8 +13163,8 @@ P.decode = async function(content) {
       good: '-'
     }
   ];
-  for (k = 0, len = ref3.length; k < len; k++) {
-    c = ref3[k];
+  for (k = 0, len = ref6.length; k < len; k++) {
+    c = ref6[k];
     re = new RegExp(c.bad, 'g');
     text = text.replace(re, c.good);
   }
@@ -13177,7 +13201,7 @@ P.uid = function(length) {
 P.uid._cache = false;
 
 
-S.built = "Wed Apr 06 2022 05:49:08 GMT+0100";
+S.built = "Tue Apr 12 2022 10:03:44 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor

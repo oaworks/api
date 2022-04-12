@@ -482,7 +482,8 @@ P.report.journals = () ->
 
 
 
-#P.report.orgs = _sheet: '1d_RxBLU2yNzfSNomPbWQQr3CS0f7BhMqp6r069E8LR4'
+P.report.orgs = _sheet: '1d_RxBLU2yNzfSNomPbWQQr3CS0f7BhMqp6r069E8LR4/dev'
+P.report.emails = _sheet: '1U3YXF1DLhGvP4PgqxNQuHOSR99RWuwVeMmdTAmSM45U/Export', _key: 'DOI'
 
 P.report.compare = () ->
   res = 
@@ -609,11 +610,17 @@ P.report.estimate._async = true
 P.report.articles = _index: true, _prefix: false, _key: 'DOI'
 P.report.articles.load = () ->
   started = await @epoch()
-  await @report.articles ''
+  if @params.load?
+    year = @params.load
+    year = '(' + year.split(',').join(' OR ') + ')' if typeof year is 'string' and year.includes ','
+  else
+    year = '2022'
+    await @report.articles ''
   total = 0
   batch = []
-  qry = 'type.keyword:("journal-article" OR "posted-content") AND (funder.name:* OR author.affiliation.name:*) AND year.keyword:"2022"'
-  console.log 'Starting OA report articles load'
+  qry = 'type.keyword:("journal-article" OR "posted-content") AND (funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year
+  amount = await @src.crossref.works.count qry
+  console.log 'Starting OA report articles loading ' + amount
   for await cr from @index._for 'src_crossref_works', qry, scroll: '20m', include: ['DOI', 'ISSN', 'subject', 'title', 'subtitle', 'volume', 'issue', 'year', 'publisher', 'published', 'funder', 'author', 'license', 'is_oa']
     total += 1
     rec = DOI: cr.DOI, ISSN: cr.ISSN, subject: cr.subject, subtitle: cr.subtitle, volume: cr.volume, year: cr.year, issue: cr.issue, publisher: cr.publisher, published: cr.published
