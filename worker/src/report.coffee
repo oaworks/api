@@ -11,6 +11,9 @@ P.report.check = (ror, reload) ->
   ts = await @datetime(false).replace /[-T\: ]/g, '_'
   console.log 'OA check running', ts, reload
 
+  if not reload
+    await @report.supplements ''
+
   _from_crossref = (cr) =>
     cr.published = await @src.crossref.works.published cr
     try cr.year = cr.published.split('-')[0]
@@ -128,7 +131,10 @@ P.report.check = (ror, reload) ->
     #  rows.shift()
     #  rows.shift() # get rid of junk rows at top
     headers = []
-    headers.push(header.toLowerCase().trim().replace(/ /g, '_').replace('?', '')) for header in rows.shift() # get headers
+    if rows? # catch google lookup fails
+      headers.push(header.toLowerCase().trim().replace(/ /g, '_').replace('?', '')) for header in rows.shift() # get headers
+    else
+      rows = []
     for row in rows
       rec = {}
       for h of headers
@@ -152,7 +158,7 @@ P.report.check = (ror, reload) ->
             recs[rd] = await _from_crossref cr
           else
             recs[rd] = DOI: rd, in_crossref: false
-            recs[rd].doi_resolves = false if not await @fetch 'https://doi.org/' + rd
+            #recs[rd].doi_resolves = false if not await @fetch 'https://doi.org/' + rd
           try
             recs[rd].sheets ?= []
             recs[rd].sheets.push(s) if s not in recs[rd].sheets
@@ -328,19 +334,22 @@ P.report.check = (ror, reload) ->
           await fs.appendFile out, (if k isnt 'DOI' then ',"' else '"') + val.toString().replace(/"/g, '').replace(/\n/g, '').replace(/\s\s+/g, ' ') + '"'
   
       console.log('Gates OA checking', batch.length, dois) if batch.length % 100 is 0
-
-  if not reload
-    await @report.supplements '' # change this to a delete of only those that are relevant to the source files of the org being checked
-  await @report.supplements batch
+      if batch.length is 5000
+        await @report.supplements batch
+        batch = []
+  
+  if batch.length
+    await @report.supplements batch
+    batch = []
 
   took = Math.ceil ((await @epoch()) - started)/60000
   console.log 'OA check done after ' + took + ' minutes', reload
   if not reload
     @mail
       to: ['mark@oa.works', 'joe@oa.works', 'sarah@oa.works']
-      subject: 'Gates OA check done ' + batch.length + ' in ' + took + ' minutes'
+      subject: 'Gates OA check done ' + counter + ' in ' + took + ' minutes'
       text: 'https://static.oa.works/report/' + (out ? '').split('/report/').pop()
-  return batch.length
+  return counter
 
 P.report.check._bg = true
 P.report.check._async = true

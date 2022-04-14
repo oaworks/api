@@ -160,7 +160,6 @@ P = async function() {
   }
   if ((this.request.url != null) && this.request.url.includes('?')) {
     pkp = '';
-    console.log(this.request.url);
     ref = ((await P.decode(this.request.url))).split('?')[1].split('&');
     for (i = 0, len = ref.length; i < len; i++) {
       qp = ref[i];
@@ -2503,7 +2502,6 @@ P.find = async function(options, metadata = {}, content) {
       options = this.copy(this.params);
     }
   } catch (error) {}
-  console.log(options);
   if (options == null) {
     options = {};
   }
@@ -4006,7 +4004,7 @@ P.licences = {
 var indexOf = [].indexOf;
 
 P.permissions = async function(meta, ror, getmeta, oadoi, crossref) { // oadoi and crossref are just ways for other functions to pass in oadoi or crossref record objects to save looking them up again
-  var _format, _getmeta, _score, af, altoa, dl, doa, fz, haddoi, i, inisn, issns, j, key, l, len, len1, len2, len3, len4, len5, len6, len7, len8, len9, ll, longest, lvs, m, msgs, n, o, overall_policy_restriction, p, pb, perms, pisoa, ps, qr, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref3, ref4, ref5, ref6, ref7, ref8, ref9, ro, rors, rp, rr, rs, rw, s, t, tr, u, v, vl, wp;
+  var _format, _getmeta, _score, af, altoa, dl, doa, fz, haddoi, i, inisn, issns, j, key, l, len, len1, len2, len3, len4, len5, len6, len7, len8, len9, ll, longest, lvs, m, msgs, n, o, overall_policy_restriction, p, pb, perms, pisoa, ps, qr, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref4, ref5, ref6, ref7, ref8, ref9, ro, rors, rp, rr, rs, rw, s, t, tr, u, v, vl, wp;
   overall_policy_restriction = false;
   haddoi = false;
   _format = async function(rec) {
@@ -4444,10 +4442,14 @@ P.permissions = async function(meta, ror, getmeta, oadoi, crossref) { // oadoi a
           });
         }
       }
-      if ((issns || ((ref21 = wp.issuer) != null ? ref21.type : void 0) === 'journal') && !wp.issuer.journal_oa_type) {
+      if (haddoi && ((ref21 = wp.issuer) != null ? ref21.journal_oa_type_from : void 0) && meta.published && Date.parse(meta.published) < Date.parse(wp.issuer.journal_oa_type_from)) {
+        delete wp.issuer.journal_oa_type;
+      }
+      delete wp.issuer.journal_oa_type_from;
+      if ((issns || ((ref22 = wp.issuer) != null ? ref22.type : void 0) === 'journal') && !wp.issuer.journal_oa_type) {
         wp.issuer.journal_oa_type = (await this.permissions.journals.oa.type(issns != null ? issns : wp.issuer.id, af, oadoi, crossref));
       }
-      if (!((ref22 = wp.provenance) != null ? ref22.enforcement_from : void 0)) {
+      if (!((ref23 = wp.provenance) != null ? ref23.enforcement_from : void 0)) {
         perms.best_permission = this.copy(wp);
         break;
       } else if (!meta.published || Date.parse(meta.published) > Date.parse(wp.provenance.enforcement_from.split('/').reverse().join('-'))) {
@@ -4468,20 +4470,24 @@ P.permissions = async function(meta, ror, getmeta, oadoi, crossref) { // oadoi a
 // check this gives the order in the direction we want, else reverse it
       for (t = 0, len7 = rors.length; t < len7; t++) {
         ro = rors[t];
-        if ((issns || ((ref23 = ro.issuer) != null ? ref23.type : void 0) === 'journal') && !ro.issuer.journal_oa_type) {
+        if (haddoi && ((ref24 = ro.issuer) != null ? ref24.journal_oa_type_from : void 0) && meta.published && Date.parse(meta.published) < Date.parse(ro.issuer.journal_oa_type_from)) {
+          delete ro.issuer.journal_oa_type;
+        }
+        delete ro.issuer.journal_oa_type_from;
+        if ((issns || ((ref25 = ro.issuer) != null ? ref25.type : void 0) === 'journal') && !ro.issuer.journal_oa_type) {
           ro.issuer.journal_oa_type = (await this.permissions.journals.oa.type(issns != null ? issns : ro.issuer.id, af, oadoi, crossref));
         }
         perms.all_permissions.push(ro);
-        if (((ref24 = perms.best_permission) != null ? ref24.author_affiliation_requirement : void 0) == null) {
+        if (((ref26 = perms.best_permission) != null ? ref26.author_affiliation_requirement : void 0) == null) {
           if (perms.best_permission != null) {
-            if (!((ref25 = ro.provenance) != null ? ref25.enforcement_from : void 0) || !meta.published || Date.parse(meta.published) > Date.parse(ro.provenance.enforcement_from.split('/').reverse().join('-'))) {
+            if (!((ref27 = ro.provenance) != null ? ref27.enforcement_from : void 0) || !meta.published || Date.parse(meta.published) > Date.parse(ro.provenance.enforcement_from.split('/').reverse().join('-'))) {
               pb = this.copy(perms.best_permission);
-              ref26 = ['versions', 'locations'];
-              for (u = 0, len8 = ref26.length; u < len8; u++) {
-                key = ref26[u];
-                ref27 = ro[key];
-                for (v = 0, len9 = ref27.length; v < len9; v++) {
-                  vl = ref27[v];
+              ref28 = ['versions', 'locations'];
+              for (u = 0, len8 = ref28.length; u < len8; u++) {
+                key = ref28[u];
+                ref29 = ro[key];
+                for (v = 0, len9 = ref29.length; v < len9; v++) {
+                  vl = ref29[v];
                   if (pb[key] == null) {
                     pb[key] = [];
                   }
@@ -4531,7 +4537,7 @@ P.permissions = async function(meta, ror, getmeta, oadoi, crossref) { // oadoi a
       'not publisher': 'Please find another DOI for this article as this is provided as this doesn’t allow us to find required information like who published it'
     };
     return {
-      body: typeof overall_policy_restriction !== 'string' ? overall_policy_restriction : (ref28 = msgs[overall_policy_restriction.toLowerCase()]) != null ? ref28 : overall_policy_restriction,
+      body: typeof overall_policy_restriction !== 'string' ? overall_policy_restriction : (ref30 = msgs[overall_policy_restriction.toLowerCase()]) != null ? ref30 : overall_policy_restriction,
       status: 501
     };
   } else {
@@ -4841,6 +4847,9 @@ P.report.check = async function(ror, reload) {
   started = (await this.epoch());
   ts = (await this.datetime(false).replace(/[-T\: ]/g, '_'));
   console.log('OA check running', ts, reload);
+  if (!reload) {
+    await this.report.supplements('');
+  }
   _from_crossref = async(cr) => {
     var a, aff, an, crf, f, fid, fidc, i, l, lc, len, len1, len2, len3, len4, len5, len6, n, name, o, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, t, u, v, x;
     cr.published = (await this.src.crossref.works.published(cr));
@@ -5059,11 +5068,15 @@ P.report.check = async function(ror, reload) {
     //  rows.shift()
     //  rows.shift() # get rid of junk rows at top
     headers = [];
-    ref5 = rows.shift();
-    // get headers
-    for (n = 0, len2 = ref5.length; n < len2; n++) {
-      header = ref5[n];
-      headers.push(header.toLowerCase().trim().replace(/ /g, '_').replace('?', ''));
+    if (rows != null) {
+      ref5 = rows.shift();
+      // get headers
+      for (n = 0, len2 = ref5.length; n < len2; n++) {
+        header = ref5[n];
+        headers.push(header.toLowerCase().trim().replace(/ /g, '_').replace('?', ''));
+      }
+    } else {
+      rows = []; // catch google lookup fails
     }
     for (o = 0, len3 = rows.length; o < len3; o++) {
       row = rows[o];
@@ -5101,11 +5114,9 @@ P.report.check = async function(ror, reload) {
               DOI: rd,
               in_crossref: false
             };
-            if (!(await this.fetch('https://doi.org/' + rd))) {
-              recs[rd].doi_resolves = false;
-            }
           }
           try {
+            //recs[rd].doi_resolves = false if not await @fetch 'https://doi.org/' + rd
             if ((base2 = recs[rd]).sheets == null) {
               base2.sheets = [];
             }
@@ -5432,22 +5443,26 @@ P.report.check = async function(ror, reload) {
       if (batch.length % 100 === 0) {
         console.log('Gates OA checking', batch.length, dois);
       }
+      if (batch.length === 5000) {
+        await this.report.supplements(batch);
+        batch = [];
+      }
     }
   }
-  if (!reload) {
-    await this.report.supplements(''); // change this to a delete of only those that are relevant to the source files of the org being checked
+  if (batch.length) {
+    await this.report.supplements(batch);
+    batch = [];
   }
-  await this.report.supplements(batch);
   took = Math.ceil((((await this.epoch())) - started) / 60000);
   console.log('OA check done after ' + took + ' minutes', reload);
   if (!reload) {
     this.mail({
       to: ['mark@oa.works', 'joe@oa.works', 'sarah@oa.works'],
-      subject: 'Gates OA check done ' + batch.length + ' in ' + took + ' minutes',
+      subject: 'Gates OA check done ' + counter + ' in ' + took + ' minutes',
       text: 'https://static.oa.works/report/' + (out != null ? out : '').split('/report/').pop()
     });
   }
-  return batch.length;
+  return counter;
 };
 
 P.report.check._bg = true;
@@ -13201,7 +13216,7 @@ P.uid = function(length) {
 P.uid._cache = false;
 
 
-S.built = "Tue Apr 12 2022 10:03:44 GMT+0100";
+S.built = "Wed Apr 13 2022 16:09:21 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
