@@ -142,7 +142,6 @@ P.ill.subscription = (config, meta) ->
       meta = @params.meta
       delete config.meta
     else if config.doi and @keys(config).length is 2
-      console.log config.doi
       meta = await @metadata config.doi
       delete config.doi
     else
@@ -330,6 +329,7 @@ P.ill.subscription = (config, meta) ->
             res.found = 'exlibris'
             return res
 
+  res.url = await @decode(res.url) if res.url
   return res
 
 

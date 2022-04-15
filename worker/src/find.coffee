@@ -59,6 +59,7 @@ P.find = (options, metadata={}, content) ->
     options.citation = options.title # titles that look like citations
     delete options.title
 
+  options.doi = await @decode(options.doi) if options.doi
   metadata.doi ?= options.doi
   metadata.title ?= options.title
   metadata.pmid ?= options.pmid

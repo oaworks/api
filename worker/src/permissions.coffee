@@ -267,6 +267,8 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref) -> # oadoi and crossref ar
       if not wp.licences?
         wp.licences = []
         wp.licences.push(type: wp.licence) if wp.licence
+      delete wp.issuer.journal_oa_type if haddoi and wp.issuer?.journal_oa_type_from and meta.published and Date.parse(meta.published) < Date.parse(wp.issuer.journal_oa_type_from)
+      delete wp.issuer.journal_oa_type_from
       if (issns or wp.issuer?.type is 'journal') and not wp.issuer.journal_oa_type
         wp.issuer.journal_oa_type = await @permissions.journals.oa.type (issns ? wp.issuer.id), af, oadoi, crossref
       if not wp.provenance?.enforcement_from
@@ -280,6 +282,8 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref) -> # oadoi and crossref ar
     if rors.length # this only happens as an augment to some other permission, so far
       rors.sort (a, b) => return if (a.score < b.score) then 1 else -1
       for ro in rors # check this gives the order in the direction we want, else reverse it
+        delete ro.issuer.journal_oa_type if haddoi and ro.issuer?.journal_oa_type_from and meta.published and Date.parse(meta.published) < Date.parse(ro.issuer.journal_oa_type_from)
+        delete ro.issuer.journal_oa_type_from
         if (issns or ro.issuer?.type is 'journal') and not ro.issuer.journal_oa_type
           ro.issuer.journal_oa_type = await @permissions.journals.oa.type (issns ? ro.issuer.id), af, oadoi, crossref
         perms.all_permissions.push ro
