@@ -56,11 +56,25 @@ P.src.google.sheets = (opts) ->
       if g.values?
         toprow = g.values.shift() # NOTE there is NO WAY to identify column headers any more it seems, certainly not from this response format. Just pop them off the values list
         for hd in toprow
+          try hd = hd.trim()
           headers.push hd #.toLowerCase().replace /[^a-z0-9]/g, ''
     values = []
     for l in g.values
       val = {}
       for h of headers
+        #try l[h] = l[h].trim()
+        #try
+        #  l[h] = true if l[h].toLowerCase() is 'true'
+        #  l[h] = false if l[h].toLowerCase() is 'false'
+        #try
+        #  if ((l[h].startsWith('[') and l[h].endsWith(']')) or (l[h].startsWith('{') and l[h].endsWith('}')))
+        #    try l[h] = JSON.parse l[h]
+        #if opts.dot isnt false and typeof l[h] isnt 'object' and headers[h].includes '.'
+        #  try
+        #    await @dot val, headers[h], l[h]
+        #  catch
+        #    try val[headers[h]] = l[h]
+        #else
         try val[headers[h]] = l[h]
       values.push(val) if JSON.stringify(val) isnt '{}'
   

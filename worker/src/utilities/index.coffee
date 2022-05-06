@@ -148,6 +148,11 @@ P.index._caches = false
 
 P.index.status = () ->
   res = status: 'green'
+  try
+    stats = await @index._send '_nodes/stats/indices/search'
+    for i of stats.nodes
+      res.scrolls ?= 0
+      res.scrolls += stats.nodes[i].indices.search.open_contexts
   res.indices = {}
   s = await @index._send '_stats'
   shards = await @index._send '_cat/shards?format=json'
@@ -679,8 +684,22 @@ P.index._send = (route, data, method) ->
     console.log 'NO INDEX URL AVAILABLE'
     return undefined
 
+  provided_scroll_id = false
+  if route.includes('/_search') and typeof data is 'object' and (data.scroll_id? or data.scroll)
+    data.scroll = '2m' if data.scroll is true
+    data.scroll += 'm' if typeof data.scroll is 'number' or (typeof data.scroll is 'string' and not data.scroll.endsWith 'm')
+    route += (if route.indexOf('?') is -1 then '?' else '&') + 'scroll=' + (data.scroll ? '2m')
+    if data.scroll_id
+      provided_scroll_id = data.scroll_id
+      route = route.split('://')[0] + '://' + route.split('://')[1].split('/')[0] + '/_search/scroll' + (if route.includes('?') then '?' + route.split('?')[1] else '')
+      route += (if route.indexOf('?') is -1 then '?' else '&') + 'scroll_id=' + data.scroll_id
+      data = undefined
+    else
+      delete data.scroll_id
+      delete data.scroll
+
   route = route += rqp
-  opts = if route.indexOf('/_bulk') isnt -1 or typeof data?.headers is 'object' then data else body: data # fetch requires data to be body
+  opts = if route.indexOf('/_bulk') isnt -1 or (typeof data is 'object' and typeof data.headers is 'object') then data else body: data # fetch requires data to be body
   if route.indexOf('/_search') isnt -1 and method in ['GET', 'POST'] # scrolling isn't a new search so ignore a scroll DELETE otherwise adding the param would error
     # avoid hits.total coming back as object in new ES, because it also becomes vague
     # see hits.total https://www.elastic.co/guide/en/elasticsearch/reference/current/breaking-changes-7.0.html
@@ -704,4 +723,8 @@ P.index._send = (route, data, method) ->
     return undefined
   else
     try res.q = data if @S.dev and data?.query?
+    if res?._scroll_id
+      res.scroll_id = res._scroll_id.replace /==$/, ''
+      delete res._scroll_id
+    await @index._send('/_search/scroll?scroll_id=' + provided_scroll_id, '') if provided_scroll_id and provided_scroll_id isnt res?.scroll_id
     return res

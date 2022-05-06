@@ -333,7 +333,7 @@ P.report.check = (ror, reload) ->
             val += (if val then ',' else '') + m.matched for m in res.matches ? []
           await fs.appendFile out, (if k isnt 'DOI' then ',"' else '"') + val.toString().replace(/"/g, '').replace(/\n/g, '').replace(/\s\s+/g, ' ') + '"'
   
-      console.log('Gates OA checking', batch.length, dois) if batch.length % 100 is 0
+      console.log('Gates OA checking', counter, dois) if counter % 100 is 0
       if batch.length is 5000
         await @report.supplements batch
         batch = []
@@ -491,7 +491,37 @@ P.report.journals = () ->
 
 
 
-P.report.orgs = _sheet: '1d_RxBLU2yNzfSNomPbWQQr3CS0f7BhMqp6r069E8LR4/dev'
+P.report.orgs = _sheet: '1d_RxBLU2yNzfSNomPbWQQr3CS0f7BhMqp6r069E8LR4/dev' , _format: (recs=[]) ->
+  ready = []
+  bs = 0
+  for rec in (if typeof recs is 'object' and not Array.isArray(recs) then [recs] else recs)
+    nr = {}
+    for h of rec
+      if typeof rec[h] is 'string'
+        rec[h] = rec[h].trim()
+        if rec[h].toLowerCase() is 'true'
+          rec[h] = true
+        else if rec[h].toLowerCase() is 'false'
+          rec[h] = false
+        else if ((rec[h].startsWith('[') and rec[h].endsWith(']')) or (rec[h].startsWith('{') and rec[h].endsWith('}')))
+          try
+            rec[h] = JSON.parse rec[h]
+          catch err
+            console.log 'cant parse ' + h, rec[h], err
+            bs += 1
+      if h.includes '.'
+        try @dot nr, h, rec[h]
+      else
+        nr[h] = rec[h]
+    if Array.isArray nr.sheets
+      for s in nr.sheets
+        s.url = await @encrypt s.url
+    else
+      delete nr.sheets
+    ready.push(nr) if JSON.stringify(nr) isnt '{}'
+  console.log bs + ' bad sheets strings'
+  return if ready.length is 1 then ready[0] else ready
+
 P.report.emails = _sheet: '1U3YXF1DLhGvP4PgqxNQuHOSR99RWuwVeMmdTAmSM45U/Export', _key: 'DOI'
 
 P.report.compare = () ->

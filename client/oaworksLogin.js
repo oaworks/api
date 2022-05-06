@@ -157,7 +157,7 @@ _OALogin.cookie = function(n, vs, opts) {
     n = void 0;
   }
   if (n == null) {
-    n = 'pradm';
+    n = 'oaworksLogin';
   }
   if (vs != null) {
     if (opts == null) {
@@ -226,8 +226,8 @@ _OALogin.token = function(e) {
   } catch (error) {}
   _OALogin.cookie(false);
   // TODO add a validation of the email val if email not already set?
-  if (!(email = document.getElementById('#OALoginEmail').value)) {
-    document.getElementById('#OALoginEmail').focus();
+  if (!(email = document.getElementById('OALoginEmail').value)) {
+    document.getElementById('OALoginEmail').focus();
     return;
   }
   _OALogin.hide('.OALoginEmail');
@@ -236,7 +236,7 @@ _OALogin.token = function(e) {
   opts = {
     success: function(data) {
       _OALogin.hide('.OALoading');
-      document.getElementById('#OALoginToken').focus();
+      document.getElementById('OALoginToken').focus();
       return _OALogin._loggingin = setInterval(function() {
         if (_OALogin.loggedin()) {
           return _OALogin.loginSuccess();
@@ -277,7 +277,7 @@ _OALogin.loginSuccess = function(data) {
   } else {
     try {
       _OALogin.show('.OALoginLogout');
-      document.getElementById('#OALoginLogout').addEventListener('click', _OALogin.logout);
+      document.getElementById('OALoginLogout').addEventListener('click', _OALogin.logout);
     } catch (error) {}
     try {
       if (typeof _OALogin.afterLogin === 'function') {
@@ -299,8 +299,8 @@ _OALogin.loginError = function(err, xhr) {
   _OALogin.account = void 0;
   _OALogin.hide('.OALoading');
   _OALogin.hide('.OALoginToken');
-  document.getElementById('#OALoginEmail').value = '';
-  document.getElementById('#OALoginEmail').setAttribute('placeholder', 'error, enter your email to try again');
+  document.getElementById('OALoginEmail').value = '';
+  document.getElementById('OALoginEmail').setAttribute('placeholder', 'error, enter your email to try again');
   _OALogin.show('.OALoginEmail');
   return _OALogin.show('.OALogin');
 };
@@ -315,7 +315,7 @@ _OALogin.login = function(e) {
     error: _OALogin.loginError,
     data: {}
   };
-  pt = document.getElementById('#OALoginToken').value;
+  pt = document.getElementById('OALoginToken').value;
   if (window.location.hash.replace('#', '').length === 8) {
     opts.data.token = window.location.hash.replace('#', '');
     try {
@@ -374,15 +374,15 @@ _OALogin.logout = function(e) {
 document.addEventListener('DOMContentLoaded', function() {
   var loggedin;
   try {
-    document.getElementById('#OALoginEmail').addEventListener('keyup', function(e) {
+    document.getElementById('OALoginEmail').addEventListener('keyup', function(e) {
       if (e.keyCode === 13) {
         return _OALogin.token(e);
       }
     });
   } catch (error) {}
   try {
-    document.getElementById('#OALoginToken').addEventListener('keyup', function(e) {
-      if (document.getElementById('#OALoginToken').value.length === 8) {
+    document.getElementById('OALoginToken').addEventListener('keyup', function(e) {
+      if (document.getElementById('OALoginToken').value.length === 8) {
         return _OALogin.login();
       }
     });

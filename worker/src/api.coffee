@@ -108,7 +108,7 @@ P = () ->
           @params[pkp] += '&' + decodeURIComponent kp[0] # try to catch things like q="smith & jones"
         else
           @params[kp[0]] = if kp.length is 1 then true else if typeof kp[1] is 'string' and kp[1].toLowerCase() is 'true' then true else if typeof kp[1] is 'string' and kp[1].toLowerCase() is 'false' then false else if qp.endsWith('=') then true else kp[1]
-          if typeof @params[kp[0]] is 'string' and @params[kp[0]].replace(/[0-9]/g,'').length is 0 and not @params[kp[0]].startsWith('0')
+          if typeof @params[kp[0]] is 'string' and @params[kp[0]].replace(/[0-9]/g,'').length is 0 and (@params[kp[0]] is '0' or not @params[kp[0]].startsWith('0'))
             kpn = parseInt @params[kp[0]]
             @params[kp[0]] = kpn if not isNaN kpn
           if typeof @params[kp[0]] is 'string' and @params[kp[0]].includes '%'
