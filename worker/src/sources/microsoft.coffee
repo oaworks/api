@@ -22,7 +22,7 @@ P.src.microsoft.bing = (q, key, market, count, cache) ->
     if res?.webPages?.value
       return {total: res.webPages.totalEstimatedMatches, data: res.webPages.value}
   return {total: 0, data: []}
-P.src.microsoft.bing._auth = 'root'
+P.src.microsoft.bing._auth = '@oa.works'
 
 
 P.src.microsoft.graph = _prefix: false, _index: settings: number_of_shards: 9

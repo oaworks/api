@@ -169,7 +169,7 @@ P = async function() {
           this.params[pkp] += '&' + decodeURIComponent(kp[0]);
         } else {
           this.params[kp[0]] = kp.length === 1 ? true : typeof kp[1] === 'string' && kp[1].toLowerCase() === 'true' ? true : typeof kp[1] === 'string' && kp[1].toLowerCase() === 'false' ? false : qp.endsWith('=') ? true : kp[1];
-          if (typeof this.params[kp[0]] === 'string' && this.params[kp[0]].replace(/[0-9]/g, '').length === 0 && !this.params[kp[0]].startsWith('0')) {
+          if (typeof this.params[kp[0]] === 'string' && this.params[kp[0]].replace(/[0-9]/g, '').length === 0 && (this.params[kp[0]] === '0' || !this.params[kp[0]].startsWith('0'))) {
             kpn = parseInt(this.params[kp[0]]);
             if (!isNaN(kpn)) {
               this.params[kp[0]] = kpn;
@@ -1228,7 +1228,7 @@ P.auth = async function(key) {
     if (!user && (this.params.resume || this.cookie)) { // accept resume on a header too?
       if (!(resume = this.params.resume)) { // login by resume token if provided in param or cookie
         try {
-          cookie = JSON.parse(decodeURIComponent(this.cookie).split(((ref2 = (ref3 = S.auth) != null ? (ref4 = ref3.cookie) != null ? ref4.name : void 0 : void 0) != null ? ref2 : 'pradm') + "=")[1].split(';')[0]);
+          cookie = JSON.parse(decodeURIComponent(this.cookie).split(((ref2 = (ref3 = S.auth) != null ? (ref4 = ref3.cookie) != null ? ref4.name : void 0 : void 0) != null ? ref2 : 'oaworksLogin') + "=")[1].split(';')[0]);
           resume = cookie.resume;
           uid = cookie._id;
         } catch (error) {}
@@ -1279,14 +1279,13 @@ P.auth = async function(key) {
   }
   if (!key && this.format === 'html') {
     ret = '<body>';
-    ret += '<script type="text/javascript" src="/client/pradm.min.js?v=' + this.S.version + '"></script>\n';
-    ret += '<script type="text/javascript" src="/client/pradmLogin.min.js?v=' + this.S.version + '"></script>\n';
+    ret += '<script type="text/javascript" src="/client/oaworksLogin.min.js?v=' + this.S.version + '"></script>\n';
     ret += '<h1>' + (this.base ? this.base.replace('bg.', '(bg) ') : this.S.name) + '</h1>';
     if (this.user == null) {
-      ret += '<input autofocus id="PEmail" class="PEmail" type="text" name="email" placeholder="email">';
-      ret += '<input id="PToken" class="PToken" style="display:none;" type="text" name="token" placeholder="token (check your email)">';
-      ret += '<p class="PWelcome" style="display:none;">Welcome back</p>';
-      ret += '<p class="PLogout" style="display:none;"><a id="PLogout" href="#">logout</a></p>';
+      ret += '<input autofocus id="OALoginEmail" class="OALoginEmail" type="text" name="email" placeholder="email">';
+      ret += '<input id="OALoginToken" class="OALoginToken" style="display:none;" type="text" name="token" placeholder="token (check your email)">';
+      ret += '<p class="OALoginWelcome" style="display:none;">Welcome back</p>';
+      ret += '<p class="OALoginLogout" style="display:none;"><a id="OALoginLogout" href="#">logout</a></p>';
     } else {
       ret += '<p>' + user.email + '</p><p><a id="PLogout" href="#">logout</a></p>';
     }
@@ -1359,6 +1358,9 @@ P.auth.role = async function(grl, user) {
   }
   if ((user != null ? user.email : void 0) && (ref = user.email, indexOf.call((typeof this.S.root === 'string' ? [this.S.root] : Array.isArray(this.S.root) ? this.S.root : []), ref) >= 0)) {
     return 'root';
+  }
+  if (grl.startsWith('@') && ((user != null ? user.email : void 0) != null) && user.email.endsWith(grl)) { // a user can be allowed if the required auth is the @domain.com of their email address
+    return grl;
   }
   if ((user != null ? user.roles : void 0) != null) {
     ref1 = (typeof grl === 'string' ? grl.split(',') : grl ? grl : []);
@@ -1523,12 +1525,13 @@ P.users = {
 P.users._get = async function(uid, apikey) {
   var ref, us, user;
   if (apikey) {
-    try {
-      us = (await this.index('users', 'apikey:"' + apikey + '"'));
-      if ((us != null ? (ref = us.hits) != null ? ref.total : void 0 : void 0) === 1) {
-        user = us.hits.hits[0]._source;
+    us = (await this.index('users', 'apikey:"' + apikey + '"'));
+    if ((us != null ? (ref = us.hits) != null ? ref.total : void 0 : void 0) === 1) {
+      user = us.hits.hits[0]._source;
+      if (user._id == null) {
+        user._id = us.hits.hits[0]._id;
       }
-    } catch (error) {}
+    }
   } else if (typeof uid === 'string') {
     if (uid.startsWith('users/')) {
       uid = uid.replace('users/', '');
@@ -3795,7 +3798,6 @@ P.ill.subscription = async function(config, meta) {
               if (res.url != null) {
                 if (res.url.indexOf('getitnow') === -1) {
                   res.found = 'sfx';
-                  return res;
                 } else {
                   res.url = void 0;
                   res.findings.sfx = void 0;
@@ -3810,7 +3812,6 @@ P.ill.subscription = async function(config, meta) {
               if (res.url != null) {
                 if (res.url.indexOf('getitnow') === -1) {
                   res.found = 'sfx';
-                  return res;
                 } else {
                   res.url = void 0;
                   res.findings.sfx = void 0;
@@ -3838,7 +3839,6 @@ P.ill.subscription = async function(config, meta) {
             if (res.url != null) {
               if (res.url.indexOf('getitnow') === -1) {
                 res.found = 'eds';
-                return res;
               } else {
                 res.url = void 0;
               }
@@ -3874,7 +3874,6 @@ P.ill.subscription = async function(config, meta) {
               if (res.url != null) {
                 if (res.url.indexOf('getitnow') === -1) {
                   res.found = 'serials';
-                  return res;
                 } else {
                   res.url = void 0;
                   res.findings.serials = void 0;
@@ -3887,7 +3886,6 @@ P.ill.subscription = async function(config, meta) {
             //  # we assume if there is a journal result but not a URL that it means the institution has a journal subscription but we don't have a link
             //  res.journal = true
             //  res.found = 'serials'
-            //  return res
             if (spg.indexOf('ss_noresults') === -1) {
               try {
                 surl = url.split('?')[0] + '?ShowSupressedLinks' + pg.split('?ShowSupressedLinks')[1].split('">')[0];
@@ -3898,7 +3896,6 @@ P.ill.subscription = async function(config, meta) {
                   if (res.url != null) {
                     if (res.url.indexOf('getitnow') === -1) {
                       res.found = 'serials';
-                      return res;
                     } else {
                       res.url = void 0;
                       res.findings.serials = void 0;
@@ -3920,7 +3917,6 @@ P.ill.subscription = async function(config, meta) {
             res.url = spg.split('<resolution_url>')[1].split('</resolution_url>')[0].replace(/&amp;/g, '&');
             res.findings.exlibris = res.url;
             res.found = 'exlibris';
-            return res;
           }
         }
       }
@@ -5440,8 +5436,8 @@ P.report.check = async function(ror, reload) {
           await fs.appendFile(out, (k !== 'DOI' ? ',"' : '"') + val.toString().replace(/"/g, '').replace(/\n/g, '').replace(/\s\s+/g, ' ') + '"');
         }
       }
-      if (batch.length % 100 === 0) {
-        console.log('Gates OA checking', batch.length, dois);
+      if (counter % 100 === 0) {
+        console.log('Gates OA checking', counter, dois);
       }
       if (batch.length === 5000) {
         await this.report.supplements(batch);
@@ -5687,7 +5683,60 @@ P.report.journals = async function() {
 };
 
 P.report.orgs = {
-  _sheet: '1d_RxBLU2yNzfSNomPbWQQr3CS0f7BhMqp6r069E8LR4/dev'
+  _sheet: '1d_RxBLU2yNzfSNomPbWQQr3CS0f7BhMqp6r069E8LR4/dev',
+  _format: async function(recs = []) {
+    var bs, err, h, i, l, len, len1, nr, ready, rec, ref, ref1, s;
+    ready = [];
+    bs = 0;
+    ref = (typeof recs === 'object' && !Array.isArray(recs) ? [recs] : recs);
+    for (i = 0, len = ref.length; i < len; i++) {
+      rec = ref[i];
+      nr = {};
+      for (h in rec) {
+        if (typeof rec[h] === 'string') {
+          rec[h] = rec[h].trim();
+          if (rec[h].toLowerCase() === 'true') {
+            rec[h] = true;
+          } else if (rec[h].toLowerCase() === 'false') {
+            rec[h] = false;
+          } else if ((rec[h].startsWith('[') && rec[h].endsWith(']')) || (rec[h].startsWith('{') && rec[h].endsWith('}'))) {
+            try {
+              rec[h] = JSON.parse(rec[h]);
+            } catch (error) {
+              err = error;
+              console.log('cant parse ' + h, rec[h], err);
+              bs += 1;
+            }
+          }
+        }
+        if (h.includes('.')) {
+          try {
+            this.dot(nr, h, rec[h]);
+          } catch (error) {}
+        } else {
+          nr[h] = rec[h];
+        }
+      }
+      if (Array.isArray(nr.sheets)) {
+        ref1 = nr.sheets;
+        for (l = 0, len1 = ref1.length; l < len1; l++) {
+          s = ref1[l];
+          s.url = (await this.encrypt(s.url));
+        }
+      } else {
+        delete nr.sheets;
+      }
+      if (JSON.stringify(nr) !== '{}') {
+        ready.push(nr);
+      }
+    }
+    console.log(bs + ' bad sheets strings');
+    if (ready.length === 1) {
+      return ready[0];
+    } else {
+      return ready;
+    }
+  }
 };
 
 P.report.emails = {
@@ -7256,6 +7305,9 @@ P.src.google.sheets = async function(opts) {
         toprow = g.values.shift(); // NOTE there is NO WAY to identify column headers any more it seems, certainly not from this response format. Just pop them off the values list
         for (i = 0, len = toprow.length; i < len; i++) {
           hd = toprow[i];
+          try {
+            hd = hd.trim();
+          } catch (error) {}
           headers.push(hd); //.toLowerCase().replace /[^a-z0-9]/g, ''
         }
       }
@@ -7267,6 +7319,19 @@ P.src.google.sheets = async function(opts) {
       val = {};
       for (h in headers) {
         try {
+          //try l[h] = l[h].trim()
+          //try
+          //  l[h] = true if l[h].toLowerCase() is 'true'
+          //  l[h] = false if l[h].toLowerCase() is 'false'
+          //try
+          //  if ((l[h].startsWith('[') and l[h].endsWith(']')) or (l[h].startsWith('{') and l[h].endsWith('}')))
+          //    try l[h] = JSON.parse l[h]
+          //if opts.dot isnt false and typeof l[h] isnt 'object' and headers[h].includes '.'
+          //  try
+          //    await @dot val, headers[h], l[h]
+          //  catch
+          //    try val[headers[h]] = l[h]
+          //else
           val[headers[h]] = l[h];
         } catch (error) {}
       }
@@ -7341,7 +7406,7 @@ P.src.microsoft.bing = async function(q, key, market, count, cache) {
   };
 };
 
-P.src.microsoft.bing._auth = 'root';
+P.src.microsoft.bing._auth = '@oa.works';
 
 P.src.microsoft.graph = {
   _prefix: false,
@@ -7998,6 +8063,14 @@ P.src.oadoi.local = async function() {
 P.src.oadoi.local._bg = true;
 
 P.src.oadoi.local._auth = 'root';
+
+// https://docs.openalex.org/api
+P.src.openalex = function() {
+  return true;
+};
+
+
+// https://docs.openalex.org/download-snapshot/download-to-your-machine
 
 // there are pubmed data loaders on the server side, they build an index that can 
 // be queried directly. However some of the below functions may still be useful 
@@ -8906,50 +8979,68 @@ P.src.ror._format = function(rec) {
 // presumably always the first one?
 // it's a zip, once unzipped is a JSON list, and the objects are NOT in jsonlines
 // but they are pretty-printed, so risk identify start and end of objects by their whitespacing
+P.src.ror.dumps = function() {
+  return this.fetch('https://zenodo.org/api/records/?communities=ror-data&sort=mostrecent');
+};
+
 P.src.ror.load = async function() {
-  var batch, batchsize, endobj, howmany, infile, line, lobj, rec, ref, ref1, startobj, total;
-  batchsize = 20000; // how many records to batch upload at a time
-  howmany = (ref = this.params.howmany) != null ? ref : -1; // max number of lines to process. set to -1 to keep going
-  infile = this.S.directory + '/ror/2021-03-25-ror-data.json'; // where the lines should be read from
-  if (this.refresh) {
-    await this.src.ror('');
-  }
+  var batch, created, endobj, files, fn, last, latest, line, lobj, rec, ref, startobj, total;
   total = 0;
   batch = [];
-  startobj = false;
-  endobj = false;
-  lobj = '';
-  ref1 = readline.createInterface({
-    input: fs.createReadStream(infile)
-  });
-  for await (line of ref1) {
-    if (total === howmany) {
-      break;
-    }
-    try {
-      if (!startobj && line.length === 5 && line.replace(/\s\s\s\s/, '') === '{') {
-        startobj = true;
-        lobj = '{';
-      } else if (!endobj && line.replace(',', '').length === 5 && line.replace(/\s\s\s\s/, '').replace(',', '') === '}') {
-        endobj = true;
-        lobj += '}';
-      } else if (line !== '[' && line !== ']') {
-        lobj += line;
-      }
-      if (startobj === true && endobj === true) {
-        startobj = false;
-        endobj = false;
-        rec = (await this.src.ror._format(JSON.parse(lobj)));
-        lobj = '';
-        total += 1;
-        batch.push(rec);
-        if (batch.length === batchsize) {
-          console.log('ROR bulk loading', batch.length, total);
-          await this.src.ror(batch);
-          batch = [];
+  try {
+    files = (await this.src.ror.dumps());
+    latest = (await this.epoch(files.hits.hits[0].files[0].created));
+  } catch (error) {}
+  last = (await this.src.ror('src:*', {
+    sort: {
+      'createdAt': 'desc'
+    },
+    size: 1
+  }));
+  if ((last != null ? last.hits : void 0) != null) {
+    last = last.hits.hits[0]._source;
+  }
+  console.log(latest, last != null ? last.createdAt : void 0, last != null ? last.src : void 0);
+  if ((last != null) && last.createdAt < latest) {
+    fn = files.hits.hits[0].files[0].links.self;
+    console.log(fn);
+    created = (await this.epoch());
+    startobj = false;
+    endobj = false;
+    lobj = '';
+    await this.src.ror('');
+    ref = readline.createInterface({
+      input: ((await fetch(fn))).body.pipe(zlib.createGunzip())
+    });
+    //for await line from readline.createInterface input: fs.createReadStream infile
+    for await (line of ref) {
+      try {
+        if (!startobj && line.length === 5 && line.replace(/\s\s\s\s/, '') === '{') {
+          startobj = true;
+          lobj = '{';
+        } else if (!endobj && line.replace(',', '').length === 5 && line.replace(/\s\s\s\s/, '').replace(',', '') === '}') {
+          endobj = true;
+          lobj += '}';
+        } else if (line !== '[' && line !== ']') {
+          lobj += line;
         }
-      }
-    } catch (error) {}
+        if (startobj === true && endobj === true) {
+          startobj = false;
+          endobj = false;
+          rec = (await this.src.ror._format(JSON.parse(lobj)));
+          rec.src = fn;
+          rec.createdAt = created;
+          lobj = '';
+          total += 1;
+          batch.push(rec);
+          if (batch.length === 20000) { // how many records to batch upload at a time
+            console.log('ROR bulk loading', batch.length, total);
+            await this.src.ror(batch);
+            batch = [];
+          }
+        }
+      } catch (error) {}
+    }
   }
   if (batch.length) {
     await this.src.ror(batch);
@@ -10106,6 +10197,169 @@ P.epoch = function(epoch) {
 
 P.epoch._cache = false;
 
+import {
+  customAlphabet
+} from 'nanoid';
+
+P.uid = function(length) {
+  var nanoid, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rs;
+  if (length == null) {
+    length = this.fn === 'uid' ? (ref = (ref1 = (ref2 = (ref3 = this != null ? (ref4 = this.params) != null ? ref4.len : void 0 : void 0) != null ? ref3 : this != null ? (ref5 = this.params) != null ? ref5.length : void 0 : void 0) != null ? ref2 : this != null ? (ref6 = this.params) != null ? ref6.size : void 0 : void 0) != null ? ref1 : this != null ? (ref7 = this.params) != null ? ref7.uid : void 0 : void 0) != null ? ref : 21 : 21;
+  }
+  if (typeof length === 'string') {
+    rs = parseInt(length);
+    length = isNaN(rs) ? void 0 : rs;
+  }
+  // have to use only lowercase for IDs, because other IDs we receive from users such as DOIs
+  // are often provided in upper OR lowercase forms, and they are case-insensitive, so all IDs
+  // will be normalised to lowercase. This increases the chance of an ID collision, but still, 
+  // without uppercases it's only a 1% chance if generating 1000 IDs per second for 131000 years.
+  nanoid = customAlphabet((ref8 = this != null ? (ref9 = this.params) != null ? ref9.alphabet : void 0 : void 0) != null ? ref8 : '0123456789abcdefghijklmnopqrstuvwxyz', length);
+  return nanoid();
+};
+
+P.uid._cache = false;
+
+P.encrypt = async function(content) {
+  var cipher, encrypted, ref, ref1, ref2, ref3, ref4;
+  if (content == null) {
+    content = (ref = (ref1 = (ref2 = (ref3 = this.params.encrypt) != null ? ref3 : this.params.content) != null ? ref2 : this.params.q) != null ? ref1 : this.params) != null ? ref : this.body;
+  }
+  try {
+    if (this.params.url) {
+      content = (await this.fetch(this.params.url));
+    }
+  } catch (error) {}
+  if (typeof content !== 'string') {
+    content = JSON.stringify(content);
+  }
+  cipher = crypto.createCipheriv('aes-256-ctr', this.S.encrypt.salt, (ref4 = this.params.iv) != null ? ref4 : this.S.encrypt.iv);
+  encrypted = Buffer.concat([cipher.update(content), cipher.final()]);
+  return encrypted.toString('hex');
+};
+
+P.encrypt._cache = false;
+
+P.encrypt._bg = true; // need to check but presumably createCipheriv and createDecipheriv won't be available on CF worker with crypto.subtle
+
+P.decrypt = async function(content) {
+  var decipher, decrypted, iv, ref, ref1, ref2, ref3, ref4;
+  if (content == null) {
+    content = (ref = (ref1 = (ref2 = (ref3 = this.params.decrypt) != null ? ref3 : this.params.content) != null ? ref2 : this.params.q) != null ? ref1 : this.params) != null ? ref : this.body;
+  }
+  try {
+    if (this.params.url) {
+      content = (await this.fetch(this.params.url));
+    }
+  } catch (error) {}
+  if (typeof content === 'object') {
+    iv = content.iv;
+    content = content.content;
+  } else {
+    iv = (ref4 = this.params.iv) != null ? ref4 : this.S.encrypt.iv;
+  }
+  if (typeof content !== 'string') {
+    content = JSON.stringify(content);
+  }
+  //decipher = crypto.createDecipheriv 'aes-256-ctr', @S.encrypt.salt, iv
+  //decrypted = Buffer.concat [decipher.update(content), decipher.final()]
+  decipher = crypto.createDecipheriv('aes-256-ctr', this.S.encrypt.salt, iv);
+  decrypted = Buffer.concat([decipher.update(Buffer.from(content, 'hex')), decipher.final()]);
+  return decrypted.toString();
+};
+
+P.decrypt._cache = false;
+
+P.decrypt._bg = true;
+
+P.decrypt._auth = '@oa.works';
+
+P.hash = async function(content) {
+  var arr, b, buf, j, len, parts, ref, ref1, ref2, ref3;
+  if (content == null) {
+    content = (ref = (ref1 = (ref2 = (ref3 = this.params.hash) != null ? ref3 : this.params.content) != null ? ref2 : this.params.q) != null ? ref1 : this.params) != null ? ref : this.body;
+  }
+  try {
+    if (this.params.url) {
+      content = (await this.fetch(this.params.url));
+    }
+  } catch (error) {}
+  if (typeof content !== 'string') {
+    content = JSON.stringify(content);
+  }
+  try {
+    content = new TextEncoder().encode(content);
+    buf = (await crypto.subtle.digest("SHA-256", content));
+    arr = new Uint8Array(buf);
+    parts = [];
+    for (j = 0, len = arr.length; j < len; j++) {
+      b = arr[j];
+      parts.push(('00' + b.toString(16)).slice(-2));
+    }
+    return parts.join('');
+  } catch (error) {
+    // the above works on CF worker, but crypto.subtle needs to be replaced with standard crypto module on backend
+    // crypto is imported by the server-side main api file
+    return crypto.createHash('sha256').update(content, 'utf8').digest('hex'); // md5 would be preferable but web crypto /subtle doesn't support md5
+  }
+};
+
+P.hashcode = function(content) { // java hash code style
+  var hash, i, ref, ref1, ref2, ref3;
+  if (content == null) {
+    content = (ref = (ref1 = (ref2 = (ref3 = this.params.hashcode) != null ? ref3 : this.params.content) != null ? ref2 : this.params.q) != null ? ref1 : this.params) != null ? ref : this.body;
+  }
+  if (typeof content !== 'string') {
+    content = JSON.stringify(content);
+  }
+  hash = 0;
+  i = 0;
+  while (i < content.length) {
+    hash = ((hash << 5) - hash) + content.charCodeAt(i);
+    hash &= hash;
+    i++;
+  }
+  return hash;
+};
+
+P.hashhex = function(content) {
+  var n;
+  if (content == null) {
+    content = this.params.hashhex;
+  }
+  n = this.hashcode(content);
+  if (n < 0) {
+    n = 0xFFFFFFFF + n + 1;
+  }
+  return n.toString(16);
+};
+
+P.shorthash = function(content, alphabet) { // as learnt from something I once googled, but can't remember what
+  var al, hash, ref, ref1, ref2, ref3, result, spare;
+  if (content == null) {
+    content = (ref = (ref1 = (ref2 = (ref3 = this.params.shorthash) != null ? ref3 : this.params.content) != null ? ref2 : this.params.q) != null ? ref1 : this.params) != null ? ref : this.body;
+  }
+  if (typeof content !== 'string') {
+    content = JSON.stringify(content);
+  }
+  hash = this.hashcode(content);
+  if (!alphabet) {
+    alphabet = '0123456789abcdefghijklmnoqrstuvwxyz'; // keep one char from the usable range to replace negative signs on hashcodes
+    spare = 'p';
+  } else {
+    spare = alphabet.substring(0, 1);
+    alphabet = alphabet.replace(spare, '');
+  }
+  al = alphabet.length;
+  result = hash < 0 ? spare : '';
+  hash = Math.abs(hash);
+  while (hash >= al) {
+    result += alphabet[hash % al];
+    hash = Math.floor(hash / al);
+  }
+  return result + (hash > 0 ? alphabet[hash] : '');
+};
+
 // https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch
 
 // NOTE TODO for getting certain file content, adding encoding: null to headers (or correct encoding required) can be helpful
@@ -10421,92 +10675,6 @@ P._timeout = function(ms, fn) { // where fn is a promise-able function that has 
   });
 };
 
-P.hash = async function(content) {
-  var arr, b, buf, j, len, parts, ref, ref1, ref2, ref3;
-  if (content == null) {
-    content = (ref = (ref1 = (ref2 = (ref3 = this.params.hash) != null ? ref3 : this.params.content) != null ? ref2 : this.params.q) != null ? ref1 : this.params) != null ? ref : this.body;
-  }
-  try {
-    if (this.params.url) {
-      content = (await this.fetch(this.params.url));
-    }
-  } catch (error) {}
-  if (typeof content !== 'string') {
-    content = JSON.stringify(content);
-  }
-  try {
-    content = new TextEncoder().encode(content);
-    buf = (await crypto.subtle.digest("SHA-256", content));
-    arr = new Uint8Array(buf);
-    parts = [];
-    for (j = 0, len = arr.length; j < len; j++) {
-      b = arr[j];
-      parts.push(('00' + b.toString(16)).slice(-2));
-    }
-    return parts.join('');
-  } catch (error) {
-    // the above works on CF worker, but crypto.subtle needs to be replaced with standard crypto module on backend
-    // crypto is imported by the server-side main api file
-    return crypto.createHash('sha256').update(content, 'utf8').digest('hex'); // md5 would be preferable but web crypto /subtle doesn't support md5
-  }
-};
-
-P.hashcode = function(content) { // java hash code style
-  var hash, i, ref, ref1, ref2, ref3;
-  if (content == null) {
-    content = (ref = (ref1 = (ref2 = (ref3 = this.params.hashcode) != null ? ref3 : this.params.content) != null ? ref2 : this.params.q) != null ? ref1 : this.params) != null ? ref : this.body;
-  }
-  if (typeof content !== 'string') {
-    content = JSON.stringify(content);
-  }
-  hash = 0;
-  i = 0;
-  while (i < content.length) {
-    hash = ((hash << 5) - hash) + content.charCodeAt(i);
-    hash &= hash;
-    i++;
-  }
-  return hash;
-};
-
-P.hashhex = function(content) {
-  var n;
-  if (content == null) {
-    content = this.params.hashhex;
-  }
-  n = this.hashcode(content);
-  if (n < 0) {
-    n = 0xFFFFFFFF + n + 1;
-  }
-  return n.toString(16);
-};
-
-P.shorthash = function(content, alphabet) { // as learnt from something I once googled, but can't remember what
-  var al, hash, ref, ref1, ref2, ref3, result, spare;
-  if (content == null) {
-    content = (ref = (ref1 = (ref2 = (ref3 = this.params.shorthash) != null ? ref3 : this.params.content) != null ? ref2 : this.params.q) != null ? ref1 : this.params) != null ? ref : this.body;
-  }
-  if (typeof content !== 'string') {
-    content = JSON.stringify(content);
-  }
-  hash = this.hashcode(content);
-  if (!alphabet) {
-    alphabet = '0123456789abcdefghijklmnoqrstuvwxyz'; // keep one char from the usable range to replace negative signs on hashcodes
-    spare = 'p';
-  } else {
-    spare = alphabet.substring(0, 1);
-    alphabet = alphabet.replace(spare, '');
-  }
-  al = alphabet.length;
-  result = hash < 0 ? spare : '';
-  hash = Math.abs(hash);
-  while (hash >= al) {
-    result += alphabet[hash % al];
-    hash = Math.floor(hash / al);
-  }
-  return result + (hash > 0 ? alphabet[hash] : '');
-};
-
   // TODO add alias handling, particularly so that complete new imports can be built in a separate index then just repoint the alias
   // alias can be set on create, and may be best just to use an alias every time
   // https://www.elastic.co/guide/en/elasticsearch/reference/current/indices-aliases.html
@@ -10727,10 +10895,19 @@ P.index._auths = 'system';
 P.index._caches = false;
 
 P.index.status = async function() {
-  var base2, i, j, k, l, len, len1, ref1, ref2, res, s, sh, shards;
+  var base2, i, j, k, l, len, len1, ref1, ref2, res, s, sh, shards, stats;
   res = {
     status: 'green'
   };
+  try {
+    stats = (await this.index._send('_nodes/stats/indices/search'));
+    for (i in stats.nodes) {
+      if (res.scrolls == null) {
+        res.scrolls = 0;
+      }
+      res.scrolls += stats.nodes[i].indices.search.open_contexts;
+    }
+  } catch (error) {}
   res.indices = {};
   s = (await this.index._send('_stats'));
   shards = (await this.index._send('_cat/shards?format=json'));
@@ -11801,7 +11978,7 @@ P.index.translate._auth = false;
 // calling this should be given a correct URL route for ES7.x, domain part of the URL is optional though.
 // call the above to have the route constructed. method is optional and will be inferred if possible (may be removed)
 P.index._send = async function(route, data, method) {
-  var opts, prefix, ref1, ref2, ref3, ref4, res, rqp, url;
+  var opts, prefix, provided_scroll_id, ref1, ref2, ref3, ref4, ref5, res, rqp, url;
   if (route.includes('?')) {
     [route, rqp] = route.split('?');
     rqp = '?' + rqp;
@@ -11843,8 +12020,27 @@ P.index._send = async function(route, data, method) {
     console.log('NO INDEX URL AVAILABLE');
     return void 0;
   }
+  provided_scroll_id = false;
+  if (route.includes('/_search') && typeof data === 'object' && ((data.scroll_id != null) || data.scroll)) {
+    if (data.scroll === true) {
+      data.scroll = '2m';
+    }
+    if (typeof data.scroll === 'number' || (typeof data.scroll === 'string' && !data.scroll.endsWith('m'))) {
+      data.scroll += 'm';
+    }
+    route += (route.indexOf('?') === -1 ? '?' : '&') + 'scroll=' + ((ref5 = data.scroll) != null ? ref5 : '2m');
+    if (data.scroll_id) {
+      provided_scroll_id = data.scroll_id;
+      route = route.split('://')[0] + '://' + route.split('://')[1].split('/')[0] + '/_search/scroll' + (route.includes('?') ? '?' + route.split('?')[1] : '');
+      route += (route.indexOf('?') === -1 ? '?' : '&') + 'scroll_id=' + data.scroll_id;
+      data = void 0;
+    } else {
+      delete data.scroll_id;
+      delete data.scroll;
+    }
+  }
   route = route += rqp;
-  opts = route.indexOf('/_bulk') !== -1 || typeof (data != null ? data.headers : void 0) === 'object' ? data : {
+  opts = route.indexOf('/_bulk') !== -1 || (typeof data === 'object' && typeof data.headers === 'object') ? data : {
     body: data // fetch requires data to be body
   };
   if (route.indexOf('/_search') !== -1 && (method === 'GET' || method === 'POST')) { // scrolling isn't a new search so ignore a scroll DELETE otherwise adding the param would error
@@ -11874,6 +12070,13 @@ P.index._send = async function(route, data, method) {
         res.q = data;
       }
     } catch (error) {}
+    if (res != null ? res._scroll_id : void 0) {
+      res.scroll_id = res._scroll_id.replace(/==$/, '');
+      delete res._scroll_id;
+    }
+    if (provided_scroll_id && provided_scroll_id !== (res != null ? res.scroll_id : void 0)) {
+      await this.index._send('/_search/scroll?scroll_id=' + provided_scroll_id, '');
+    }
     return res;
   }
 };
@@ -13192,31 +13395,8 @@ P.decode = async function(content) {
   return text;
 };
 
-import {
-  customAlphabet
-} from 'nanoid';
 
-P.uid = function(length) {
-  var nanoid, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rs;
-  if (length == null) {
-    length = this.fn === 'uid' ? (ref = (ref1 = (ref2 = (ref3 = this != null ? (ref4 = this.params) != null ? ref4.len : void 0 : void 0) != null ? ref3 : this != null ? (ref5 = this.params) != null ? ref5.length : void 0 : void 0) != null ? ref2 : this != null ? (ref6 = this.params) != null ? ref6.size : void 0 : void 0) != null ? ref1 : this != null ? (ref7 = this.params) != null ? ref7.uid : void 0 : void 0) != null ? ref : 21 : 21;
-  }
-  if (typeof length === 'string') {
-    rs = parseInt(length);
-    length = isNaN(rs) ? void 0 : rs;
-  }
-  // have to use only lowercase for IDs, because other IDs we receive from users such as DOIs
-  // are often provided in upper OR lowercase forms, and they are case-insensitive, so all IDs
-  // will be normalised to lowercase. This increases the chance of an ID collision, but still, 
-  // without uppercases it's only a 1% chance if generating 1000 IDs per second for 131000 years.
-  nanoid = customAlphabet((ref8 = this != null ? (ref9 = this.params) != null ? ref9.alphabet : void 0 : void 0) != null ? ref8 : '0123456789abcdefghijklmnopqrstuvwxyz', length);
-  return nanoid();
-};
-
-P.uid._cache = false;
-
-
-S.built = "Wed Apr 13 2022 16:09:21 GMT+0100";
+S.built = "Mon May 02 2022 17:18:38 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor

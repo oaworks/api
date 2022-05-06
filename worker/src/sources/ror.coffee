@@ -64,42 +64,55 @@ P.src.ror._format = (rec) ->
 # it's a zip, once unzipped is a JSON list, and the objects are NOT in jsonlines
 # but they are pretty-printed, so risk identify start and end of objects by their whitespacing
 
+P.src.ror.dumps = () ->
+  return @fetch 'https://zenodo.org/api/records/?communities=ror-data&sort=mostrecent'
+
 P.src.ror.load = () ->
-  batchsize = 20000 # how many records to batch upload at a time
-  howmany = @params.howmany ? -1 # max number of lines to process. set to -1 to keep going
-
-  infile = @S.directory + '/ror/2021-03-25-ror-data.json' # where the lines should be read from
-
-  await @src.ror('') if @refresh
-
   total = 0
   batch = []
+  
+  try
+    files = await @src.ror.dumps()
+    latest = await @epoch files.hits.hits[0].files[0].created
+  last = await @src.ror 'src:*', {sort: {'createdAt': 'desc'}, size: 1}
+  last = last.hits.hits[0]._source if last?.hits?
+  
+  console.log latest, last?.createdAt, last?.src
 
-  startobj = false
-  endobj = false
-  lobj = ''
-  for await line from readline.createInterface input: fs.createReadStream infile
-    break if total is howmany
-    try
-      if not startobj and line.length is 5 and line.replace(/\s\s\s\s/,'') is '{'
-        startobj = true
-        lobj = '{'
-      else if not endobj and line.replace(',', '').length is 5 and line.replace(/\s\s\s\s/,'').replace(',', '') is '}'
-        endobj = true
-        lobj += '}'
-      else if line not in ['[', ']']
-        lobj += line
-      if startobj is true and endobj is true
-        startobj = false
-        endobj = false
-        rec = await @src.ror._format JSON.parse lobj
-        lobj = ''
-        total += 1
-        batch.push rec
-        if batch.length is batchsize
-          console.log 'ROR bulk loading', batch.length, total
-          await @src.ror batch
-          batch = []
+  if last? and last.createdAt < latest
+    fn = files.hits.hits[0].files[0].links.self
+    console.log fn
+    created = await @epoch()
+    startobj = false
+    endobj = false
+    lobj = ''
+
+    await @src.ror ''
+
+    #for await line from readline.createInterface input: fs.createReadStream infile
+    for await line from readline.createInterface input: (await fetch fn).body.pipe zlib.createGunzip()
+      try
+        if not startobj and line.length is 5 and line.replace(/\s\s\s\s/,'') is '{'
+          startobj = true
+          lobj = '{'
+        else if not endobj and line.replace(',', '').length is 5 and line.replace(/\s\s\s\s/,'').replace(',', '') is '}'
+          endobj = true
+          lobj += '}'
+        else if line not in ['[', ']']
+          lobj += line
+        if startobj is true and endobj is true
+          startobj = false
+          endobj = false
+          rec = await @src.ror._format JSON.parse lobj
+          rec.src = fn
+          rec.createdAt = created
+          lobj = ''
+          total += 1
+          batch.push rec
+          if batch.length is 20000 # how many records to batch upload at a time
+            console.log 'ROR bulk loading', batch.length, total
+            await @src.ror batch
+            batch = []
 
   await @src.ror(batch) if batch.length
   console.log total

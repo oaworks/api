@@ -226,7 +226,6 @@ P.ill.subscription = (config, meta) ->
               if res.url?
                 if res.url.indexOf('getitnow') is -1
                   res.found = 'sfx'
-                  return res
                 else
                   res.url = undefined
                   res.findings.sfx = undefined
@@ -238,7 +237,6 @@ P.ill.subscription = (config, meta) ->
               if res.url?
                 if res.url.indexOf('getitnow') is -1
                   res.found = 'sfx'
-                  return res
                 else
                   res.url = undefined
                   res.findings.sfx = undefined
@@ -261,7 +259,6 @@ P.ill.subscription = (config, meta) ->
             if res.url?
               if res.url.indexOf('getitnow') is -1
                 res.found = 'eds'
-                return res
               else
                 res.url = undefined
 
@@ -293,7 +290,6 @@ P.ill.subscription = (config, meta) ->
               if res.url?
                 if res.url.indexOf('getitnow') is -1
                   res.found = 'serials'
-                  return res
                 else
                   res.url = undefined
                   res.findings.serials = undefined
@@ -302,7 +298,6 @@ P.ill.subscription = (config, meta) ->
             #  # we assume if there is a journal result but not a URL that it means the institution has a journal subscription but we don't have a link
             #  res.journal = true
             #  res.found = 'serials'
-            #  return res
           else
             if spg.indexOf('ss_noresults') is -1
               try
@@ -314,7 +309,6 @@ P.ill.subscription = (config, meta) ->
                   if res.url?
                     if res.url.indexOf('getitnow') is -1
                       res.found = 'serials'
-                      return res
                     else
                       res.url = undefined
                       res.findings.serials = undefined
@@ -327,7 +321,6 @@ P.ill.subscription = (config, meta) ->
             res.url = spg.split('<resolution_url>')[1].split('</resolution_url>')[0].replace(/&amp;/g, '&')
             res.findings.exlibris = res.url
             res.found = 'exlibris'
-            return res
 
   res.url = await @decode(res.url) if res.url
   return res

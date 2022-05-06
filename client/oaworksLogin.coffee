@@ -74,7 +74,7 @@ _OALogin.cookie = (n, vs, opts) ->
   if n is '' or n is false or typeof n is 'object'
     vs = n
     n = undefined
-  n ?= 'pradm'
+  n ?= 'oaworksLogin'
   if vs? # even if values is false or '', so can remove this way
     opts ?= {}
     if opts.domain
@@ -114,8 +114,8 @@ _OALogin.token = (e) ->
   try e.preventDefault()
   _OALogin.cookie false
   # TODO add a validation of the email val if email not already set?
-  if not email = document.getElementById('#OALoginEmail').value
-    document.getElementById('#OALoginEmail').focus()
+  if not email = document.getElementById('OALoginEmail').value
+    document.getElementById('OALoginEmail').focus()
     return
   _OALogin.hide '.OALoginEmail'
   _OALogin.show '.OALoading'
@@ -123,7 +123,7 @@ _OALogin.token = (e) ->
   opts =
     success: (data) ->
       _OALogin.hide '.OALoading'
-      document.getElementById('#OALoginToken').focus()
+      document.getElementById('OALoginToken').focus()
       _OALogin._loggingin = setInterval () ->
         _OALogin.loginSuccess() if _OALogin.loggedin()
       , 2000
@@ -154,7 +154,7 @@ _OALogin.loginSuccess = (data) ->
   else
     try
       _OALogin.show '.OALoginLogout'
-      document.getElementById('#OALoginLogout').addEventListener 'click', _OALogin.logout
+      document.getElementById('OALoginLogout').addEventListener 'click', _OALogin.logout
     try
       _OALogin.afterLogin() if typeof _OALogin.afterLogin is 'function'
 
@@ -169,8 +169,8 @@ _OALogin.loginError = (err, xhr) ->
   _OALogin.account = undefined
   _OALogin.hide '.OALoading'
   _OALogin.hide '.OALoginToken'
-  document.getElementById('#OALoginEmail').value = ''
-  document.getElementById('#OALoginEmail').setAttribute 'placeholder', 'error, enter your email to try again'
+  document.getElementById('OALoginEmail').value = ''
+  document.getElementById('OALoginEmail').setAttribute 'placeholder', 'error, enter your email to try again'
   _OALogin.show '.OALoginEmail'
   _OALogin.show '.OALogin'
   
@@ -181,7 +181,7 @@ _OALogin.login = (e) ->
     error: _OALogin.loginError
     data: {}
 
-  pt = document.getElementById('#OALoginToken').value
+  pt = document.getElementById('OALoginToken').value
   if window.location.hash.replace('#','').length is 8
     opts.data.token = window.location.hash.replace '#', ''
     try window.history.pushState "", "", window.location.pathname
@@ -219,8 +219,8 @@ _OALogin.logout = (e) ->
 
 
 document.addEventListener 'DOMContentLoaded', () ->
-  try document.getElementById('#OALoginEmail').addEventListener 'keyup', (e) -> _OALogin.token(e) if e.keyCode is 13
-  try document.getElementById('#OALoginToken').addEventListener 'keyup', (e) -> _OALogin.login() if document.getElementById('#OALoginToken').value.length is 8
+  try document.getElementById('OALoginEmail').addEventListener 'keyup', (e) -> _OALogin.token(e) if e.keyCode is 13
+  try document.getElementById('OALoginToken').addEventListener 'keyup', (e) -> _OALogin.login() if document.getElementById('OALoginToken').value.length is 8
   loggedin = _OALogin.loggedin()
   if loggedin or (typeof window.location.hash is 'string' and window.location.hash and window.location.hash.replace('#', '').length is 8)
     _OALogin.loginNext = undefined if loggedin # don't go to next if already logged in

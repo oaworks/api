@@ -27,7 +27,7 @@ P.auth = (key) ->
     if not user and (@params.resume or @cookie) # accept resume on a header too?
       if not resume = @params.resume # login by resume token if provided in param or cookie
         try
-          cookie = JSON.parse decodeURIComponent(@cookie).split((S.auth?.cookie?.name ? 'pradm') + "=")[1].split(';')[0]
+          cookie = JSON.parse decodeURIComponent(@cookie).split((S.auth?.cookie?.name ? 'oaworksLogin') + "=")[1].split(';')[0]
           resume = cookie.resume
           uid = cookie._id
       uid ?= @headers['x-id']
@@ -61,14 +61,13 @@ P.auth = (key) ->
     @format = 'html'
   if not key and @format is 'html'
     ret = '<body>'
-    ret += '<script type="text/javascript" src="/client/pradm.min.js?v=' + @S.version + '"></script>\n'
-    ret += '<script type="text/javascript" src="/client/pradmLogin.min.js?v=' + @S.version + '"></script>\n'
+    ret += '<script type="text/javascript" src="/client/oaworksLogin.min.js?v=' + @S.version + '"></script>\n'
     ret += '<h1>' + (if @base then @base.replace('bg.', '(bg) ') else @S.name) + '</h1>'
     if not @user?
-      ret += '<input autofocus id="PEmail" class="PEmail" type="text" name="email" placeholder="email">'
-      ret += '<input id="PToken" class="PToken" style="display:none;" type="text" name="token" placeholder="token (check your email)">'
-      ret += '<p class="PWelcome" style="display:none;">Welcome back</p>'
-      ret += '<p class="PLogout" style="display:none;"><a id="PLogout" href="#">logout</a></p>'
+      ret += '<input autofocus id="OALoginEmail" class="OALoginEmail" type="text" name="email" placeholder="email">'
+      ret += '<input id="OALoginToken" class="OALoginToken" style="display:none;" type="text" name="token" placeholder="token (check your email)">'
+      ret += '<p class="OALoginWelcome" style="display:none;">Welcome back</p>'
+      ret += '<p class="OALoginLogout" style="display:none;"><a id="OALoginLogout" href="#">logout</a></p>'
     else
       ret += '<p>' + user.email + '</p><p><a id="PLogout" href="#">logout</a></p>'
     return ret + '</body>'
@@ -111,7 +110,8 @@ P.auth.role = (grl, user) ->
 
   return 'system' if grl is 'system' and @system
   return 'root' if user?.email and user.email in (if typeof @S.root is 'string' then [@S.root] else if Array.isArray(@S.root) then @S.root else [])
-
+  return grl if grl.startsWith('@') and user?.email? and user.email.endsWith grl # a user can be allowed if the required auth is the @domain.com of their email address
+    
   if user?.roles?
     for g in (if typeof grl is 'string' then grl.split(',') else if grl then grl else [])
       [group, role] = g.replace('/', '.').split '.'
@@ -223,9 +223,10 @@ P.users = _index: true, _auth: 'system'
 
 P.users._get = (uid, apikey) ->
   if apikey
-    try
-      us = await @index 'users', 'apikey:"' + apikey + '"'
-      user = us.hits.hits[0]._source if us?.hits?.total is 1
+    us = await @index 'users', 'apikey:"' + apikey + '"'
+    if us?.hits?.total is 1
+      user = us.hits.hits[0]._source 
+      user._id ?= us.hits.hits[0]._id
   else if typeof uid is 'string'
     uid = uid.replace('users/','') if uid.startsWith 'users/'
     uid = @hashhex(uid.trim().toLowerCase()) if uid.includes '@'
