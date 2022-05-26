@@ -36,16 +36,18 @@ P.src.epmc.search = (qrystr, from, size) ->
 
 P.src.epmc.doi = (ident) ->
   ident ?= @params.doi
-  if res = await @src.epmc 'doi:"' + ident + '"', 1
-    return res
+  exists = await @src.epmc 'doi:"' + ident + '"'
+  if exists?.hits?.total
+    return exists.hits.hits[0]._source
   else
     res = await @src.epmc.search 'DOI:' + ident
     return if res.total then res.data[0] else undefined
 
 P.src.epmc.pmid = (ident) ->
   ident ?= @params.pmid
-  if res = await @src.epmc 'pmid:"' + ident + '"', 1
-    return res
+  exists = await @src.epmc 'pmid:"' + ident + '"'
+  if exists?.hits?.total
+    return exists.hits.hits[0]._source
   else
     res = await @src.epmc.search 'EXT_ID:' + ident + ' AND SRC:MED'
     return if res.total then res.data[0] else undefined
@@ -53,8 +55,9 @@ P.src.epmc.pmid = (ident) ->
 P.src.epmc.pmc = (ident) ->
   ident ?= @params.pmc ? @params.pmcid
   ident = 'PMC' + ident.toLowerCase().replace 'pmc', ''
-  if res = await @src.epmc 'pmcid:"' + ident + '"', 1
-    return res
+  exists = await @src.epmc 'pmcid:"' + ident + '"'
+  if exists?.hits?.total
+    return exists.hits.hits[0]._source
   else
     res = await @src.epmc.search 'PMCID:' + ident
     return if res.total then res.data[0] else undefined
@@ -62,8 +65,9 @@ P.src.epmc.pmc = (ident) ->
 P.src.epmc.title = (title) ->
   title ?= @params.title
   try title = title.toLowerCase().replace(/(<([^>]+)>)/g,'').replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' ')
-  if res = await @src.epmc 'title:"' + title + '"', 1
-    return res
+  exists = await @src.epmc 'title:"' + title + '"'
+  if exists?.hits?.total
+    return exists.hits.hits[0]._source
   else
     res = await @src.epmc.search 'title:"' + title + '"'
     return if res.total then res.data[0] else undefined

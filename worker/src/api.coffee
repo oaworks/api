@@ -541,24 +541,17 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                 catch
                   await fs.mkdir out
                   filecount = 0
-                if filecount > 100
+                if filecount > 200
                   res = status: 401
                 else
                   out += '/' + flid  + '.csv'
                   await fs.appendFile out, ''
-                  _makecsv = (rt, qry, out, flid, keys, notify) =>
-                    first = true
-                    for key in keys
-                      await fs.appendFile out, (if not first then ',"' else '"') + key + '"'
-                      first = false
-                    for await blr from @index._for rt, qry
-                      await fs.appendFile out, '\n'
-                      first = true
-                      for k in keys
-                        val = if not blr[k]? then '' else if Array.isArray(blr[k]) then blr[k].join(',') else if typeof blr[k] is 'object' then JSON.stringify(blr[k]) else blr[k]
-                        await fs.appendFile out, (if not first then ',"' else '"') + val.toString().replace(/"/g, '').replace(/\n/g, '').replace(/\s\s+/g, ' ') + '"'
-                        first = false
-                    @mail({to: notify, text: 'Your csv export is ready\n\n' + eurl}) if notify
+                  if @params.includes?
+                    @params.include = @params.includes
+                    delete @params.includes
+                  if @params.excludes?
+                    @params.exclude = @params.excludes
+                    delete @params.excludes
                   if @params.include?
                     ks = @params.include
                   else
@@ -566,14 +559,29 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                     for ak in await @index.keys rt
                       tk = ak.split('.')[0]
                       ks.push(tk) if tk not in ks and (not @params.exclude? or tk not in @params.exclude)
-                  if tot > 5000
-                    @mail({to: nfeml, text: 'Your csv export has begun. You can download the file any time, it will keep growing until it is complete, when you will get another notification.\n\n' + eurl}) if nfeml
-                    @waitUntil _makecsv rt, qry, out, flid, ks, nfeml
-                  else
-                    await _makecsv rt, qry, out, flid, ks
+                  if nfeml
+                    @waitUntil @mail to: nfeml, text: @params.text ? 'Your csv export has begun. You can download the file any time, it will keep growing until it is complete, when you will get another notification.\n\n' + eurl
+                  _makecsv = (rt, qry, out, keys, notify, eurl) =>
+                    first = true
+                    for key in keys
+                      await fs.appendFile out, (if not first then ',"' else '"') + key + '"'
+                      first = false
+                    for await blr from @index._for rt, qry, scroll: '5m'
+                      await fs.appendFile out, '\n'
+                      first = true
+                      for k in keys
+                        val = if not blr[k]? then '' else if Array.isArray(blr[k]) then blr[k].join(',') else if typeof blr[k] is 'object' then JSON.stringify(blr[k]) else blr[k]
+                        val = val.replace(/"/g, '').replace(/\n/g, '').replace(/\s\s+/g, ' ') if typeof val is 'string'
+                        await fs.appendFile out, (if not first then ',"' else '"') + val + '"'
+                        first = false
+                    @mail({to: notify, text: 'Your csv export is ready\n\n' + eurl}) if notify
+                  @waitUntil _makecsv rt, qry, out, ks, nfeml, eurl
                   delete @format
-                  res = status: 302, body: eurl
-                  res.headers = Location: res.body
+                  if nfeml
+                    res = eurl
+                  else
+                    res = status: 302, body: eurl
+                    res.headers = Location: res.body
             else
               res = status: 401
           else
