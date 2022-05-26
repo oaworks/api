@@ -151,6 +151,49 @@ P.src.crossref.works.search = (qrystr, from, size, filter, start, end, sort, ord
   catch
     return
 
+P.src.crossref.journals = _index: true, _prefix: false
+P.src.crossref.journals.load = () ->
+  await @src.crossref.journals ''
+  counter = 0
+  total = 0
+  batch = []
+  cursor = '*'
+  while cursor and (counter is 0 or counter < total)
+    url = 'https://api.crossref.org/journals?cursor=' + cursor + '&rows=' + 1000
+    res = await @fetch url, {headers: {'User-Agent': @S.name + '; mailto:' + @S.mail?.to}}
+    total = res.message['total-results'] if total is 0
+    cursor = res.message['next-cursor']
+    for rec in res.message.items
+      rec.ISSN ?= []
+      rec.issn = []
+      for i in rec.ISSN
+        rec.issn.push(i) if typeof i is 'string' and i.length and i not in rec.issn
+      rec.dois = rec.counts?['total-dois']
+      if rec.breakdowns?['dois-by-issued-year']?
+        rec.years = []
+        for yr in rec.breakdowns['dois-by-issued-year']
+          rec.years.push(yr[0]) if yr.length is 2 and yr[0] not in rec.years
+        rec.years.sort()
+      if not rec.years? or not rec.years.length or not rec.dois
+        rec.discontinued = true
+      else
+        thisyear = new Date().getFullYear()
+        if thisyear not in rec.years and (thisyear-1) not in rec.years and (thisyear-2) not in rec.years and (thisyear-3) not in rec.years
+          rec.discontinued = true
+      batch.push rec
+    counter += 1000
+    if batch.length >= 10000
+      await @src.crossref.journals batch
+      batch = []
+  if batch.length
+    await @src.crossref.journals batch
+    batch = []
+  console.log counter
+  return counter
+
+P.src.crossref.journals.load._bg = true
+P.src.crossref.journals.load._async = true
+P.src.crossref.journals.load._auth = 'root'
 
 
 

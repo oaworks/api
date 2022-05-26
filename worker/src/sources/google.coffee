@@ -28,11 +28,11 @@ P.src.google.sheets = (opts) ->
     delete opts.sheets
   if not opts.sheetid
     return []
-  else if opts.sheetid.startsWith 'http'
+  else if opts.sheetid.startsWith('http') and opts.sheetid.includes 'sheets.googleapis.com/v4/'
     url = opts.sheetid
   else
     if opts.sheetid.includes '/spreadsheets/'
-      sid = opts.sheetid.split('/spreadsheets/')[1].split('/')[0]
+      sid = opts.sheetid.replace('/spreadsheets/d/', '/spreadsheets/').split('/spreadsheets/')[1].split('/')[0]
       if not opts.sheet and opts.sheetid.includes '/values/'
         opts.sheet = opts.sheetid.split('/values/')[1].split('?')[0].split('#')[0]
       opts.sheetid = sid

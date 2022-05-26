@@ -147,7 +147,7 @@ P.index._auths = 'system'
 P.index._caches = false
 
 P.index.status = () ->
-  res = status: 'green'
+  res = status: 'green', docs: 0, size: 0, shards: 0
   try
     stats = await @index._send '_nodes/stats/indices/search'
     for i of stats.nodes
@@ -164,6 +164,10 @@ P.index.status = () ->
         if sh.index is i and sh.prirep is 'p'
           res.indices[i].shards ?= 0
           res.indices[i].shards += 1
+      res.docs += res.indices[i].docs
+      try res.size += parseInt res.indices[i].size.replace 'mb', ''
+      res.shards += res.indices[i].shards
+  res.size = Math.ceil (res.size/1000) + 'gb'
   try
     res.status = 'red' if res.cluster.status not in ['green','yellow'] # accept yellow for single node cluster (or configure ES itself to accept that as green)
     for k in ['cluster_name', 'number_of_nodes', 'number_of_data_nodes', 'unassigned_shards']
@@ -218,8 +222,6 @@ P.index.terms = (route, key, qry, size=100, counts=true, order="count") ->
   order = ords[order] if typeof order is 'string' and ords[order]?
   query.aggregations[key] = terms: field: key + (if key.endsWith('.keyword') then '' else '.keyword'), size: size, order: order
   ret = await @index._send '/' + route + '/_search', query, 'POST'
-  console.log JSON.stringify query
-  console.log JSON.stringify ret
   res = []
   for p in ret?.aggregations?[key]?.buckets ? []
     res.push if counts then {term: p.key, count: p.doc_count} else p.key
@@ -723,8 +725,6 @@ P.index._send = (route, data, method) ->
     return undefined
   else
     try res.q = data if @S.dev and data?.query?
-    if res?._scroll_id
-      res.scroll_id = res._scroll_id.replace /==$/, ''
-      delete res._scroll_id
-    await @index._send('/_search/scroll?scroll_id=' + provided_scroll_id, '') if provided_scroll_id and provided_scroll_id isnt res?.scroll_id
+    res._scroll_id = res._scroll_id.replace(/==$/, '') if res?._scroll_id
+    await @index._send('/_search/scroll?scroll_id=' + provided_scroll_id, '') if provided_scroll_id and provided_scroll_id isnt res?._scroll_id
     return res

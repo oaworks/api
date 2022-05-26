@@ -154,17 +154,25 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref) -> # oadoi and crossref ar
       tr.score = await _score tr
       rors.push tr
 
-  if issns.length
-    qr = if issns.length then 'issuer.id:"' + issns.join('" OR issuer.id:"') + '"' else ''
-    ps = await @permissions.journals qr
-    for p in ps?.hits?.hits ? []
-      rp = await _format p._source
-      rp.score = await _score rp
-      perms.all_permissions.push rp
-
-  if issns.length
-    af = await @journal 'ISSN:"' + issns.join('" OR ISSN:"') + '"', 1
-
+  indoaj = undefined
+  if issns
+    for await rec from @index._for 'src_doaj_journals', 'bibjson.pissn:"' + issns.join('" OR bibjson.pissn:"') + '" OR bibjson.eissn:"' + issns.join('" OR bibjson.eissn:"') + '"'
+      indoaj = rec if not indoaj
+      issns.push(rec.bibjson.pissn) if rec.bibjson.pissn not in issns
+      issns.push(rec.bibjson.eissn) if rec.bibjson.eissn not in issns
+    if not indoaj?
+      nisns = []
+      for await rec from @index._for 'src_openalex_venues', 'issn:"' + issns.join('" OR issn:"') + '"'
+        for en in rec.issn
+          nisns.push(en) if en not in nisns
+      issns = nisns
+    if issns.length
+      ps = await @permissions.journals 'issuer.id:"' + issns.join('" OR issuer.id:"') + '"'
+      for p in ps?.hits?.hits ? []
+        rp = await _format p._source
+        rp.score = await _score rp
+        perms.all_permissions.push rp
+      
   if meta.publisher
     qr = 'issuer.id:"' + meta.publisher + '"' # how exact/fuzzy can this be
     ps = await @permissions.publishers qr
@@ -173,53 +181,29 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref) -> # oadoi and crossref ar
       rp.score = await _score rp
       perms.all_permissions.push rp
 
-    if not af?
-      af = await @journal 'publisher:"' + meta.publisher + '"', 1
-      if not af?
-        fz = await @journal 'publisher:"' + meta.publisher.split(' ').join('" AND publisher:"') + '"', 1
-        if fz?.publisher is meta.publisher
-          af = fz
-        else if fz?.publisher
-          lvs = await @levenshtein fz.publisher, meta.publisher
-          longest = if lvs.length.a > lvs.length.b then lvs.length.a else lvs.length.b
-          af = fz if lvs.distance < 5 or longest/lvs.distance > 10
+  altoa =
+    can_archive: true
+    version: 'publishedVersion'
+    versions: ['publishedVersion']
+    licence: undefined
+    locations: ['institutional repository']
+    embargo_months: undefined
+    issuer:
+      type: 'Journal'
+      has_policy: 'yes'
+    meta:
+      creator: 'joe+doaj@oa.works'
+      contributors: ['joe+doaj@oa.works']
+      monitoring: 'Automatic'
 
-  if af?.publisher and not af.indoaj
-    pisoa = (await @permissions.publishers.oa af.publisher).oa
-
-  if af?.indoaj or pisoa
-    altoa =
-      can_archive: true
-      version: 'publishedVersion'
-      versions: ['publishedVersion']
-      licence: undefined
-      locations: ['institutional repository']
-      embargo_months: undefined
-      issuer:
-        type: 'Journal'
-        has_policy: 'yes'
-        id: af.issn
-      meta:
-        creator: 'joe+doaj@oa.works'
-        contributors: ['joe+doaj@oa.works']
-        monitoring: 'Automatic'
-
-    try
-      for dl in af.doaj.bibjson.license
-        altoa.licence = dl.type if not altoa.licence or altoa.licence.length > dl.type
-        altoa.licences ?= []
-        altoa.licences.push type: dl.type
-    if not altoa.licence?
-      try
-        for ll in af.license
-          altoa.licence = ll.type if not altoa.licence or altoa.licence.length > ll.type
-    if af.indoaj
-      altoa.embargo_months = 0
-      altoa.provenance = {oa_evidence: 'In DOAJ'}
-    else if pisoa
-      altoa.meta.creator = ['joe+oapublisher@oa.works']
-      altoa.meta.contributors = ['joe+oapublisher@oa.works']
-      altoa.provenance = {oa_evidence: 'OA publisher'} # does this mean embargo_months should be zero too?
+  if issns and indoaj ?= await @src.doaj.journals 'bibjson.eissn.keyword:"' + issns.join('" OR bibjson.eissn.keyword:"') + '" OR bibjson.pissn.keyword:"' + issns.join('" OR bibjson.pissn.keyword:"') + '"', 1
+    for dl in (indoaj.bibjson?.license ? [])
+      altoa.licence = dl.type if not altoa.licence or altoa.licence.length > dl.type
+      altoa.licences ?= []
+      altoa.licences.push type: dl.type
+    if not altoa.licence? and crj = await @src.crossref.journals 'ISSN.keyword:"' + issns.join('" OR ISSN.keyword:"') + '"', 1
+      for ll in (crj.license ? [])
+        altoa.licence = ll.type if not altoa.licence or altoa.licence.length > ll.type
     if typeof altoa.licence is 'string'
       altoa.licence = altoa.licence.toLowerCase().trim()
       if altoa.licence.startsWith 'cc'
@@ -230,6 +214,17 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref) -> # oadoi and crossref ar
         delete altoa.licence
     else
       delete altoa.licence
+    altoa.issuer.id = if indoaj.bibjson.eissn and indoaj.bibjson.pissn then [indoaj.bibjson.pissn, indoaj.bibjson.eissn] else if indoaj.bibjson.pissn then [indoaj.bibjson.pissn] else [indoaj.bibjson.eissn]
+    altoa.embargo_months = 0
+    altoa.provenance = {oa_evidence: 'In DOAJ'}
+    altoa.score = await _score altoa
+    perms.all_permissions.push altoa
+  
+  else if not issns and meta.publisher and (await @permissions.publishers.oa meta.publisher).oa
+    altoa.issuer.id = meta.publisher
+    altoa.meta.creator = ['joe+oapublisher@oa.works']
+    altoa.meta.contributors = ['joe+oapublisher@oa.works']
+    altoa.provenance = {oa_evidence: 'OA publisher'} # does this mean embargo_months should be zero too?
     altoa.score = await _score altoa
     perms.all_permissions.push altoa
 
@@ -270,22 +265,20 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref) -> # oadoi and crossref ar
       delete wp.issuer.journal_oa_type if haddoi and wp.issuer?.journal_oa_type_from and meta.published and Date.parse(meta.published) < Date.parse(wp.issuer.journal_oa_type_from)
       delete wp.issuer.journal_oa_type_from
       if (issns or wp.issuer?.type is 'journal') and not wp.issuer.journal_oa_type
-        wp.issuer.journal_oa_type = await @permissions.journals.oa.type (issns ? wp.issuer.id), af, oadoi, crossref
+        wp.issuer.journal_oa_type = await @permissions.journals.oa.type (issns ? wp.issuer.id), indoaj, oadoi, crossref
       if not wp.provenance?.enforcement_from
-        perms.best_permission = @copy wp
-        break
+        perms.best_permission ?= @copy wp
       else if not meta.published or Date.parse(meta.published) > Date.parse wp.provenance.enforcement_from.split('/').reverse().join '-'
         # NOTE Date.parse would try to work on format 31/01/2020 but reads it in American, so would think 31 is a month and is too big
         # but 2020-01-31 is treated in ISO so the 31 will be the day. So, given that we use DD/MM/YYYY, split on / then reverse then join on - to get a better parse
-        perms.best_permission = @copy wp
-        break
+        perms.best_permission ?= @copy wp
     if rors.length # this only happens as an augment to some other permission, so far
       rors.sort (a, b) => return if (a.score < b.score) then 1 else -1
       for ro in rors # check this gives the order in the direction we want, else reverse it
         delete ro.issuer.journal_oa_type if haddoi and ro.issuer?.journal_oa_type_from and meta.published and Date.parse(meta.published) < Date.parse(ro.issuer.journal_oa_type_from)
         delete ro.issuer.journal_oa_type_from
         if (issns or ro.issuer?.type is 'journal') and not ro.issuer.journal_oa_type
-          ro.issuer.journal_oa_type = await @permissions.journals.oa.type (issns ? ro.issuer.id), af, oadoi, crossref
+          ro.issuer.journal_oa_type = await @permissions.journals.oa.type (issns ? ro.issuer.id), indoaj, oadoi, crossref
         perms.all_permissions.push ro
         if not perms.best_permission?.author_affiliation_requirement?
           if perms.best_permission?
@@ -359,6 +352,7 @@ P.permissions.journals = _sheet: '1ZTcYJUzhNJYIuxsjKzdVFCbOhJsviVik-8K1DpU7-eE/M
             if nr.issuer.type is 'journal' and nid.includes('-') and not nid.includes ' '
               nid = nid.toUpperCase()
               if af = await @journal 'ISSN:"' + nid + '"', 1
+              #if af = await @src.openalex.venues 'issn:"' + nid + '"', 1
                 for an in af.issn
                   cids.push(an) if an not in cids
             cids.push(nid) if nid not in cids
@@ -395,6 +389,19 @@ P.permissions.journals.example = (issn) ->
     return res.DOI
   return
 
+P.permissions.journals.transformative = _index: true, _prefix: false
+P.permissions.journals.transformative.load = () ->
+  batch = []
+  tfs = await @fetch 'https://api.journalcheckertool.org/tj?q=*&include=title,issn&size=10000'
+  batch.push(rec._source) for rec in tfs.hits.hits
+  if batch.length
+    await @permissions.journals.transformative ''
+    await @permissions.journals.transformative batch
+  return batch.length
+P.permissions.journals.transformative.load._bg = true
+P.permissions.journals.transformative.load._async = true
+P.permissions.journals.transformative.load._auth = 'root'
+
 P.permissions.journals.oa = (issn, oadoi) ->
   # NOTE it is still to be decided what licence is acceptable to be counted as OA on the crossref index. For now it's anything CC, including NC
   try issn ?= @params.journals ? @params.journal ? @params.issn ? @params.oa
@@ -404,7 +411,7 @@ P.permissions.journals.oa = (issn, oadoi) ->
     ret.open = await @src.crossref.works.count 'type:"journal-article" AND ISSN:"' + issn + '" AND is_oa:true' # could add AND NOT licence:nc
     if ret.articles is ret.open
       ret.oa = true
-    if jr = await @journal 'ISSN:"' + issn + '" AND indoaj:true', 1
+    if jr = await @src.doaj.journals 'bibjson.pissn:"' + issn + '" OR bibjson.eissn:"' + issn + '"', 1
       ret.open = ret.articles
       ret.doaj = true
       ret.oa = true
@@ -419,7 +426,7 @@ P.permissions.journals.oa = (issn, oadoi) ->
         ret.oa = false
   return ret
 
-P.permissions.journals.oa.type = (issns, jrnl, oadoi, crossref) ->
+P.permissions.journals.oa.type = (issns, doajrnl, oadoi, crossref) ->
   if typeof issns is 'string' and issns.startsWith '10.'
     oadoi ?= await @src.oadoi issns
     crossref ?= await @src.crossref.works issns
@@ -431,67 +438,31 @@ P.permissions.journals.oa.type = (issns, jrnl, oadoi, crossref) ->
   if crossref?.type? and crossref.type isnt 'journal-article'
     js = 'not applicable'
   else if not crossref?.type or crossref.type is 'journal-article'
-    js = if oadoi?.oa_status is 'gold' then 'gold' else if oadoi?.oa_status is 'bronze' then 'closed' else if oadoi?.oa_status is 'hybrid' then 'hybrid' else 'closed'
-    js = 'gold' if oadoi?.journal_is_oa or oadoi?.journal_is_in_doaj or jrnl?.indoaj
-    if issns
-      # check if it really is closed because sometimes OADOI says it is for one particular DOI but really it isn't (or was at time of publication of that article, but isn't now)
-      js = 'hybrid' if js is 'closed' and await @src.oadoi.hybrid issns
-      # check if it is a known transformative or diamond journal
-      jrnl ?= await @journal 'ISSN:"' + issns.join('" OR ISSN:"') + '"', 1
-      if jrnl?.tj
+    js = if oadoi?.oa_status is 'gold' or oadoi?.journal_is_oa or oadoi?.journal_is_in_doaj then 'gold' else if oadoi?.oa_status is 'bronze' then 'closed' else if oadoi?.oa_status is 'hybrid' then 'hybrid' else 'closed'
+    if not doajrnl? and issns
+      doajrnl = await @src.doaj.journals 'bibjson.eissn.keyword:"' + issns.join('" OR bibjson.eissn.keyword:"') + '" OR bibjson.pissn.keyword:"' + issns.join('" OR bibjson.pissn.keyword:"') + '"', 1
+    if doajrnl?
+      js = if doajrnl.bibjson?.apc?.has_apc is false then 'diamond' else 'gold'
+    else if issns
+      if issns and await @permissions.journals.transformative.count 'issn:"' + issns.join('" OR issn:"') + '"'
         js = 'transformative'
-      else if jrnl?.doaj?.bibjson?.apc?.has_apc is false
-        js = 'diamond'
+      else if js is 'closed' and await @src.oadoi.hybrid issns
+        # check if it really is closed because sometimes OADOI says it is for one particular DOI but really it isn't (or was at time of publication of that article, but isn't now)
+        js = 'hybrid' 
   return js
 
 P.permissions.publishers.oa = (publisher) ->
-  try publisher ?= @params.publisher ? @params.oa
-  q = 'publisher:"' + publisher.replace(/&/g, '') + '" AND NOT doaj.bibjson.discontinued_date:* AND NOT doaj.bibjson.is_replaced_by:* AND ('
-  dt = parseInt (await @date()).split('-')[0]
-  c = dt - 2 # how many years back to check for continuance
-  while dt > c
-    q += (if q.endsWith('(') then '' else ' OR ') + 'years:' + dt
-    dt -= 1
-  q += ')'
-  ret = 
-    journals: await @journal.count q
-    open: await @journal.count q + ' AND indoaj:true'
-  ret.percent = Math.ceil (ret.open / ret.journals) * 100
-  ret.oa = ret.journals and ret.journals is ret.open
+  ret = publisher: (publisher ? @params.publisher ? @params.oa).replace /&/g, ''
+  if not await @src.crossref.journals 'publisher:"' + ret.publisher + '"', 1
+    if fz = await @src.crossref.journals 'publisher:"' + ret.publisher.split(' ').join('" AND publisher:"') + '"', 1
+      if fz.publisher.toLowerCase() isnt ret.publisher.toLowerCase()
+        lvs = await @levenshtein fz.publisher, ret.publisher
+        ret.publisher = fz.publisher if lvs.distance < 5 or (if lvs.length.a > lvs.length.b then lvs.length.a else lvs.length.b)/lvs.distance > 10
+    else
+      ret.journals = 0
+  ret.journals ?= await @src.crossref.journals.count 'publisher:"' + ret.publisher + '" AND NOT discontinued:true'
+  ret.open = await @src.doaj.journals.count 'publisher:"' + ret.publisher + '" AND NOT bibjson.discontinued_date:* AND NOT .bibjson.is_replaced_by:*'
+  ret.percent = if ret.journals then Math.ceil((ret.open / ret.journals) * 100) else if ret.open then 100 else 0
+  ret.oa = (not ret.journals and ret.open) or (ret.journals and ret.journals is ret.open)
   return ret
 
-
-
-P.journal = _index: true, _prefix: false
-
-P.journal.load = () ->
-  counter = 0
-  total = false
-  batchsize = 20000 # how many records to batch upload at a time
-  batch = [] # batch of json records to upload
-  from = 0
-  size = 5000
-
-  await @journal ''
-  while total is false or counter < total
-    # this is a fallback to JCT until a local custom process for journal indexing is added
-    res = await @fetch 'https://api.jct.cottagelabs.com/journal?q=*&from=' + from + '&size=' + size
-    total = res.hits.total if total is false
-    for r in res.hits.hits
-      counter += 1
-      if r._source.issn
-        r._source.ISSN ?= []
-        for li in (if typeof r._source.issn is 'string' then [r._source.issn] else r._source.issn)
-          r._source.ISSN.push(li) if li not in r._source.ISSN
-      batch.push r._source
-      if batch.length >= batchsize
-        await @journal batch
-        batch = []
-    from += size
-
-  await @journal(batch) if batch.length
-  return counter
-
-P.journal.load._bg = true
-P.journal.load._async = true
-P.journal.load._auth = 'root'
