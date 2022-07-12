@@ -11,7 +11,6 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
 
   <link href="//fonts.googleapis.com/css?family=Lustria|Noto+Sans|Roboto+Slab|Nixie+One" rel="stylesheet" type="text/css">
-  <script type="text/javascript" src="/client/oaworksLogin.min.js"></script>
 
   <style>
     html { height: 100%; }
@@ -50,7 +49,7 @@
       background: #eee; 
       z-index: 1000;
     }
-    @media (max-width: 1000px) { #panel { width: 99%; } }
+    @media (max-width: 1000px) { #panel { min-width: 0px; width: 0px; padding: 0px; } }
     #panel + .page { margin: 0 auto 200px 33%; }
     @media (max-width: 1200px) { #panel + .page { margin: 0 auto 200px 29%; } }
     @media (max-width: 1130px) { #panel + .page { margin: 0 auto 200px auto; } }
@@ -157,10 +156,9 @@
 <div class="page">
 
 <a name="quickstart"></a>
-<h1 style="text-align:center;">OA.Works API framework</h1>
+<h1 style="text-align:center;">OA.Works API</h1>
 
 <hr></hr>
-<p>The OA.Works API is minimalist node.js providing things like auth, caching, workers, search, and more.</p>
 
 <pre>
 <code class="request curl">curl <a target="_blank" href="/">https://api.oa.works</a>
@@ -180,56 +178,51 @@ print(res.json())
 
 <h2>Using OA.Works API</h2>
 
-<p>We run the API four ourselves and for you to try out. Please limit your requests to 
+<p>Please limit requests to 
 two per second and include an email address in a <b>User-Agent</b> header 
-(or <a class="goto" href="#auth">sign up and use an API key</a>) in case we need to contact you.</p>
+(or <a href="#auth">sign up and use an API key</a>) in case we need to contact you.
+Or contact us to discuss higher rate limits.</p>
 
 <p>The <a target="_blank" href="/status">/status</a> page lists available routes.
 Some routes may only be visible or accessible with authorisation, so use your 
 API key (or email and resume key) on your requests.</p>
 
 <pre>
-<code>curl -X GET '<a target="_blank" href="https://api.oa.works">https://api.oa.works</a>' -H 'User-Agent: youremail@yourdomain.com'
+<code>curl -X GET '<a target="_blank" href="https://api.oa.works">https://api.oa.works/status</a>' -H 'User-Agent: youremail@yourdomain.com'
 curl '<a target="_blank" href="https://api.oa.works/status">https://api.oa.works/status</a>' -H 'x-apikey: ...'
 curl '<a target="_blank" href="https://api.oa.works/status">https://api.oa.works/status?apikey=...</a>'</code>
 </pre>
 
 
 
-<h3 name="auth">Auth</h3>
+<h2 name="auth">Auth</h2>
 
-<p><b>/auth</b> routes handle user and group management. We use passwordless login, and 
-all that is necessary to start an account is to provide a valid email address - you will 
-receive a login token to type back into the login page, and then you're logged in. Repeat 
-the process any time you need to get logged in again.</p>
-
-<p>To login directly via the API, start by requesting an auth token to be sent to your email 
-address; once it arrives, send it back to the <b>/auth</b> endpoint:</p>
+<p><b>/auth</b> routes handle user and group management. We use a passwordless 
+approach. To login directly via the API, start by requesting an auth token to 
+be sent to your email address; once it arrives, send it back to the <b>/auth</b> endpoint:</p>
 
 <pre>
 <code>curl 'https://api.oa.works/auth/token?email=...'
 curl 'https://api.oa.works/auth?token=...'</code>
 </pre>
 
-<p>That's it, you're logged in, and can include <b>email</b> and <b>resume</b> 
-parameters to subsequent requests - you'll find the <b>resume</b> value in the response object. 
-You can logout by sending an authorised GET request to <a href="/auth/logout">/auth/logout</a>.</p>
+<p>That's it, you're logged in. Include your <b>email</b> and <b>resume</b> 
+parameters to subsequent requests - you'll find the <b>resume</b> value in the 
+response of your token submission. You can logout by sending an authorised GET 
+request to <a href="/auth/logout">/auth/logout</a>.</p>
 
-<p>Custom signup/login pages should be made when developing your own service.
-When a user signs in using the browser UI your code should set a cookie so 
-further browser-based requests won't require another login. Subsequent UI 
-requests should then be coded to send the cookie, or read the email and resume 
-keys and send them as parameters.</p>
-
-
-<h4>Roles</h4>
+<p>It's also possible to login on a web browser. Go to 
+<a href="/auth">/auth</a>, put in your email address, then once you receive 
+your token you can type it into that page as well. Once you're logged in a cookie 
+will be set in the browser for you, so subsequent requests are automatically authorised.</p>
 
 <p>Some endpoints will require you to have a particular <b>role</b> as well as being logged in. 
 If you're logged in and still refused access, the refusal response object may include a URL 
-or email address to send a request to be assigned the role.</p>
+or email address to send a request to be assigned the role. Some roles may also 
+be scoped to the domain of your email address.</p>
 
 
-<h3>Sources</h3>
+<h2>Sources</h2>
 
 <p><b>/src</b> routes are used to connect to some remote source. As our main 
 project goals over the years have been about academic research, most of these are for querying 
@@ -246,39 +239,51 @@ to use them, one endpoint can be added to encapsulate that knowledge.</p>
 <code>curl <a target="_blank" href="/src/crossref">https://api.oa.works/src/crossref</a></code>
 </pre>
 
-<p>(These parts of documentation are still in progress - sorry if you don't find anything 
-useful; looking at the code of a src and the notes surrounding it will have to suffice for now.)</p>
 
 
 
 <h4>Search</h4>
 
-<p>One of the most powerful features is easy integration with an Elasticsearch 
-index for storing, searching, and analysing data. A data endpoint can be created with just 
-one setting, which enables search and also automatically configures some additional endpoints:</p>
+<p>OA.Works integrates with Elasticsearch. A data endpoint can be created with just 
+one setting, which enables search:</p>
 
 <pre>
-<code>curl '<a target="_blank" href='/src/crossref/works?q="public%20library%20of%20science"'>/src/crossref/works?q="public%20library%20of%20science"</a>'
-curl '<a target="_blank" href="/src/crossref/works/keys">/src/crossref/works/keys</a>'
+<code>curl '<a target="_blank" href='/src/crossref/works?q="public%20library%20of%20science"'>/src/crossref/works?q="public%20library%20of%20science"</a>'</code>
+</pre>
+
+<p>It also automatically configures some additional 
+endpoints:</p>
+
+<pre>
+<code>curl '<a target="_blank" href="/src/crossref/works/keys">/src/crossref/works/keys</a>'
 curl '<a target="_blank" href="/src/crossref/works/terms">/src/crossref/works/terms</a>'
 curl '<a target="_blank" href="/src/crossref/works/suggest">/src/crossref/works/suggest</a>'
 curl '<a target="_blank" href="/src/crossref/works/count">/src/crossref/works/count</a>'
 curl '<a target="_blank" href="/src/crossref/works/min">/src/crossref/works/min</a>'
 curl '<a target="_blank" href="/src/crossref/works/max">/src/crossref/works/max</a>'
-curl '<a target="_blank" href="/src/crossref/works/range">/src/crossref/works/range</a>'</code>
+curl '<a target="_blank" href="/src/crossref/works/range">/src/crossref/works/range</a>'
+curl '<a target="_blank" href="/src/crossref/works/range">/src/crossref/works/mapping</a>'</code>
 </pre>
 
-<p>The full documentation for Elasticsearch queries is very good, so we recommend
+<p>The full documentation for Elasticsearch is very good, so we recommend
 <a target="_blank" href="https://www.elastic.co/guide/en/elasticsearch/reference/7.10/query-dsl.html">
-checking out their docs directly</a>.</p>
+checking out their docs directly</a> instead of us replicating it here.</p>
 
 
 
 <hr></hr>
 
-<h2 name="deployment">Deployment</h2>
+<h2 name="deployment">Installation / Deployment</h2>
 
-<p>How and why to run a bg server (the demo already is one)</p>
+<p>This requires a background server and / or Cloudflare Workers. Workers give a 
+very robust API distributed across the whole Cloudflare network, whereas a 
+background server allows for long-running and maintenance tasks (and if you're 
+running your own Elasticsearch, you've got a machine to run it on anyway).</p>
+
+<h2>Background server</h2>
+
+<p>Although Cloudflare Workers are great, it's not great to be tied
+to one provider, so the API can run anywhere that node.js can run.</p>
 
 <pre>
 <code class="install linux">sudo apt install nodejs
@@ -308,24 +313,15 @@ node server/dist/server.min.js
 </code>
 <a class="installing" href="apple">Apple</a> | <a class="installing" href="windows">Windows</a>
 </pre>
-<!-- | <a class="goto" href="#development">Development docs</a> -->
-
-<p>We use Cloudflare Workers however we don't want to be tied
-to one provider, so the API can run anywhere that node.js can run. 
-Where we use particular Cloudflare infrastructure such as Workers KV, we also consider our 
-fallback position such as writing to Elasticsearch if KV is not available, and planning that 
-later we could easily update our key/value store code to use Redis instead.</p>
 
 
-<h3>Cloudflare worker</h3>
+<h2>Cloudflare worker</h2>
 
-<p>To deploy your own cloudflare worker, first 
-<a href="https://workers.cloudflare.com">sign up or login</a> to cloudflare. 
-Everything you need for the demo and even to run a pretty powerful API is available 
-in the free tier. Once signed up, copy your account ID and API token from the cloudflare dashboard main page. 
-You'll find it displayed near the bottom right.</p>
+<p>To deploy a worker,
+<a href="https://workers.cloudflare.com">sign up or login</a> to Cloudflare and 
+note your account ID and API token from the bottom right of the dashboard main page.</p>
 
-<p>Next, <a class="goto" href="#install">clone our git repo</a> (if you haven't already) and create a folder 
+<p>Next, <a target="_blank" href="https://github.com/oaworks/API">clone our git repo</a> and create a folder 
 called <b>secrets</b> in the main API folder, and in there create a file called 
 <b>construct.json</b>.</p>
 
@@ -337,195 +333,216 @@ vim secrets/construct.json</code>
 
 <p>In that file, write a JSON object with the keys <b>ACCOUNT_ID</b>, <b>API_TOKEN</b>, 
 and <b>SCRIPT_ID</b>. Use the values you copied from cloudflare for the first two, and the 
-script ID can be whatever you want to call your worker. Once you've saved your construct file, 
-run the constructor!</p>
+script ID can be whatever you want to call your worker. Then run the constructor.</p>
 
 <pre>
 <code>coffee construct.coffee</code>
 </pre>
 
-<p>Cloudflare provide a great tool called 
+<p>Cloudflare provides a deployment tool called 
 <a target="_blank" href="https://developers.cloudflare.com/workers/cli-wrangler">wrangler</a> 
 which can be used to deploy and configure your worker. We don't use wrangler because we want to remain 
 independent of any one platform, but if you don't have such concerns, it may be worth 
 looking into.</p>
 
-<p>Now you should have your own API up and running in a cloudflare worker! Note it won't 
-be able to save anything yet though. So, continue on to read about Settings & 
-Secrets, and Elasticsearch.</p>
-
-
-<h3 name="settings">Settings & secrets</h3>
-
-<p>The standard demo makes a few assumptions about the environment, and limits what 
+<p>Now you should have your own API up and running in a cloudflare worker.
+However the default deployment has to make a few assumptions, and limits what 
 can be done with it. The major limitation is that it does not know 
-where Elasticsearch is so it can't save any data - so you'll want to configure some 
-settings.</p>
+where Elasticsearch is so it can't save any data. To fix this, you need to 
+configure some <b>settings</b> and <b>secrets</b>.</p>
 
-<p>We differentiate between settings and secrets. Settings are anything that you want 
+
+<h2 name="settings">Structure, Settings, Secrets</h2>
+
+<p>Code is split in two - <b>worker</b> is where the bulk of code is, and it's where
+functionality should go by default. It must all be able to run on a Cloudflare worker. 
+<b>Server</b> is only for code that can only run on a background server. Everything 
+in worker gets compiled into the server code as well, so it doesn't need duplicated.</p>
+
+<p>The code itself is in the <b>src</b> directories found in each of <b>worker</b> 
+and <b>server</b>. <b>api.coffee</b> is the main file. 
+The worker one handles integration with Cloudflare workers environment, whereas 
+the server one runs the code as a typical Node.js server app available on localhost. 
+When the top level <b>construct.coffee</b> is run, it generates minified js worker 
+and server files in their respective <b>dist</b> folders - these should not be 
+edited directly. The construct script then deploys the worker dist file to 
+Cloudflare if suitable settings are available to allow it, and the server dist file 
+can be used to run locally.</p>
+
+<p>Every function of the API is defined as a value on the global object <b>P</b>. 
+Whenever the worker API controller runs (which is also called by the server API 
+controller) it provides a new instance of P to process the incoming request. So 
+any function declared on P automatically becomes an API endpoint, available at a 
+URL named after the dot notation key of the function. There is a function wrapper 
+and configuration pattern, similiar to python decorators - more detail about this 
+would be useful for future development but is not necessary for sysadmin.</p>
+
+<p><b>Settings</b> are anything that you want 
 to be able to easily configure, and perhaps have different values for development vs 
-production versions, where as secrets are settings like API keys for other services - 
-you wouldn't want to share them in your repo or in a web browser.</p>
+production versions - but they don't necessarily need to be secret. Settings can 
+go in any file in the code, or create new files and put settings in them. For example 
+you can simply manage them all in a file called settings.json.</p>
 
-<p>We have the git repo configured to ignore any file in any folder called <b>secrets</b> 
-anywhere in the repo. Create a <b>secrets</b> folder in the <b>worker</b> and <b>server</b> 
-folders as well, and in those you can put settings/secrets relevant to each. So you can write 
-any settings or secrets in the <b>secrets</b> folders you create. 
-But you can also put settings in any file in the code, or create new files and put settings 
-in them. We have one in our worker code called <b>settings.json</b>, for example, and it can 
-be seen in the repo because it's not inside a secrets folder (and we don't put secrets in it).</p>
-
-<p>There's also a hierarchy to the secrets and settings. At the top level there's 
-the main secrets folder where you would have created your <b>construct</b> file - 
-it's secret because your cloudflare API keys are in there. 
-Nothing from that file gets included in the main code, it's only used by the constructor 
-for deployments. Note, you can also provide a list of objects in that file if you want 
-to deploy identical workers to different cloudflare accounts.</p>
-
-<p>Anything set in the worker folder will be 
-available in the worker and also in the server, if you do run and build your own server, 
-because the server runs a local copy of the worker.</p>
+<p><b>Secrets</b> are just special settings, they're things like API keys for other services - 
+you wouldn't want to share them in your repo or in a web browser, they need to be kept secret.
+Git is configured to ignore any file in any folder called <b>secrets</b>. 
+Create a <b>secrets</b> folder in the <b>worker</b> and <b>server</b> 
+folders, and in those you can put settings/secrets relevant to each.</p>
 
 <p>Any setting in the server folder will only be available if you run your own server, 
-they won't be copied into a worker deployed to cloudflare.</p>
+they won't be sent to Cloudflare for use by a worker. Any setting in the worker folder will be 
+sent to cloudflare for use by the worker, and also copied into the server dist.</p>
 
 <p>The most useful secrets to put in your first settings file will be the ones that 
-enable your API to save data so your API can save data - so read on about setting 
-up Elasticsearch.</p>
+enable your API to connect to Elasticsearch so you can index data.</p>
 
 
-<h3>Elasticsearch</h3>
+<h2>Elasticsearch</h2>
 
-<p>We use Elasticsearch 7.10.0, and we use the Amazon Open Distro version. You can 
-use any version you like, as long as it's new enough to be compatible with 7.x index 
-structures. We run our own cluster on <a href="https://digitalocean.com">Digital Ocean</a>, 
-but you can use any provider you prefer, or even run it locally on your own machine to 
-try out.</p>
+<p>We use the Amazon Open Distro version of Elasticsearch 7.10.0. </p>
 
-<p>There are providers who will run Elasticsearch for you. We've found them 
-all to be pretty expensive for production scaling, so it's cheaper for us to run our own. 
-If you're just getting started and aren't comfortable with sysadmin, 
+<p>There are providers who will run Elasticsearch for you however long term it's cheaper to 
+run your own if you know how. 
 <a target="_blank" href="https://aws.amazon.com/free/?all-free-tier.sort-by=item.additionalFields.SortRank&all-free-tier.sort-order=asc&all-free-tier.q=elasticsearch&all-free-tier.q_operator=AND">
 Amazon Web Services provide a small free tier</a> that is probably the easiest way to 
-run a cluster, and you can just 
-<a target="_blank" href="https://aws.amazon.com/elasticsearch-service/pricing/">pay to scale it up</a>
-later if you want.</p>
+get started, and you can 
+<a target="_blank" href="https://aws.amazon.com/elasticsearch-service/pricing/">scale up</a>
+later.</p>
 
-<p>Once you sign up and start an Elasticsearch service, you'll get a URL to your own cluster, and probably a 
+<p>Once you start a cluster or sign up to a service, you'll get a URL and probably a 
 <b>username:password</b> combination. Put those in your <b>worker/secrets/settings.json</b> like so:</p>
 
 <pre>
 <code>{
   "index": {
-    "url": "https://username:password@your.index.com" # A URL to your elasticsearch
+    "url": "https://username:password@your.index.com"
   }
 }</code>
 </pre>
 
-<p>Installing Elasticsearch to try out is pretty easy on Linux, we're not sure about Apple 
-or Windows though - their documentation does explain how, but we've never tried it. Managing 
-a large production cluster can get complicated, but it does give you more power and control 
-in comparison to paying a service provider for it. Also, whilst Elasticsearch itself is free 
-and open source, and you can run it on your own laptop to start with, you'll need to pay for 
-a machine or cluster of machines to run it in production, so keep that in mind.</p>
+<p>Installing your own Elasticsearch is pretty easy to start with, although it can 
+get complicated to scale up for production. Their docs explains how. Rather than 
+us writing more instructions that will get out of date, it's best to go straight to the source:</p>
 
-<p>Rather than us writing more instructions that will get out of date, it's best to go straight to the source - 
-check out the 
-<a target="_blank" href="https://www.elastic.co/elastic-stack">Elasticsearch</a> or
-<a target="_blank" href="https://opendistro.github.io/for-elasticsearch-docs/docs/install">Open Distro</a>
-docs.</p>
+<p>
+<ul>
+  <li><a target="_blank" href="https://www.elastic.co/elastic-stack">Elasticsearch</a> docs</li>
+  <li><a target="_blank" href="https://opendistro.github.io/for-elasticsearch-docs/docs/install">Elasticsearch Open Distro</a> docs</li>
+</ul>
+</p>
 
 
+<h2>Sysadmin</h2>
 
-<h3>Code structure</h3>
+<p>For long term running on a background server, use <a href="https://pm2.keymetrics.io/docs/usage/quick-start/">PM2</a> instead of just calling node directly.</p>
 
-<p>Code is split into <b>worker</b> and <b>server</b>. Worker is where the vast bulk of code is, and where 
-any future code would most likely go. Server is only for code that can only run on a background server. Everything 
-in worker gets compiled into the server code as well. It's possible to write worker code that also only runs in a 
-background context as there is a _bg wrapper option too. So what would go in server? A good example is what we have 
-in our <b>src</b> endpoints, where in the server folder we have defined functions that bulk load millions of records 
-into an index - there would never be any advantage running this in a worker context, so we write it straight into 
-the server folder instead.</p>
+<pre>
+<code>cd API
+pm2 start server/dist/server.min.js -i 3 --name paradigm --watch</code>
+</pre>
 
-<p>Worker code is deployed as a Cloudflare worker, although this is optional - it is also possible to deploy the server 
-bundle anywhere that any Node.js app can be run, and to run clusters for scalability. So you could run your own copy 
-anywhere you like.</p>
+<p>The above starts and monitors an instance of the app with 3 "workers", named 
+"paradigm", and watching to reload on file changes. The "name" can be anything, 
+it is just useful to distinguish running apps later. You could start a production 
+one called <b>paradigm</b> and a dev one called <b>paradigm_b</b>, for exampmle. Using "watch" 
+is useful if you want automatic restarts on code change, but that also may not 
+be great on dev if you do want long-running jobs to continue even if underlying 
+code changes. That's just a choice, depending on work patterns.</p>
 
-<p>The code itself is in the <b>src</b> directories found in worker and server. Both have an <b>api.coffee</b> file 
-that is their main controller - the worker one handles integration with Cloudflare workers environment, whereas 
-the server one runs the code as a typical Node.js server app available on localhost.</p>
+<p>After starting the app with PM2 you can <b>save</b> the state, and PM2 will then 
+ensure that the app starts back up in the same state. You can check the status 
+of running apps with the <b>status</b> command. You can monitor all action with 
+<b>monit</b>. If you make changes to the code and re-run the constructor, you can 
+use <b>reload</b> to get PM2 to pick up the changes in the running app (it's 
+also possible to start the app with the --watch command, and it will auto reload 
+if there are any changes within the folder you started from). You can also check 
+what the app is logging using <b>logs</b>.</p>
 
-<p>When the top level <b>construct.coffee</b> is run, it generates minified js worker and server files in their 
-respective <b>dist</b> folders - these should not be edited directly. The worker dist file is then deployed to 
-Cloudflare (if configured) and the server dist file can be used to run locally.</p>
+<pre>
+<code>pm2 status
+pm2 monit
+pm2 reload paradigm_b
+pm2 logs paradigm_b</code>
+</pre>
 
-<p>Every function of the API is defined as a value on the global object <b>P</b>. Whenever the worker API 
-controller runs (which is also called by the server API controller) it provides a new instance of P to process 
-the incoming request. So any function declared on P automatically becomes an API endpoint, available at a URL named 
-after the dot notation key of the function.</p>
+<p>Use the <b>htop</b> command line tool to check the overall machine state, CPU 
+usage, memory usage, etc. Note that our Elasticsearch configuration reserves 
+half the memory for Elasticsearch, but it can also use up the remaning machine 
+memory when processing shards in memory.</p>
 
+<p>Elasticsearch is the single point of failure. Check the <b>status</b> of Elasticsearch 
+using the command line <b>service</b> manager. You can <b>restart</b> Elasticsearch if it does 
+not show as active (this may happen if a very large process causes it to use all 
+spare memory on the machine, suffering an OOM error).</p>
 
+<pre>
+<code>sudo service elasticsearch status</code>
+</pre>
 
-<h3>Wrapper config</h3>
+<p><b>BEWARE:</b> If Elasticsearch goes down, the running app will not be able to 
+respond to any requests that require looking up a record. Also, restarting 
+Elasticsearch can take a couple or a few minutes. So only do it when it's necessary, 
+for example when it has already crashed. Also, if it crashes, it may dump a memory 
+pid file which can be very large - if so, delete it or eventually there will be no 
+disk space left. They can often be found in /var/lib/elasticsearch.</p>
 
-<p><b>_auth</b> - if true an authorised user is required. If a string or a list, an authorised user with that role
-(or one of the listed roles) is required. An empty list can be used to indicate that a user with a role 
-equivalent to the route or a subset of the route is required.</p>
+<p>There is also a restarter script provided which can be run on a cron job. It 
+will check if Elasticsearch is down and if so it will attempt a restart. It also 
+checks to see if the PM2 status indicates any unexpected failure, and if so it 
+attempts a reload. See restarter.sh in the git repo for more info.</p>
 
-<p><b>_cache</b> - defaults to ... Otherwise can be set to false or a number indicating how many seconds the cache is 
-valid for. (Passing refresh param on an incoming request wil override a cache.)</p>
+<p>The API app writes logs to a logs index. These can be queried later to review 
+activity. The easiest way to do this is via a Kibana instance, which you could 
+install alongside Elasticsearch. See the Elasticsearch website for more info.</p>
 
-<p>Note _auth and _cache are ALWAYS and ONLY checked first at the incoming request level.</p>
+<p>Once the API is up and running on a background server, it needs to be exposed 
+to the wider world. We use <b>nginx</b> for that. There is an example nginx file 
+in the git repo. The settings files can also be updated with the <b>bg</b> URL 
+for the running background server app, so that Cloudflare workers can pass back 
+to them. nginx can also be used to expose Elasticsearch and Kibana. You'll need 
+a domain name to route to your background server - that can be controlled via 
+Cloudflare or any other DNS provider.</p>
 
-<p><b>_kv</b> - if true store the result in the key/value store, and check for it on new requests. Cloudflare KV is global with 1s eventual consistency - whereas Cloudflare cache is regional.</p>
-<p><b>_index</b> - if true send the result to an index. It can be an object of index initialisation settings, mappings, aliases.</p>
-<p><b>_key</b> - optionally specify which key name in a result object to lookup for a suitable ID value for the result.</p>
-<p><b>_sheet</b> - if true get a sheet ID from settings for the given route. Or it can directly be the sheet ID string. If present it implies _index:true.</p>
-
-<p><b>_async</b> - if true, don't wait for the result, just return _async:@rid. Subsequent requests can provide the @rid in a param called _async to check progress.</p>
-
-<p><b>_bg</b> - if true run the function on the background server. Note this can happen at the top level request route or if that route calls any _bg function.</p>
-
-<p><b>_hide</b> - if true a function will not show up on the list of available routes - but it <b>IS</b> still accessible.
-(If necessary a function can be written on the API object and yet be hidden AND inaccessible via a route, by prefixing the 
-function name with an underscore.)</p>
-
+<p><br><br><br><br><br><br><br></p>
 
 
 </body>
 
 <script>
-var toc = '<div class="P_contents" style="font-size:0.9em; overflow-y:auto; height:100%;"><ul>';
+var toc = '<div class="contentsContainer" style="font-size:0.9em; overflow-y:auto; height:100%;"><ul>';
 var counter = 0;
-_OALogin('h2,h3', function(el) {
-  counter++;
-  header = _OALogin.html(el);
-  _OALogin.prepend(el, '<a name="toc' + counter + '"></a>');
-  toc += '<li>';
-  var spaces = 0;
-  var ms = 2 * (parseInt(el.nodeName.toLowerCase().replace('h','')) - 2);
-  while (spaces < ms) {
-    toc += '&nbsp;'
-    spaces++;
+
+['h2'].forEach(function(t) {
+  var elements = document.getElementsByTagName(t);
+  for (var i=0; i<elements.length; i++) {
+    counter++;
+    var el = elements[i];
+    var header = el.innerHTML;
+    el.innerHTML = '<a name="toc' + counter + '"></a>' + header;
+    toc += '<li>';
+    var spaces = 0;
+    var ms = 2 * (parseInt(el.nodeName.toLowerCase().replace('h','')) - 2);
+    while (spaces < ms) {
+      toc += '&nbsp;';
+      spaces++;
+    }
+    toc += '<a href="#toc' + counter + '">' + header + '</a></li>';
   }
-  toc += '<a class="goto" href="#toc' + counter + '">' + header + '</a></li>';
 });
-_OALogin.html('.contents', toc + '</ul></div>');
+document.getElementsByClassName('contents')[0].innerHTML = toc + '</ul></div>';
 
-_OALogin.on('click', '.goto', function(e) {
-  e.preventDefault();
-  window.scrollTo(0, P(_OALogin.attr(e.target, 'href').replace('#', '')).offsetTop - 70);
-});
-
-_OALogin.on('click', '.installing', function(e) {
-  e.preventDefault();
-  _OALogin.hide('.install');
-  _OALogin.show('.' + _OALogin.attr(e.target, 'href'));
-});
-_OALogin.on('click', '.requesting', function(e) {
-  e.preventDefault();
-  _OALogin.hide('.request');
-  _OALogin.show('.' + _OALogin.attr(e.target, 'href'));
+['installing', 'requesting'].forEach(function(cls) {
+  var elements = document.getElementsByClassName(cls);
+  for (var i=0; i<elements.length; i++) {
+    var el = elements[i];
+    el.addEventListener('click', function(e) {
+      e.preventDefault();
+      var hs = document.getElementsByClassName(cls.replace('ing', ''));
+      for (var h=0; h<hs.length; h++) hs[h].style.display = 'none';
+      var ss = document.getElementsByClassName(e.target.getAttribute('href'));
+      for (var s=0; s<ss.length; s++)  ss[s].style.display = 'block';
+    });
+  }
 });
 </script>
 

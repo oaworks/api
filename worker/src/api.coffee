@@ -71,12 +71,6 @@ try
     event.passThroughOnException() if S.pass isnt false
     event.respondWith P.call event
 
-'''try
-  addEventListener 'scheduled', (event) ->
-    # https://developers.cloudflare.com/workers/runtime-apis/scheduled-event
-    # event.type will always be 'scheduled'. event.scheduledTime ms timestamp of the scheduled time. Can be parsed with new Date(event.scheduledTime)
-    event.waitUntil P.call event # Fails will be recorded on Cron past events UI. Otherwise will record as success'''
-
 _schedule = {}
 
 P = () ->
@@ -101,7 +95,8 @@ P = () ->
   @params ?= {}
   if @request.url? and @request.url.includes '?'
     pkp = ''
-    for qp in (await P.decode @request.url).split('?')[1].split '&'
+    for qp in @request.url.split('?')[1].split '&'
+      qp = await P.decode qp
       kp = qp.split '='
       if kp[0].length # avoid &&
         if kp.length is 1 and pkp and (kp[0].startsWith(' ') or kp[0].includes('%'))
@@ -521,69 +516,100 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                 throw new Error() # trip out to backend
               else
                 res = status: 404
-            if @format is 'csv'
-              nfeml = @params.email
-              delete qry.email
-              delete @params.size
-              delete qry.size
-              tot = await @index.count rt, qry
-              if tot > 500000 or not @S.static?.folder
+            nfeml = @params.email
+            delete qry.email
+            delete @params.size
+            delete qry.size
+            tot = await @index.count rt, qry
+            if tot > 500000 or not @S.static?.folder
+              res = status: 401
+            else
+              flid = (if @fn then @fn.replace(/\./g, '_') else '') + '_' + @uid()
+              eurl = @S.static.url + '/export/' + flid + '.csv'
+              if tot > 100000
+                await @mail to: (@S.log?.notify ? 'mark@oa.works'), text: 'Someone is creating a large csv of size ' + tot + '\n\n' + eurl
+              out = @S.static.folder + '/export'
+              try
+                filecount = (await fs.readdir out).length
+                @mail({to: (@S.log?.notify ? 'mark@oa.works'), text: 'Warning, export file count is ' + filecount}) if filecount > 20
+                # add auto deletion of old export files?
+              catch
+                await fs.mkdir out
+                filecount = 0
+              if filecount > 200
                 res = status: 401
               else
-                flid = @uid()
-                eurl = @S.static.url + '/export/' + flid + '.csv'
-                @mail({to: (@S.log?.notify ? 'mark@oa.works'), text: 'Someone is creating a large csv of size ' + tot + '\n\n' + eurl}) if tot > 100000
-                out = @S.static.folder + '/export'
-                try
-                  filecount = (await fs.readdir out).length
-                  @mail({to: (@S.log?.notify ? 'mark@oa.works'), text: 'Warning, export file count is ' + filecount}) if filecount > 20
-                  # add auto deletion of old export files?
-                catch
-                  await fs.mkdir out
-                  filecount = 0
-                if filecount > 200
-                  res = status: 401
+                out += '/' + flid  + '.csv'
+                await fs.appendFile out, ''
+                if @params.includes?
+                  @params.include = @params.includes
+                  delete @params.includes
+                if @params.excludes?
+                  @params.exclude = @params.excludes
+                  delete @params.excludes
+                if @params.include?
+                  ks = @params.include.split ','
                 else
-                  out += '/' + flid  + '.csv'
-                  await fs.appendFile out, ''
-                  if @params.includes?
-                    @params.include = @params.includes
-                    delete @params.includes
-                  if @params.excludes?
-                    @params.exclude = @params.excludes
-                    delete @params.excludes
-                  if @params.include?
-                    ks = @params.include
-                  else
-                    ks = []
-                    for ak in await @index.keys rt
-                      tk = ak.split('.')[0]
-                      ks.push(tk) if tk not in ks and (not @params.exclude? or tk not in @params.exclude)
-                  if nfeml
-                    @waitUntil @mail to: nfeml, text: @params.text ? 'Your csv export has begun. You can download the file any time, it will keep growing until it is complete, when you will get another notification.\n\n' + eurl
-                  _makecsv = (rt, qry, out, keys, notify, eurl) =>
+                  ks = []
+                  for ak in await @index.keys rt
+                    tk = ak.split('.')[0]
+                    ks.push(tk) if tk not in ks and tk isnt '_id'
+                if @params.exclude?
+                  for ex in @params.exclude
+                    pidx = ks.indexOf ex
+                    ks = ks.splice(ex, 1) if ex isnt -1
+                if nfeml
+                  await @mail to: nfeml, subject: 'Your export has started (ref: ' + flid + '.csv)', text: 'Your export has started. You can download the file any time, it will keep growing until it is complete, when you will get another notification.<br><br><a href="' + eurl + '">Download csv</a><br><br>Thanks'
+                _makecsv = (rt, qry, out, keys, notify, eurl) =>
+                  first = true
+                  for key in keys
+                    await fs.appendFile out, (if not first then ',"' else '"') + key + '"'
+                    first = false
+                  for await blr from @index._for rt, qry, scroll: '5m'
+                    await fs.appendFile out, '\n'
                     first = true
-                    for key in keys
-                      await fs.appendFile out, (if not first then ',"' else '"') + key + '"'
+                    for k in keys
+                      if k.includes '.'
+                        blfl = await @copy blr
+                        pts = k.split '.'
+                        while pts.length
+                          nxpt = pts.shift()
+                          k = nxpt if not pts.length
+                          try
+                            if Array.isArray blfl
+                              st = []
+                              for ovp in blfl
+                                st.push(ovp[nxpt]) if ovp?[nxpt]?
+                              blfl = st
+                            else
+                              blfl = blfl[nxpt]
+                          catch
+                            blfl = undefined
+                      else
+                        blfl = blr
+                      if Array.isArray blfl
+                        nar = {}
+                        nar[k] = blfl
+                        blfl = nar
+                      if not blfl? or not blfl[k]?
+                        val = ''
+                      else if typeof blfl[k] is 'object'
+                        blfl[k] = blfl[k].join(';') if Array.isArray blfl[k]
+                        val = JSON.stringify blfl[k]
+                      else
+                        val = blfl[k]
+                      val = val.replace(/"/g, '').replace(/\n/g, '').replace(/\s\s+/g, ' ') if typeof val is 'string'
+                      await fs.appendFile out, (if not first then ',"' else '"') + val + '"'
                       first = false
-                    for await blr from @index._for rt, qry, scroll: '5m'
-                      await fs.appendFile out, '\n'
-                      first = true
-                      for k in keys
-                        val = if not blr[k]? then '' else if Array.isArray(blr[k]) then blr[k].join(',') else if typeof blr[k] is 'object' then JSON.stringify(blr[k]) else blr[k]
-                        val = val.replace(/"/g, '').replace(/\n/g, '').replace(/\s\s+/g, ' ') if typeof val is 'string'
-                        await fs.appendFile out, (if not first then ',"' else '"') + val + '"'
-                        first = false
-                    @mail({to: notify, text: 'Your csv export is ready\n\n' + eurl}) if notify
-                  @waitUntil _makecsv rt, qry, out, ks, nfeml, eurl
-                  delete @format
-                  if nfeml
-                    res = eurl
-                  else
-                    res = status: 302, body: eurl
-                    res.headers = Location: res.body
-            else
-              res = status: 401
+                  if notify
+                    await @mail to: notify, subject: 'Your export is complete (ref: ' + out.split('/').pop() + ')', text: 'Your export is complete. This link will expire in approximately 2 days.<br><br><a href="' + eurl + '">Download csv</a>\n\nThanks'
+                @waitUntil _makecsv rt, qry, out, ks, nfeml, eurl
+                delete @format
+                if nfeml
+                  res = eurl
+                else
+                  res = status: 302, body: eurl
+                  res.headers = Location: res.body
           else
             res = await @index rt + (if lg.key then '/' + lg.key else ''), (rec ? qry)
           if not res? and (not lg.key or not rec?) # this happens if the index does not exist yet, so create it (otherwise res would be a search result object)
@@ -631,10 +657,10 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
     # and record limit settings if present to restrict more runnings of the same function
     # _async, _limit
     if not res? and (not f._index or rec isnt '') and typeof f is 'function'
-      _as = (rt, f, ar, notify) =>
+      _as = (rt, f, ar, notify, nn) =>
         if f._limit
           ends = if f._limit is true then 86400 else f._limit
-          await @kv 'limit/' + n, started + ends, ends # max limit for one day
+          await @kv 'limit/' + nn, started + ends, ends # max limit for one day
         r = await f.apply @, ar
         if typeof r is 'object' and (f._kv or f._index) and not r.took? and not r.hits?
           if f._key and Array.isArray(r) and r.length and not r[0]._id? and r[0][f._key]?
@@ -643,17 +669,17 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
           @kv(rt + id, res, f._kv) if f._kv and not Array.isArray r
           @waitUntil(@index(rt + id, r)) if f._index
         if f._limit is true
-          await @kv 'limit/' + n, '' # where limit is true only delay until function completes, then delete limit record
+          await @kv 'limit/' + nn, '' # where limit is true only delay until function completes, then delete limit record
         if f._async
           @kv 'async/' + @rid, (if id? and not Array.isArray(r) then rt + id else if Array.isArray(r) then r.length else r), 172800 # lasts 48 hours
-          if @fn is n and f._notify isnt false
+          if @fn is nn and f._notify isnt false
             txt = @fn + ' done at ' + (await @datetime undefined, false) + '\n\n' + JSON.stringify(r) + '\n\n' + @base + '/' + rt + '?_async=' + @rid
             @mail({to: notify, text: txt}) if notify
         return r
-      if f._async
+      if f._async and @fn is n
         lg.async = true
         res = _async: @rid
-        @waitUntil _as rt, f, arguments, @params.notify
+        @waitUntil _as rt, f, arguments, @params.notify, n
       else
         res = await _as rt, f, arguments
 
