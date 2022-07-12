@@ -24,15 +24,8 @@ P.convert.json2csv = (recs, params) ->
       if params.es isnt false and (rec._source or rec.fields)
         rs = rec._source ? rec.fields
         rc = {}
-        idlink = true
-        if not params.keys or '_id' in params.keys
-          rc._id = '<a onclick="this.setAttribute(\'href\', window.location.href.split(\'.html\')[0].split(\'/\').pop() + \'/\' + this.getAttribute(\'href\') )" href="' + rec._id + '.html">' + rec._id + '</a>'
-          idlink = false
         for nk of rs # could add controls to alter the order here, or customise key names
           rc[nk] ?= rs[nk]
-          if idlink and nk is params.keys[0]
-            try rc[nk] = '<a onclick="this.setAttribute(\'href\', window.location.href.split(\'.html\')[0].split(\'/\').pop() + \'/\' + this.getAttribute(\'href\') )" href="' + rec._id + '.html">' + rs[nk] + '</a>'
-            idlink = false
         rec = rc
       if params.flatten
         rec = await @flatten rec
