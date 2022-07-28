@@ -1,5 +1,6 @@
 
 # https://docs.openalex.org/api
+# https://docs.openalex.org/download-snapshot/snapshot-data-format
 # https://docs.openalex.org/download-snapshot/download-to-your-machine
 # aws s3 sync 's3://openalex' 'openalex-snapshot' --no-sign-request
 
@@ -20,8 +21,8 @@ P.src.openalex.load = (what, changes, clear, sync) ->
   what ?= @params.load ? @params.openalex
   return false if what not in ['works', 'venues', 'authors', 'institutions', 'concepts']
 
-  clear ?= @params.clear ? true
-  sync ?= @params.sync ? true
+  clear ?= @params.clear ? false
+  sync ?= @params.sync ? false
 
   await @src.openalex[what]('') if clear is true
   
@@ -34,55 +35,65 @@ P.src.openalex.load = (what, changes, clear, sync) ->
   if typeof changes is 'string'
     changes = [changes]
   else if changes is true
-    console.log 'Checking for Openalex changes'
+    console.log 'Checking for Openalex changes in', what
     changes = []
     manifest = JSON.parse (await fs.readFile infiles + '/manifest').toString()
-    console.log manifest
-    last = manifest.entries[manifest.entries.length-1].url.split('=')[1].split('/')[0]
-    #if sync
-    #  synced = await @_child 'aws', ['s3', 'sync', 's3://openalex', @S.directory + '/openalex/openalex-snapshot', '--no-sign-request']
-    #  console.log 'sync returned', synced
+    last = await @epoch manifest.entries[manifest.entries.length-1].url.split('=')[1].split('/')[0]
+    if sync
+      synced = await @_child 'aws', ['s3', 'sync', 's3://openalex', @S.directory + '/openalex/openalex-snapshot', '--no-sign-request']
+      console.log 'Openalex sync returned', synced
+    else
+      await fs.writeFile infiles + '/manifest', await @fetch 'https://openalex.s3.amazonaws.com/data/' + what + '/manifest', buffer: true
+      console.log 'Openalex manifest updated'
     hasnew = false
     manifest = JSON.parse (await fs.readFile infiles + '/manifest').toString()
     for entry in manifest.entries
-      hasnew = true if entry.url.includes last
-      if hasnew and not entry.url.includes last
-        ne = entry.url.split('=')[1].split('/')[0]
-        changes.push(ne) if ne not in changes
+      de = entry.url.split('=')[1].split('/')[0]
+      if not hasnew
+        hasnew = true if (await @epoch de) > last
+      changes.push(de) if hasnew and de not in changes
     console.log('Found changes', changes) if changes.length
-    # TODO could add some maintenance to get rid of old updated files that are no longer needed
-  
-  if not changes or (Array.isArray(changes) and changes.length)
-    for updated in await fs.readdir infiles # folder names are like updated_date=2022-04-30
-      if updated isnt 'manifest' and (not changes or updated.split('=')[1] in changes)
-        for infile in await fs.readdir infiles + '/' + updated
-          for await line from readline.createInterface input: fs.createReadStream(infiles + '/' + updated + '/' + infile).pipe zlib.createGunzip() #, crlfDelay: Infinity
-            break if total is howmany
-            rec = JSON.parse line.trim().replace /\,$/, ''
-            total += 1
-            if what in ['venues', 'institutions', 'concepts', 'authors']
+
+  if not sync and changes and changes.length
+    for change in changes
+      console.log 'Openalex syncing files', what, change
+      await @_child 'aws', ['s3', 'sync', 's3://openalex/data/' + what + '/updated_date=' + change, infiles + '/updated_date=' + change, '--no-sign-request']
+
+  for updated in await fs.readdir infiles # folder names are like updated_date=2022-04-30
+    if updated isnt 'manifest' and (not changes or changes.length is 0 or updated.split('=')[1] in changes)
+      # if we find in future there is no need to download a whole copy of openalex, instead of s3 sync the whole lot it may be better 
+      # to just use streams of the files in each change folder direct from s3, and never have to land them on disk
+      for infile in await fs.readdir infiles + '/' + updated
+        for await line from readline.createInterface input: fs.createReadStream(infiles + '/' + updated + '/' + infile).pipe zlib.createGunzip() #, crlfDelay: Infinity
+          break if total is howmany
+          rec = JSON.parse line.trim().replace /\,$/, ''
+          total += 1
+          if what in ['venues', 'institutions', 'concepts', 'authors']
+            rec._id = rec.id.split('/').pop()
+            if what is 'authors' and rec.x_concepts?
+              for xc in rec.x_concepts
+                xc.score = Math.floor(xc.score) if xc.score?
+          else if what is 'works'
+            try
+              rec._id = rec.doi ? rec.DOI
+              rec._id = '10.' + rec._id.split('/10.').pop() if rec._id.includes('http') and rec._id.includes '/10.'
+              rec._id = rec.id.split('/').pop() if not rec._id or not rec._id.startsWith '10.'
+            catch
               rec._id = rec.id.split('/').pop()
-              if what is 'authors' and rec.x_concepts?
-                for xc in rec.x_concepts
-                  xc.score = Math.floor(xc.score) if xc.score?
-            else if what is 'works'
-              try
-                rec._id = rec.doi ? rec.DOI
-                rec._id = '10.' + rec._id.split('/10.').pop() if rec._id.includes('http') and rec._id.includes '/10.'
-                rec._id = rec.id.split('/').pop() if not rec._id or not rec._id.startsWith '10.'
-              catch
-                rec._id = rec.id.split('/').pop()
-              if rec.abstract_inverted_index?
-                abs = []
-                for word of rec.abstract_inverted_index
-                  abs[n] = word for n in rec.abstract_inverted_index[word]
-                rec.abstract = abs.join(' ') if abs.length
-                delete rec.abstract_inverted_index
-            batch.push rec
-            if batch.length is batchsize
-              console.log 'Openalex ' + what + ' bulk loading', updated, infile, batch.length, total
-              await @src.openalex[what] batch
-              batch = []
+            if rec.abstract_inverted_index?
+              abs = []
+              for word of rec.abstract_inverted_index
+                abs[n] = word for n in rec.abstract_inverted_index[word]
+              rec.abstract = abs.join(' ') if abs.length
+              delete rec.abstract_inverted_index
+          batch.push rec
+          if batch.length is batchsize
+            console.log 'Openalex ' + what + ' bulk loading', updated, infile, batch.length, total
+            await @src.openalex[what] batch
+            batch = []
+        console.log 'removing', infiles + '/' + updated + '/' + infile
+        await fs.unlink infiles + '/' + updated + '/' + infile
+      await fs.rmdir infiles + '/' + updated
 
   await @src.openalex[what](batch) if batch.length
   console.log total
@@ -110,4 +121,34 @@ P.src.openalex.changes._bg = true
 P.src.openalex.changes._async = true
 P.src.openalex.changes._auth = 'root'
 # add changes onto a schedule as well
-  
+
+
+
+P.src.openalex.latest = (what) ->
+  what ?= @params.latest ? @params.openalex
+  whats = ['works', 'venues', 'authors', 'institutions', 'concepts']
+  return false if what not in whats
+
+  infiles = @S.directory + '/openalex/openalex-snapshot/data/' + what
+
+  res =
+    last: undefined
+    changes: []
+    count: 0
+    manifest:
+      previous: JSON.parse (await fs.readFile infiles + '/manifest').toString()
+      latest: await @fetch 'https://openalex.s3.amazonaws.com/data/' + what + '/manifest'
+
+  res.last = res.manifest.previous.entries[res.manifest.previous.entries.length-1].url.split('=')[1].split('/')[0]
+  last = await @epoch res.last
+
+  hasnew = false
+  for entry in res.manifest.latest.entries
+    de = entry.url.split('=')[1].split('/')[0]
+    if not hasnew
+      hasnew = true if ( await @epoch de) > last
+    if hasnew
+      res.changes.push(de) if de not in res.changes
+      res.count += entry.meta.record_count
+
+  return res

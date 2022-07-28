@@ -110,6 +110,7 @@ P.find = (options, metadata={}, content) ->
         return true
       _crd = () =>
         cr = await @src.crossref.works metadata.doi
+        cr ?= await @src.crossref.works.doi metadata.doi
         if not cr?.type
           res.doi_not_in_crossref = metadata.doi
         else

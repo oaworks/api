@@ -26,6 +26,20 @@ P.src.crossref.works = _index: settings: number_of_shards: 9
 P.src.crossref.works._key = 'DOI'
 P.src.crossref.works._prefix = false
 
+P.src.crossref.works.doi = (doi, save) ->
+  doi ?= @params.doi
+  save ?= @params.save ? false
+  if typeof doi is 'string' and doi.startsWith '10.'
+    doi = doi.split('//')[1] if doi.indexOf('http') is 0
+    doi = '10.' + doi.split('/10.')[1] if doi.indexOf('10.') isnt 0 and doi.indexOf('/10.') isnt -1
+    res = await @fetch 'https://api.crossref.org/works/' + doi, {headers: {'User-Agent': @S.name + '; mailto:' + @S.mail?.to}}
+    if res?.message?.DOI?
+      formatted = await @src.crossref.works._format res.message
+      if save
+        await @src.crossref.works formatted
+      return formatted
+  return
+
 P.src.crossref.works.title = (title) ->
   title ?= @params.title ? @params.q
   qr = 'title:"' + title + '"'

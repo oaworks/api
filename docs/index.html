@@ -438,11 +438,11 @@ us writing more instructions that will get out of date, it's best to go straight
 
 <pre>
 <code>cd API
-pm2 start server/dist/server.min.js -i 3 --name paradigm --watch</code>
+pm2 start server/dist/server.min.js -i 3 --name paradigm --node-args="--max_old_space_size=3072" --watch</code>
 </pre>
 
 <p>The above starts and monitors an instance of the app with 3 "workers", named 
-"paradigm", and watching to reload on file changes. The "name" can be anything, 
+"paradigm", with a max memory of 3072MB and watching to reload on file changes. The "name" can be anything, 
 it is just useful to distinguish running apps later. You could start a production 
 one called <b>paradigm</b> and a dev one called <b>paradigm_b</b>, for exampmle. Using "watch" 
 is useful if you want automatic restarts on code change, but that also may not 
@@ -480,7 +480,7 @@ spare memory on the machine, suffering an OOM error).</p>
 </pre>
 
 <p><b>BEWARE:</b> If Elasticsearch goes down, the running app will not be able to 
-respond to any requests that require looking up a record. Also, restarting 
+respond to any requests that require interaction with stored records. Also, restarting 
 Elasticsearch can take a couple or a few minutes. So only do it when it's necessary, 
 for example when it has already crashed. Also, if it crashes, it may dump a memory 
 pid file which can be very large - if so, delete it or eventually there will be no 
