@@ -2727,6 +2727,9 @@ P.find = async function(options, metadata = {}, content) {
       };
       _crd = async() => {
         cr = (await this.src.crossref.works(metadata.doi));
+        if (cr == null) {
+          cr = (await this.src.crossref.works.doi(metadata.doi));
+        }
         if (!(cr != null ? cr.type : void 0)) {
           res.doi_not_in_crossref = metadata.doi;
         } else {
@@ -5016,7 +5019,11 @@ P.report.orgs.supplement = async function(giveback, max) {
             //exists = await @report.works drc.DOI
             //console.log('found in works') if exists?
             if (exists == null) {
-              if (cr = (await this.src.crossref.works(drc.DOI))) {
+              cr = (await this.src.crossref.works(drc.DOI));
+              if (cr == null) {
+                cr = (await this.src.crossref.works.doi(drc.DOI));
+              }
+              if (cr != null) {
                 exists = (await this.report.works._process(cr));
               }
               if (exists != null) {
@@ -5894,6 +5901,9 @@ P.report.check = async function(ror, reload) {
               if (recs[rd] == null) {
                 recs[rd] = (await this.src.crossref.works(rd));
               }
+              if (recs[rd] == null) {
+                recs[rd] = (await this.src.crossref.works.doi(rd));
+              }
               if (recs[rd] != null) {
                 recs[rd] = (await _from_crossref(recs[rd]));
               } else {
@@ -5909,6 +5919,8 @@ P.report.check = async function(ror, reload) {
             }
             recs[rd].duplicate += 1;
           } else if (cr = (await this.src.crossref.works(rd))) {
+            recs[rd] = (await _from_crossref(cr));
+          } else if (cr = (await this.src.crossref.works.doi(rd))) {
             recs[rd] = (await _from_crossref(cr));
           } else {
             recs[rd] = {
@@ -6792,6 +6804,36 @@ P.src.crossref.works = {
 P.src.crossref.works._key = 'DOI';
 
 P.src.crossref.works._prefix = false;
+
+P.src.crossref.works.doi = async function(doi, save) {
+  var formatted, ref, ref1, ref2, res;
+  if (doi == null) {
+    doi = this.params.doi;
+  }
+  if (save == null) {
+    save = (ref = this.params.save) != null ? ref : false;
+  }
+  if (typeof doi === 'string' && doi.startsWith('10.')) {
+    if (doi.indexOf('http') === 0) {
+      doi = doi.split('//')[1];
+    }
+    if (doi.indexOf('10.') !== 0 && doi.indexOf('/10.') !== -1) {
+      doi = '10.' + doi.split('/10.')[1];
+    }
+    res = (await this.fetch('https://api.crossref.org/works/' + doi, {
+      headers: {
+        'User-Agent': this.S.name + '; mailto:' + ((ref1 = this.S.mail) != null ? ref1.to : void 0)
+      }
+    }));
+    if ((res != null ? (ref2 = res.message) != null ? ref2.DOI : void 0 : void 0) != null) {
+      formatted = (await this.src.crossref.works._format(res.message));
+      if (save) {
+        await this.src.crossref.works(formatted);
+      }
+      return formatted;
+    }
+  }
+};
 
 P.src.crossref.works.title = async function(title) {
   var j, len, len1, ltitle, m, qr, r, ref, ref1, ref2, ref3, ref4, rem, res, rt, st, t;
@@ -8495,6 +8537,7 @@ P.src.oadoi.local._bg = true;
 P.src.oadoi.local._auth = 'root';
 
 // https://docs.openalex.org/api
+// https://docs.openalex.org/download-snapshot/snapshot-data-format
 // https://docs.openalex.org/download-snapshot/download-to-your-machine
 // aws s3 sync 's3://openalex' 'openalex-snapshot' --no-sign-request
 
@@ -8540,7 +8583,7 @@ P.src.openalex.venues = {
 };
 
 P.src.openalex.load = async function(what, changes, clear, sync) {
-  var abs, batch, batchsize, entry, hasnew, howmany, i, infile, infiles, j, k, l, last, len, len1, len2, len3, len4, line, m, manifest, n, ne, rec, ref, ref1, ref10, ref11, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, total, updated, word, xc;
+  var abs, batch, batchsize, change, de, entry, hasnew, howmany, i, infile, infiles, j, k, l, last, len, len1, len2, len3, len4, len5, line, m, manifest, n, o, rec, ref, ref1, ref10, ref11, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, synced, total, updated, word, xc;
   if (what == null) {
     what = (ref = this.params.load) != null ? ref : this.params.openalex;
   }
@@ -8548,10 +8591,10 @@ P.src.openalex.load = async function(what, changes, clear, sync) {
     return false;
   }
   if (clear == null) {
-    clear = (ref1 = this.params.clear) != null ? ref1 : true;
+    clear = (ref1 = this.params.clear) != null ? ref1 : false;
   }
   if (sync == null) {
-    sync = (ref2 = this.params.sync) != null ? ref2 : true;
+    sync = (ref2 = this.params.sync) != null ? ref2 : false;
   }
   if (clear === true) {
     await this.src.openalex[what]('');
@@ -8564,100 +8607,114 @@ P.src.openalex.load = async function(what, changes, clear, sync) {
   if (typeof changes === 'string') {
     changes = [changes];
   } else if (changes === true) {
-    console.log('Checking for Openalex changes');
+    console.log('Checking for Openalex changes in', what);
     changes = [];
     manifest = JSON.parse(((await fs.readFile(infiles + '/manifest'))).toString());
-    console.log(manifest);
-    last = manifest.entries[manifest.entries.length - 1].url.split('=')[1].split('/')[0];
-    //if sync
-    //  synced = await @_child 'aws', ['s3', 'sync', 's3://openalex', @S.directory + '/openalex/openalex-snapshot', '--no-sign-request']
-    //  console.log 'sync returned', synced
+    last = (await this.epoch(manifest.entries[manifest.entries.length - 1].url.split('=')[1].split('/')[0]));
+    if (sync) {
+      synced = (await this._child('aws', ['s3', 'sync', 's3://openalex', this.S.directory + '/openalex/openalex-snapshot', '--no-sign-request']));
+      console.log('Openalex sync returned', synced);
+    } else {
+      await fs.writeFile(infiles + '/manifest', (await this.fetch('https://openalex.s3.amazonaws.com/data/' + what + '/manifest', {
+        buffer: true
+      })));
+      console.log('Openalex manifest updated');
+    }
     hasnew = false;
     manifest = JSON.parse(((await fs.readFile(infiles + '/manifest'))).toString());
     ref4 = manifest.entries;
     for (i = 0, len = ref4.length; i < len; i++) {
       entry = ref4[i];
-      if (entry.url.includes(last)) {
-        hasnew = true;
-      }
-      if (hasnew && !entry.url.includes(last)) {
-        ne = entry.url.split('=')[1].split('/')[0];
-        if (indexOf.call(changes, ne) < 0) {
-          changes.push(ne);
+      de = entry.url.split('=')[1].split('/')[0];
+      if (!hasnew) {
+        if (((await this.epoch(de))) > last) {
+          hasnew = true;
         }
+      }
+      if (hasnew && indexOf.call(changes, de) < 0) {
+        changes.push(de);
       }
     }
     if (changes.length) {
       console.log('Found changes', changes);
     }
   }
-  // TODO could add some maintenance to get rid of old updated files that are no longer needed
-  if (!changes || (Array.isArray(changes) && changes.length)) {
-    ref5 = (await fs.readdir(infiles));
-    // folder names are like updated_date=2022-04-30
-    for (j = 0, len1 = ref5.length; j < len1; j++) {
-      updated = ref5[j];
-      if (updated !== 'manifest' && (!changes || (ref6 = updated.split('=')[1], indexOf.call(changes, ref6) >= 0))) {
-        ref7 = (await fs.readdir(infiles + '/' + updated));
-        for (k = 0, len2 = ref7.length; k < len2; k++) {
-          infile = ref7[k];
-          ref8 = readline.createInterface({
-            input: fs.createReadStream(infiles + '/' + updated + '/' + infile).pipe(zlib.createGunzip())
-          });
-          //, crlfDelay: Infinity
-          for await (line of ref8) {
-            if (total === howmany) {
-              break;
-            }
-            rec = JSON.parse(line.trim().replace(/\,$/, ''));
-            total += 1;
-            if (what === 'venues' || what === 'institutions' || what === 'concepts' || what === 'authors') {
-              rec._id = rec.id.split('/').pop();
-              if (what === 'authors' && (rec.x_concepts != null)) {
-                ref9 = rec.x_concepts;
-                for (l = 0, len3 = ref9.length; l < len3; l++) {
-                  xc = ref9[l];
-                  if (xc.score != null) {
-                    xc.score = Math.floor(xc.score);
-                  }
+  if (!sync && changes && changes.length) {
+    for (j = 0, len1 = changes.length; j < len1; j++) {
+      change = changes[j];
+      console.log('Openalex syncing files', what, change);
+      await this._child('aws', ['s3', 'sync', 's3://openalex/data/' + what + '/updated_date=' + change, infiles + '/updated_date=' + change, '--no-sign-request']);
+    }
+  }
+  ref5 = (await fs.readdir(infiles));
+  // folder names are like updated_date=2022-04-30
+  for (k = 0, len2 = ref5.length; k < len2; k++) {
+    updated = ref5[k];
+    if (updated !== 'manifest' && (!changes || changes.length === 0 || (ref6 = updated.split('=')[1], indexOf.call(changes, ref6) >= 0))) {
+      ref7 = (await fs.readdir(infiles + '/' + updated));
+      // if we find in future there is no need to download a whole copy of openalex, instead of s3 sync the whole lot it may be better 
+      // to just use streams of the files in each change folder direct from s3, and never have to land them on disk
+      for (l = 0, len3 = ref7.length; l < len3; l++) {
+        infile = ref7[l];
+        ref8 = readline.createInterface({
+          input: fs.createReadStream(infiles + '/' + updated + '/' + infile).pipe(zlib.createGunzip())
+        });
+        //, crlfDelay: Infinity
+        for await (line of ref8) {
+          if (total === howmany) {
+            break;
+          }
+          rec = JSON.parse(line.trim().replace(/\,$/, ''));
+          total += 1;
+          if (what === 'venues' || what === 'institutions' || what === 'concepts' || what === 'authors') {
+            rec._id = rec.id.split('/').pop();
+            if (what === 'authors' && (rec.x_concepts != null)) {
+              ref9 = rec.x_concepts;
+              for (m = 0, len4 = ref9.length; m < len4; m++) {
+                xc = ref9[m];
+                if (xc.score != null) {
+                  xc.score = Math.floor(xc.score);
                 }
               }
-            } else if (what === 'works') {
-              try {
-                rec._id = (ref10 = rec.doi) != null ? ref10 : rec.DOI;
-                if (rec._id.includes('http') && rec._id.includes('/10.')) {
-                  rec._id = '10.' + rec._id.split('/10.').pop();
-                }
-                if (!rec._id || !rec._id.startsWith('10.')) {
-                  rec._id = rec.id.split('/').pop();
-                }
-              } catch (error) {
+            }
+          } else if (what === 'works') {
+            try {
+              rec._id = (ref10 = rec.doi) != null ? ref10 : rec.DOI;
+              if (rec._id.includes('http') && rec._id.includes('/10.')) {
+                rec._id = '10.' + rec._id.split('/10.').pop();
+              }
+              if (!rec._id || !rec._id.startsWith('10.')) {
                 rec._id = rec.id.split('/').pop();
               }
-              if (rec.abstract_inverted_index != null) {
-                abs = [];
-                for (word in rec.abstract_inverted_index) {
-                  ref11 = rec.abstract_inverted_index[word];
-                  for (m = 0, len4 = ref11.length; m < len4; m++) {
-                    n = ref11[m];
-                    abs[n] = word;
-                  }
-                }
-                if (abs.length) {
-                  rec.abstract = abs.join(' ');
-                }
-                delete rec.abstract_inverted_index;
-              }
+            } catch (error) {
+              rec._id = rec.id.split('/').pop();
             }
-            batch.push(rec);
-            if (batch.length === batchsize) {
-              console.log('Openalex ' + what + ' bulk loading', updated, infile, batch.length, total);
-              await this.src.openalex[what](batch);
-              batch = [];
+            if (rec.abstract_inverted_index != null) {
+              abs = [];
+              for (word in rec.abstract_inverted_index) {
+                ref11 = rec.abstract_inverted_index[word];
+                for (o = 0, len5 = ref11.length; o < len5; o++) {
+                  n = ref11[o];
+                  abs[n] = word;
+                }
+              }
+              if (abs.length) {
+                rec.abstract = abs.join(' ');
+              }
+              delete rec.abstract_inverted_index;
             }
           }
+          batch.push(rec);
+          if (batch.length === batchsize) {
+            console.log('Openalex ' + what + ' bulk loading', updated, infile, batch.length, total);
+            await this.src.openalex[what](batch);
+            batch = [];
+          }
         }
+        console.log('removing', infiles + '/' + updated + '/' + infile);
+        await fs.unlink(infiles + '/' + updated + '/' + infile);
       }
+      await fs.rmdir(infiles + '/' + updated);
     }
   }
   if (batch.length) {
@@ -8702,6 +8759,46 @@ P.src.openalex.changes._async = true;
 P.src.openalex.changes._auth = 'root';
 
 // add changes onto a schedule as well
+P.src.openalex.latest = async function(what) {
+  var de, entry, hasnew, i, infiles, last, len, ref, ref1, res, whats;
+  if (what == null) {
+    what = (ref = this.params.latest) != null ? ref : this.params.openalex;
+  }
+  whats = ['works', 'venues', 'authors', 'institutions', 'concepts'];
+  if (indexOf.call(whats, what) < 0) {
+    return false;
+  }
+  infiles = this.S.directory + '/openalex/openalex-snapshot/data/' + what;
+  res = {
+    last: void 0,
+    changes: [],
+    count: 0,
+    manifest: {
+      previous: JSON.parse(((await fs.readFile(infiles + '/manifest'))).toString()),
+      latest: (await this.fetch('https://openalex.s3.amazonaws.com/data/' + what + '/manifest'))
+    }
+  };
+  res.last = res.manifest.previous.entries[res.manifest.previous.entries.length - 1].url.split('=')[1].split('/')[0];
+  last = (await this.epoch(res.last));
+  hasnew = false;
+  ref1 = res.manifest.latest.entries;
+  for (i = 0, len = ref1.length; i < len; i++) {
+    entry = ref1[i];
+    de = entry.url.split('=')[1].split('/')[0];
+    if (!hasnew) {
+      if (((await this.epoch(de))) > last) {
+        hasnew = true;
+      }
+    }
+    if (hasnew) {
+      if (indexOf.call(res.changes, de) < 0) {
+        res.changes.push(de);
+      }
+      res.count += entry.meta.record_count;
+    }
+  }
+  return res;
+};
 
 // there are pubmed data loaders on the server side, they build an index that can 
 // be queried directly. However some of the below functions may still be useful 
@@ -14022,7 +14119,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Tue Jul 12 2022 06:20:26 GMT+0100";
+S.built = "Thu Jul 28 2022 08:17:48 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor

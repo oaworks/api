@@ -88,7 +88,9 @@ P.report.orgs.supplement = (giveback, max) ->
             #exists = await @report.works drc.DOI
             #console.log('found in works') if exists?
             if not exists?
-              if cr = await @src.crossref.works drc.DOI
+              cr = await @src.crossref.works drc.DOI
+              cr ?= await @src.crossref.works.doi drc.DOI
+              if cr?
                 exists = await @report.works._process cr
               console.log('found in crossref') if exists?
             exists = undefined if exists?.is_paratext or exists?.is_retracted
@@ -617,6 +619,7 @@ P.report.check = (ror, reload) ->
             recs[rd] = await @report.supplements rd
             if not recs[rd]?
               recs[rd] ?= await @src.crossref.works rd
+              recs[rd] ?= await @src.crossref.works.doi rd
               if recs[rd]?
                 recs[rd] = await _from_crossref recs[rd]
               else
@@ -626,6 +629,8 @@ P.report.check = (ror, reload) ->
             recs[rd].duplicate ?= 0
             recs[rd].duplicate += 1
           else if cr = await @src.crossref.works rd
+            recs[rd] = await _from_crossref cr
+          else if cr = await @src.crossref.works.doi rd
             recs[rd] = await _from_crossref cr
           else
             recs[rd] = DOI: rd, in_crossref: false
