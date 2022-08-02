@@ -1872,9 +1872,13 @@ P.deposit = async function(params, file, dev) {
   }
   dep.permissions = (ref5 = params.permissions) != null ? ref5 : (await this.permissions((ref6 = params.metadata) != null ? ref6 : params.doi)); // SYP only works on DOI so far, so deposit only works if permissions can work, which requires a DOI if about a specific article
   if (!params.redeposit) {
-    dep.archivable = (await this.archivable(file, void 0, dep.confirmed, params.metadata, dep.permissions, dev));
-    if (((ref7 = dep.archivable) != null ? ref7.metadata : void 0) != null) {
-      delete dep.archivable.metadata;
+    if ((file == null) && params.email && (params.metadata != null)) {
+      dep.type = 'dark';
+    } else {
+      dep.archivable = (await this.archivable(file, void 0, dep.confirmed, params.metadata, dep.permissions, dev));
+      if (((ref7 = dep.archivable) != null ? ref7.metadata : void 0) != null) {
+        delete dep.archivable.metadata;
+      }
     }
   }
   if (((ref8 = dep.archivable) != null ? ref8.archivable : void 0) && (!dep.confirmed || dep.confirmed === dep.archivable.checksum)) { // if the depositor confirms we don't deposit, we manually review - only deposit on admin confirmation (but on dev allow it)
@@ -2048,7 +2052,7 @@ P.deposit = async function(params, file, dev) {
   if (!dep.type && params.from && (!dep.embedded || (!dep.embedded.includes('oa.works') && !dep.embedded.includes('openaccessbutton.org') && !dep.embedded.includes('shareyourpaper.org')))) {
     dep.type = params.redeposit ? 'redeposit' : file ? 'forward' : 'dark';
   }
-  if (dep.doi) { //and not dep.error
+  if (dep.doi) {
     if (dep.type == null) {
       dep.type = 'review';
     }
@@ -14119,7 +14123,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Thu Jul 28 2022 08:17:48 GMT+0100";
+S.built = "Mon Aug 01 2022 15:02:52 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor

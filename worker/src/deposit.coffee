@@ -36,8 +36,11 @@ P.deposit = (params, file, dev) ->
 
   dep.permissions = params.permissions ? await @permissions params.metadata ? params.doi # SYP only works on DOI so far, so deposit only works if permissions can work, which requires a DOI if about a specific article
   if not params.redeposit
-    dep.archivable = await @archivable file, undefined, dep.confirmed, params.metadata, dep.permissions, dev
-    delete dep.archivable.metadata if dep.archivable?.metadata?
+    if not file? and params.email and params.metadata?
+      dep.type = 'dark'
+    else
+      dep.archivable = await @archivable file, undefined, dep.confirmed, params.metadata, dep.permissions, dev
+      delete dep.archivable.metadata if dep.archivable?.metadata?
   if dep.archivable?.archivable and (not dep.confirmed or dep.confirmed is dep.archivable.checksum) # if the depositor confirms we don't deposit, we manually review - only deposit on admin confirmation (but on dev allow it)
     zn = content: file.data, name: dep.archivable.name
     zn.publish = true
@@ -130,7 +133,7 @@ P.deposit = (params, file, dev) ->
   if not dep.type and params.from and (not dep.embedded or (not dep.embedded.includes('oa.works') and not dep.embedded.includes('openaccessbutton.org') and not dep.embedded.includes('shareyourpaper.org')))
     dep.type = if params.redeposit then 'redeposit' else if file then 'forward' else 'dark'
 
-  if dep.doi #and not dep.error
+  if dep.doi
     dep.type ?= 'review'
     dep.url = if typeof params.redeposit is 'string' then params.redeposit else if params.url then params.url else undefined
 
