@@ -3,6 +3,17 @@ P.convert ?= {}
 
 # apt-get install pdftk poppler-utils antiword unoconv #ghostscript tesseract-ocr
 
+P.convert.docxtest = () -> # this works but needs some cleaning up
+  cn = await @_child 'unzip',  ['-p', '/home/cloo/static/ExtendedInterval.docx', 'word/document.xml']
+  content = ''
+  first = true
+  for s in cn.split '<w:t'
+    if not first
+      content += ' ' if not content.endsWith ' '
+      content += s.split('>')[1].split('</w:t')[0].replace(/\<.*?\>/g, '')
+    first = false
+  return content
+    
 P.convert._content2file = (content) ->
   if not content? and (@params.url or @params.content)
     pc = @params.url ? @params.content

@@ -45,21 +45,30 @@ P.dot = (o, k, v, d) ->
       return P.dot o[k[0]], k.slice(1), v, d
 
 
-P.flatten = (obj) ->
-  obj ?= @params
+P.flatten = (obj, arrayed) ->
+  arrayed ?= @params.arrayed ? false # arrayed puts objects in arrays at keys like author.0.name Whereas not arrayed shoves them all in one author.name (which means some that don't have the value could cause position mismatch in lists)
+  #obj = await @src.crossref.works '10.1016/j.mee.2015.04.018'
+  if not obj?
+    obj = @params
+    delete obj.arrayed
   res = {}
   _flatten = (obj, key) ->
     for k of obj
-      pk = if key then key + '.' + k else k
+      isnum = false
+      try isnum = not isNaN parseInt k
+      pk = if isnum and not arrayed then key else if key then key + '.' + k else k
       v = obj[k]
       if typeof v is 'string'
         res[pk] = v
       else if Array.isArray v
         if typeof v[0] is 'object'
           for n of v
-            await _flatten v[n], pk + '.' + n
+            await _flatten v[n], pk + (if arrayed then '.' + n else '')
         else
-          res[pk] = v.join(', ')
+          res[pk] ?= [] #''
+          res[pk].push(av) for av in v
+          #res[pk] += (if res[pk] then ', ' else '') + v.join ', '
+          #res[pk] = v.join ', '
       else
         await _flatten v, pk
   if Array.isArray obj
