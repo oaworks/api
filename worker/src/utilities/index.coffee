@@ -147,7 +147,7 @@ P.index._auths = 'system'
 P.index._caches = false
 
 P.index.status = () ->
-  res = status: 'green', docs: 0, size: 0, shards: 0
+  res = status: 'green', docs: 0, size: 0, shards: 0, failed: 0
   try
     stats = await @index._send '_nodes/stats/indices/search'
     for i of stats.nodes
@@ -164,9 +164,12 @@ P.index.status = () ->
         if sh.index is i and sh.prirep is 'p'
           res.indices[i].shards ?= 0
           res.indices[i].shards += 1
+          res.indices[i].failed ?= 0
+          res.indices[i].failed += 1 if sh.state is 'UNASSIGNED'
       res.docs += res.indices[i].docs
       try res.size += parseInt res.indices[i].size.replace 'mb', ''
       res.shards += res.indices[i].shards
+      res.failed += res.indices[i].failed
   res.size = Math.ceil (res.size/1000) + 'gb'
   try
     res.status = 'red' if res.cluster.status not in ['green','yellow'] # accept yellow for single node cluster (or configure ES itself to accept that as green)
@@ -317,25 +320,30 @@ P.index.min = (route, key, qry, end='min') ->
   if route.indexOf('/') isnt -1
     [route, key] = route.split '/'
   cq = @copy @params
-  delete cq[k] for k in ['index', 'route', 'min', 'max', 'key']
+  delete cq[k] for k in ['index', 'route', 'min', 'max', 'key', 'sum']
   qry ?= await @index.translate cq
   query = if typeof key is 'object' then key else if qry? then qry else query: bool: must: [], filter: [exists: field: key]
   query.size = 0
-  query.aggs = {}
-  query.aggs.min = {min: {field: key}} if end in ['min', 'range']
-  query.aggs.max = {max: {field: key}} if end in ['max', 'range']
+  if end is 'sum'
+    query.aggs = sum: sum: field: key
+  else
+    query.aggs = {}
+    query.aggs.min = {min: {field: key}} if end in ['min', 'range']
+    query.aggs.max = {max: {field: key}} if end in ['max', 'range']
   ret = await @index._send '/' + route + '/_search', query, 'POST'
   return if end is 'range' then {min: ret.aggregations.min.value, max: ret.aggregations.max.value} else ret.aggregations[end].value
 
 P.index.max = (route, key, qry) -> return @index.min route, key, qry, 'max'
 P.index.range = (route, key, qry) -> return @index.min route, key, qry, 'range'
+P.index.sum = (route, key, qry) -> return @index.min route, key, qry, 'sum'
 
 P.index.mapping = (route) ->
   route = route.replace /^\//, '' # remove any leading /
   route = route + '/' if route.indexOf('/') is -1
   route = route.replace('/','/_mapping') if route.indexOf('_mapping') is -1
   ret = await @index._send route
-  return ret[route.replace('/_mapping', '').replace(/\//g, '_').replace(/^_/, '')].mappings.properties
+  rtm = (await @keys ret)[0] #route.replace('/_mapping', '').replace(/\//g, '_').replace(/^_/, '')
+  return ret[rtm].mappings.properties
 
 
 
@@ -422,14 +430,15 @@ P.index._each = (route, q, opts, fn) ->
   @index._bulk(route, updates, action) if action and updates.length # catch any left over
   console.log('_each processed ' + processed) if @S.dev and @S.bg is true
 
-P.index._bulk = (route, data, action='index', bulk=50000) ->
+P.index._bulk = (route, data, action='index', bulk=50000, prefix) ->
   action = 'index' if action is true
-  prefix = await @dot P, (route.split('/')[0]).replace(/_/g, '.') + '._prefix'
-  route = @S.index.name + '_' + route if prefix isnt false # need to do this here as well as in _send so it can be set below in each object of the bulk
+  prefix ?= await @dot P, (route.split('/')[0]).replace(/_/g, '.') + '._prefix'
+  if prefix isnt false # need to do this here as well as in _send so it can be set below in each object of the bulk
+    route = (if typeof prefix is 'string' then prefix else @S.index.name) + '_' + route
   this.index ?= P.index
   if typeof data is 'string' and data.indexOf('\n') isnt -1
     # TODO should this check through the string and make sure it only indexes to the specified route?
-    await @index._send '/_bulk', {body:data, headers: {'Content-Type': 'application/x-ndjson'}} # new ES 7.x requires this rather than text/plain
+    await @index._send '/_bulk', {body:data, headers: {'Content-Type': 'application/x-ndjson'}}, undefined, prefix # new ES 7.x requires this rather than text/plain
     return true
   else
     rows = if typeof data is 'object' and not Array.isArray(data) and data?.hits?.hits? then data.hits.hits else data
@@ -455,7 +464,7 @@ P.index._bulk = (route, data, action='index', bulk=50000) ->
         pkg += JSON.stringify({doc: row}) + '\n' # is it worth expecting other kinds of update in bulk import?
       # don't need a second row for deletes
       if counter is bulk or parseInt(r) is (rows.length - 1) or pkg.length > 70000000
-        rs = await @index._send '/_bulk', {body:pkg, headers: {'Content-Type': 'application/x-ndjson'}}
+        rs = await @index._send '/_bulk', {body:pkg, headers: {'Content-Type': 'application/x-ndjson'}}, undefined, prefix
         if this?.S?.dev and this?.S?.bg is true and rs?.errors
           errors = []
           for it in rs.items
@@ -658,7 +667,7 @@ P.index.translate._auth = false
 
 # calling this should be given a correct URL route for ES7.x, domain part of the URL is optional though.
 # call the above to have the route constructed. method is optional and will be inferred if possible (may be removed)
-P.index._send = (route, data, method) ->
+P.index._send = (route, data, method, prefix) ->
   if route.includes '?'
     [route, rqp] = route.split '?'
     rqp = '?' + rqp
@@ -672,7 +681,7 @@ P.index._send = (route, data, method) ->
   return false if method is 'DELETE' and route.indexOf('/_all') isnt -1 # nobody can delete all via the API
   if not route.startsWith 'http' # which it probably doesn't
     if @S.index.name and not route.startsWith(@S.index.name) and not route.startsWith '_'
-      prefix = await @dot P, (route.split('/')[0]).replace(/_/g, '.') + '._prefix'
+      prefix ?= await @dot P, (route.split('/')[0]).replace(/_/g, '.') + '._prefix'
       # TODO could allow prefix to be a list of names, and if index name is in the list, alias the index into those namespaces, to share indexes between specific instances rather than just one or global
       if prefix isnt false
         route = (if typeof prefix is 'string' then prefix else @S.index.name) + '_' + route

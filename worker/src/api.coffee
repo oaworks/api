@@ -235,7 +235,7 @@ P = () ->
           p[k]._cache ?= false if nd.startsWith 'auth'
           p[k]._index ?= true if p[k]._sheet
           if p[k]._index # add index functions to index endpoints
-            for ik in ['keys', 'terms', 'suggest', 'count', 'percent', 'min', 'max', 'range', 'mapping', '_for', '_each', '_bulk', '_refresh'] # of P.index
+            for ik in ['keys', 'terms', 'suggest', 'count', 'percent', 'min', 'max', 'range', 'sum', 'mapping', '_for', '_each', '_bulk', '_refresh'] # of P.index
               p[k][ik] ?= {_indexed: ik, _auth: (if ik.startsWith('_') then 'system' else p[k]._auth)}
           if typeof p[k] is 'function' and not p[k]._index and not p[k]._indexed and not p[k]._kv and not p[k]._bg and (not nd.includes('.') or n.startsWith('index') or nd.split('.').pop().startsWith '_')
             a[k] = p[k].bind @
@@ -491,7 +491,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
          # and if there is @params._delete, delete by query?
       else if arguments.length # could be a key string and record or could be a query and options (and query could look like a key)
         # could be key or query string - if query string is ambiguous, make it definitive by sending an object with q: 'query string'
-        lg.key = arguments[0].replace(/\//g, '_').trim() if typeof arguments[0] is 'string' and arguments[0].length and not arguments[0].includes('\n') and arguments[0].length is arguments[0].replace(/[\s\:\*~\?=%"]/g, '').length
+        lg.key = arguments[0].replace(/\//g, '_').trim() if typeof arguments[0] is 'string' and arguments[0].length and not arguments[0].includes('\n') and arguments[0].length is arguments[0].replace(/[\s\*~\?=%"]/g, '').length # removed \: from regex to allow DOIs containing : as ID
         lg.key = arguments[0].toString() if typeof arguments[0] is 'number' # some indexes could use a number as an ID
         qry = await @index.translate(arguments[0], arguments[1]) if f._index and not lg.key # check if it can be a query
         rec = if qry? then undefined else if lg.key then arguments[1] else if f._index then arguments[0] else undefined
@@ -521,13 +521,13 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
             delete @params.size
             delete qry.size
             tot = await @index.count rt, qry
-            if tot > 500000 or not @S.static?.folder
+            if tot > 200000 or not @S.static?.folder
               res = status: 401
             else
               flid = (if @fn then @fn.replace(/\./g, '_') else '') + '_' + @uid()
               eurl = @S.static.url + '/export/' + flid + '.csv'
               if tot > 100000
-                await @mail to: (@S.log?.notify ? 'mark@oa.works'), text: 'Someone is creating a large csv of size ' + tot + '\n\n' + eurl
+                await @mail to: (@S.log?.notify ? 'mark@oa.works'), text: 'Someone is creating a large csv of size ' + tot + '\n\n' + eurl + (if nfeml is 'joe@oa.works' then '' else '\n\nbut they are not the user who is allowed, so it should get capped')
               out = @S.static.folder + '/export'
               try
                 filecount = (await fs.readdir out).length
@@ -536,7 +536,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
               catch
                 await fs.mkdir out
                 filecount = 0
-              if filecount > 200
+              if filecount > 250
                 res = status: 401
               else
                 out += '/' + flid  + '.csv'
@@ -565,12 +565,16 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                   for key in keys
                     await fs.appendFile out, (if not first then ',"' else '"') + key + '"'
                     first = false
-                  for await blr from @index._for rt, qry, scroll: '5m'
+                  for await blr from @index._for rt, qry, {scroll: '5m', max: if notify is 'joe@oa.works' then 100000 else 30000}
                     await fs.appendFile out, '\n'
                     first = true
                     for k in keys
                       if k.includes '.'
-                        blfl = await @copy blr
+                        try
+                          blfl = await @flatten blr
+                        catch
+                          blfl = undefined
+                        '''blfl = await @copy blr
                         pts = k.split '.'
                         while pts.length
                           nxpt = pts.shift()
@@ -579,15 +583,26 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                             if Array.isArray blfl
                               st = []
                               for ovp in blfl
-                                st.push(ovp[nxpt]) if ovp?[nxpt]?
+                                if typeof ovp is 'object'
+                                  st.push ovp[nxpt]
+                                else
+                                  if Array.isArray ovp
+                                    st.push(ovpm) for ovpm in ovp
+                                  else
+                                    st.push ovp
                               blfl = st
                             else
                               blfl = blfl[nxpt]
                           catch
-                            blfl = undefined
+                            blfl = undefined'''
                       else
                         blfl = blr
                       if Array.isArray blfl
+                        if blfl.length and typeof blfl[0] is 'object'
+                          st = []
+                          for blp in blfl
+                            st.push(blp[k]) if blp?[k]?
+                          blfl = st
                         nar = {}
                         nar[k] = blfl
                         blfl = nar
@@ -605,11 +620,11 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                     await @mail to: notify, subject: 'Your export is complete (ref: ' + out.split('/').pop() + ')', text: 'Your export is complete. This link will expire in approximately 2 days.<br><br><a href="' + eurl + '">Download csv</a>\n\nThanks'
                 @waitUntil _makecsv rt, qry, out, ks, nfeml, eurl
                 delete @format
-                if nfeml
-                  res = eurl
-                else
-                  res = status: 302, body: eurl
-                  res.headers = Location: res.body
+                #if nfeml
+                res = eurl
+                #else
+                #  res = status: 302, body: eurl
+                #  res.headers = Location: res.body
           else
             res = await @index rt + (if lg.key then '/' + lg.key else ''), (rec ? qry)
           if not res? and (not lg.key or not rec?) # this happens if the index does not exist yet, so create it (otherwise res would be a search result object)

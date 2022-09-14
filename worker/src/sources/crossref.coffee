@@ -15,7 +15,7 @@ P.src.crossref = () ->
       doi = doi.split('//')[1] if doi.indexOf('http') is 0
       doi = '10.' + doi.split('/10.')[1] if doi.indexOf('10.') isnt 0 and doi.indexOf('/10.') isnt -1
       url = 'https://api.crossref.org/works/' + doi
-      res = await @fetch url, {headers: {'User-Agent': @S.name + '; mailto:' + @S.mail?.to}}
+      res = await @fetch url, {headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works'), 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
 
     if res?.message?.DOI?
       return @src.crossref.works._format res.message
@@ -32,7 +32,7 @@ P.src.crossref.works.doi = (doi, save) ->
   if typeof doi is 'string' and doi.startsWith '10.'
     doi = doi.split('//')[1] if doi.indexOf('http') is 0
     doi = '10.' + doi.split('/10.')[1] if doi.indexOf('10.') isnt 0 and doi.indexOf('/10.') isnt -1
-    res = await @fetch 'https://api.crossref.org/works/' + doi, {headers: {'User-Agent': @S.name + '; mailto:' + @S.mail?.to}}
+    res = await @fetch 'https://api.crossref.org/works/' + doi, {headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works'), 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
     if res?.message?.DOI?
       formatted = await @src.crossref.works._format res.message
       if save
@@ -120,7 +120,7 @@ P.src.crossref.works.published = (rec) ->
   return
   
 P.src.crossref.works.search = (qrystr, from, size, filter, start, end, sort, order) ->
-  qrystr ?= @params.q ? @params.search ? @params
+  qrystr ?= @params.q ? @params.search #? @params
   from ?= @params.from
   size ?= @params.size
   filter ?= @params.filter
@@ -129,7 +129,7 @@ P.src.crossref.works.search = (qrystr, from, size, filter, start, end, sort, ord
   sort ?= @params.sort
   order ?= @params.order ? 'asc'
   if start
-    filtered = filter ? sort ? 'created' # can be published, indexed, deposited, created. indexed catches the most changes but can be very large and takes a long time
+    filtered = filter ? sort ? 'indexed' # can be published, indexed, deposited, created. indexed catches the most changes but can be very large and takes a long time
     start = await @date(start) if typeof start isnt 'string' or start.indexOf('-') is -1 # should be like 2021-01-31
     filter = (if filter then filter + ',' else '') + 'from-' + filtered.replace('lished','').replace('xed','x').replace('ited','it') + '-date:' + start
   if end
@@ -160,7 +160,7 @@ P.src.crossref.works.search = (qrystr, from, size, filter, start, end, sort, ord
   url += 'filter=' + encodeURIComponent(filter) + '&'if filter? and filter isnt ''
   url = url.replace('?&','?').replace(/&$/,'') # tidy any params coming immediately after the start of search query param signifier, as it makes crossref error out
   try
-    res = await @fetch url, {headers: {'User-Agent': @S.name + '; mailto:' + @S.mail?.to}}
+    res = await @fetch url, {headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works'), 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
     return total: res.message['total-results'], cursor: res.message['next-cursor'], data: res.message.items, facets: res.message.facets
   catch
     return
@@ -174,7 +174,7 @@ P.src.crossref.journals.load = () ->
   cursor = '*'
   while cursor and (counter is 0 or counter < total)
     url = 'https://api.crossref.org/journals?cursor=' + cursor + '&rows=' + 1000
-    res = await @fetch url, {headers: {'User-Agent': @S.name + '; mailto:' + @S.mail?.to}}
+    res = await @fetch url, {headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works'), 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
     total = res.message['total-results'] if total is 0
     cursor = res.message['next-cursor']
     for rec in res.message.items
@@ -212,7 +212,7 @@ P.src.crossref.journals.load._auth = 'root'
 
 
 P.src.crossref.load = () ->
-  batchsize = 30000 # how many records to batch upload at a time
+  batchsize = 10000 # how many records to batch upload at a time - kept low because large crossref files were causing OOM
   howmany = @params.howmany ? -1 # max number of lines to process. set to -1 to keep going
 
   # https://www.crossref.org/blog/new-public-data-file-120-million-metadata-records/
@@ -223,20 +223,28 @@ P.src.crossref.load = () ->
   # to torrent, it's safer to do that step separately. Here's some simple instructions for the Jan 2021 crossref release:
   # sudo apt-get install aria2
   # aria2c https://academictorrents.com/download/e4287cb7619999709f6e9db5c359dda17e93d515.torrent
-  infolder = @S.directory + '/crossref/crossref_public_data_file_2021_01/'
+  
+  # redo with 2022 dump:
+  # https://www.crossref.org/blog/2022-public-data-file-of-more-than-134-million-metadata-records-now-available/
+  # https://academictorrents.com/details/4dcfdf804775f2d92b7a030305fa0350ebef6f3e
+  # https://academictorrents.com/download/4dcfdf804775f2d92b7a030305fa0350ebef6f3e.torrent
+
+  infolder = @S.directory + '/crossref/data/'
   lastfile = @S.directory + '/crossref/last' # where to record the ID of the last file processed
   
   files = -1 # max number of files to process. set to -1 to keep going
   filenumber = 0 # crossref files are named by number, from 0, e.g. 0.json.gz
   try filenumber = parseInt((await fs.readFile lastfile).toString()) if not @refresh
 
-  #await @src.crossref.works('') if filenumber is 0
+  #await @src.crossref.works('') if filenumber is 0 and @params.clear
 
   total = 0
   batch = [] # batch of json records to upload
 
-  while filenumber >= 0 and filenumber isnt files and filenumber < 40229 # there are 40228 in the 2020 data dump,  but oddly 9999 is missing in our set
-    if filenumber not in [9999] # should make this a file exists check probably
+  # there were 40228 in the 2020 data dump,  but oddly 9999 was missing
+  # for 2022 there are 26810
+  while filenumber >= 0 and filenumber isnt files and filenumber < 26810
+    if filenumber not in [] # should make this a file exists check probably (just added 9999 to this list when running 2020)
       break if total is howmany
       console.log 'Crossref load starting file', filenumber
       lines = ''
@@ -269,13 +277,14 @@ P.src.crossref.load._auth = 'root'
 
 
 P.src.crossref.changes = (startday) ->
-  batchsize = 20000
+  batchsize = 10000
   startday ?= @params.changes
   if not startday
     try
       last = await @src.crossref.works 'srcday:*', size: 1, sort: srcday: 'desc'
       startday = last.srcday
   startday ?= 1607126400000 # the timestamp of when changes appeared to start after the last data dump, around 12/12/2020
+  # for the 2022 update 1649635200000 was used for 11th April 2022
   dn = Date.now()
   loaded = 0
   days = 0
