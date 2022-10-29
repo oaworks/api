@@ -15,6 +15,7 @@
 # can search publication date via FIRST_PDATE:1995-02-01 or FIRST_PDATE:[2000-10-14 TO 2010-11-15] to get range
 
 P.src.epmc = _index: true, _prefix: false, _key: 'id' # id will be the pubmed ID from the looks of it
+P.src.epmc.notinepmc = _index: true, _prefix: false, _key: 'id', _hide: true # keep track of ones we already looked up
 
 P.src.epmc.search = (qrystr, from, size) ->
   qrystr ?= @params.search ? @params.epmc ? @params.doi ? ''
@@ -34,14 +35,24 @@ P.src.epmc.search = (qrystr, from, size) ->
     @waitUntil @src.epmc ret.data
   return ret
 
-P.src.epmc.doi = (ident) ->
+P.src.epmc.doi = (ident, refresh) ->
   ident ?= @params.doi
+  refresh ?= @refresh
   exists = await @src.epmc 'doi:"' + ident + '"'
   if exists?.hits?.total
     return exists.hits.hits[0]._source
+  else if not refresh and ne = await @src.epmc.notinepmc ident
+    return
   else
     res = await @src.epmc.search 'DOI:' + ident
-    return if res.total then res.data[0] else undefined
+    if res.total
+      if not res.data[0].doi
+        res.data[0].doi = ident
+        @waitUntil @src.epmc res.data[0]
+      return res.data[0]
+    else
+      await @src.epmc.notinepmc id: ident.replace(/\//g, '_'), doi: ident
+      return
 
 P.src.epmc.pmid = (ident) ->
   ident ?= @params.pmid

@@ -1,20 +1,26 @@
 
 P.report = () -> return 'OA.Works report'
 
-'''P.report.dev2live = () ->
-  await @index._send 'report_works', '', undefined, false
+P.report.dev2live = (reverse) ->
+  if not reverse
+    f = 'paradigm_b_report_works'
+    t = 'paradigm_report_works'
+  else
+    f = 'paradigm_report_works'
+    t = 'paradigm_b_report_works'
+  await @index._send t, '', undefined, false
   counter = 0
   batch = []
-  for await rm from @index._for 'report_works'
+  for await rm from @index._for f
     counter += 1
-    batch.push rm
+    batch.push(rm) if rm.DOI and not rm.DOI.includes(' pmcid:') and not rm.DOI.includes('\n') and not rm.DOI.includes '?ref'
     if batch.length is 30000
-      console.log 'report works dev2live', counter
-      await @index._bulk 'report_works', batch, undefined, undefined, false
+      console.log 'report works', (if reverse then 'live2dev' else 'dev2live'), f, t, counter
+      await @index._bulk t, batch, undefined, undefined, false
       batch = []
 
   if batch.length
-    await @index._bulk 'report_works', batch, undefined, undefined, false
+    await @index._bulk t, batch, undefined, undefined, false
     batch = []
 
   return counter
@@ -22,7 +28,12 @@ P.report = () -> return 'OA.Works report'
 P.report.dev2live._async = true
 P.report.dev2live._bg = true
 P.report.dev2live._auth = 'root'
-'''
+
+P.report.live2dev = () ->
+  return @report.dev2live true
+P.report.live2dev._async = true
+P.report.live2dev._bg = true
+P.report.live2dev._auth = 'root'
 
 P.report.orgs = _sheet: '1d_RxBLU2yNzfSNomPbWQQr3CS0f7BhMqp6r069E8LR4/dev' , _format: (recs=[]) ->
   ready = []
@@ -58,146 +69,182 @@ P.report.orgs = _sheet: '1d_RxBLU2yNzfSNomPbWQQr3CS0f7BhMqp6r069E8LR4/dev' , _fo
   console.log bs + ' bad sheets strings found in completed report orgs refresh'
   return if ready.length is 1 then ready[0] else ready
 
-P.report.orgs.supplement = (giveback, max) ->
+P.report.orgs.supplement = (sheetname, orgname, max, changed, reload, xref, olx) ->
+  sheetname ?= @params.sheet
+  orgname ?= @params.org
   max ?= @params.max
-  supplemented = 0
-  existing = {}
+  reload ?= @params.reload
+  repmc = @params.repmc ? false # trigger an epmc lookup again, even if not setting reload to true
+  
+  if typeof changed is 'string'
+    changed = await @report.works changed
+    changed ?= await @src.crossref.works changed
 
-  for await org from @index._for 'report_orgs', 'sheets.url:*'
-    for s in org.sheets
-      url = await @decrypt s.url
-      headers = []
-      rows = await @src.google.sheets sheetid: url, sheet: 'Export', headers: false # just get rows because headers are in different places, and want to simplify them as well
-      if rows
-        headers.push(header.toLowerCase().trim().replace(/ /g, '_').replace('?', '')) for header in rows.shift()
-      else
-        rows = []
-      dois = {}
-      mx = 0
-      for row in rows
-        mx += 1
-        if mx is max
-          console.log 'stopping supplementing for', s.name, 'due to max limit'
-          break 
-        rr = {}
-        for h of headers
-          rr[headers[h].toLowerCase()] = if not row[h] then undefined else if row[h].trim().toLowerCase() in ['true', 'yes'] then true else if row[h].trim().toLowerCase() in ['false', 'no'] then false else if headers[h].toLowerCase() in ['grant_id', 'ror'] then row[h].replace(/\//g, ',').replace(/ /g, '').split(',') else row[h]
-        rr.doi = rr.doi.toLowerCase().split('\\')[0].trim() if rr.doi
-        rr.DOI = rr.DOI.toLowerCase().split('\\')[0].trim() if rr.DOI
-        rr.DOI = rr.doi if not rr.DOI and rr.doi
-        dr = rr.DOI
-        if dois[dr]?
-          dois[dr][k] = rr[k] for k of rr
-        else
-          dois[dr] = rr
-        dois[dr].DOI ?= dois[dr].doi
-        dois[dr].orgs ?= []
-        dois[dr].orgs.push(org.name) if org.name not in dois[dr].orgs
-        dois[dr].sheets ?= []
-        dois[dr].sheets.push(s.name) if s.name not in dois[dr].sheets
-        dois[dr].ror = org.ror
-        if dois[dr].apc_cost?
-          try
-            dois[dr].apc_cost = parseInt dois[dr].apc_cost
-          catch
-            delete dois[dr].apc_cost
-      for d of dois
-        supplemented += 1
-        console.log supplemented
-        drc = dois[d]
-        if drc.DOI
-          exists = existing[drc.DOI]
-          console.log('found in existing') if exists?
-          if not exists?
-            #exists = await @report.works drc.DOI
-            #console.log('found in works') if exists?
-            if not exists?
-              cr = await @src.crossref.works drc.DOI
-              cr ?= await @src.crossref.works.doi drc.DOI
-              if cr?
-                exists = await @report.works._process cr
-              #console.log('found in crossref') if exists?
-            exists ?= {} # allow things even if not found in crossref as per https://github.com/oaworks/Gates/issues/339
-            exists = undefined if exists?.is_paratext or exists?.is_retracted
-          if typeof exists is 'object'
-            if not existing[drc.DOI]?
-              exists.orgs = []
-              exists.supplements = []
-              existing[drc.DOI] = exists
-            for og in drc.orgs
-              exists.orgs.push(og) if og not in exists.orgs
-            if org.paid and @params.pmc isnt false and not exists.pmc_checked
-              exists.pmc_checked = true
-              if not exists.PMCID and pubmed = await @src.pubmed.doi exists.DOI # pubmed is faster to lookup but can't rely on it being right if no PMC found in it, e.g. 10.1111/nyas.14608
-                exists.PMCID = 'PMC' + pubmed.identifier.pmc.toLowerCase().replace('pmc', '') if pubmed?.identifier?.pmc
-              epmc = undefined
-              if not exists.PMCID and epmc = await @src.epmc.doi exists.DOI
-                exists.PMCID = epmc.pmcid
-              if exists.PMCID and exists.repository_url_in_pmc and not exists.epmc_licence
-                lic = await @src.epmc.licence exists.PMCID, epmc
-                exists.epmc_licence = lic?.licence
-              exists.pmc_has_data_availability_statement = exists.PMCID and await @src.pubmed.availability exists.PMCID
-            exists.supplements.push drc
-            existing[drc.DOI] = exists
-          else
-            console.log 'not found', drc.DOI
-            existing[drc.DOI] = DOI: drc.DOI, orgs: drc.orgs, supplements: [drc]
+  paramdoi = false
+  if not changed? and @params.supplement and @params.supplement.startsWith '10.'
+    paramdoi = @params.supplement.toLowerCase()
+    changed = await @src.crossref.works paramdoi
 
-  present = []
+  loaded = 0
+  doid = 0
+  dois = {}
+  counts = {}
+  orgsheets = {}
+
+  if not changed? or paramdoi
+    for await org from @index._for 'report_orgs', 'sheets.url:*'
+      if not orgname or org.name is orgname
+        orgsheets[org.name] ?= {}
+        console.log 'supplementing for', org.name
+        for s in org.sheets
+          orgsheets[org.name][s.name] ?= 0
+          if not sheetname or s.name is sheetname
+            console.log 'supplementing from sheet', s.name
+            url = await @decrypt s.url
+            headers = []
+            rows = await @src.google.sheets sheetid: url, sheet: 'Export', headers: false # just get rows because headers are in different places, and want to simplify them as well
+            if rows
+              headers.push(header.toLowerCase().trim().replace(/ /g, '_').replace('?', '')) for header in rows.shift()
+            else
+              rows = []
+            console.log rows.length, 'rows from sheet with headers', JSON.stringify headers
+            mx = 0
+            rc = 0
+            for row in rows
+              orgsheets[org.name][s.name] += 1
+              rc += 1
+              console.log 'processing row', rc, 'for', org.name, s.name
+              mx += 1
+              if mx is max
+                console.log 'stopping supplementing for', s.name, 'due to max limit'
+                break 
+              rr = supplements: [{orgs: [org.name], sheets: [s.name], ror: org.ror, paid: org.paid}], orgs: [org.name], paid: if org.paid then [org.name] else []
+              for hp of headers
+                h = headers[hp]
+                if h in ['doi', 'DOI']
+                  rr[h] = row[hp]
+                else if h is 'apc_cost'
+                  try rr.supplements[0].apc_cost = parseInt row[hp]
+                else
+                  rr.supplements[0][h] = if not row[hp] then undefined else if row[hp].trim().toLowerCase() in ['true', 'yes'] then true else if row[hp].trim().toLowerCase() in ['false', 'no'] then false else if h.toLowerCase() in ['grant_id', 'ror'] then row[hp].replace(/\//g, ',').replace(/ /g, '').split(',') else row[hp]
+              rr.DOI ?= rr.doi
+              if rr.DOI and rr.DOI.startsWith 'http'
+                try rr.DOI = '10.' + rr.DOI.split('/10.')[1] # avoid dirty inputs that are full URLs
+              rr.DOI = rr.DOI.toLowerCase().split('\\')[0].trim().replace(/^\//, '').split('?')[0].split(' pmcid')[0].split('\n')[0] if rr.DOI # also catch problems like 10.1021/acscentsci.0c00732?ref=pdf
+              if rr.DOI and (not paramdoi or paramdoi is rr.DOI)
+                doid += 1
+                if dois[rr.DOI]?
+                  rr[k] ?= dois[rr.DOI][k] for k of dois[rr.DOI]
+                  rr.supplements.push(sp) for sp in dois[rr.DOI].supplements when (not orgname or orgname not in sp.orgs) and (not sheetname or sheetname not in sp.sheets)
+                  rr.paid.push(pp) for pp in dois[rr.DOI].paid when pp not in rr.paid
+                  rr.orgs.push(og) for og in dois[rr.DOI].orgs when og not in rr.orgs
+                dois[rr.DOI] = rr
+                counts[rr.DOI] ?= 0
+                counts[rr.DOI] += 1
+  else
+    dois[changed.DOI] = changed
+
   batch = []
-  exc = 0
-  for e of existing
-    exc += 1
-    present.push e
-    res = existing[e]
-    if res.authorships? and res.email?
-      if res.authorships.length is 1
-        res.author_email_name = 'Dr. ' + res.authorships[0].author?.display_name
-      else
-        ren = (if typeof res.email is 'string' then res.email else res.email[0]).split('@')[0].toLowerCase().replace(/[^a-z]/g, '')
-        best_initial = ''
-        best_name = ''
-        best_score = 1000000
-        for rn in res.authorships
-          ran = rn.author?.display_name
-          lvs = await @levenshtein ren, ran.toLowerCase().replace(/[^a-z]/g, '')
-          score = lvs.distance / ran.length
-          if score < best_score
-            best_score = score
-            best_name = ran
-          if best_score > .2 and (ren.endsWith(ran.split(' ').pop().toLowerCase()) or (ran.split(' ')[0].length > 4 and ren.includes ran.split(' ')[0].toLowerCase()))
-            best_score = .1
-            best_name = ran
-          if not best_initial and ren.startsWith (ran.split(' ')[0].slice(0,1) + ran.split(' ').pop().slice(0,1)).toLowerCase()
-            best_initial = ran
-        if best_score < .7
-          res.author_email_name = 'Dr. ' + best_name.split(' ').pop()
-        if not res.author_email_name and best_initial
-          res.author_email_name = 'Dr. ' + best_initial
-    batch.push res
+  noxref = 0
+  for d of dois
+    loaded += 1
+    console.log loaded
+    rr = dois[d]
+    if reload isnt true and (not changed? or paramdoi) and wrr = await @report.works rr.DOI
+      if wrr.hits?.hits? # catch problems caused by bad input DOIs
+        if wrr.hits.hits.length is 1
+          wrr = wrr.hits.hits[0]._source
+        else
+          wrr = undefined
+      if wrr?
+        rr[k] ?= wrr[k] for k of wrr when k not in ['hits', '_shards', 'took', 'timed_out', 'q', 'is_paratext', 'is_retracted'] 
+        if wrr.supplements and (orgname or sheetname)
+          for sp in wrr.supplements
+            rr.supplements.push(sp) if (not orgname or orgname not in sp.orgs) and (not sheetname or sheetname not in sp.sheets)
+        if wrr.paid and orgname
+          rr.paid.push(pp) for pp in wrr.paid when typeof pp is 'string' and pp not in rr.paid 
+        if wrr.orgs and orgname
+          rr.orgs.push(og) for og in wrr.orgs when typeof og is 'string' and og not in rr.orgs 
+
+    if not wrr?.title or xref? or olx? #xref and olx are passed from the changes check for paid records
+      cr = xref ? await @src.crossref.works rr.DOI # ? await @src.crossref.works.doi rr.DOI
+      noxref += 1 if not cr?
+      if cr? and processed = await @report.works._process cr, olx
+        if processed.is_paratext or processed.is_retracted
+          rr = undefined
+        else
+          rr[k] ?= processed[k] for k of processed when k not in ['is_paratext', 'is_retracted']
+    
+    if rr?.authorships? and not rr.author_email_name
+      an_email = rr.email
+      an_email = sup.email for sup in rr.supplements when sup.email and not an_email
+      if an_email
+        an_email = an_email[0] if typeof an_email isnt 'string'
+        if rr.authorships.length is 1
+          rr.author_email_name = 'Dr. ' + rr.authorships[0].author?.display_name
+        else
+          ren = an_email.split('@')[0].toLowerCase().replace(/[^a-z]/g, '')
+          best_initial = ''
+          best_name = ''
+          best_score = 1000000
+          for rn in rr.authorships
+            if ran = rn.author?.display_name
+              lvs = await @levenshtein ren, ran.toLowerCase().replace(/[^a-z]/g, '')
+              score = lvs.distance / ran.length
+              if score < best_score
+                best_score = score
+                best_name = ran
+              if best_score > .2 and (ren.endsWith(ran.split(' ').pop().toLowerCase()) or (ran.split(' ')[0].length > 4 and ren.includes ran.split(' ')[0].toLowerCase()))
+                best_score = .1
+                best_name = ran
+              if not best_initial and ren.startsWith (ran.split(' ')[0].slice(0,1) + ran.split(' ').pop().slice(0,1)).toLowerCase()
+                best_initial = ran
+          if best_name and best_score < .7
+            rr.author_email_name = 'Dr. ' + best_name.split(' ').pop()
+          if not rr.author_email_name and best_initial
+            rr.author_email_name = 'Dr. ' + best_initial
+
+    if rr?.paid? and rr.paid.length and @params.pmc isnt false and (not rr.pmc_checked or reload is true or repmc is true)
+      console.log('checking for pmc', rr.PMCID, rr.DOI) if paramdoi
+      rr.pmc_checked = true
+      if not rr.PMCID and pubmed = await @src.pubmed.doi rr.DOI # pubmed is faster to lookup but can't rely on it being right if no PMC found in it, e.g. 10.1111/nyas.14608
+        rr.PMCID = 'PMC' + pubmed.identifier.pmc.toLowerCase().replace('pmc', '') if pubmed?.identifier?.pmc
+      epmc = undefined
+      if not rr.PMCID and epmc = await @src.epmc.doi rr.DOI
+        rr.PMCID = epmc.pmcid if epmc.pmcid
+      if rr.PMCID and rr.repository_url_in_pmc and not rr.epmc_licence
+        lic = await @src.epmc.licence rr.PMCID, epmc
+        rr.epmc_licence = lic?.licence
+      rr.pmc_has_data_availability_statement = rr.PMCID and await @src.pubmed.availability rr.PMCID
+
+    if rr?
+      rr.updated = await @epoch()
+      batch.push rr
+
     if batch.length is 10000
       await @report.works batch
-      console.log 'report orgs load supplemented', supplemented, exc
+      console.log 'report orgs supplemented', loaded
       batch = []
 
   if batch.length
     await @report.works batch
-    console.log 'report orgs load supplemented', supplemented, exc
     batch = []
 
-  for await rm from @index._for 'report_works', 'supplements.sheets:*'
-    if rm._id not in present
-      await @report.works rm._id, ''
+  if not changed?
+    text = 'https://bg.beta.oa.works/report/works?q=supplements.orgs:*\n\n'
+    for os of orgsheets
+      text += os + '\n'
+      for ss of orgsheets[os]
+        text += ss + orgsheets[os][ss] + ' DOIs\n'
+    text += '\n\n' + doid + ' DOIs were found in the sheets\n\n'
+    text += noxref + ' were not found in crossref\n\n'
 
-  if not giveback
     @mail
-      to: ['mark@oa.works']
-      subject: 'OA report supplements loaded ' + supplemented + ' and had ' + exc + ' existing'
-      text: 'https://bg.beta.oa.works/report/works?q=supplements.orgs:*'
-    
-    return supplemented
-  else
-    return present
+      to: ['mark@oa.works', 'joe@oa.works']
+      subject: 'OA report supplements loaded ' + loaded
+      text: text
+  
+  return loaded
 P.report.orgs.supplement._async = true
 
 P.report.emails = _sheet: '1U3YXF1DLhGvP4PgqxNQuHOSR99RWuwVeMmdTAmSM45U/Export', _key: 'DOI'
@@ -252,13 +299,8 @@ P.report.works._process = (cr, openalex) ->
     rec.publisher ?= oadoi.publisher
     rec.published_date = oadoi.published_date if oadoi.published_date
     rec.published_year = oadoi.year if oadoi.year
-    rec.updated = oadoi.updated
+    #rec.updated = oadoi.updated # removed in favour of adding our own as instructed by JM
 
-  '''if oadoi?.journal_is_in_doaj #or (oadoi?.best_oa_location?.license ? '').includes('cc')
-    rec.can_archive = true
-    rec.version = oadoi.best_oa_location.version ? 'publishedVersion'
-    rec.journal_oa_type = 'gold' # is this good enough or do we have to know diamond?
-  else'''
   prc = await @copy rec
   permissions = await @permissions prc, undefined, undefined, oadoi, cr
   rec.can_archive = permissions?.best_permission?.can_archive
@@ -275,7 +317,6 @@ P.report.works._process = (cr, openalex) ->
     hasml = await @report.emails rec.DOI
     rec.email = hasml?.Email
 
-  # check DOI in openalex (what about ones in openalex with no DOI? When to loop over them?)
   openalex ?= await @src.openalex.works 'ids.doi:"https://doi.org/' + rec.DOI + '"', 1
   if openalex?
     rec[ok] = openalex[ok] for ok in ['authorships', 'concepts', 'cited_by_count', 'type', 'is_paratext', 'is_retracted']
@@ -291,22 +332,22 @@ P.report.works._process = (cr, openalex) ->
         delete i.type
     rec.PMCID = 'PMC' + openalex.ids.pmcid.split('/').pop().toLowerCase().replace('pmc', '') if not rec.PMCID and openalex.ids?.pmcid
 
+  rec.updated = await @peoch()
   return rec
 
-P.report.works.load = (timestamp, crossref, openalex) ->
+P.report.works.load = (timestamp, crossref, openalex, supplement, qry, oaqry, notify) ->
   started = await @epoch()
 
+  timestamp ?= @params.load ? @params.timestamp
   crossref ?= @params.crossref
   openalex ?= @params.openalex
+  supplement ?= false #@params.supplement
 
   if @params.clear
     await @report.works ''
 
   present = []
   batch = []
-
-  if @params.supplement isnt false and not @params.year
-    present = await @report.orgs.supplement true, @params.max
 
   if @params.year
     year = @params.year
@@ -320,33 +361,45 @@ P.report.works.load = (timestamp, crossref, openalex) ->
     await @report.works batch
     batch = []
   
+  qry ?= 'type.keyword:("journal-article" OR "posted-content") AND (funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year
+  qry = '(' + qry + ') AND year.keyword:' + year if year and not qry.includes ':' + year
+  qry = '(' + qry + ') AND srcday:>' + timestamp if timestamp and not qry.includes ':>' + timestamp
+  console.log qry
+  crcount = await @src.crossref.works.count qry
+  console.log crcount, 'records available for update from crossref'
   if crossref isnt false
     console.log 'Starting OA report works loading from crossref'
-    qry = 'type.keyword:("journal-article" OR "posted-content") AND (funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year
-    qry += ' AND srcday:>' + timestamp if timestamp
     for await cr from @index._for 'src_crossref_works', qry, scroll: '30m', max: @params.max, include: ['DOI', 'subject', 'title', 'subtitle', 'volume', 'issue', 'year', 'publisher', 'published', 'funder', 'license', 'is_oa']
-      if cr.DOI.toLowerCase() not in present
-        total += 1
-        console.log total
-        present.push cr.DOI.toLowerCase()
-        prc = await @report.works._process cr
-        if prc? and not prc.is_retracted and not prc.is_paratext
-          delete prc.is_retracted
-          delete prc.is_paratext
-          batch.push prc
-        if batch.length is 10000
-          await @report.works batch
-          console.log 'OA report works loading', total, Math.ceil ((await @epoch()) - started)/60000
-          batch = []
+      total += 1
+      #console.log total
+      present.push cr.DOI.toLowerCase()
+      prc = await @report.works._process cr
+      if prc? and not prc.is_retracted and not prc.is_paratext
+        delete prc.is_retracted
+        delete prc.is_paratext
+        dt = await @date()
+        if dt.includes(year) and timestamp
+          exists = await @report.works cr.DOI
+          if exists?.supplements?
+            prc[e] ?= exists[e] for e in ['supplements', 'orgs', 'author_email_name', 'pmc_checked', 'paid', 'PMCID', 'epmc_licence', 'pmc_has_data_availability_statement']
+        batch.push prc
+      if batch.length is 10000
+        await @report.works batch
+        console.log 'OA report works loading', total, Math.ceil ((await @epoch()) - started)/60000
+        batch = []
 
+  oaqry ?= 'authorships.institutions.display_name:* AND publication_year:' + year
+  oaqry = '(' + oaqry + ') AND publication_year:' + year if year and not oaqry.includes ':' + year
+  oaqry = '(' + oaqry + ') AND updated_date:>' + timestamp if timestamp and not oaqry.includes ':>' + timestamp
+  console.log oaqry
+  alexcount = await @src.openalex.works.count oaqry
+  console.log alexcount, 'records available for update from openalex'
   if openalex isnt false
     console.log 'Starting OA report works loading from openalex'
-    oaqry = 'authorships.institutions.display_name:* AND publication_year:' + year
-    oaqry += ' AND updated_date:>' + timestamp if timestamp
     for await ol from @index._for 'src_openalex_works', oaqry, scroll: '30m', max: @params.max
       if not ol.ids?.doi or ol.ids.doi.toLowerCase() not in present
         total += 1
-        console.log total
+        #console.log total
         prc = await @report.works._process undefined, ol
         if prc? and not prc.is_retracted and not prc.is_paratext
           delete prc.is_retracted
@@ -360,21 +413,46 @@ P.report.works.load = (timestamp, crossref, openalex) ->
   if batch.length
     await @report.works batch
 
+  @report.orgs.supplement() if supplement isnt false # this will run async and should be run because the above may have written over records that had supplements in them
+
   took = Math.ceil ((await @epoch()) - started)/60000
   console.log 'OA report done loading after ' + took + ' minutes'
-  @mail
-    to: ['mark@oa.works']
-    subject: 'OA report works loaded ' + total + ' in ' + took + ' minutes'
-    text: 'https://bg.beta.oa.works/report/works'
+  if notify isnt false
+    @mail
+      to: ['mark@oa.works']
+      subject: 'OA report works loaded ' + total + ' in ' + took + ' minutes' + (if timestamp then ' for ' + (await @date timestamp) else '') + ', ' + crcount + ' crosref, ' + alexcount + ' openalex'
+      text: 'https://bg.beta.oa.works/report/works'
   return total
 
 P.report.works.load._bg = true
 P.report.works.load._async = true
 P.report.works.load._auth = '@oa.works'
 
-P.report.works.changes = (timestamp) ->
+P.report.works.changes = (timestamp, orgname) ->
   timestamp ?= @params.changes ? @params.timestamp ? Date.now() - 90000000
-  @report.works.load timestamp # start from timestamp a little more than a day ago, by default
+  orgname ?= @params.org
+  if @params.paid isnt false
+    for await org from @index._for 'report_orgs', 'paid:true AND (source.crossref:* OR source.openalex:*)'
+      xcnts = 0
+      ocnts = 0
+      # if an org has no known records in report/works yet, could default it here to a timestamp of start of current year, or older, to pull in all records first time round
+      if not orgname or orgname is org.name
+        await @report.works.load timestamp, (if org.source.crossref then undefined else false), (if org.source.openalex then undefined else false), undefined, (if org.source.crossref then decodeURIComponent(decodeURIComponent(org.source.crossref)) else undefined), (if org.source.openalex then decodeURIComponent(decodeURIComponent(org.source.openalex)) else undefined) #, false
+        if org.source.supplements
+          for await rec from @index._for 'report_works', decodeURIComponent(decodeURIComponent(org.source.supplements)) #'paid:"' + org.name + '" AND DOI:*'
+            if rec.DOI and not rec.DOI.includes(' pmcid:') and not rec.DOI.includes('\n') and not rec.DOI.includes '?ref'
+              supd = await @src.crossref.works 'DOI:"' + rec.DOI + '" AND srcday:>' + timestamp
+              if supd?.hits?.total is 1
+                xcnts += 1
+                console.log 'xref', org.name, xcnts
+                await @report.orgs.supplement undefined, undefined, undefined, rec, undefined, supd.hits.hits[0]._source
+              oupd = await @src.openalex.works 'ids.doi:"https://doi.org/' + rec.DOI + '" AND updated_date:>' + timestamp
+              if oupd?.hits?.total is 1
+                ocnts += 1
+                console.log 'oalx', org.name, ocnts
+                await @report.orgs.supplement undefined, undefined, undefined, rec, undefined, undefined, oupd.hits.hits[0]._source
+  else
+    @report.works.load timestamp # start from timestamp a little more than a day ago, by default
   return true
 P.report.works.changes._bg = true
 P.report.works.changes._async = true
@@ -868,3 +946,4 @@ P.report.estimate = () ->
   return true
 P.report.estimate._async = true
 '''
+

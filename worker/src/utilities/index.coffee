@@ -349,7 +349,7 @@ P.index.mapping = (route) ->
 
 # use this like: for await rec from @index._for route, q, opts
 # see index._each below for example of how to call this for/yield generator
-P.index._for = (route, q, opts) ->
+P.index._for = (route, q, opts, prefix) ->
   opts = {until: opts} if typeof opts is 'number'
   if opts?.scroll # set this longer, e.g. 10m, if the processing to be done with the records may take longer than a minute
     scroll = opts.scroll
@@ -368,16 +368,16 @@ P.index._for = (route, q, opts) ->
   qy.sort ?= ['_doc'] # performance improved for scrolling sorted on _doc if no other sort was configured
   # use scan/scroll for each, because _pit is only available in "default" ES, which ES means is NOT the open one, so our OSS distro does not include it!
   # https://www.elastic.co/guide/en/elasticsearch/reference/7.10/paginate-search-results.html#search-after
-  res = await @index._send route + '/_search?scroll=' + scroll, qy
+  res = await @index._send route + '/_search?scroll=' + scroll, qy, undefined, prefix
   if res?._scroll_id
     prs = res._scroll_id.replace /==$/, ''
   max = res.hits.total if res?.hits?.total and (not max? or max > res.hits.total)
   counter = 0
   loop
     if (not res?.hits?.hits or res.hits.hits.length is 0) and res?._scroll_id # get more if possible
-      res = await @index._send '/_search/scroll?scroll=' + scroll + '&scroll_id=' + res._scroll_id
+      res = await @index._send '/_search/scroll?scroll=' + scroll + '&scroll_id=' + res._scroll_id, undefined, undefined, prefix
       if res?._scroll_id isnt prs
-        await @index._send '/_search/scroll?scroll_id=' + prs, ''
+        await @index._send '/_search/scroll?scroll_id=' + prs, '', undefined, prefix
         prs = res?._scroll_id
     if counter isnt max and res?.hits?.hits? and res.hits.hits.length
       counter += 1
@@ -386,11 +386,11 @@ P.index._for = (route, q, opts) ->
       ret._id ?= r._id
       yield ret
     else
-      await @index._send('/_search/scroll?scroll_id=' + prs, '') if prs # don't keep too many old scrolls open (default ES max is 500)
+      await @index._send('/_search/scroll?scroll_id=' + prs, '', undefined, prefix) if prs # don't keep too many old scrolls open (default ES max is 500)
       break
   return
 
-P.index._each = (route, q, opts, fn) ->
+P.index._each = (route, q, opts, fn, prefix) ->
   # Performs a function on each record. If the function should make changes to a record, optionally 
   # avoid many writes by having the function return the record object or the string ID, and specify 
   # an "action" in opts. returned objects can then be bulk "insert" or "update", or string IDs for "remove"
@@ -411,7 +411,7 @@ P.index._each = (route, q, opts, fn) ->
   if sz > 50
     qy = await @index.translate q, opts
     qy.size = 1
-    chk = await @index._send route, qy
+    chk = await @index._send route, qy, undefined, prefix
     if chk?.hits?.total? and chk.hits.total isnt 0
       # try to make query result size not take up more than about 1gb. In a scroll-scan size is per shard, not per result set
       max_size = Math.floor(1000000000 / (Buffer.byteLength(JSON.stringify(chk.hits.hits[0])) * chk._shards.total))
@@ -420,14 +420,14 @@ P.index._each = (route, q, opts, fn) ->
 
   processed = 0
   updates = []
-  for await rec from @index._for route, (qy ? q), opts
+  for await rec from @index._for route, (qy ? q), opts, prefix
     fr = await fn.call this, rec
     processed += 1
     updates.push(fr) if fr? and (typeof fr is 'object' or typeof fr is 'string')
     if action and updates.length > sz
-      await @index._bulk route, updates, action
+      await @index._bulk route, updates, action, undefined, prefix
       updates = []
-  @index._bulk(route, updates, action) if action and updates.length # catch any left over
+  @index._bulk(route, updates, action, undefined, prefix) if action and updates.length # catch any left over
   console.log('_each processed ' + processed) if @S.dev and @S.bg is true
 
 P.index._bulk = (route, data, action='index', bulk=50000, prefix) ->
@@ -515,7 +515,10 @@ P.index.translate = (q, opts) ->
     return undefined if typeof q isnt 'object' or Array.isArray q
     for k in ['settings', 'aliases', 'mappings', 'index', '_id']
       return undefined if q[k]?
-    return undefined if JSON.stringify(q) isnt '{}' and not q.q? and not q.query? and not q.source? and not q.must? and not q.should? and not q.must_not? and not q.filter? and not q.aggs? and not q.aggregations?
+    qs = false
+    if q.source
+      try qs = JSON.parse decodeURIComponent q.source
+    return undefined if JSON.stringify(q) isnt '{}' and not q.q? and not q.query? and qs is false and not q.must? and not q.should? and not q.must_not? and not q.filter? and not q.aggs? and not q.aggregations?
 
   try q = @copy(q) if typeof q is 'object' # copy objects so don't interfere with what was passed in
   try opts = @copy(opts) if typeof opts is 'object'
@@ -544,8 +547,8 @@ P.index.translate = (q, opts) ->
       qry = q # assume already a query
     else
       if q.source?
-        if typeof q.source is 'string'
-          try qry = JSON.parse decodeURIComponent q.source
+        if typeof q.source is 'string' and typeof qs is 'object'
+          qry = qs
         else if typeof q.source is 'object'
           qry = q.source
       else if q.q?
