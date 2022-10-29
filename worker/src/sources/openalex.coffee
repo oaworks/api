@@ -17,7 +17,7 @@ P.src.openalex.institutions = _index: true, _prefix: false
 P.src.openalex.concepts = _index: true, _prefix: false
 P.src.openalex.venues = _index: true, _prefix: false
 
-P.src.openalex.load = (what, changes, clear, sync) ->
+P.src.openalex.load = (what, changes, clear, sync, last) ->
   what ?= @params.load ? @params.openalex
   return false if what not in ['works', 'venues', 'authors', 'institutions', 'concepts']
 
@@ -103,8 +103,9 @@ P.src.openalex.load._bg = true
 P.src.openalex.load._async = true
 P.src.openalex.load._auth = 'root'
 
-P.src.openalex.changes = (what) ->
+P.src.openalex.changes = (what, last) ->
   what ?= @params.changes ? @params.openalex
+  last ?= @params.last # can be a date like 2022-12-13 to match the last updated file date on openalex update files
   whats = ['works', 'venues', 'authors', 'institutions', 'concepts']
   if what
     return false if what not in whats
@@ -113,7 +114,7 @@ P.src.openalex.changes = (what) ->
 
   total = 0
   for w in (if Array.isArray(what) then what else [what])
-    total += await @src.openalex.load w, true
+    total += await @src.openalex.load w, true, undefined, undefined, last
     
   return total
 

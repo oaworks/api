@@ -531,12 +531,12 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
               out = @S.static.folder + '/export'
               try
                 filecount = (await fs.readdir out).length
-                @mail({to: (@S.log?.notify ? 'mark@oa.works'), text: 'Warning, export file count is ' + filecount}) if filecount > 20
+                @mail({to: (@S.log?.notify ? 'mark@oa.works'), text: 'Warning, export file count is ' + filecount}) if filecount > 500 and filecount % 20 is 0
                 # add auto deletion of old export files?
               catch
                 await fs.mkdir out
                 filecount = 0
-              if filecount > 250
+              if filecount > 1000
                 res = status: 401
               else
                 out += '/' + flid  + '.csv'
@@ -574,27 +574,6 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                           blfl = await @flatten blr
                         catch
                           blfl = undefined
-                        '''blfl = await @copy blr
-                        pts = k.split '.'
-                        while pts.length
-                          nxpt = pts.shift()
-                          k = nxpt if not pts.length
-                          try
-                            if Array.isArray blfl
-                              st = []
-                              for ovp in blfl
-                                if typeof ovp is 'object'
-                                  st.push ovp[nxpt]
-                                else
-                                  if Array.isArray ovp
-                                    st.push(ovpm) for ovpm in ovp
-                                  else
-                                    st.push ovp
-                              blfl = st
-                            else
-                              blfl = blfl[nxpt]
-                          catch
-                            blfl = undefined'''
                       else
                         blfl = blr
                       if Array.isArray blfl
