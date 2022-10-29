@@ -332,7 +332,7 @@ P.report.works._process = (cr, openalex) ->
         delete i.type
     rec.PMCID = 'PMC' + openalex.ids.pmcid.split('/').pop().toLowerCase().replace('pmc', '') if not rec.PMCID and openalex.ids?.pmcid
 
-  rec.updated = await @peoch()
+  rec.updated = await @epoch()
   return rec
 
 P.report.works.load = (timestamp, crossref, openalex, supplement, qry, oaqry, notify) ->

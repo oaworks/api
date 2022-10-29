@@ -5462,7 +5462,7 @@ P.report.works._process = async function(cr, openalex) {
       rec.PMCID = 'PMC' + openalex.ids.pmcid.split('/').pop().toLowerCase().replace('pmc', '');
     }
   }
-  rec.updated = (await this.peoch());
+  rec.updated = (await this.epoch());
   return rec;
 };
 
@@ -14246,7 +14246,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Sat Oct 29 2022 02:00:10 GMT+0100";
+S.built = "Sat Oct 29 2022 02:05:49 GMT+0100";
 P.convert.docxtest = {_bg: true}// added by constructor
 
 P.convert.doc2txt = {_bg: true}// added by constructor
