@@ -129,18 +129,18 @@ P.find = (options, metadata={}, content) ->
   await _searches()
 
   # if nothing useful can be found and still only have title try using bing - or drop this ability?
-  if mag isnt false and not metadata.doi and not content and not options.url and not epmc and metadata.title and metadata.title.length > 8 and metadata.title.split(' ').length > 1
-    mct = metadata.title.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' ') # this previously had a unidecode on it...
-    bong = await @src.microsoft.bing mct
-    if bong?.data and bong.data.length
-      bct = bong.data[0].name.toLowerCase().replace('(pdf)', '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s\s+/g, ' ') # this had unidecode to match to above...
-      if mct.replace(/ /g, '').startsWith bct.replace(/ /g, '') #and not await @blacklist bong.data[0].url
-        # if the URL is usable and tidy bing title is a partial match to the start of the provided title, try using it
-        options.url = bong.data[0].url.replace /"/g, ''
-        metadata.pmid = options.url.replace(/\/$/,'').split('/').pop() if typeof options.url is 'string' and options.url.includes 'pubmed.ncbi'
-        metadata.doi ?= '10.' + options.url.split('/10.')[1] if typeof options.url is 'string' and options.url.includes '/10.'
-    if metadata.doi or metadata.pmid or options.url
-      await _searches() # run again if anything more useful found
+#  if mag isnt false and not metadata.doi and not content and not options.url and not epmc and metadata.title and metadata.title.length > 8 and metadata.title.split(' ').length > 1
+#    mct = metadata.title.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' ') # this previously had a unidecode on it...
+#    bong = await @src.microsoft.bing mct
+#    if bong?.data and bong.data.length
+#      bct = bong.data[0].name.toLowerCase().replace('(pdf)', '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s\s+/g, ' ') # this had unidecode to match to above...
+#      if mct.replace(/ /g, '').startsWith bct.replace(/ /g, '') #and not await @blacklist bong.data[0].url
+#        # if the URL is usable and tidy bing title is a partial match to the start of the provided title, try using it
+#        options.url = bong.data[0].url.replace /"/g, ''
+#        metadata.pmid = options.url.replace(/\/$/,'').split('/').pop() if typeof options.url is 'string' and options.url.includes 'pubmed.ncbi'
+#        metadata.doi ?= '10.' + options.url.split('/10.')[1] if typeof options.url is 'string' and options.url.includes '/10.'
+#    if metadata.doi or metadata.pmid or options.url
+#      await _searches() # run again if anything more useful found
 
   _ill = () =>
     if (metadata.doi or (metadata.title and metadata.title.length > 8 and metadata.title.split(' ').length > 1)) and (options.from or options.config?) and (options.plugin is 'instantill' or options.ill is true)
