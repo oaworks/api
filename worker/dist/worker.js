@@ -406,7 +406,7 @@ P = async function() {
             }
           }
           if (p[k]._index) { // add index functions to index endpoints
-            ref15 = ['keys', 'terms', 'suggest', 'count', 'percent', 'min', 'max', 'range', 'sum', 'mapping', '_for', '_each', '_bulk', '_refresh'];
+            ref15 = ['keys', 'terms', 'suggest', 'count', 'percent', 'min', 'max', 'range', 'sum', 'average', 'mapping', '_for', '_each', '_bulk', '_refresh'];
             // of P.index
             for (o = 0, len3 = ref15.length; o < len3; o++) {
               ik = ref15[o];
@@ -735,7 +735,7 @@ P._loadsheet = async function(f, rt) {
 // the wrapepr logs the function call (whether it was the main API call or subsequent)
 P._wrapper = function(f, n) { // the function to wrap and the string name of the function
   return async function() {
-    var _as, _makecsv, ak, args, base, bup, c, eurl, ex, exists, filecount, flid, i, j, ks, l, len, len1, len2, len3, lg, limited, nfeml, o, out, pidx, qrs, qry, rec, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, rt, started, tk, tot;
+    var _as, _makecsv, ak, args, base, bup, c, eurl, ex, exists, filecount, flid, i, j, ks, l, len, len1, len2, len3, lg, limited, nfeml, o, out, pfs, pidx, qrs, qry, rec, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, rt, started, tk, tot;
     started = Date.now(); // not accurate in a workers environment, but close enough
     rt = n.replace(/\./g, '_');
     lg = {
@@ -872,6 +872,8 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
               }
             }
             nfeml = this.params.email;
+            pfs = this.params.funders;
+            delete qry.funders;
             delete qry.email;
             delete this.params.size;
             delete qry.size;
@@ -948,9 +950,12 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
                     text: 'Your export has started. You can download the file any time, it will keep growing until it is complete, when you will get another notification.<br><br><a href="' + eurl + '">Download csv</a><br><br>Thanks'
                   });
                 }
-                _makecsv = async(rt, qry, out, keys, notify, eurl) => {
-                  var blfl, blp, blr, first, key, len3, len4, len5, nar, o, q, ref13, s, st, val;
+                _makecsv = async(rt, qry, out, keys, notify, eurl, pfs) => {
+                  var awards, blfl, blp, blr, first, funder, key, len3, len4, len5, len6, names, nar, o, q, ref13, ref14, ref15, s, st, u, val;
                   first = true;
+                  if (pfs) {
+                    keys = ['DOI', 'funder.name', 'funder.award'];
+                  }
                   for (o = 0, len3 = keys.length; o < len3; o++) {
                     key = keys[o];
                     await fs.appendFile(out, (!first ? ',"' : '"') + key + '"');
@@ -962,48 +967,78 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
                   });
                   for await (blr of ref13) {
                     await fs.appendFile(out, '\n');
-                    first = true;
-                    for (q = 0, len4 = keys.length; q < len4; q++) {
-                      k = keys[q];
-                      if (k.includes('.')) {
-                        try {
-                          blfl = (await this.flatten(blr));
-                        } catch (error) {
-                          blfl = void 0;
-                        }
-                      } else {
-                        blfl = blr;
-                      }
-                      if (Array.isArray(blfl)) {
-                        if (blfl.length && typeof blfl[0] === 'object') {
-                          st = [];
-                          for (s = 0, len5 = blfl.length; s < len5; s++) {
-                            blp = blfl[s];
-                            if ((blp != null ? blp[k] : void 0) != null) {
-                              st.push(blp[k]);
+                    if (pfs) {
+                      names = '';
+                      awards = '';
+                      if (blr.funder != null) {
+                        first = true;
+                        ref14 = blr.funder;
+                        for (q = 0, len4 = ref14.length; q < len4; q++) {
+                          funder = ref14[q];
+                          names += (first ? '' : ';') + ((ref15 = funder.name) != null ? ref15 : '');
+                          if ((funder.award != null) && funder.award.length) {
+                            funder.award = funder.award.join(' ');
+                          }
+                          if (funder.award == null) {
+                            funder.award = '';
+                          }
+                          if (Array.isArray(funder.award)) {
+                            if (funder.award.length) {
+                              funder.award = funder.award.join(' ');
+                            } else {
+                              funder.award = '';
                             }
                           }
-                          blfl = st;
+                          funder.award = funder.award.replace(/;/g, '');
+                          awards += (first ? '' : ';') + funder.award;
+                          first = false;
                         }
-                        nar = {};
-                        nar[k] = blfl;
-                        blfl = nar;
                       }
-                      if ((blfl == null) || (blfl[k] == null)) {
-                        val = '';
-                      } else if (typeof blfl[k] === 'object') {
-                        if (Array.isArray(blfl[k])) {
-                          blfl[k] = blfl[k].join(';');
+                      await fs.appendFile(out, '"' + blr.DOI + '","' + names + '","' + awards + '"');
+                    } else {
+                      first = true;
+                      for (s = 0, len5 = keys.length; s < len5; s++) {
+                        k = keys[s];
+                        if (k.includes('.')) {
+                          try {
+                            blfl = (await this.flatten(blr));
+                          } catch (error) {
+                            blfl = void 0;
+                          }
+                        } else {
+                          blfl = blr;
                         }
-                        val = JSON.stringify(blfl[k]);
-                      } else {
-                        val = blfl[k];
+                        if (Array.isArray(blfl)) {
+                          if (blfl.length && typeof blfl[0] === 'object') {
+                            st = [];
+                            for (u = 0, len6 = blfl.length; u < len6; u++) {
+                              blp = blfl[u];
+                              if ((blp != null ? blp[k] : void 0) != null) {
+                                st.push(blp[k]);
+                              }
+                            }
+                            blfl = st;
+                          }
+                          nar = {};
+                          nar[k] = blfl;
+                          blfl = nar;
+                        }
+                        if ((blfl == null) || (blfl[k] == null)) {
+                          val = '';
+                        } else if (typeof blfl[k] === 'object') {
+                          if (Array.isArray(blfl[k])) {
+                            blfl[k] = blfl[k].join(';');
+                          }
+                          val = JSON.stringify(blfl[k]);
+                        } else {
+                          val = blfl[k];
+                        }
+                        if (typeof val === 'string') {
+                          val = val.replace(/"/g, '').replace(/\n/g, '').replace(/\s\s+/g, ' ');
+                        }
+                        await fs.appendFile(out, (!first ? ',"' : '"') + val + '"');
+                        first = false;
                       }
-                      if (typeof val === 'string') {
-                        val = val.replace(/"/g, '').replace(/\n/g, '').replace(/\s\s+/g, ' ');
-                      }
-                      await fs.appendFile(out, (!first ? ',"' : '"') + val + '"');
-                      first = false;
                     }
                   }
                   if (notify) {
@@ -1014,7 +1049,7 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
                     }));
                   }
                 };
-                this.waitUntil(_makecsv(rt, qry, out, ks, nfeml, eurl));
+                this.waitUntil(_makecsv(rt, qry, out, ks, nfeml, eurl, pfs));
                 delete this.format;
                 //if nfeml
                 res = eurl;
@@ -4962,7 +4997,7 @@ P.report.orgs = {
 };
 
 P.report.orgs.supplement = async function(sheetname, orgname, max, changed, reload, xref, olx) {
-  var an_email, base, batch, best_initial, best_name, best_score, counts, cr, d, doid, dois, epmc, h, header, headers, hp, i1, j, k, l, len, len1, len10, len2, len3, len4, len5, len6, len7, len8, len9, lic, loaded, lvs, mx, n, name, name1, name2, noxref, o, og, org, orgsheets, os, p, paramdoi, pp, processed, pubmed, ran, rc, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, ren, repmc, rn, row, rows, rr, s, score, sp, ss, sup, text, u, url, v, w, wrr, y, z;
+  var an_email, base, batch, best_initial, best_name, best_score, counts, cr, d, doid, dois, epmc, h, header, headers, hp, i1, j, k, l, len, len1, len10, len2, len3, len4, len5, len6, len7, len8, len9, lic, loaded, lvs, mx, n, name, name1, name2, o, og, ol, org, orgsheets, os, p, paramdoi, pp, processed, pubmed, ran, rc, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, ren, repmc, rn, row, rows, rr, s, score, sp, ss, sup, text, u, url, v, w, wrr, y, z;
   if (sheetname == null) {
     sheetname = this.params.sheet;
   }
@@ -5059,6 +5094,9 @@ P.report.orgs.supplement = async function(sheetname, orgname, max, changed, relo
                   } catch (error) {}
                 } else {
                   rr.supplements[0][h] = !row[hp] ? void 0 : (ref4 = row[hp].trim().toLowerCase()) === 'true' || ref4 === 'yes' ? true : (ref5 = row[hp].trim().toLowerCase()) === 'false' || ref5 === 'no' ? false : (ref6 = h.toLowerCase()) === 'grant_id' || ref6 === 'ror' ? row[hp].replace(/\//g, ',').replace(/ /g, '').split(',') : row[hp];
+                  if (typeof rr.supplements[0][h] === 'string' && rr.supplements[0][h].includes(';')) {
+                    rr.supplements[0][h] = rr.supplements[0][h].split(';');
+                  }
                 }
               }
               if (rr.DOI == null) {
@@ -5117,7 +5155,6 @@ P.report.orgs.supplement = async function(sheetname, orgname, max, changed, relo
     dois[changed.DOI] = changed;
   }
   batch = [];
-  noxref = 0;
   for (d in dois) {
     loaded += 1;
     console.log(loaded);
@@ -5169,10 +5206,11 @@ P.report.orgs.supplement = async function(sheetname, orgname, max, changed, relo
     }
     if (!(wrr != null ? wrr.title : void 0) || (xref != null) || (olx != null)) { //xref and olx are passed from the changes check for paid records
       cr = xref != null ? xref : (await this.src.crossref.works(rr.DOI)); // ? await @src.crossref.works.doi rr.DOI
-      if (cr == null) {
-        noxref += 1;
+      ol = olx != null ? olx : (await this.src.openalex.works('ids.doi:"https://doi.org/' + rr.DOI + '"', 1));
+      if (ol == null) {
+        ol = (await this.src.openalex.works.doi(rr.DOI));
       }
-      if ((cr != null) && (processed = (await this.report.works._process(cr, olx)))) {
+      if (((cr != null) || (ol != null)) && (processed = (await this.report.works._process(cr, ol)))) {
         if (processed.is_paratext || processed.is_retracted) {
           rr = void 0;
         } else {
@@ -5279,7 +5317,6 @@ P.report.orgs.supplement = async function(sheetname, orgname, max, changed, relo
       }
     }
     text += '\n\n' + doid + ' DOIs were found in the sheets\n\n';
-    text += noxref + ' were not found in crossref\n\n';
     this.mail({
       to: ['mark@oa.works', 'joe@oa.works'],
       subject: 'OA report supplements loaded ' + loaded,
@@ -5467,7 +5504,7 @@ P.report.works._process = async function(cr, openalex) {
 };
 
 P.report.works.load = async function(timestamp, crossref, openalex, supplement, qry, oaqry, notify) {
-  var alexcount, batch, cr, crcount, dt, e, exists, j, len, ol, prc, present, ref, ref1, ref2, ref3, ref4, ref5, started, took, total, year;
+  var alexcount, batch, cr, crcount, dt, e, exists, j, len, ol, overwrite, prc, ref, ref1, ref2, ref3, ref4, ref5, started, took, total, year;
   started = (await this.epoch());
   if (timestamp == null) {
     timestamp = (ref = this.params.load) != null ? ref : this.params.timestamp;
@@ -5481,10 +5518,10 @@ P.report.works.load = async function(timestamp, crossref, openalex, supplement, 
   if (supplement == null) {
     supplement = false; //@params.supplement
   }
+  overwrite = (ref1 = this.params.overwrite) != null ? ref1 : true;
   if (this.params.clear) {
     await this.report.works('');
   }
-  present = [];
   batch = [];
   if (this.params.year) {
     year = this.params.year;
@@ -5514,38 +5551,41 @@ P.report.works.load = async function(timestamp, crossref, openalex, supplement, 
   console.log(crcount, 'records available for update from crossref');
   if (crossref !== false) {
     console.log('Starting OA report works loading from crossref');
-    ref1 = this.index._for('src_crossref_works', qry, {
+    ref2 = this.index._for('src_crossref_works', qry, {
       scroll: '30m',
       max: this.params.max,
       include: ['DOI', 'subject', 'title', 'subtitle', 'volume', 'issue', 'year', 'publisher', 'published', 'funder', 'license', 'is_oa']
     });
-    for await (cr of ref1) {
-      total += 1;
-      //console.log total
-      present.push(cr.DOI.toLowerCase());
-      prc = (await this.report.works._process(cr));
-      if ((prc != null) && !prc.is_retracted && !prc.is_paratext) {
-        delete prc.is_retracted;
-        delete prc.is_paratext;
-        dt = (await this.date());
-        if (dt.includes(year) && timestamp) {
-          exists = (await this.report.works(cr.DOI));
-          if ((exists != null ? exists.supplements : void 0) != null) {
-            ref2 = ['supplements', 'orgs', 'author_email_name', 'pmc_checked', 'paid', 'PMCID', 'epmc_licence', 'pmc_has_data_availability_statement'];
-            for (j = 0, len = ref2.length; j < len; j++) {
-              e = ref2[j];
-              if (prc[e] == null) {
-                prc[e] = exists[e];
+    for await (cr of ref2) {
+      if (overwrite === true || !(await this.report.works(cr.DOI))) {
+        total += 1;
+        if (!timestamp && total % 20 === 0) {
+          console.log('report works load xref', total);
+        }
+        prc = (await this.report.works._process(cr));
+        if ((prc != null) && !prc.is_retracted && !prc.is_paratext) {
+          delete prc.is_retracted;
+          delete prc.is_paratext;
+          dt = (await this.date());
+          if (dt.includes(year) && timestamp) {
+            exists = (await this.report.works(cr.DOI));
+            if ((exists != null ? exists.supplements : void 0) != null) {
+              ref3 = ['supplements', 'orgs', 'author_email_name', 'pmc_checked', 'paid', 'PMCID', 'epmc_licence', 'pmc_has_data_availability_statement'];
+              for (j = 0, len = ref3.length; j < len; j++) {
+                e = ref3[j];
+                if (prc[e] == null) {
+                  prc[e] = exists[e];
+                }
               }
             }
           }
+          batch.push(prc);
         }
-        batch.push(prc);
-      }
-      if (batch.length === 10000) {
-        await this.report.works(batch);
-        console.log('OA report works loading', total, Math.ceil((((await this.epoch())) - started) / 60000));
-        batch = [];
+        if (batch.length === 10000) {
+          await this.report.works(batch);
+          console.log('OA report works loading', total, Math.ceil((((await this.epoch())) - started) / 60000));
+          batch = [];
+        }
       }
     }
   }
@@ -5563,24 +5603,29 @@ P.report.works.load = async function(timestamp, crossref, openalex, supplement, 
   console.log(alexcount, 'records available for update from openalex');
   if (openalex !== false) {
     console.log('Starting OA report works loading from openalex');
-    ref3 = this.index._for('src_openalex_works', oaqry, {
+    ref4 = this.index._for('src_openalex_works', oaqry, {
       scroll: '30m',
       max: this.params.max
     });
-    for await (ol of ref3) {
-      if (!((ref4 = ol.ids) != null ? ref4.doi : void 0) || (ref5 = ol.ids.doi.toLowerCase(), indexOf.call(present, ref5) < 0)) {
-        total += 1;
-        //console.log total
-        prc = (await this.report.works._process(void 0, ol));
-        if ((prc != null) && !prc.is_retracted && !prc.is_paratext) {
-          delete prc.is_retracted;
-          delete prc.is_paratext;
-          batch.push(prc);
-        }
-        if (batch.length === 10000) {
-          await this.report.works(batch);
-          console.log('OA report works loading from openalex', total, Math.ceil((((await this.epoch())) - started) / 60000));
-          batch = [];
+    for await (ol of ref4) {
+      if (!((ref5 = ol.ids) != null ? ref5.doi : void 0)) {
+        //exists = await @report.works ol.ids.doi.split('doi.org/')[1].toLowerCase()
+        if (true) { //(overwrite is true or not exists?) and not exists?.authorships?
+          total += 1;
+          if (!timestamp && total % 20 === 0) {
+            console.log('report works load oalx', total);
+          }
+          prc = (await this.report.works._process(void 0, ol));
+          if ((prc != null) && !prc.is_retracted && !prc.is_paratext) {
+            delete prc.is_retracted;
+            delete prc.is_paratext;
+            batch.push(prc);
+          }
+          if (batch.length === 10000) {
+            await this.report.works(batch);
+            console.log('OA report works loading from openalex', total, Math.ceil((((await this.epoch())) - started) / 60000));
+            batch = [];
+          }
         }
       }
     }
@@ -8629,6 +8674,19 @@ P.src.openalex.concepts = {
 P.src.openalex.venues = {
   _index: true,
   _prefix: false
+};
+
+P.src.openalex.works.doi = async function(doi) {
+  var found;
+  if (doi == null) {
+    doi = this.params.doi;
+  }
+  if (!(found = (await this.src.openalex.works('ids.doi:"https://doi.org/' + doi + '"', 1)))) {
+    if (found = (await this.fetch('https://api.openalex.org/works/https://doi.org/' + doi))) {
+      this.waitUntil(this.src.openalex.works(doi.toLowerCase(), found));
+    }
+  }
+  return found;
 };
 
 P.src.openalex.load = async function(what, changes, clear, sync, last) {
@@ -12106,7 +12164,7 @@ P.index.min = async function(route, key, qry, end = 'min') {
     [route, key] = route.split('/');
   }
   cq = this.copy(this.params);
-  ref3 = ['index', 'route', 'min', 'max', 'key', 'sum'];
+  ref3 = ['index', 'route', 'min', 'max', 'key', 'sum', 'average'];
   for (j = 0, len = ref3.length; j < len; j++) {
     k = ref3[j];
     delete cq[k];
@@ -12133,6 +12191,14 @@ P.index.min = async function(route, key, qry, end = 'min') {
     query.aggs = {
       sum: {
         sum: {
+          field: key
+        }
+      }
+    };
+  } else if (end === 'average') {
+    query.aggs = {
+      average: {
+        avg: {
           field: key
         }
       }
@@ -12175,6 +12241,10 @@ P.index.range = function(route, key, qry) {
 
 P.index.sum = function(route, key, qry) {
   return this.index.min(route, key, qry, 'sum');
+};
+
+P.index.average = function(route, key, qry) {
+  return this.index.min(route, key, qry, 'average');
 };
 
 P.index.mapping = async function(route) {
@@ -13616,8 +13686,6 @@ P.flatten = async function(obj, arrayed) {
   if (arrayed == null) {
     arrayed = (ref = this.params.arrayed) != null ? ref : false; // arrayed puts objects in arrays at keys like author.0.name Whereas not arrayed shoves them all in one author.name (which means some that don't have the value could cause position mismatch in lists)
   }
-  //obj = await @src.crossref.works '10.1016/j.mee.2015.04.018'
-  //obj = await @report.works '10.1016/j.socnet.2021.02.007'
   if (obj == null) {
     obj = this.params;
     delete obj.arrayed;
@@ -13691,6 +13759,11 @@ P.flatten = async function(obj, arrayed) {
   }
 };
 
+//P.flatest = () ->
+//  res = original: await @src.openalex.works 'doi.keyword:"https://doi.org/10.1016/j.mee.2015.04.018"', 1 #@src.crossref.works '10.1016/j.mee.2015.04.018' #@report.works '10.1016/j.socnet.2021.02.007'
+//  res.flat = await @flatten res.original
+//  res.arrayed = await @flatten res.original, true
+//  return [res.arrayed]
 P.keys = function(obj) {
   var k, keys;
   try {
@@ -14246,7 +14319,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Sat Oct 29 2022 02:05:49 GMT+0100";
+S.built = "Thu Nov 17 2022 07:31:19 GMT+0000";
 P.convert.docxtest = {_bg: true}// added by constructor
 
 P.convert.doc2txt = {_bg: true}// added by constructor

@@ -235,7 +235,7 @@ P = () ->
           p[k]._cache ?= false if nd.startsWith 'auth'
           p[k]._index ?= true if p[k]._sheet
           if p[k]._index # add index functions to index endpoints
-            for ik in ['keys', 'terms', 'suggest', 'count', 'percent', 'min', 'max', 'range', 'sum', 'mapping', '_for', '_each', '_bulk', '_refresh'] # of P.index
+            for ik in ['keys', 'terms', 'suggest', 'count', 'percent', 'min', 'max', 'range', 'sum', 'average', 'mapping', '_for', '_each', '_bulk', '_refresh'] # of P.index
               p[k][ik] ?= {_indexed: ik, _auth: (if ik.startsWith('_') then 'system' else p[k]._auth)}
           if typeof p[k] is 'function' and not p[k]._index and not p[k]._indexed and not p[k]._kv and not p[k]._bg and (not nd.includes('.') or n.startsWith('index') or nd.split('.').pop().startsWith '_')
             a[k] = p[k].bind @
@@ -367,7 +367,7 @@ P._response = (res, fn) ->
         res = res.replace /\>\</g, '>\n<'
         if not res.includes('<html') and not @params.partial
           ret = '<!DOCTYPE html><html dir="ltr" lang="en">\n<head>\n'
-          ret += '<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n';
+          ret += '<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
           if res.includes '<title'
             [pt, tt] = res.split '<title'
             [tt, at] = tt.split '</title>'
@@ -517,6 +517,8 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
               else
                 res = status: 404
             nfeml = @params.email
+            pfs = @params.funders
+            delete qry.funders
             delete qry.email
             delete @params.size
             delete qry.size
@@ -560,44 +562,65 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                     ks = ks.splice(ex, 1) if ex isnt -1
                 if nfeml
                   await @mail to: nfeml, subject: 'Your export has started (ref: ' + flid + '.csv)', text: 'Your export has started. You can download the file any time, it will keep growing until it is complete, when you will get another notification.<br><br><a href="' + eurl + '">Download csv</a><br><br>Thanks'
-                _makecsv = (rt, qry, out, keys, notify, eurl) =>
+                _makecsv = (rt, qry, out, keys, notify, eurl, pfs) =>
                   first = true
+                  if pfs
+                    keys = ['DOI', 'funder.name', 'funder.award']
                   for key in keys
                     await fs.appendFile out, (if not first then ',"' else '"') + key + '"'
                     first = false
                   for await blr from @index._for rt, qry, {scroll: '5m', max: if notify is 'joe@oa.works' then 100000 else 30000}
                     await fs.appendFile out, '\n'
-                    first = true
-                    for k in keys
-                      if k.includes '.'
-                        try
-                          blfl = await @flatten blr
-                        catch
-                          blfl = undefined
-                      else
-                        blfl = blr
-                      if Array.isArray blfl
-                        if blfl.length and typeof blfl[0] is 'object'
-                          st = []
-                          for blp in blfl
-                            st.push(blp[k]) if blp?[k]?
-                          blfl = st
-                        nar = {}
-                        nar[k] = blfl
-                        blfl = nar
-                      if not blfl? or not blfl[k]?
-                        val = ''
-                      else if typeof blfl[k] is 'object'
-                        blfl[k] = blfl[k].join(';') if Array.isArray blfl[k]
-                        val = JSON.stringify blfl[k]
-                      else
-                        val = blfl[k]
-                      val = val.replace(/"/g, '').replace(/\n/g, '').replace(/\s\s+/g, ' ') if typeof val is 'string'
-                      await fs.appendFile out, (if not first then ',"' else '"') + val + '"'
-                      first = false
+                    if pfs
+                      names = ''
+                      awards = ''
+                      if blr.funder?
+                        first = true
+                        for funder in blr.funder
+                          names += (if first then '' else ';') + (funder.name ? '')
+                          funder.award = funder.award.join(' ') if funder.award? and funder.award.length
+                          funder.award ?= ''
+                          if Array.isArray funder.award
+                            if funder.award.length
+                              funder.award = funder.award.join ' '
+                            else
+                              funder.award = '' 
+                          funder.award = funder.award.replace /;/g, ''
+                          awards += (if first then '' else ';') + funder.award
+                          first = false
+                      await fs.appendFile out, '"' + blr.DOI + '","' + names + '","' + awards + '"'
+                    else
+                      first = true
+                      for k in keys
+                        if k.includes '.'
+                          try
+                            blfl = await @flatten blr
+                          catch
+                            blfl = undefined
+                        else
+                          blfl = blr
+                        if Array.isArray blfl
+                          if blfl.length and typeof blfl[0] is 'object'
+                            st = []
+                            for blp in blfl
+                              st.push(blp[k]) if blp?[k]?
+                            blfl = st
+                          nar = {}
+                          nar[k] = blfl
+                          blfl = nar
+                        if not blfl? or not blfl[k]?
+                          val = ''
+                        else if typeof blfl[k] is 'object'
+                          blfl[k] = blfl[k].join(';') if Array.isArray blfl[k]
+                          val = JSON.stringify blfl[k]
+                        else
+                          val = blfl[k]
+                        val = val.replace(/"/g, '').replace(/\n/g, '').replace(/\s\s+/g, ' ') if typeof val is 'string'
+                        await fs.appendFile out, (if not first then ',"' else '"') + val + '"'
+                        first = false
                   if notify
                     await @mail to: notify, subject: 'Your export is complete (ref: ' + out.split('/').pop() + ')', text: 'Your export is complete. This link will expire in approximately 2 days.<br><br><a href="' + eurl + '">Download csv</a>\n\nThanks'
-                @waitUntil _makecsv rt, qry, out, ks, nfeml, eurl
+                @waitUntil _makecsv rt, qry, out, ks, nfeml, eurl, pfs
                 delete @format
                 #if nfeml
                 res = eurl

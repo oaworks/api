@@ -320,12 +320,14 @@ P.index.min = (route, key, qry, end='min') ->
   if route.indexOf('/') isnt -1
     [route, key] = route.split '/'
   cq = @copy @params
-  delete cq[k] for k in ['index', 'route', 'min', 'max', 'key', 'sum']
+  delete cq[k] for k in ['index', 'route', 'min', 'max', 'key', 'sum', 'average']
   qry ?= await @index.translate cq
   query = if typeof key is 'object' then key else if qry? then qry else query: bool: must: [], filter: [exists: field: key]
   query.size = 0
   if end is 'sum'
     query.aggs = sum: sum: field: key
+  else if end is 'average'
+    query.aggs = average: avg: field: key
   else
     query.aggs = {}
     query.aggs.min = {min: {field: key}} if end in ['min', 'range']
@@ -336,6 +338,7 @@ P.index.min = (route, key, qry, end='min') ->
 P.index.max = (route, key, qry) -> return @index.min route, key, qry, 'max'
 P.index.range = (route, key, qry) -> return @index.min route, key, qry, 'range'
 P.index.sum = (route, key, qry) -> return @index.min route, key, qry, 'sum'
+P.index.average = (route, key, qry) -> return @index.min route, key, qry, 'average'
 
 P.index.mapping = (route) ->
   route = route.replace /^\//, '' # remove any leading /
