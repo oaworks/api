@@ -47,8 +47,6 @@ P.dot = (o, k, v, d) ->
 
 P.flatten = (obj, arrayed) ->
   arrayed ?= @params.arrayed ? false # arrayed puts objects in arrays at keys like author.0.name Whereas not arrayed shoves them all in one author.name (which means some that don't have the value could cause position mismatch in lists)
-  #obj = await @src.crossref.works '10.1016/j.mee.2015.04.018'
-  #obj = await @report.works '10.1016/j.socnet.2021.02.007'
   if not obj?
     obj = @params
     delete obj.arrayed
@@ -86,6 +84,12 @@ P.flatten = (obj, arrayed) ->
   else
     await _flatten obj
     return res
+
+#P.flatest = () ->
+#  res = original: await @src.openalex.works 'doi.keyword:"https://doi.org/10.1016/j.mee.2015.04.018"', 1 #@src.crossref.works '10.1016/j.mee.2015.04.018' #@report.works '10.1016/j.socnet.2021.02.007'
+#  res.flat = await @flatten res.original
+#  res.arrayed = await @flatten res.original, true
+#  return [res.arrayed]
 
 P.keys = (obj) ->
   try obj ?= @params

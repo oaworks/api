@@ -127,6 +127,7 @@ P.report.orgs.supplement = (sheetname, orgname, max, changed, reload, xref, olx)
                   try rr.supplements[0].apc_cost = parseInt row[hp]
                 else
                   rr.supplements[0][h] = if not row[hp] then undefined else if row[hp].trim().toLowerCase() in ['true', 'yes'] then true else if row[hp].trim().toLowerCase() in ['false', 'no'] then false else if h.toLowerCase() in ['grant_id', 'ror'] then row[hp].replace(/\//g, ',').replace(/ /g, '').split(',') else row[hp]
+                  rr.supplements[0][h] = rr.supplements[0][h].split(';') if typeof rr.supplements[0][h] is 'string' and rr.supplements[0][h].includes ';'
               rr.DOI ?= rr.doi
               if rr.DOI and rr.DOI.startsWith 'http'
                 try rr.DOI = '10.' + rr.DOI.split('/10.')[1] # avoid dirty inputs that are full URLs
@@ -145,7 +146,6 @@ P.report.orgs.supplement = (sheetname, orgname, max, changed, reload, xref, olx)
     dois[changed.DOI] = changed
 
   batch = []
-  noxref = 0
   for d of dois
     loaded += 1
     console.log loaded
@@ -168,8 +168,9 @@ P.report.orgs.supplement = (sheetname, orgname, max, changed, reload, xref, olx)
 
     if not wrr?.title or xref? or olx? #xref and olx are passed from the changes check for paid records
       cr = xref ? await @src.crossref.works rr.DOI # ? await @src.crossref.works.doi rr.DOI
-      noxref += 1 if not cr?
-      if cr? and processed = await @report.works._process cr, olx
+      ol = olx ? await @src.openalex.works 'ids.doi:"https://doi.org/' + rr.DOI + '"', 1
+      ol ?= await @src.openalex.works.doi rr.DOI
+      if (cr? or ol?) and processed = await @report.works._process cr, ol
         if processed.is_paratext or processed.is_retracted
           rr = undefined
         else
@@ -237,7 +238,6 @@ P.report.orgs.supplement = (sheetname, orgname, max, changed, reload, xref, olx)
       for ss of orgsheets[os]
         text += ss + orgsheets[os][ss] + ' DOIs\n'
     text += '\n\n' + doid + ' DOIs were found in the sheets\n\n'
-    text += noxref + ' were not found in crossref\n\n'
 
     @mail
       to: ['mark@oa.works', 'joe@oa.works']
@@ -342,11 +342,11 @@ P.report.works.load = (timestamp, crossref, openalex, supplement, qry, oaqry, no
   crossref ?= @params.crossref
   openalex ?= @params.openalex
   supplement ?= false #@params.supplement
+  overwrite = @params.overwrite ? true
 
   if @params.clear
     await @report.works ''
 
-  present = []
   batch = []
 
   if @params.year
@@ -370,23 +370,23 @@ P.report.works.load = (timestamp, crossref, openalex, supplement, qry, oaqry, no
   if crossref isnt false
     console.log 'Starting OA report works loading from crossref'
     for await cr from @index._for 'src_crossref_works', qry, scroll: '30m', max: @params.max, include: ['DOI', 'subject', 'title', 'subtitle', 'volume', 'issue', 'year', 'publisher', 'published', 'funder', 'license', 'is_oa']
-      total += 1
-      #console.log total
-      present.push cr.DOI.toLowerCase()
-      prc = await @report.works._process cr
-      if prc? and not prc.is_retracted and not prc.is_paratext
-        delete prc.is_retracted
-        delete prc.is_paratext
-        dt = await @date()
-        if dt.includes(year) and timestamp
-          exists = await @report.works cr.DOI
-          if exists?.supplements?
-            prc[e] ?= exists[e] for e in ['supplements', 'orgs', 'author_email_name', 'pmc_checked', 'paid', 'PMCID', 'epmc_licence', 'pmc_has_data_availability_statement']
-        batch.push prc
-      if batch.length is 10000
-        await @report.works batch
-        console.log 'OA report works loading', total, Math.ceil ((await @epoch()) - started)/60000
-        batch = []
+      if overwrite is true or not await @report.works cr.DOI
+        total += 1
+        console.log('report works load xref', total) if not timestamp and total % 20 is 0
+        prc = await @report.works._process cr
+        if prc? and not prc.is_retracted and not prc.is_paratext
+          delete prc.is_retracted
+          delete prc.is_paratext
+          dt = await @date()
+          if dt.includes(year) and timestamp
+            exists = await @report.works cr.DOI
+            if exists?.supplements?
+              prc[e] ?= exists[e] for e in ['supplements', 'orgs', 'author_email_name', 'pmc_checked', 'paid', 'PMCID', 'epmc_licence', 'pmc_has_data_availability_statement']
+          batch.push prc
+        if batch.length is 10000
+          await @report.works batch
+          console.log 'OA report works loading', total, Math.ceil ((await @epoch()) - started)/60000
+          batch = []
 
   oaqry ?= 'authorships.institutions.display_name:* AND publication_year:' + year
   oaqry = '(' + oaqry + ') AND publication_year:' + year if year and not oaqry.includes ':' + year
@@ -397,18 +397,20 @@ P.report.works.load = (timestamp, crossref, openalex, supplement, qry, oaqry, no
   if openalex isnt false
     console.log 'Starting OA report works loading from openalex'
     for await ol from @index._for 'src_openalex_works', oaqry, scroll: '30m', max: @params.max
-      if not ol.ids?.doi or ol.ids.doi.toLowerCase() not in present
-        total += 1
-        #console.log total
-        prc = await @report.works._process undefined, ol
-        if prc? and not prc.is_retracted and not prc.is_paratext
-          delete prc.is_retracted
-          delete prc.is_paratext
-          batch.push prc
-        if batch.length is 10000
-          await @report.works batch
-          console.log 'OA report works loading from openalex', total, Math.ceil ((await @epoch()) - started)/60000
-          batch = []
+      if not ol.ids?.doi
+        #exists = await @report.works ol.ids.doi.split('doi.org/')[1].toLowerCase()
+        if true #(overwrite is true or not exists?) and not exists?.authorships?
+          total += 1
+          console.log('report works load oalx', total) if not timestamp and total % 20 is 0
+          prc = await @report.works._process undefined, ol
+          if prc? and not prc.is_retracted and not prc.is_paratext
+            delete prc.is_retracted
+            delete prc.is_paratext
+            batch.push prc
+          if batch.length is 10000
+            await @report.works batch
+            console.log 'OA report works loading from openalex', total, Math.ceil ((await @epoch()) - started)/60000
+            batch = []
 
   if batch.length
     await @report.works batch

@@ -17,6 +17,13 @@ P.src.openalex.institutions = _index: true, _prefix: false
 P.src.openalex.concepts = _index: true, _prefix: false
 P.src.openalex.venues = _index: true, _prefix: false
 
+P.src.openalex.works.doi = (doi) ->
+  doi ?= @params.doi
+  if not found = await @src.openalex.works 'ids.doi:"https://doi.org/' + doi + '"', 1
+    if found = await @fetch 'https://api.openalex.org/works/https://doi.org/' + doi
+      @waitUntil @src.openalex.works doi.toLowerCase(), found
+  return found
+
 P.src.openalex.load = (what, changes, clear, sync, last) ->
   what ?= @params.load ? @params.openalex
   return false if what not in ['works', 'venues', 'authors', 'institutions', 'concepts']
