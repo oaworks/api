@@ -2558,7 +2558,7 @@ P.metadata = async function(doi) {
 };
 
 P.find = async function(options, metadata = {}, content) {
-  var _ill, _metadata, _permissions, _searches, bct, bong, dd, dps, epmc, i, len, mag, mct, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, res, uo;
+  var _ill, _metadata, _permissions, _searches, dd, dps, epmc, i, len, mag, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, res, uo;
   res = {};
   _metadata = async(input) => {
     var ct, k;
@@ -2781,28 +2781,18 @@ P.find = async function(options, metadata = {}, content) {
   };
   await _searches();
   // if nothing useful can be found and still only have title try using bing - or drop this ability?
-  if (mag !== false && !metadata.doi && !content && !options.url && !epmc && metadata.title && metadata.title.length > 8 && metadata.title.split(' ').length > 1) {
-    mct = metadata.title.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' '); // this previously had a unidecode on it...
-    bong = (await this.src.microsoft.bing(mct));
-    if ((bong != null ? bong.data : void 0) && bong.data.length) {
-      bct = bong.data[0].name.toLowerCase().replace('(pdf)', '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s\s+/g, ' '); // this had unidecode to match to above...
-      if (mct.replace(/ /g, '').startsWith(bct.replace(/ /g, ''))) { //and not await @blacklist bong.data[0].url
-        // if the URL is usable and tidy bing title is a partial match to the start of the provided title, try using it
-        options.url = bong.data[0].url.replace(/"/g, '');
-        if (typeof options.url === 'string' && options.url.includes('pubmed.ncbi')) {
-          metadata.pmid = options.url.replace(/\/$/, '').split('/').pop();
-        }
-        if (typeof options.url === 'string' && options.url.includes('/10.')) {
-          if (metadata.doi == null) {
-            metadata.doi = '10.' + options.url.split('/10.')[1];
-          }
-        }
-      }
-    }
-    if (metadata.doi || metadata.pmid || options.url) {
-      await _searches(); // run again if anything more useful found
-    }
-  }
+  //  if mag isnt false and not metadata.doi and not content and not options.url and not epmc and metadata.title and metadata.title.length > 8 and metadata.title.split(' ').length > 1
+  //    mct = metadata.title.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' ') # this previously had a unidecode on it...
+  //    bong = await @src.microsoft.bing mct
+  //    if bong?.data and bong.data.length
+  //      bct = bong.data[0].name.toLowerCase().replace('(pdf)', '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s\s+/g, ' ') # this had unidecode to match to above...
+  //      if mct.replace(/ /g, '').startsWith bct.replace(/ /g, '') #and not await @blacklist bong.data[0].url
+  //        # if the URL is usable and tidy bing title is a partial match to the start of the provided title, try using it
+  //        options.url = bong.data[0].url.replace /"/g, ''
+  //        metadata.pmid = options.url.replace(/\/$/,'').split('/').pop() if typeof options.url is 'string' and options.url.includes 'pubmed.ncbi'
+  //        metadata.doi ?= '10.' + options.url.split('/10.')[1] if typeof options.url is 'string' and options.url.includes '/10.'
+  //    if metadata.doi or metadata.pmid or options.url
+  //      await _searches() # run again if anything more useful found
   _ill = async() => {
     var ref8;
     if ((metadata.doi || (metadata.title && metadata.title.length > 8 && metadata.title.split(' ').length > 1)) && (options.from || (options.config != null)) && (options.plugin === 'instantill' || options.ill === true)) {
@@ -4889,6 +4879,39 @@ P.report = function() {
   return 'OA.Works report';
 };
 
+P.report.fixtypes = async function() {
+  var checked, cr, fixed, ref, rr;
+  checked = 0;
+  fixed = 0;
+  ref = this.index._for((this.S.dev ? 'paradigm_b_' : 'paradigm_') + 'report_works', 'NOT type.keyword:"journal-article" AND NOT type.keyword:"posted-content"', {
+    scroll: '30m',
+    include: ['DOI', 'type']
+  });
+  for await (rr of ref) {
+    checked += 1;
+    if (cr = (await this.src.crossref.works(cr.DOI))) {
+      if (cr.type !== rr.type) {
+        fixed += 1;
+        rr.type = cr.type;
+        await this.report.works(rr);
+      }
+    }
+    console.log('fixing report works types', checked, fixed);
+  }
+  this.mail({
+    to: ['mark@oa.works'],
+    subject: 'OA report works types fixed ' + fixed,
+    text: checked + ' checked and fixed ' + fixed
+  });
+  return fixed;
+};
+
+P.report.fixtypes._async = true;
+
+P.report.fixtypes._bg = true;
+
+P.report.fixtypes._auth = 'root';
+
 P.report.dev2live = async function(reverse) {
   var batch, counter, f, ref, rm, t;
   if (!reverse) {
@@ -5204,7 +5227,7 @@ P.report.orgs.supplement = async function(sheetname, orgname, max, changed, relo
         }
       }
     }
-    if (!(wrr != null ? wrr.title : void 0) || (xref != null) || (olx != null)) { //xref and olx are passed from the changes check for paid records
+    if (!(wrr != null ? wrr.title : void 0) || ((wrr != null ? wrr.authorships : void 0) == null) || (xref != null) || (olx != null)) { //xref and olx are passed from the changes check for paid records
       cr = xref != null ? xref : (await this.src.crossref.works(rr.DOI)); // ? await @src.crossref.works.doi rr.DOI
       ol = olx != null ? olx : (await this.src.openalex.works('ids.doi:"https://doi.org/' + rr.DOI + '"', 1));
       if (ol == null) {
@@ -5309,7 +5332,7 @@ P.report.orgs.supplement = async function(sheetname, orgname, max, changed, relo
     batch = [];
   }
   if (changed == null) {
-    text = 'https://bg.beta.oa.works/report/works?q=supplements.orgs:*\n\n';
+    text = 'https://bg.' + (this.S.dev ? 'beta' : 'api') + '.oa.works/report/works?q=supplements.orgs:*\n\n';
     for (os in orgsheets) {
       text += os + '\n';
       for (ss in orgsheets[os]) {
@@ -5538,7 +5561,7 @@ P.report.works.load = async function(timestamp, crossref, openalex, supplement, 
     batch = [];
   }
   if (qry == null) {
-    qry = 'type.keyword:("journal-article" OR "posted-content") AND (funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year;
+    qry = '(type.keyword:"journal-article" OR type.keyword:"posted-content") AND (funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year;
   }
   if (year && !qry.includes(':' + year)) {
     qry = '(' + qry + ') AND year.keyword:' + year;
@@ -5640,9 +5663,9 @@ P.report.works.load = async function(timestamp, crossref, openalex, supplement, 
   console.log('OA report done loading after ' + took + ' minutes');
   if (notify !== false) {
     this.mail({
-      to: ['mark@oa.works'],
+      to: ['mark@oa.works', 'joe@oa.works'],
       subject: 'OA report works loaded ' + total + ' in ' + took + ' minutes' + (timestamp ? ' for ' + ((await this.date(timestamp))) : '') + ', ' + crcount + ' crosref, ' + alexcount + ' openalex',
-      text: 'https://bg.beta.oa.works/report/works'
+      text: 'https://bg.' + (this.S.dev ? 'beta' : 'api') + '.oa.works/report/works'
     });
   }
   return total;
@@ -6333,7 +6356,7 @@ P.report.check = async function(ror, reload) {
   console.log('OA check done after ' + took + ' minutes', reload);
   if (!reload) {
     this.mail({
-      to: ['mark@oa.works', 'joe@oa.works', 'sarah@oa.works'],
+      to: ['joe@oa.works', 'sarah@oa.works'],
       subject: 'Gates OA check done ' + counter + ' in ' + took + ' minutes',
       text: 'https://static.oa.works/report/' + (out != null ? out : '').split('/report/').pop()
     });
@@ -8677,12 +8700,26 @@ P.src.openalex.venues = {
 };
 
 P.src.openalex.works.doi = async function(doi) {
-  var found;
+  var abs, found, i, len, n, ref, word;
   if (doi == null) {
     doi = this.params.doi;
   }
   if (!(found = (await this.src.openalex.works('ids.doi:"https://doi.org/' + doi + '"', 1)))) {
     if (found = (await this.fetch('https://api.openalex.org/works/https://doi.org/' + doi))) {
+      if (found.abstract_inverted_index != null) {
+        abs = [];
+        for (word in found.abstract_inverted_index) {
+          ref = found.abstract_inverted_index[word];
+          for (i = 0, len = ref.length; i < len; i++) {
+            n = ref[i];
+            abs[n] = word;
+          }
+        }
+        if (abs.length) {
+          found.abstract = abs.join(' ');
+        }
+        delete found.abstract_inverted_index;
+      }
       this.waitUntil(this.src.openalex.works(doi.toLowerCase(), found));
     }
   }
@@ -14319,7 +14356,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Thu Nov 17 2022 07:31:19 GMT+0000";
+S.built = "Fri Nov 18 2022 07:39:53 GMT+0000";
 P.convert.docxtest = {_bg: true}// added by constructor
 
 P.convert.doc2txt = {_bg: true}// added by constructor

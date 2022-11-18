@@ -21,6 +21,12 @@ P.src.openalex.works.doi = (doi) ->
   doi ?= @params.doi
   if not found = await @src.openalex.works 'ids.doi:"https://doi.org/' + doi + '"', 1
     if found = await @fetch 'https://api.openalex.org/works/https://doi.org/' + doi
+      if found.abstract_inverted_index?
+        abs = []
+        for word of found.abstract_inverted_index
+          abs[n] = word for n in found.abstract_inverted_index[word]
+        found.abstract = abs.join(' ') if abs.length
+        delete found.abstract_inverted_index
       @waitUntil @src.openalex.works doi.toLowerCase(), found
   return found
 
