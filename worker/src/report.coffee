@@ -1,6 +1,26 @@
 
 P.report = () -> return 'OA.Works report'
 
+P.report.fixtypes = () ->
+  checked = 0
+  fixed = 0
+  for await rr from @index._for (if @S.dev then 'paradigm_b_' else 'paradigm_') + 'report_works', 'NOT type.keyword:"journal-article" AND NOT type.keyword:"posted-content"', scroll: '30m', include: ['DOI', 'type']
+    checked += 1
+    if cr = await @src.crossref.works cr.DOI
+      if cr.type isnt rr.type
+        fixed += 1
+        rr.type = cr.type
+        await @report.works rr
+    console.log 'fixing report works types', checked, fixed
+  @mail
+    to: ['mark@oa.works']
+    subject: 'OA report works types fixed ' + fixed
+    text: checked + ' checked and fixed ' + fixed
+  return fixed
+P.report.fixtypes._async = true
+P.report.fixtypes._bg = true
+P.report.fixtypes._auth = 'root'
+
 P.report.dev2live = (reverse) ->
   if not reverse
     f = 'paradigm_b_report_works'
@@ -166,7 +186,7 @@ P.report.orgs.supplement = (sheetname, orgname, max, changed, reload, xref, olx)
         if wrr.orgs and orgname
           rr.orgs.push(og) for og in wrr.orgs when typeof og is 'string' and og not in rr.orgs 
 
-    if not wrr?.title or xref? or olx? #xref and olx are passed from the changes check for paid records
+    if not wrr?.title or not wrr?.authorships? or xref? or olx? #xref and olx are passed from the changes check for paid records
       cr = xref ? await @src.crossref.works rr.DOI # ? await @src.crossref.works.doi rr.DOI
       ol = olx ? await @src.openalex.works 'ids.doi:"https://doi.org/' + rr.DOI + '"', 1
       ol ?= await @src.openalex.works.doi rr.DOI
@@ -232,7 +252,7 @@ P.report.orgs.supplement = (sheetname, orgname, max, changed, reload, xref, olx)
     batch = []
 
   if not changed?
-    text = 'https://bg.beta.oa.works/report/works?q=supplements.orgs:*\n\n'
+    text = 'https://bg.' + (if @S.dev then 'beta' else 'api') + '.oa.works/report/works?q=supplements.orgs:*\n\n'
     for os of orgsheets
       text += os + '\n'
       for ss of orgsheets[os]
@@ -361,7 +381,7 @@ P.report.works.load = (timestamp, crossref, openalex, supplement, qry, oaqry, no
     await @report.works batch
     batch = []
   
-  qry ?= 'type.keyword:("journal-article" OR "posted-content") AND (funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year
+  qry ?= '(type.keyword:"journal-article" OR type.keyword:"posted-content") AND (funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year
   qry = '(' + qry + ') AND year.keyword:' + year if year and not qry.includes ':' + year
   qry = '(' + qry + ') AND srcday:>' + timestamp if timestamp and not qry.includes ':>' + timestamp
   console.log qry
@@ -421,9 +441,9 @@ P.report.works.load = (timestamp, crossref, openalex, supplement, qry, oaqry, no
   console.log 'OA report done loading after ' + took + ' minutes'
   if notify isnt false
     @mail
-      to: ['mark@oa.works']
+      to: ['mark@oa.works', 'joe@oa.works']
       subject: 'OA report works loaded ' + total + ' in ' + took + ' minutes' + (if timestamp then ' for ' + (await @date timestamp) else '') + ', ' + crcount + ' crosref, ' + alexcount + ' openalex'
-      text: 'https://bg.beta.oa.works/report/works'
+      text: 'https://bg.' + (if @S.dev then 'beta' else 'api') + '.oa.works/report/works'
   return total
 
 P.report.works.load._bg = true
@@ -808,7 +828,7 @@ P.report.check = (ror, reload) ->
   console.log 'OA check done after ' + took + ' minutes', reload
   if not reload
     @mail
-      to: ['mark@oa.works', 'joe@oa.works', 'sarah@oa.works']
+      to: ['joe@oa.works', 'sarah@oa.works']
       subject: 'Gates OA check done ' + counter + ' in ' + took + ' minutes'
       text: 'https://static.oa.works/report/' + (out ? '').split('/report/').pop()
   return counter
