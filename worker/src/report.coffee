@@ -4,18 +4,30 @@ P.report = () -> return 'OA.Works report'
 P.report.fixtypes = () ->
   checked = 0
   fixed = 0
-  for await rr from @index._for (if @S.dev then 'paradigm_b_' else 'paradigm_') + 'report_works', 'NOT type.keyword:"journal-article" AND NOT type.keyword:"posted-content"', scroll: '30m', include: ['DOI', 'type']
+  titled = 0
+  for await tr from @index._for (if @S.dev then 'paradigm_b_' else 'paradigm_') + 'report_works', 'NOT title:*', scroll: '30m'
+    if tr.DOI.startsWith '10.'
+      titled += 1
+      cr = await @src.crossref.works tr.DOI
+      ol = await @src.openalex.works 'ids.doi.keyword:"https://doi.org/' + tr.DOI + '"', 1
+      fr = await @report.works._process cr, ol
+      await @report.works fr
+    console.log 'fixing report works types titles', titled
+  for await rr from @index._for (if @S.dev then 'paradigm_b_' else 'paradigm_') + 'report_works', '(NOT type.keyword:"journal-article" AND NOT type.keyword:"posted-content")', scroll: '30m'
     checked += 1
-    if cr = await @src.crossref.works cr.DOI
-      if cr.type isnt rr.type
+    if rr.DOI.startsWith '10.'
+      cr = await @src.crossref.works rr.DOI
+      if not cr?
+        ol = await @src.openalex.works 'ids.doi.keyword:"https://doi.org/' + rr.DOI + '"', 1
+      if (cr? or ol?) and (cr?.type isnt rr.type or ol?.type isnt rr.type)
         fixed += 1
-        rr.type = cr.type
+        rr.type = cr?.type ? ol.type
         await @report.works rr
     console.log 'fixing report works types', checked, fixed
   @mail
     to: ['mark@oa.works']
     subject: 'OA report works types fixed ' + fixed
-    text: checked + ' checked and fixed ' + fixed
+    text: checked + ' checked and fixed ' + fixed + ' and reprocessed ' + titled
   return fixed
 P.report.fixtypes._async = true
 P.report.fixtypes._bg = true
@@ -381,7 +393,7 @@ P.report.works.load = (timestamp, crossref, openalex, supplement, qry, oaqry, no
     await @report.works batch
     batch = []
   
-  qry ?= '(type.keyword:"journal-article" OR type.keyword:"posted-content") AND (funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year
+  qry ?= '(funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year
   qry = '(' + qry + ') AND year.keyword:' + year if year and not qry.includes ':' + year
   qry = '(' + qry + ') AND srcday:>' + timestamp if timestamp and not qry.includes ':>' + timestamp
   console.log qry

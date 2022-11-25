@@ -951,7 +951,7 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
                   });
                 }
                 _makecsv = async(rt, qry, out, keys, notify, eurl, pfs) => {
-                  var awards, blfl, blp, blr, first, funder, key, len3, len4, len5, len6, names, nar, o, q, ref13, ref14, ref15, s, st, u, val;
+                  var awards, blfl, bljnd, blp, blr, bn, first, funder, key, len3, len4, len5, len6, len7, names, nar, o, q, ref13, ref14, ref15, ref16, s, st, u, v, val;
                   first = true;
                   if (pfs) {
                     keys = ['DOI', 'funder.name', 'funder.award'];
@@ -1027,7 +1027,18 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
                           val = '';
                         } else if (typeof blfl[k] === 'object') {
                           if (Array.isArray(blfl[k])) {
-                            blfl[k] = blfl[k].join(';');
+                            bljnd = '';
+                            ref16 = blfl[k];
+                            for (v = 0, len7 = ref16.length; v < len7; v++) {
+                              bn = ref16[v];
+                              if (typeof bn === 'object') {
+                                bn = JSON.stringify(bn);
+                              }
+                              if (!bljnd.includes(bn)) { // Joe doesn't want duplicates kept
+                                bljnd += (bljnd ? ';' : '') + bn;
+                              }
+                            }
+                            blfl[k] = bljnd;
                           }
                           val = JSON.stringify(blfl[k]);
                         } else {
@@ -4880,19 +4891,36 @@ P.report = function() {
 };
 
 P.report.fixtypes = async function() {
-  var checked, cr, fixed, ref, rr;
+  var checked, cr, fixed, fr, ol, ref, ref1, ref2, rr, titled, tr;
   checked = 0;
   fixed = 0;
-  ref = this.index._for((this.S.dev ? 'paradigm_b_' : 'paradigm_') + 'report_works', 'NOT type.keyword:"journal-article" AND NOT type.keyword:"posted-content"', {
-    scroll: '30m',
-    include: ['DOI', 'type']
+  titled = 0;
+  ref = this.index._for((this.S.dev ? 'paradigm_b_' : 'paradigm_') + 'report_works', 'NOT title:*', {
+    scroll: '30m'
   });
-  for await (rr of ref) {
+  for await (tr of ref) {
+    if (tr.DOI.startsWith('10.')) {
+      titled += 1;
+      cr = (await this.src.crossref.works(tr.DOI));
+      ol = (await this.src.openalex.works('ids.doi.keyword:"https://doi.org/' + tr.DOI + '"', 1));
+      fr = (await this.report.works._process(cr, ol));
+      await this.report.works(fr);
+    }
+    console.log('fixing report works types titles', titled);
+  }
+  ref1 = this.index._for((this.S.dev ? 'paradigm_b_' : 'paradigm_') + 'report_works', '(NOT type.keyword:"journal-article" AND NOT type.keyword:"posted-content")', {
+    scroll: '30m'
+  });
+  for await (rr of ref1) {
     checked += 1;
-    if (cr = (await this.src.crossref.works(cr.DOI))) {
-      if (cr.type !== rr.type) {
+    if (rr.DOI.startsWith('10.')) {
+      cr = (await this.src.crossref.works(rr.DOI));
+      if (cr == null) {
+        ol = (await this.src.openalex.works('ids.doi.keyword:"https://doi.org/' + rr.DOI + '"', 1));
+      }
+      if (((cr != null) || (ol != null)) && ((cr != null ? cr.type : void 0) !== rr.type || (ol != null ? ol.type : void 0) !== rr.type)) {
         fixed += 1;
-        rr.type = cr.type;
+        rr.type = (ref2 = cr != null ? cr.type : void 0) != null ? ref2 : ol.type;
         await this.report.works(rr);
       }
     }
@@ -4901,7 +4929,7 @@ P.report.fixtypes = async function() {
   this.mail({
     to: ['mark@oa.works'],
     subject: 'OA report works types fixed ' + fixed,
-    text: checked + ' checked and fixed ' + fixed
+    text: checked + ' checked and fixed ' + fixed + ' and reprocessed ' + titled
   });
   return fixed;
 };
@@ -5561,7 +5589,7 @@ P.report.works.load = async function(timestamp, crossref, openalex, supplement, 
     batch = [];
   }
   if (qry == null) {
-    qry = '(type.keyword:"journal-article" OR type.keyword:"posted-content") AND (funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year;
+    qry = '(funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year;
   }
   if (year && !qry.includes(':' + year)) {
     qry = '(' + qry + ') AND year.keyword:' + year;
@@ -14356,9 +14384,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Fri Nov 18 2022 07:39:53 GMT+0000";
-P.convert.docxtest = {_bg: true}// added by constructor
-
+S.built = "Thu Nov 24 2022 06:34:05 GMT+0000";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor

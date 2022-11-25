@@ -611,7 +611,12 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                         if not blfl? or not blfl[k]?
                           val = ''
                         else if typeof blfl[k] is 'object'
-                          blfl[k] = blfl[k].join(';') if Array.isArray blfl[k]
+                          if Array.isArray blfl[k]
+                            bljnd = ''
+                            for bn in blfl[k]
+                              bn = JSON.stringify(bn) if typeof bn is 'object'
+                              bljnd += (if bljnd then ';' else '') + bn if not bljnd.includes bn # Joe doesn't want duplicates kept
+                            blfl[k] = bljnd
                           val = JSON.stringify blfl[k]
                         else
                           val = blfl[k]
