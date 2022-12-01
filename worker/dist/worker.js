@@ -4886,6 +4886,14 @@ P.permissions.publishers.oa = async function(publisher) {
 
 var indexOf = [].indexOf;
 
+try {
+  S.report = JSON.parse(SECRETS_REPORT);
+} catch (error) {}
+
+if (S.report == null) {
+  S.report = {};
+}
+
 P.report = function() {
   return 'OA.Works report';
 };
@@ -4988,7 +4996,7 @@ P.report.live2dev._bg = true;
 P.report.live2dev._auth = 'root';
 
 P.report.orgs = {
-  _sheet: '1d_RxBLU2yNzfSNomPbWQQr3CS0f7BhMqp6r069E8LR4/dev',
+  _sheet: S.report.orgs_sheet,
   _format: async function(recs = []) {
     var bs, err, h, j, l, len, len1, nr, ready, rec, ref, ref1, s;
     ready = [];
@@ -5048,7 +5056,7 @@ P.report.orgs = {
 };
 
 P.report.orgs.supplement = async function(sheetname, orgname, max, changed, reload, xref, olx) {
-  var an_email, base, batch, best_initial, best_name, best_score, counts, cr, d, doid, dois, epmc, h, header, headers, hp, i1, j, k, l, len, len1, len10, len2, len3, len4, len5, len6, len7, len8, len9, lic, loaded, lvs, mx, n, name, name1, name2, o, og, ol, org, orgsheets, os, p, paramdoi, pp, processed, pubmed, ran, rc, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, ren, repmc, rn, row, rows, rr, s, score, sp, ss, sup, text, u, url, v, w, wrr, y, z;
+  var an_email, base, batch, best_initial, best_name, best_score, counts, cr, d, doid, dois, epmc, h, header, headers, hp, i1, j, k, l, len, len1, len10, len2, len3, len4, len5, len6, len7, len8, len9, lic, loaded, lvs, mx, n, name, name1, name2, o, og, ol, org, orgsheets, os, p, paramdoi, pp, processed, pubmed, ran, rc, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref3, ref4, ref5, ref6, ref7, ref8, ref9, ren, repmc, rn, row, rows, rr, s, score, sp, ss, sup, text, tries, u, url, v, w, wrr, y, z;
   if (sheetname == null) {
     sheetname = this.params.sheet;
   }
@@ -5096,12 +5104,28 @@ P.report.orgs.supplement = async function(sheetname, orgname, max, changed, relo
             console.log('supplementing from sheet', s.name);
             url = (await this.decrypt(s.url));
             headers = [];
-            rows = (await this.src.google.sheets({
-              sheetid: url,
-              sheet: 'Export',
-              headers: false // just get rows because headers are in different places, and want to simplify them as well
-            }));
-            if (rows) {
+            rows = [];
+            tries = 0;
+            await this.sleep(2000); // https://github.com/oaworks/Gates/issues/375
+            try {
+              rows = (await this.src.google.sheets({
+                sheetid: url,
+                sheet: 'Export',
+                headers: false // just get rows because headers are in different places, and want to simplify them as well
+              }));
+            } catch (error) {}
+            while ((!Array.isArray(rows) || !rows.length) && tries < 3) { // https://github.com/oaworks/Gates/issues/375
+              await this.sleep(5000);
+              tries += 1;
+              try {
+                rows = (await this.src.google.sheets({
+                  sheetid: url,
+                  sheet: 'Export',
+                  headers: false
+                }));
+              } catch (error) {}
+            }
+            if (Array.isArray(rows) && rows.length) {
               ref3 = rows.shift();
               for (l = 0, len1 = ref3.length; l < len1; l++) {
                 header = ref3[l];
@@ -5143,8 +5167,10 @@ P.report.orgs.supplement = async function(sheetname, orgname, max, changed, relo
                   try {
                     rr.supplements[0].apc_cost = parseInt(row[hp]);
                   } catch (error) {}
+                } else if (h.includes('.')) {
+                  await this.dot(rr.supplements[0], h, !row[hp] ? void 0 : (ref4 = row[hp].trim().toLowerCase()) === 'true' || ref4 === 'yes' ? true : (ref5 = row[hp].trim().toLowerCase()) === 'false' || ref5 === 'no' ? false : (ref6 = h.toLowerCase()) === 'grant_id' || ref6 === 'ror' ? row[hp].replace(/\//g, ',').replace(/ /g, '').split(',') : typeof row[hp] === 'string' && row[hp].includes(';') ? row[hp].split(';') : row[hp]);
                 } else {
-                  rr.supplements[0][h] = !row[hp] ? void 0 : (ref4 = row[hp].trim().toLowerCase()) === 'true' || ref4 === 'yes' ? true : (ref5 = row[hp].trim().toLowerCase()) === 'false' || ref5 === 'no' ? false : (ref6 = h.toLowerCase()) === 'grant_id' || ref6 === 'ror' ? row[hp].replace(/\//g, ',').replace(/ /g, '').split(',') : row[hp];
+                  rr.supplements[0][h] = !row[hp] ? void 0 : (ref7 = row[hp].trim().toLowerCase()) === 'true' || ref7 === 'yes' ? true : (ref8 = row[hp].trim().toLowerCase()) === 'false' || ref8 === 'no' ? false : (ref9 = h.toLowerCase()) === 'grant_id' || ref9 === 'ror' ? row[hp].replace(/\//g, ',').replace(/ /g, '').split(',') : row[hp];
                   if (typeof rr.supplements[0][h] === 'string' && rr.supplements[0][h].includes(';')) {
                     rr.supplements[0][h] = rr.supplements[0][h].split(';');
                   }
@@ -5169,23 +5195,23 @@ P.report.orgs.supplement = async function(sheetname, orgname, max, changed, relo
                       rr[k] = dois[rr.DOI][k];
                     }
                   }
-                  ref7 = dois[rr.DOI].supplements;
-                  for (o = 0, len3 = ref7.length; o < len3; o++) {
-                    sp = ref7[o];
+                  ref10 = dois[rr.DOI].supplements;
+                  for (o = 0, len3 = ref10.length; o < len3; o++) {
+                    sp = ref10[o];
                     if ((!orgname || indexOf.call(sp.orgs, orgname) < 0) && (!sheetname || indexOf.call(sp.sheets, sheetname) < 0)) {
                       rr.supplements.push(sp);
                     }
                   }
-                  ref8 = dois[rr.DOI].paid;
-                  for (p = 0, len4 = ref8.length; p < len4; p++) {
-                    pp = ref8[p];
+                  ref11 = dois[rr.DOI].paid;
+                  for (p = 0, len4 = ref11.length; p < len4; p++) {
+                    pp = ref11[p];
                     if (indexOf.call(rr.paid, pp) < 0) {
                       rr.paid.push(pp);
                     }
                   }
-                  ref9 = dois[rr.DOI].orgs;
-                  for (u = 0, len5 = ref9.length; u < len5; u++) {
-                    og = ref9[u];
+                  ref12 = dois[rr.DOI].orgs;
+                  for (u = 0, len5 = ref12.length; u < len5; u++) {
+                    og = ref12[u];
                     if (indexOf.call(rr.orgs, og) < 0) {
                       rr.orgs.push(og);
                     }
@@ -5211,7 +5237,7 @@ P.report.orgs.supplement = async function(sheetname, orgname, max, changed, relo
     console.log(loaded);
     rr = dois[d];
     if (reload !== true && ((changed == null) || paramdoi) && (wrr = (await this.report.works(rr.DOI)))) {
-      if (((ref10 = wrr.hits) != null ? ref10.hits : void 0) != null) {
+      if (((ref13 = wrr.hits) != null ? ref13.hits : void 0) != null) {
         if (wrr.hits.hits.length === 1) {
           wrr = wrr.hits.hits[0]._source;
         } else {
@@ -5227,27 +5253,27 @@ P.report.orgs.supplement = async function(sheetname, orgname, max, changed, relo
           }
         }
         if (wrr.supplements && (orgname || sheetname)) {
-          ref11 = wrr.supplements;
-          for (v = 0, len6 = ref11.length; v < len6; v++) {
-            sp = ref11[v];
+          ref14 = wrr.supplements;
+          for (v = 0, len6 = ref14.length; v < len6; v++) {
+            sp = ref14[v];
             if ((!orgname || indexOf.call(sp.orgs, orgname) < 0) && (!sheetname || indexOf.call(sp.sheets, sheetname) < 0)) {
               rr.supplements.push(sp);
             }
           }
         }
         if (wrr.paid && orgname) {
-          ref12 = wrr.paid;
-          for (w = 0, len7 = ref12.length; w < len7; w++) {
-            pp = ref12[w];
+          ref15 = wrr.paid;
+          for (w = 0, len7 = ref15.length; w < len7; w++) {
+            pp = ref15[w];
             if (typeof pp === 'string' && indexOf.call(rr.paid, pp) < 0) {
               rr.paid.push(pp);
             }
           }
         }
         if (wrr.orgs && orgname) {
-          ref13 = wrr.orgs;
-          for (y = 0, len8 = ref13.length; y < len8; y++) {
-            og = ref13[y];
+          ref16 = wrr.orgs;
+          for (y = 0, len8 = ref16.length; y < len8; y++) {
+            og = ref16[y];
             if (typeof og === 'string' && indexOf.call(rr.orgs, og) < 0) {
               rr.orgs.push(og);
             }
@@ -5277,9 +5303,9 @@ P.report.orgs.supplement = async function(sheetname, orgname, max, changed, relo
     }
     if (((rr != null ? rr.authorships : void 0) != null) && !rr.author_email_name) {
       an_email = rr.email;
-      ref14 = rr.supplements;
-      for (z = 0, len9 = ref14.length; z < len9; z++) {
-        sup = ref14[z];
+      ref17 = rr.supplements;
+      for (z = 0, len9 = ref17.length; z < len9; z++) {
+        sup = ref17[z];
         if (sup.email && !an_email) {
           an_email = sup.email;
         }
@@ -5289,16 +5315,16 @@ P.report.orgs.supplement = async function(sheetname, orgname, max, changed, relo
           an_email = an_email[0];
         }
         if (rr.authorships.length === 1) {
-          rr.author_email_name = 'Dr. ' + ((ref15 = rr.authorships[0].author) != null ? ref15.display_name : void 0);
+          rr.author_email_name = 'Dr. ' + ((ref18 = rr.authorships[0].author) != null ? ref18.display_name : void 0);
         } else {
           ren = an_email.split('@')[0].toLowerCase().replace(/[^a-z]/g, '');
           best_initial = '';
           best_name = '';
           best_score = 1000000;
-          ref16 = rr.authorships;
-          for (i1 = 0, len10 = ref16.length; i1 < len10; i1++) {
-            rn = ref16[i1];
-            if (ran = (ref17 = rn.author) != null ? ref17.display_name : void 0) {
+          ref19 = rr.authorships;
+          for (i1 = 0, len10 = ref19.length; i1 < len10; i1++) {
+            rn = ref19[i1];
+            if (ran = (ref20 = rn.author) != null ? ref20.display_name : void 0) {
               lvs = (await this.levenshtein(ren, ran.toLowerCase().replace(/[^a-z]/g, '')));
               score = lvs.distance / ran.length;
               if (score < best_score) {
@@ -5329,7 +5355,7 @@ P.report.orgs.supplement = async function(sheetname, orgname, max, changed, relo
       }
       rr.pmc_checked = true;
       if (!rr.PMCID && (pubmed = (await this.src.pubmed.doi(rr.DOI)))) { // pubmed is faster to lookup but can't rely on it being right if no PMC found in it, e.g. 10.1111/nyas.14608
-        if (pubmed != null ? (ref18 = pubmed.identifier) != null ? ref18.pmc : void 0 : void 0) {
+        if (pubmed != null ? (ref21 = pubmed.identifier) != null ? ref21.pmc : void 0 : void 0) {
           rr.PMCID = 'PMC' + pubmed.identifier.pmc.toLowerCase().replace('pmc', '');
         }
       }
@@ -5380,7 +5406,7 @@ P.report.orgs.supplement = async function(sheetname, orgname, max, changed, relo
 P.report.orgs.supplement._async = true;
 
 P.report.emails = {
-  _sheet: '1U3YXF1DLhGvP4PgqxNQuHOSR99RWuwVeMmdTAmSM45U/Export',
+  _sheet: S.report.emails_sheet,
   _key: 'DOI'
 };
 
@@ -14384,7 +14410,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Thu Nov 24 2022 06:34:05 GMT+0000";
+S.built = "Thu Dec 01 2022 08:58:13 GMT+0000";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
