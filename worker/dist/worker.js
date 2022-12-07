@@ -441,26 +441,30 @@ P = async function() {
           sfn = (fnm) => {
             return async() => {
               var crd, err;
-              console.log('scheduled task', fnm, this.datetime());
-              _schedule[fnm].last = (await this.datetime());
-              delete _schedule[fnm].error;
-              try {
-                if (_schedule[fnm].fn._sheet) {
-                  crd = (await this._loadsheet(_schedule[fnm].fn, _schedule[fnm].fn._name.replace(/\./g, '_')));
-                } else {
-                  crd = (await _schedule[fnm].fn(_schedule[fnm].fn._args)); // args can optionally be provided for the scheduled call
+              if (this.S.dev !== true && process.env.pm_id !== 1) {
+                return console.log('NOT running scheduled task because not on dev and process pid is not 1', fnm, this.datetime());
+              } else {
+                console.log('scheduled task', fnm, this.datetime());
+                _schedule[fnm].last = (await this.datetime());
+                delete _schedule[fnm].error;
+                try {
+                  if (_schedule[fnm].fn._sheet) {
+                    crd = (await this._loadsheet(_schedule[fnm].fn, _schedule[fnm].fn._name.replace(/\./g, '_')));
+                  } else {
+                    crd = (await _schedule[fnm].fn(_schedule[fnm].fn._args)); // args can optionally be provided for the scheduled call
+                  }
+                  try {
+                    _schedule[fnm].result = JSON.stringify(crd).substr(0, 200);
+                  } catch (error) {}
+                  _schedule[fnm].success = true;
+                  return console.log('scheduled task result', crd);
+                } catch (error) {
+                  err = error;
+                  _schedule[fnm].success = false;
+                  try {
+                    return _schedule[fnm].error = JSON.stringify(err);
+                  } catch (error) {}
                 }
-                try {
-                  _schedule[fnm].result = JSON.stringify(crd).substr(0, 200);
-                } catch (error) {}
-                _schedule[fnm].success = true;
-                return console.log('scheduled task result', crd);
-              } catch (error) {
-                err = error;
-                _schedule[fnm].success = false;
-                try {
-                  return _schedule[fnm].error = JSON.stringify(err);
-                } catch (error) {}
               }
             };
           };
@@ -1224,6 +1228,9 @@ P.status = async function() {
     version: S.version,
     built: S.built
   };
+  try {
+    res.pmid = process.env.pm_id;
+  } catch (error) {}
   ref = ['rid', 'params', 'base', 'parts', 'opts', 'routes'];
   for (i = 0, len = ref.length; i < len; i++) {
     k = ref[i];
@@ -14410,7 +14417,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Thu Dec 01 2022 08:58:13 GMT+0000";
+S.built = "Wed Dec 07 2022 10:48:42 GMT+0000";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor

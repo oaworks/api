@@ -250,20 +250,23 @@ P = () ->
           _schedule[nd] = schedule: a[k]._schedule, fn: a[k]
           sfn = (fnm) =>
             return () =>
-              console.log 'scheduled task', fnm, @datetime()
-              _schedule[fnm].last = await @datetime()
-              delete _schedule[fnm].error
-              try
-                if _schedule[fnm].fn._sheet
-                  crd = await @_loadsheet _schedule[fnm].fn, _schedule[fnm].fn._name.replace /\./g, '_'
-                else
-                  crd = await _schedule[fnm].fn _schedule[fnm].fn._args # args can optionally be provided for the scheduled call
-                try _schedule[fnm].result = JSON.stringify(crd).substr 0, 200
-                _schedule[fnm].success = true
-                console.log 'scheduled task result', crd
-              catch err
-                _schedule[fnm].success = false
-                try _schedule[fnm].error = JSON.stringify err
+              if @S.dev isnt true and process.env.pm_id isnt 1
+                console.log 'NOT running scheduled task because not on dev and process pid is not 1', fnm, @datetime()
+              else
+                console.log 'scheduled task', fnm, @datetime()
+                _schedule[fnm].last = await @datetime()
+                delete _schedule[fnm].error
+                try
+                  if _schedule[fnm].fn._sheet
+                    crd = await @_loadsheet _schedule[fnm].fn, _schedule[fnm].fn._name.replace /\./g, '_'
+                  else
+                    crd = await _schedule[fnm].fn _schedule[fnm].fn._args # args can optionally be provided for the scheduled call
+                  try _schedule[fnm].result = JSON.stringify(crd).substr 0, 200
+                  _schedule[fnm].success = true
+                  console.log 'scheduled task result', crd
+                catch err
+                  _schedule[fnm].success = false
+                  try _schedule[fnm].error = JSON.stringify err
           cron.schedule a[k]._schedule, sfn nd
 
         if not k.startsWith '_' # underscored methods cannot be accessed from URLs
@@ -720,6 +723,7 @@ P.src = {}
 
 P.status = ->
   res = name: S.name, version: S.version, built: S.built
+  try res.pmid = process.env.pm_id
   for k in ['rid', 'params', 'base', 'parts', 'opts', 'routes']
     try res[k] ?= @[k]
   if @S.bg is true
