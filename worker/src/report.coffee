@@ -1,4 +1,7 @@
 
+try S.report = JSON.parse SECRETS_REPORT
+S.report ?= {}
+
 P.report = () -> return 'OA.Works report'
 
 P.report.fixtypes = () ->
@@ -67,7 +70,7 @@ P.report.live2dev._async = true
 P.report.live2dev._bg = true
 P.report.live2dev._auth = 'root'
 
-P.report.orgs = _sheet: '1d_RxBLU2yNzfSNomPbWQQr3CS0f7BhMqp6r069E8LR4/dev' , _format: (recs=[]) ->
+P.report.orgs = _sheet: S.report.orgs_sheet , _format: (recs=[]) ->
   ready = []
   bs = 0
   for rec in (if typeof recs is 'object' and not Array.isArray(recs) then [recs] else recs)
@@ -134,8 +137,15 @@ P.report.orgs.supplement = (sheetname, orgname, max, changed, reload, xref, olx)
             console.log 'supplementing from sheet', s.name
             url = await @decrypt s.url
             headers = []
-            rows = await @src.google.sheets sheetid: url, sheet: 'Export', headers: false # just get rows because headers are in different places, and want to simplify them as well
-            if rows
+            rows = []
+            tries = 0
+            await @sleep 2000 # https://github.com/oaworks/Gates/issues/375
+            try rows = await @src.google.sheets sheetid: url, sheet: 'Export', headers: false # just get rows because headers are in different places, and want to simplify them as well
+            while (not Array.isArray(rows) or not rows.length) and tries < 3 # https://github.com/oaworks/Gates/issues/375
+              await @sleep 5000
+              tries += 1
+              try rows = await @src.google.sheets sheetid: url, sheet: 'Export', headers: false
+            if Array.isArray(rows) and rows.length
               headers.push(header.toLowerCase().trim().replace(/ /g, '_').replace('?', '')) for header in rows.shift()
             else
               rows = []
@@ -157,6 +167,8 @@ P.report.orgs.supplement = (sheetname, orgname, max, changed, reload, xref, olx)
                   rr[h] = row[hp]
                 else if h is 'apc_cost'
                   try rr.supplements[0].apc_cost = parseInt row[hp]
+                else if h.includes '.'
+                  await @dot rr.supplements[0], h, if not row[hp] then undefined else if row[hp].trim().toLowerCase() in ['true', 'yes'] then true else if row[hp].trim().toLowerCase() in ['false', 'no'] then false else if h.toLowerCase() in ['grant_id', 'ror'] then row[hp].replace(/\//g, ',').replace(/ /g, '').split(',') else if typeof row[hp] is 'string' and row[hp].includes(';') then row[hp].split(';') else row[hp]
                 else
                   rr.supplements[0][h] = if not row[hp] then undefined else if row[hp].trim().toLowerCase() in ['true', 'yes'] then true else if row[hp].trim().toLowerCase() in ['false', 'no'] then false else if h.toLowerCase() in ['grant_id', 'ror'] then row[hp].replace(/\//g, ',').replace(/ /g, '').split(',') else row[hp]
                   rr.supplements[0][h] = rr.supplements[0][h].split(';') if typeof rr.supplements[0][h] is 'string' and rr.supplements[0][h].includes ';'
@@ -279,7 +291,7 @@ P.report.orgs.supplement = (sheetname, orgname, max, changed, reload, xref, olx)
   return loaded
 P.report.orgs.supplement._async = true
 
-P.report.emails = _sheet: '1U3YXF1DLhGvP4PgqxNQuHOSR99RWuwVeMmdTAmSM45U/Export', _key: 'DOI'
+P.report.emails = _sheet: S.report.emails_sheet, _key: 'DOI'
 
 P.report.works = _index: true, _key: 'DOI'
 
