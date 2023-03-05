@@ -26,7 +26,8 @@ P.src.epmc.search = (qrystr, from, size) ->
   url += '&pageSize=' + size if size? #can handle 1000, have not tried more, docs do not say
   url += '&cursorMark=' + from if from? # used to be a from pager, but now uses a cursor
   ret = {}
-  await @sleep 250
+  await @sleep 150
+  console.log url
   res = await @fetch url
   ret.total = res.hitCount
   ret.data = res.resultList?.result ? []
@@ -36,8 +37,8 @@ P.src.epmc.search = (qrystr, from, size) ->
   return ret
 
 P.src.epmc.doi = (ident, refresh) ->
+  refresh ?= @refresh if not ident
   ident ?= @params.doi
-  refresh ?= @refresh
   exists = await @src.epmc 'doi:"' + ident + '"'
   if exists?.hits?.total
     return exists.hits.hits[0]._source
@@ -54,24 +55,38 @@ P.src.epmc.doi = (ident, refresh) ->
       await @src.epmc.notinepmc id: ident.replace(/\//g, '_'), doi: ident
       return
 
-P.src.epmc.pmid = (ident) ->
+P.src.epmc.pmid = (ident, refresh) ->
+  refresh ?= @refresh if not ident
   ident ?= @params.pmid
   exists = await @src.epmc 'pmid:"' + ident + '"'
   if exists?.hits?.total
     return exists.hits.hits[0]._source
+  else if not refresh and ne = await @src.epmc.notinepmc ident
+    return
   else
     res = await @src.epmc.search 'EXT_ID:' + ident + ' AND SRC:MED'
-    return if res.total then res.data[0] else undefined
+    if res.total
+      return res.data[0]
+    else
+      await @src.epmc.notinepmc id: ident, pmid: ident
+      return
 
-P.src.epmc.pmc = (ident) ->
+P.src.epmc.pmc = (ident, refresh) ->
+  refresh ?= @refresh if not ident
   ident ?= @params.pmc ? @params.pmcid
   ident = 'PMC' + ident.toLowerCase().replace 'pmc', ''
   exists = await @src.epmc 'pmcid:"' + ident + '"'
   if exists?.hits?.total
     return exists.hits.hits[0]._source
+  else if not refresh and ne = await @src.epmc.notinepmc ident
+    return
   else
     res = await @src.epmc.search 'PMCID:' + ident
-    return if res.total then res.data[0] else undefined
+    if res.total
+      return res.data[0]
+    else
+      await @src.epmc.notinepmc id: ident, pmcid: ident
+      return
 
 P.src.epmc.title = (title) ->
   title ?= @params.title
@@ -84,14 +99,14 @@ P.src.epmc.title = (title) ->
     return if res.total then res.data[0] else undefined
 
 P.src.epmc.licence = (pmcid, rec, fulltext, refresh) ->
+  refresh ?= @refresh if not pmcid
   pmcid ?= @params.licence ? @params.pmcid ? @params.epmc
   pmcid = 'PMC' + pmcid.toLowerCase().replace('pmc','') if pmcid
-  refresh ?= @refresh
   if pmcid and not rec?
     rec = await @src.epmc.pmc pmcid
   if rec or fulltext
     if rec?.calculated_licence? and not refresh
-      return rec.calculated_licence
+      return if rec.calculated_licence.licence is 'not found' then undefined else rec.calculated_licence
     else
       pmcid ?= rec?.pmcid
       if rec?.license and typeof rec.license is 'string'
@@ -100,7 +115,7 @@ P.src.epmc.licence = (pmcid, rec, fulltext, refresh) ->
       else
         if not fulltext and pmcid
           fulltext = await @src.epmc.xml pmcid, rec
-        if @licence?
+        if @licence? and fulltext
           if typeof fulltext is 'string' and fulltext.startsWith '<'
             lics = await @licence undefined, fulltext, '<permissions>', '</permissions>'
             lics.source = 'epmc_xml_permissions' if lics?.licence?
@@ -110,17 +125,21 @@ P.src.epmc.licence = (pmcid, rec, fulltext, refresh) ->
         if not lics?.licence? and typeof fulltext is 'string' and fulltext.includes '<permissions>'
           lics = licence: 'non-standard-licence', source: 'epmc_xml_permissions'
   
-        if pmcid and @licence? and (not lics?.licence? or lics?.licence is 'non-standard-licence')
-          await @sleep 1000
-          url = 'https://europepmc.org/articles/PMC' + pmcid.toLowerCase().replace 'pmc', ''
-          if pg = await @puppet url
-            try lics = await @licence undefined, pg
-            lics.source = 'epmc_html' if lics?.licence?
+        #if pmcid and @licence? and (not lics?.licence? or lics?.licence is 'non-standard-licence')
+        #  await @sleep 1000
+        #  url = 'https://europepmc.org/articles/PMC' + pmcid.toLowerCase().replace 'pmc', ''
+        #  console.log url
+        #  if pg = await @puppet url
+        #    try lics = await @licence undefined, pg
+        #    lics.source = 'epmc_html' if lics?.licence?
     
     if lics?.licence?
       rec.calculated_licence = lics
       await @src.epmc rec.id, rec
       return lics
+    else
+      rec.calculated_licence = licence: 'not found'
+      await @src.epmc rec.id, rec
 
   return
 
@@ -134,8 +153,10 @@ P.src.epmc.xml = (pmcid, rec) ->
     catch
       rec ?= await @src.epmc.pmc pmcid
       if not rec?.no_ft
-        await @sleep 200
-        ft = await @fetch 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML'
+        await @sleep 150
+        url = 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML'
+        console.log url
+        ft = await @fetch url
         if typeof ft is 'string' and ft.length
           try await fs.writeFile '/home/cloo/static/epmc/fulltext/' + pmcid + '.xml', ft
           return ft
@@ -157,8 +178,10 @@ P.src.epmc.aam = (pmcid, rec, fulltext) ->
       if typeof fulltext is 'string' and fulltext.includes('pub-id-type=\'manuscript\'') and fulltext.includes('pub-id-type="manuscript"')
         return aam: true, info: 'fulltext'
       else
-        await @sleep 2000
-        pg = await @puppet 'https://europepmc.org/articles/PMC' + pmcid.toLowerCase().replace 'pmc', ''
+        await @sleep 1000
+        url = 'https://europepmc.org/articles/PMC' + pmcid.toLowerCase().replace 'pmc', ''
+        console.log url
+        pg = await @puppet url
         if not pg
           return aam: false, info: 'not in EPMC (404)'
         else if typeof pg is 'string'

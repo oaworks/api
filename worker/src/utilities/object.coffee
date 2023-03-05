@@ -19,9 +19,9 @@ P.copy = (obj) ->
   catch
     return'''
 
-P.dot = (o, k, v, d) ->
+P.dot = (o, k, v, d, ae) -> # ae will attempt to recurse into the last object element of an array rather than return undefined for failing to match a key on the list element
   if typeof k is 'string'
-    return P.dot o, k.split('.'), v, d
+    return P.dot o, k.split('.'), v, d, ae
   else if k.length is 1 and (v? or d?)
     if d?
       if o instanceof Array
@@ -30,7 +30,11 @@ P.dot = (o, k, v, d) ->
         delete o[k[0]]
       return true
     else
-      o[k[0]] = v
+      if ae and Array.isArray(o) and typeof k[0] isnt 'number' and isNaN parseInt k[0]
+        o = [{}] if not o.length
+        o[o.length-1][k[0]] = v
+      else
+        o[k[0]] = v
       return true
   else if k.length is 0
     return o
@@ -38,11 +42,18 @@ P.dot = (o, k, v, d) ->
     if not o[k[0]]?
       if v?
         o[k[0]] = if typeof k[0] is 'number' or not isNaN(parseInt(k[0])) then [] else {}
-        return P.dot o[k[0]], k.slice(1), v, d
+        return P.dot o[k[0]], k.slice(1), v, d, ae
+      else if ae and Array.isArray(o) and o.length and oo = o[o.length-1] and typeof oo is 'object' and oo[k[0]]?
+        return P.dot oo[k[0]], k.slice(1), v, d, ae
       else
         return undefined
     else
-      return P.dot o[k[0]], k.slice(1), v, d
+      if ae and Array.isArray(o) and typeof k[0] isnt 'number' and isNaN(parseInt(k[0])) and o.length and typeof o[o.length-1] is 'object' # and not o[k[0]]? 
+        o[o.length-1][k[0]] ?= {} if v?
+        return P.dot o[o.length-1][k[0]], k.slice(1), v, d, ae
+      else
+        return P.dot o[k[0]], k.slice(1), v, d, ae
+      
 
 
 P.flatten = (obj, arrayed) ->

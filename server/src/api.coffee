@@ -86,7 +86,10 @@ server = http.createServer (req, res) ->
     res.end '405'
 
 S.port ?= if S.dev then 4000 else 3000
+S.port += 1 if process.env.name.includes 'async'
 server.listen S.port, 'localhost'
+
+fetch 'http://localhost:' + S.port + '/status'
 
 console.log S.name + ' v' + S.version + ' built ' + S.built + ', available on http://localhost:' + S.port
 

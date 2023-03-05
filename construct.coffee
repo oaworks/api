@@ -20,18 +20,25 @@ GROUP = '' # if group is provided look for secrets folders prefixed with GROUP_ 
 # so group could be used to send workers to completely different CF accounts with separate configs, whereas env allows overwrites of certain configs
 # should ENV try to deploy to a script ID prefixed with the ENV name as well? It would have to exist first, or does CF API create it on PUT?
 
+KEEPTOKEN = true
+
 args = process.argv.slice 2
 rm = []
 for a of args
   arg = args[a]
+  console.log a, arg
   if arg.toLowerCase().indexOf('env=') isnt -1
     rm.push a
     ENV = arg.split('=')[1].trim() + '_'
-  if arg.toLowerCase().indexOf('group=') isnt -1
+  else if arg.toLowerCase().indexOf('group=') isnt -1
     rm.push a
     GROUP = arg.split('=')[1].trim() + '_'
+  else if arg.toLowerCase().indexOf('token') isnt -1
+    rm.push a
+    KEEPTOKEN = false
 for r in rm
   delete args[r]
+args = args.filter (el) -> return el isnt null
 
 if GROUP
   console.log 'Deploying with any secrets in group secrets folders named with prefix ' + GROUP + (if ENV then ', overriding with files prefixed with ' + ENV else '')
@@ -57,7 +64,15 @@ if not fs.existsSync('./' + GROUP + 'secrets') and not fs.existsSync('./worker/'
 else
   DEMO = false
 
-SYSTOKEN = crypto.randomBytes(32).toString 'hex'
+if KEEPTOKEN
+  try
+    SYSTOKEN = fs.readFileSync('./server/dist/server.js').toString().split('SECRETS_SETTINGS')[1].split('"system":"')[1].split('"')[0]
+    console.log 'keeping system token', SYSTOKEN
+  catch
+    console.log 'could not find system token to keep, creating a new one'
+    SYSTOKEN = crypto.randomBytes(32).toString 'hex'
+else
+  SYSTOKEN = crypto.randomBytes(32).toString 'hex'
 DATE = new Date().toString().split(' (')[0]
 VERSION = '' # get read from main worker file
 BG = '' # get read from worker settings, and if present is used to ping the URL to check it is up

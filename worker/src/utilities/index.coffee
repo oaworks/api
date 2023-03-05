@@ -86,9 +86,10 @@ P.index = (route, data, opts, foreach) ->
   route = route.replace(/\/$/,'') if route.endsWith '/'
   if typeof data is 'object' and not Array.isArray(data) and data._id
     data = if this?.copy? then @copy(data) else P.copy data
-    dni = data._id.replace /\//g, '_'
+    dni = data._id.replace(/\//g, '_').toLowerCase()
     route += '/' + dni if route.indexOf('/') is -1 and route.indexOf(dni) is -1
     delete data._id # ID can't go into the data for ES7.x
+    data = undefined if JSON.stringify(data) is '{}' # if only provided an ID in an object and nothing else, try to get the record
 
   route = route.toLowerCase()
   rpl = route.split('/').length
@@ -263,7 +264,6 @@ P.index.suggest = (route, key, qry, size=100, include) ->
   else
     for k in await @index.terms route, key, (tqr ? qry), size, false, 'term'
       kl = k.toLowerCase()
-      console.log kl
       res.push(k) if kl not in seen and (not ql or kl.includes ql)
       seen.push kl
   return res
@@ -581,7 +581,7 @@ P.index.translate = (q, opts) ->
     qry.aggregations = JSON.parse JSON.stringify(qry.facets).replace(/\.exact/g, '.keyword')
     delete qry.facets
 
-  if qry.query? and not qry.query.bool? and JSON.stringify qry.query isnt '{}'
+  if qry.query? and not qry.query.bool? and JSON.stringify(qry.query) isnt '{}'
     qry.query = bool: must: [], filter: [qry.query]
   qry.query ?= bool: must: [], filter: []
   qry.query.bool ?= must: [], filter: []

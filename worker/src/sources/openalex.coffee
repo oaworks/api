@@ -37,12 +37,13 @@ P.src.openalex.load = (what, changes, clear, sync, last) ->
   clear ?= @params.clear ? false
   sync ?= @params.sync ? false
 
-  await @src.openalex[what]('') if clear is true
+  if clear is true
+    await @src.openalex[what] ''
+    await @sleep 300000
   
   howmany = @params.howmany ? -1 # max number of lines to process. set to -1 to keep going
-  batchsize = 30000 # how many records to batch upload at a time
+  maxbatchsize = 30000 # how many records to batch upload at a time
   total = 0
-  batch = []
   infiles = @S.directory + '/openalex/openalex-snapshot/data/' + what
 
   if typeof changes is 'string'
@@ -50,8 +51,11 @@ P.src.openalex.load = (what, changes, clear, sync, last) ->
   else if changes is true
     console.log 'Checking for Openalex changes in', what
     changes = []
-    manifest = JSON.parse (await fs.readFile infiles + '/manifest').toString()
-    last = await @epoch manifest.entries[manifest.entries.length-1].url.split('=')[1].split('/')[0]
+    try
+      manifest = JSON.parse (await fs.readFile infiles + '/manifest').toString()
+      last = await @epoch manifest.entries[manifest.entries.length-1].url.split('=')[1].split('/')[0]
+    catch
+      last = 0
     if sync
       synced = await @_child 'aws', ['s3', 'sync', 's3://openalex', @S.directory + '/openalex/openalex-snapshot', '--no-sign-request']
       console.log 'Openalex sync returned', synced
@@ -70,13 +74,22 @@ P.src.openalex.load = (what, changes, clear, sync, last) ->
   if not sync and changes and changes.length
     for change in changes
       console.log 'Openalex syncing files', what, change
-      await @_child 'aws', ['s3', 'sync', 's3://openalex/data/' + what + '/updated_date=' + change, infiles + '/updated_date=' + change, '--no-sign-request']
+      try
+        stats = await fs.stat infiles + '/updated_date=' + change
+      catch
+        await @_child 'aws', ['s3', 'sync', 's3://openalex/data/' + what + '/updated_date=' + change, infiles + '/updated_date=' + change, '--no-sign-request']
 
+  expectedfiles = 0
+  processedfiles = 0
+  running = 0
+  maxrunners = 3
+  keys = []
   for updated in await fs.readdir infiles # folder names are like updated_date=2022-04-30
-    if updated isnt 'manifest' and (not changes or changes.length is 0 or updated.split('=')[1] in changes)
+    if not updated.startsWith('manifest') and (not changes or changes.length is 0 or updated.split('=')[1] in changes)
       # if we find in future there is no need to download a whole copy of openalex, instead of s3 sync the whole lot it may be better 
       # to just use streams of the files in each change folder direct from s3, and never have to land them on disk
-      for infile in await fs.readdir infiles + '/' + updated
+      _dofile = (infile) =>
+        batch = []
         for await line from readline.createInterface input: fs.createReadStream(infiles + '/' + updated + '/' + infile).pipe zlib.createGunzip() #, crlfDelay: Infinity
           break if total is howmany
           rec = JSON.parse line.trim().replace /\,$/, ''
@@ -88,29 +101,52 @@ P.src.openalex.load = (what, changes, clear, sync, last) ->
                 xc.score = Math.floor(xc.score) if xc.score?
           else if what is 'works'
             try
-              rec._id = rec.doi ? rec.DOI
+              for xc in rec.concepts
+                xc.score = Math.floor(xc.score) if xc.score?
+            try
+              rec._id = rec.doi ? rec.DOI ? rec.ids?.doi
               rec._id = '10.' + rec._id.split('/10.').pop() if rec._id.includes('http') and rec._id.includes '/10.'
               rec._id = rec.id.split('/').pop() if not rec._id or not rec._id.startsWith '10.'
             catch
               rec._id = rec.id.split('/').pop()
-            if rec.abstract_inverted_index?
+            try
               abs = []
               for word of rec.abstract_inverted_index
                 abs[n] = word for n in rec.abstract_inverted_index[word]
               rec.abstract = abs.join(' ') if abs.length
-              delete rec.abstract_inverted_index
+            try delete rec.abstract_inverted_index
+          try
+            for fk of flattened = await @flatten rec
+              if fk not in keys
+                keys.push fk
+                console.log 'openalex seeing new key', keys.length, fk
           batch.push rec
-          if batch.length is batchsize
+          if batch.length >= maxbatchsize
             console.log 'Openalex ' + what + ' bulk loading', updated, infile, batch.length, total
             await @src.openalex[what] batch
             batch = []
+        await @src.openalex[what](batch) if batch.length
         console.log 'removing', infiles + '/' + updated + '/' + infile
         await fs.unlink infiles + '/' + updated + '/' + infile
+        processedfiles += 1
+        running -= 1
+        return true
+
+      for inf in await fs.readdir infiles + '/' + updated
+        console.log 'Openalex load running', running
+        expectedfiles += 1
+        while running is maxrunners
+          await @sleep 5000
+          console.log 'Openalex load running', running
+        running += 1
+        _dofile inf
+
+      while running isnt 0
+        await @sleep 5000
       await fs.rmdir infiles + '/' + updated
 
-  await @src.openalex[what](batch) if batch.length
-  console.log total
-  return total
+  console.log expectedfiles, processedfiles, total
+  return expected: expectedfiles, processed: processedfiles, total: total
 
 P.src.openalex.load._bg = true
 P.src.openalex.load._async = true
