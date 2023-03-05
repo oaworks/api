@@ -270,4 +270,62 @@ P.convert.stream2txt = (stream) ->
     stream.on 'error', (err) => reject err
     stream.on 'end', () => resolve Buffer.concat(chunks).toString 'utf8'
 
+P.convert.xml2json = (x) ->
+  # TODO parse from buffer (file on disk or stream from url)
+  # allow CDATA e.g <![CDATA[<p>your html here</p>]]>
+  # track embedded and unescaped html tags e.g https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=PMC9206389
+  x ?= @params.xml2json ? @params.url
+  res = {}
+  if typeof x is 'string'
+    x = await @fetch(x) if x.startsWith 'http'
+    elem = ''
+    pointer = ''
+    starting = false
+    ending = false
+    while c = x[0]
+      x = x.slice 1
+      if c not in ['\uFEFF', '\t', '\r', '\n'] and (c isnt ' ' or (elem.length and not elem.endsWith '>'))
+        starting = true if elem is '<' and c not in ['/', '?', '!'] # ignore xml and doctype statements - can add later if any use for them is found
+        elem += c
+        ending = true if (elem.endsWith('</') and elem.split('</').length-1 is elem.split('>').length) or (elem.endsWith('/>') and not elem.split('/>')[0].includes '>')
+        if c is '>'
+          console.log pointer
+          if ending
+            ending = false
+            elem = elem.split('</')[0]
+            if elem isnt ''
+              if pv = await @dot res, pointer, undefined, undefined, true
+                if Array.isArray pv
+                  pv = [{}] if not pv.length
+                  if pv[pv.length-1].$?
+                    pv[pv.length-1].$ = [pv[pv.length-1].$] if not Array.isArray pv[pv.length-1].$
+                    pv[pv.length-1].$.push elem
+                  else
+                    pv[pv.length-1].$ = elem
+                else
+                  pv.$ = elem
+                elem = pv
+              else
+                elem = $: elem
+                try elem._ = prv[pointer.split('.').pop()]._ if prv = await @dot res, pointer.slice(0, pointer.lastIndexOf('.')), undefined, undefined, true
+              elem = elem.$ if typeof elem is 'object' and not elem._? and elem.$?
+              await @dot res, pointer, elem, undefined, true
+            pointer = if pointer.includes('.') then pointer.slice(0, pointer.lastIndexOf('.')) else ''
+          else if starting
+            starting = false
+            meta = {}
+            for p in elem.replace('<', '').replace('>', '').split ' '
+              if not p.includes '='
+                pointer += (if pointer and not pointer.endsWith('.') then '.' else '') + p
+              else if p.length
+                [k, v] = p.split '='
+                meta[k.trim().replace(/"/g, '')] = v.trim().replace /"/g, ''
+            if pv = await @dot res, pointer, undefined, undefined, true
+              pv = [pv] if not Array.isArray pv
+              pv.push if JSON.stringify(meta) isnt '{}' then {_: meta} else {}
+              await @dot res, pointer, pv, undefined, true
+            else if JSON.stringify(meta) isnt '{}'
+              await @dot res, pointer + '._', meta, undefined, true
+          elem = ''
+  return res
 

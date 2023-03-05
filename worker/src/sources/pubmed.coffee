@@ -65,6 +65,7 @@ P.src.pubmed.entrez.summary = (qk, webenv, id) ->
     return
 
 P.src.pubmed.entrez.pmid = (pmid) ->
+  pmid ?= @params.pmid
   url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/epost.fcgi?db=pubmed&id=' + pmid
   try
     res = await @fetch url
@@ -74,6 +75,7 @@ P.src.pubmed.entrez.pmid = (pmid) ->
     return
 
 P.src.pubmed.search = (str, full, size=10, ids=false) ->
+  str ?= @params.search ? @params.q
   url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=' + size + '&sort=pub date&term=' + str
   try
     ids = ids.split(',') if typeof ids is 'string'
@@ -112,16 +114,18 @@ P.src.pubmed.search = (str, full, size=10, ids=false) ->
     return
 
 P.src.pubmed.pmid = (pmid) ->
+  pmid ?= @params.pmid
   try
     url = 'https://www.ncbi.nlm.nih.gov/pubmed/' + pmid + '?report=xml'
     res = await @fetch url
-    if res.indexOf('<') is 0
+    if res.startsWith '<'
       return @src.pubmed.format await @decode res.split('<pre>')[1].split('</pre>')[0].replace('\n','')
   try
     return @src.pubmed.format await @src.pubmed.entrez.pmid pmid
   return
 
 P.src.pubmed.aheadofprint = (pmid) ->
+  pmid ?= @params.pmid
   try
     res = await @fetch 'https://www.ncbi.nlm.nih.gov/pubmed/' + pmid + '?report=xml'
     return res.indexOf('PublicationStatus&gt;aheadofprint&lt;/PublicationStatus') isnt -1

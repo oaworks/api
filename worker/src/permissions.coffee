@@ -1,6 +1,6 @@
 
 
-P.permissions = (meta, ror, getmeta, oadoi, crossref) -> # oadoi and crossref are just ways for other functions to pass in oadoi or crossref record objects to save looking them up again
+P.permissions = (meta, ror, getmeta, oadoi, crossref, best) -> # oadoi and crossref are just ways for other functions to pass in oadoi or crossref record objects to save looking them up again
   overall_policy_restriction = false
   haddoi = false
   
@@ -94,9 +94,18 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref) -> # oadoi and crossref ar
   issns = if Array.isArray(meta.issn) then meta.issn else [] # only if directly passed a list of ISSNs for the same article, accept them as the ISSNs list to use
   meta.issn = meta.issn.split(',') if typeof meta.issn is 'string' and meta.issn.includes ','
 
+  delete meta.best
   if JSON.stringify(meta) is '{}' or (meta.issn and not JSON.stringify(meta.issn).includes('-')) or (meta.doi and (typeof meta.doi isnt 'string' or not meta.doi.startsWith('10.') or not meta.doi.includes '/'))
     return body: 'No valid DOI, ISSN, or ROR provided', status: 404
-    
+  
+  best ?= @params.best
+  if best and meta.doi and not meta.ror.length
+    if bp = await @permissions.best meta.doi
+      if best is true or bp.updated > best
+        delete bp.updated
+        delete bp.DOI
+        return best_permission: bp
+
   # NOTE later will want to find affiliations related to the authors of the paper, but for now only act on affiliation provided as a ror
   # we now always try to get the metadata because joe wants to serve a 501 if the doi is not a journal article
   _getmeta = () =>
@@ -309,15 +318,22 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref) -> # oadoi and crossref ar
 
   if overall_policy_restriction
     msgs = 
-      'not publisher': 'Please find another DOI for this article as this is provided as this doesn’t allow us to find required information like who published it'
+      'not publisher': 'Please find another DOI for this article as this is provided as this does not allow us to find required information like who published it'
     return
       body: if typeof overall_policy_restriction isnt 'string' then overall_policy_restriction else msgs[overall_policy_restriction.toLowerCase()] ? overall_policy_restriction
       status: 501
   else
+    if meta.doi and not rors.length and perms.best_permission
+      bp = await @copy perms.best_permission
+      bp.updated = await @epoch()
+      bp.DOI = meta.doi
+      @waitUntil @permissions.best bp
     perms.metadata = meta if @params.metadata is true or getmeta is true
     return perms
 
 
+
+P.permissions.best = _index: true, _key: 'DOI' # save calculated best permissions for cases where that is good enough. TODO could update them every week
 
 P.permissions.journals = _sheet: '1ZTcYJUzhNJYIuxsjKzdVFCbOhJsviVik-8K1DpU7-eE/Main', _prefix: false, _format: (recs=[]) ->
   ready = []
@@ -448,7 +464,7 @@ P.permissions.journals.oa.type = (issns, doajrnl, oadoi, crossref) ->
         js = 'transformative'
       else if js is 'closed' and await @src.oadoi.hybrid issns
         # check if it really is closed because sometimes OADOI says it is for one particular DOI but really it isn't (or was at time of publication of that article, but isn't now)
-        js = 'hybrid' 
+        js = 'hybrid'
   return js
 
 P.permissions.publishers.oa = (publisher) ->

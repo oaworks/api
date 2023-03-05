@@ -4,8 +4,11 @@ P.licence = (url, content, start, end) ->
   content ?= @params.content ? @body
   if not url and not content and (@params.licence or @params.doi)
     url = 'https://doi.org/' + (@params.licence ? @params.doi)
-  url = url.replace(/(^\s*)|(\s*$)/g,'') if url?
-  try content ?= await @puppet url
+  if url
+    url = url.replace /(^\s*)|(\s*$)/g,''
+    if not content
+      console.log url
+      try content = await @puppet url
   content = undefined if typeof content is 'number'
   start ?= @params.start
   end ?= @params.end
@@ -15,9 +18,9 @@ P.licence = (url, content, start, end) ->
   if typeof content is 'string'
     content = content.split(start)[1] if start? and content.includes start
     content = content.split(end)[0] if end
-    if content.length > 1000000
+    if content.length > 100000 # reduced this by and the substrings below by an order of magnitude
       lic.large = true
-      content = content.substring(0,500000) + content.substring(content.length-500000, content.length)
+      content = content.substring(0,50000) + content.substring(content.length-50000, content.length)
 
     lics = await @licences '*', 10000
     for lh in lics?.hits?.hits ? []

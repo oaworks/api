@@ -16,6 +16,8 @@ S.version ?= '6.1.0' # the construct script will use this to overwrite any versi
 # S.pass can be set to false if there is a bg URL but worker errors should NOT pass through on exception to it (otherwise they will by default)
 S.pass = ['docs', 'client', '.well-known'] # if this is a list of strings, any route starting with these will throw error and pass back to bg (this would happen anyway with no function defined for them, but this avoids unnecessary processing)
 S.dev ?= true
+try
+  S.async = true if process.env.name.includes 'async'
 S.headers ?=
   'Access-Control-Allow-Methods': 'HEAD, GET, PUT, POST, DELETE, OPTIONS'
   'Access-Control-Allow-Origin': '*'
@@ -24,7 +26,6 @@ S.headers ?=
 S.formats ?= ['html', 'csv', 'json'] # formats to allow to check for
 S.svc ?= {}
 S.src ?= {}
-
 
 # check _auth, refuse if not appropriate
 # _auth - if true an authorised user is required. If a string or a list, an authorised user with that role is required. For empty list, cascade the url routes as groups. always try to find user even if auth is not required, so that user is optionally available
@@ -71,6 +72,7 @@ try
     event.passThroughOnException() if S.pass isnt false
     event.respondWith P.call event
 
+_unique = {}
 _schedule = {}
 
 P = () ->
@@ -96,7 +98,7 @@ P = () ->
   if @request.url? and @request.url.includes '?'
     pkp = ''
     for qp in @request.url.split('?')[1].split '&'
-      qp = await P.decode qp
+      #qp = await P.decode qp
       kp = qp.split '='
       if kp[0].length # avoid &&
         if kp.length is 1 and pkp and (kp[0].startsWith(' ') or kp[0].includes('%'))
@@ -252,6 +254,8 @@ P = () ->
             return () =>
               if @S.dev isnt true and process.env.pm_id isnt 1
                 console.log 'NOT running scheduled task because not on dev and process pid is not 1', fnm, @datetime()
+              else if typeof @S.async is 'string'
+                console.log 'NOT running scheduled task because not on the available async process', fnm, @datetime()
               else
                 console.log 'scheduled task', fnm, @datetime()
                 _schedule[fnm].last = await @datetime()
@@ -291,6 +295,9 @@ P = () ->
 
   if typeof fn in ['object', 'function'] and fn._bg and typeof @S.bg is 'string' and @S.bg.startsWith 'http'
     throw new Error()
+  else if typeof fn in ['object', 'function'] and fn._async and typeof @S.async is 'string'
+    console.log 'Fetching from async process', @S.async, @request.url
+    res = await @fetch @S.async + @request.url, method: @request.method, headers: @headers, body: @request.body
   else if typeof fn is 'function'
     authd = if @fn is 'auth' then undefined else await @auth()
     @user = authd if typeof authd is 'object' and authd._id and authd.email
@@ -502,7 +509,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
       if typeof rec is 'object'
         if not Array.isArray rec
           rec._id ?= (lg.key ? rec[f._key] ? @uid()).replace(/\//g, '_').toLowerCase()
-          lg.key ?= rec._id
+          lg.key ?= rec._id.replace(/\//g, '_').toLowerCase()
         else if rec.length
           for c in rec
             c._id ?= (c[f._key] ? @uid()).replace(/\//g, '_').toLowerCase()
@@ -520,8 +527,13 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
               else
                 res = status: 404
             nfeml = @params.email
-            pfs = @params.funders
+            if @params.orgkey
+              pok = @params.orgkey
+              delete @params.orgkey
+            pfs = @params.funders ? @params.flatten
+            delete qry.orgkey
             delete qry.funders
+            delete qry.flatten
             delete qry.email
             delete @params.size
             delete qry.size
@@ -536,11 +548,16 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
               out = @S.static.folder + '/export'
               try
                 filecount = (await fs.readdir out).length
-                @mail({to: (@S.log?.notify ? 'mark@oa.works'), text: 'Warning, export file count is ' + filecount}) if filecount > 500 and filecount % 20 is 0
+                @mail({to: (@S.log?.notify ? 'mark@oa.works'), text: 'Warning, export file count is ' + filecount + ' they will be deleted at 1000'}) if filecount > 900 and filecount % 20 is 0
                 # add auto deletion of old export files?
               catch
                 await fs.mkdir out
                 filecount = 0
+              try
+                if filecount > 999
+                  for fl in await fs.readdir out
+                    await fs.unlink out + '/' + fl
+                  @mail {to: (@S.log?.notify ? 'mark@oa.works'), text: 'Export files had reached 1000 so have been deleted '}
               if filecount > 1000
                 res = status: 401
               else
@@ -553,30 +570,44 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                   @params.exclude = @params.excludes
                   delete @params.excludes
                 if @params.include?
-                  ks = @params.include.split ','
+                  ks = if typeof @params.include is 'string' then @params.include.split(',') else @params.include
+                  if pok
+                    if typeof @params.include is 'string' and not @params.include.includes 'orgs'
+                      @params.include += ',orgs'
+                    else if Array.isArray(@params.include) and 'orgs' not in @params.include
+                      @params.include.push 'orgs'
+                    qry._source.includes.push('orgs') if 'orgs' not in qry._source.includes
                 else
                   ks = []
                   for ak in await @index.keys rt
                     tk = ak.split('.')[0]
                     ks.push(tk) if tk not in ks and tk isnt '_id'
                 if @params.exclude?
-                  for ex in @params.exclude
+                  for ex in (if typeof @params.exclude is 'string' then @params.exclude.split(',') else @params.exclude)
                     pidx = ks.indexOf ex
-                    ks = ks.splice(ex, 1) if ex isnt -1
+                    ks = ks.splice(pidx, 1) if pidx isnt -1 and (not pok or ex isnt 'orgs')
+                  if pok
+                    orgsidx = qry._source.excludes.indexOf 'orgs'
+                    qry._source.excludes = qry._source.excludes.splice(orgsidx, 1) if orgsidx isnt -1
                 if nfeml
                   await @mail to: nfeml, subject: 'Your export has started (ref: ' + flid + '.csv)', text: 'Your export has started. You can download the file any time, it will keep growing until it is complete, when you will get another notification.<br><br><a href="' + eurl + '">Download csv</a><br><br>Thanks'
-                _makecsv = (rt, qry, out, keys, notify, eurl, pfs) =>
+                _makecsv = (rt, qry, out, keys, notify, eurl, pfs, pok) =>
                   first = true
+                  if pok?
+                    rpke = await @encrypt pok
+                    orgk = await @report.orgs.orgkeys 'key.keyword:"' + rpke + '"', 1
                   if pfs
-                    keys = ['DOI', 'funder.name', 'funder.award']
+                    keys = ['DOI', 'funder.name', 'funder.award', 'authorships.institutions.display_name','authorships.institutions.ror']
                   for key in keys
                     await fs.appendFile out, (if not first then ',"' else '"') + key + '"'
                     first = false
-                  for await blr from @index._for rt, qry, {scroll: '5m', max: if notify is 'joe@oa.works' then 100000 else 30000}
+                  for await blr from @index._for rt, qry, {scroll: '5m', max: if notify is 'joe@oa.works' then 100000 else 100000}
                     await fs.appendFile out, '\n'
                     if pfs
                       names = ''
                       awards = ''
+                      institutions = ''
+                      rors = ''
                       if blr.funder?
                         first = true
                         for funder in blr.funder
@@ -591,7 +622,20 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                           funder.award = funder.award.replace /;/g, ''
                           awards += (if first then '' else ';') + funder.award
                           first = false
-                      await fs.appendFile out, '"' + blr.DOI + '","' + names + '","' + awards + '"'
+                      if blr.authorships?
+                        first = true
+                        for author in blr.authorships
+                          if not first
+                            institutions += ';'
+                            rors += ';'
+                          first = false
+                          if author.institutions?
+                            fi = true
+                            for inst in author.institutions
+                              institutions += (if fi then '' else ',') + (inst.display_name ? '')
+                              rors += (if fi then '' else ',') + (inst.ror ? '')
+                              fi = false
+                      await fs.appendFile out, '"' + blr.DOI + '","' + names + '","' + awards + '","' + institutions + '","' + rors + '"'
                     else
                       first = true
                       for k in keys
@@ -624,17 +668,18 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                         else
                           val = blfl[k]
                         val = val.replace(/"/g, '').replace(/\n/g, '').replace(/\s\s+/g, ' ') if typeof val is 'string'
+                        if k in ['email', 'supplements.email'] and not val.includes('@') and typeof orgk?.org is 'string' and orgk.org.length
+                          rol = []
+                          rol.push(rou.toLowerCase()) for rou in (blr.orgs ? [])
+                          if orgk.org.toLowerCase() in rol
+                            val = await @decrypt val
                         await fs.appendFile out, (if not first then ',"' else '"') + val + '"'
                         first = false
                   if notify
-                    await @mail to: notify, subject: 'Your export is complete (ref: ' + out.split('/').pop() + ')', text: 'Your export is complete. This link will expire in approximately 2 days.<br><br><a href="' + eurl + '">Download csv</a>\n\nThanks'
-                @waitUntil _makecsv rt, qry, out, ks, nfeml, eurl, pfs
+                    await @mail to: notify, subject: 'Your export is complete (ref: ' + out.split('/').pop() + ')', text: 'Your export is complete. We recommend you download and store files elsewhere as soon as possible as we may delete this file at any time.<br><br><a href="' + eurl + '">Download csv</a>\n\nThanks'
+                @waitUntil _makecsv rt, qry, out, ks, nfeml, eurl, pfs, pok
                 delete @format
-                #if nfeml
                 res = eurl
-                #else
-                #  res = status: 302, body: eurl
-                #  res.headers = Location: res.body
           else
             res = await @index rt + (if lg.key then '/' + lg.key else ''), (rec ? qry)
           if not res? and (not lg.key or not rec?) # this happens if the index does not exist yet, so create it (otherwise res would be a search result object)
@@ -687,6 +732,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
           ends = if f._limit is true then 86400 else f._limit
           await @kv 'limit/' + nn, started + ends, ends # max limit for one day
         r = await f.apply @, ar
+        delete _unique[nn]
         if typeof r is 'object' and (f._kv or f._index) and not r.took? and not r.hits?
           if f._key and Array.isArray(r) and r.length and not r[0]._id? and r[0][f._key]?
             c._id ?= c[f._key].replace(/\//g, '_').toLowerCase() for c in r
@@ -703,8 +749,12 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
         return r
       if f._async and @fn is n
         lg.async = true
-        res = _async: @rid
-        @waitUntil _as rt, f, arguments, @params.notify, n
+        if f._unique and prid = _unique[n]
+          res = _async: prid
+        else
+          _unique[@fn] = @rid if f._unique
+          res = _async: @rid
+          @waitUntil _as rt, f, arguments, @params.notify, n
       else
         res = await _as rt, f, arguments
 
@@ -717,8 +767,6 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
 
 P.svc = {}
 P.src = {}
-
-
 
 
 P.status = ->

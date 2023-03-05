@@ -27,7 +27,7 @@ P.fetch = (url, params) ->
     params.auth = params.username + ':' + params.password
     delete params.username
     delete params.password
-  if url.includes('@') and url.includes(':') and url.split('//')[1].split('?')[0].split('@')[0].includes ':'
+  if url.split('?')[0].includes('@') and url.includes(':') and url.split('//')[1].split('?')[0].split('@')[0].includes ':'
     params.auth = url.split('//')[1].split('@')[0]
     url = url.replace params.auth + '@', ''
   if params.auth
@@ -91,7 +91,7 @@ P.fetch = (url, params) ->
   if typeof url isnt 'string'
     return
   else
-    if url.includes 'localhost' # allow local https connections on backend server without check cert
+    if not url.startsWith('http:') and url.includes 'localhost' # allow local https connections on backend server without check cert
       try params.agent ?= new https.Agent rejectUnauthorized: false
     if url.includes '?'
       pts = url.split '?'
@@ -108,7 +108,7 @@ P.fetch = (url, params) ->
         url += '&' if not url.endsWith('&') and not url.endsWith '?'
         url += encodeURIComponent(k) + '=' + encodeURIComponent(if typeof v is 'object' then JSON.stringify(v) else v) if k
       delete params.params
-    if S.system and ((typeof S.bg is 'string' and url.startsWith S.bg) or (typeof S.kv is 'string' and S.kv.startsWith('http') and url.startsWith S.kv))
+    if S.system and ((typeof S.bg is 'string' and url.startsWith S.bg) or (typeof S.async is 'string' and url.startsWith S.async) or (typeof S.kv is 'string' and S.kv.startsWith('http') and url.startsWith S.kv))
       params.headers ?= {} # add the system auth code and any user creds when passing anything back to bg, or when bg passing to worker to reach kv
       params.headers['x-' + S.name.toLowerCase() + '-system'] ?= S.system
       params.headers['x-apikey'] = @user.apikey if not params.headers.Authorization and not params.headers.authorization and not params.headers['x-apikey'] and @user
@@ -159,7 +159,7 @@ P.fetch = (url, params) ->
         res = JSON.parse(res) if res.startsWith('[') or res.startsWith('{')
       return res
     catch err
-      console.log(err, JSON.stringify(err), 'ERROR TRYING TO CALL FETCH') if S.dev and S.bg is true
+      console.log('ERROR TRYING TO CALL FETCH', url, err, JSON.stringify(err)) if S.dev and S.bg is true
       try @log err
       return
 
