@@ -95,9 +95,9 @@ P.find = (options, metadata={}, content) ->
         metadata.title = metadata.title.replace /\+/g, ' ' # some+titles+come+in+like+this
         cr = await @src.crossref.works.title metadata.title
         await _metadata(cr) if cr?.type and cr?.DOI
-        if not metadata.doi
-          mag = await @src.microsoft.graph metadata.title
-          await _metadata(mag) if mag isnt false and mag?.PaperTitle
+        #if not metadata.doi
+        #  mag = await @src.microsoft.graph metadata.title
+        #  await _metadata(mag) if mag isnt false and mag?.PaperTitle
         if not metadata.doi and not epmc
           epmc = await @src.epmc.title metadata.title
           await _metadata(epmc) if epmc isnt false

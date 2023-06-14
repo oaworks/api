@@ -1,4 +1,5 @@
 const path = require('path');
+const NodePolyfillPlugin = require("node-polyfill-webpack-plugin");
 
 module.exports = {
   target: 'webworker',
@@ -11,5 +12,8 @@ module.exports = {
   resolve: {
     extensions: ['.js', '.json'],
     plugins: []
-  }
+  },
+  plugins: [
+    new NodePolyfillPlugin()
+  ]
 };

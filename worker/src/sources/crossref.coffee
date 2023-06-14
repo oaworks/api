@@ -128,14 +128,18 @@ P.src.crossref.works.search = (qrystr, from, size, filter, start, end, sort, ord
   end ?= @params.end
   sort ?= @params.sort
   order ?= @params.order ? 'asc'
+  filtered = ''
   if start
-    filtered = filter ? sort ? 'indexed' # can be published, indexed, deposited, created. indexed catches the most changes but can be very large and takes a long time
+    filter ?= sort ? 'updated' # can be published, indexed, deposited, created, updated. indexed catches the most changes but can be very large and takes a long time
+    # updated should only miss crossref internal things like citation count, see https://community.crossref.org/t/date-range-search-of-index-changes-seems-to-retrieve-too-many-records/1468
+    # NOTE updated does NOT work for getting all records for a day because CREATED records can be created on a different day from which they are created, and they have no updated value, so the only way to find them is indexed date.
     start = await @date(start) if typeof start isnt 'string' or start.indexOf('-') is -1 # should be like 2021-01-31
-    filter = (if filter then filter + ',' else '') + 'from-' + filtered.replace('lished','').replace('xed','x').replace('ited','it') + '-date:' + start
+    filtered = 'from-' + filter.replace('lished','').replace('xed','x').replace('ited','it').replace('dated', 'date') + '-date:' + start
   if end
-    filtered ?= filter ? sort ? 'created'
+    filter ?= sort ? 'updated'
     end = await @date(end) if typeof end isnt 'string' or end.indexOf('-') is -1
-    filter = (if filter then filter + ',' else '') + 'until-' + filtered.replace('lished','').replace('xed','x').replace('ited','it') + '-date:' + end
+    filtered += (if filtered then ',' else '') + 'until-' + filter.replace('lished','').replace('xed','x').replace('ited','it').replace('dated', 'date') + '-date:' + end
+  filter = filtered if filtered
   url = 'https://api.crossref.org/works?'
   url += 'sort=' + sort + '&order=' + order + '&' if sort?
   if typeof qrystr is 'object'
@@ -157,7 +161,7 @@ P.src.crossref.works.search = (qrystr, from, size, filter, start, end, sort, ord
     else
       url += 'offset=' + from + '&'
   url += 'rows=' + size + '&' if size? # max size is 1000
-  url += 'filter=' + encodeURIComponent(filter) + '&'if filter? and filter isnt ''
+  url += 'filter=' + encodeURIComponent(filter) + '&' if filter
   url = url.replace('?&','?').replace(/&$/,'') # tidy any params coming immediately after the start of search query param signifier, as it makes crossref error out
   try
     res = await @fetch url, {headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works'), 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
@@ -276,28 +280,36 @@ P.src.crossref.load._auth = 'root'
 
 
 
-P.src.crossref.changes = (startday) ->
-  batchsize = 10000
+P.src.crossref.changes = (startday, endday, created) ->
   startday ?= @params.changes
+  startday = await @epoch(startday) if typeof startday is 'string' and (startday.includes('/') or startday.includes('-'))
   if not startday
     try
       last = await @src.crossref.works 'srcday:*', size: 1, sort: srcday: 'desc'
       startday = last.srcday
   startday ?= 1607126400000 # the timestamp of when changes appeared to start after the last data dump, around 12/12/2020
   # for the 2022 update 1649635200000 was used for 11th April 2022
-  dn = Date.now()
+  endday ?= @params.end
+  endday = await @epoch(endday) if typeof endday is 'string' and (endday.includes('/') or endday.includes('-'))
+  created ?= @params.created
+  # tried to use updated and created to reduce unnecessary useless load of indexed which includes lots of irrelevant internal crossref changes
+  # but it does not work, because created records may be created on different days to the day they were created, and do not show up as updated either
+  searchtype = 'indexed' #if created then 'created' else 'updated'
+
+  batchsize = 10000
+  dn = endday ? Date.now()
   loaded = 0
   days = 0
   batch = []
   while startday < dn
-    console.log 'Crossref changes', startday, days
+    console.log 'Crossref changes', (if created then 'for created' else undefined), startday, days
     cursor = '*' # set a new cursor on each index day query
     days += 1
     totalthisday = false
     fromthisday = 0
     while totalthisday is false or fromthisday < totalthisday
       await @sleep 500
-      thisdays = await @src.crossref.works.search undefined, cursor, 1000, undefined, startday, startday # using same day for crossref API gets that whole day
+      thisdays = await @src.crossref.works.search undefined, cursor, 1000, searchtype, startday, startday # using same day for crossref API gets that whole day
       if not thisdays?.data
         console.log 'crossref error'
         await @sleep 2000 # wait on crossref downtime
@@ -308,7 +320,7 @@ P.src.crossref.changes = (startday) ->
           batch.push fr
           loaded += 1
         if batch.length >= batchsize
-          console.log 'Crossref bulk load', startday, days, totalthisday, fromthisday, loaded
+          console.log 'Crossref bulk load', (if created then 'for created' else undefined), startday, days, totalthisday, fromthisday, loaded
           await @src.crossref.works batch
           batch = []
         if totalthisday is false
@@ -320,7 +332,8 @@ P.src.crossref.changes = (startday) ->
 
   await @src.crossref.works(batch) if batch.length
   
-  console.log loaded, days
+  console.log loaded, days, (if created then 'for created' else undefined)
+  #@src.crossref.changes(startday, endday, true) if not created
   return loaded
 
 P.src.crossref.changes._bg = true

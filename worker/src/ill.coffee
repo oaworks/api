@@ -64,15 +64,16 @@ P.ill = (opts) -> # only worked on POST with optional auth
       su += if opts.issn then opts.issn else opts.journal
     vars.worldcatsearchurl = su
 
+  await @ills opts
   tmpl = await @templates 'instantill_create'
   tmpl = tmpl.content
   if not opts.forwarded and not opts.resolved and (config.email or opts.email)
-    @mail svc: 'oaworks', vars: vars, template: tmpl, to: (config.email ? opts.email), from: "InstantILL <InstantILL@openaccessbutton.org>", subject: "ILL request " + opts._id
+    @waitUntil @mail svc: 'oaworks', vars: vars, template: tmpl, to: (config.email ? opts.email), from: "InstantILL <InstantILL@openaccessbutton.org>", subject: "ILL request " + opts._id
   tmpl = tmpl.replace /Dear.*?\,/, 'Dear Joe, here is a copy of what was just sent:'
-  @waitUntil @mail svc: 'oaworks', vars: vars, template: tmpl, from: "InstantILL <InstantILL@openaccessbutton.org>", subject: "ILL CREATED " + opts._id, to: 'mark@cottagelabs.com' # ['joe@openaccessbutton.org']
+  @waitUntil @mail svc: 'oaworks', vars: vars, template: tmpl, from: "InstantILL <InstantILL@openaccessbutton.org>", subject: "ILL CREATED " + opts._id, to: 'joe@oa.works'
   return opts
 
-P.ill._index = true
+P.ills = _index: true
 
 
 P.ill.collect = (params) ->
@@ -202,7 +203,8 @@ P.ill.subscription = (config, meta) ->
         res.lookups.push url
         try
           # proxy may still be required if our main machine was registered with some of these ILL service providers...
-          pg = if url.indexOf('.xml.serialssolutions') isnt -1 or url.indexOf('sfx.response_type=simplexml') isnt -1 or url.indexOf('response_type=xml') isnt -1 then await @fetch(url) else await @puppet url
+          #pg = if url.includes('.xml.serialssolutions') or url.includes('sfx.response_type=simplexml') or url.includes('response_type=xml') then await @fetch(url) else await @puppet url
+          pg = await @fetch url
           spg = if pg.indexOf('<body') isnt -1 then pg.toLowerCase().split('<body')[1].split('</body')[0] else pg
           res.contents.push spg
         catch err
@@ -302,7 +304,8 @@ P.ill.subscription = (config, meta) ->
             if spg.indexOf('ss_noresults') is -1
               try
                 surl = url.split('?')[0] + '?ShowSupressedLinks' + pg.split('?ShowSupressedLinks')[1].split('">')[0]
-                npg = await @puppet surl # would this still need proxy?
+                #npg = await @puppet surl # would this still need proxy?
+                npg = await @fetch surl
                 if npg.indexOf('ArticleCL') isnt -1 and npg.split('DatabaseCL')[0].indexOf('href="./log') isnt -1
                   res.url = surl.split('?')[0] + npg.split('ArticleCL')[1].split('DatabaseCL')[0].split('href="')[1].split('">')[0].replace(/&amp;/g, '&')
                   res.findings.serials = res.url
