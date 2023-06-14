@@ -27,7 +27,6 @@ P.src.epmc.search = (qrystr, from, size) ->
   url += '&cursorMark=' + from if from? # used to be a from pager, but now uses a cursor
   ret = {}
   await @sleep 150
-  console.log url
   res = await @fetch url
   ret.total = res.hitCount
   ret.data = res.resultList?.result ? []
@@ -128,7 +127,6 @@ P.src.epmc.licence = (pmcid, rec, fulltext, refresh) ->
         #if pmcid and @licence? and (not lics?.licence? or lics?.licence is 'non-standard-licence')
         #  await @sleep 1000
         #  url = 'https://europepmc.org/articles/PMC' + pmcid.toLowerCase().replace 'pmc', ''
-        #  console.log url
         #  if pg = await @puppet url
         #    try lics = await @licence undefined, pg
         #    lics.source = 'epmc_html' if lics?.licence?
@@ -153,10 +151,13 @@ P.src.epmc.xml = (pmcid, rec) ->
     catch
       rec ?= await @src.epmc.pmc pmcid
       if not rec?.no_ft
-        await @sleep 150
-        url = 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML'
-        console.log url
+        await @sleep 150 # without timeout threw rate limit error on ncbi and ebi - this does not guarantee it because other calls could be made, but is a quick fix
+        # try ncbi first as it is faster but it does not have everything in epmc - however when present the xml files are the same
+        url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=' + pmcid
         ft = await @fetch url
+        if (typeof ft isnt 'string' or not ft.length) and rec? # if it is in epmc, can try getting from there instead
+          url = 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML'
+          ft = await @fetch url
         if typeof ft is 'string' and ft.length
           try await fs.writeFile '/home/cloo/static/epmc/fulltext/' + pmcid + '.xml', ft
           return ft
@@ -164,7 +165,44 @@ P.src.epmc.xml = (pmcid, rec) ->
           rec.no_ft = true
           await @src.epmc rec.id, rec
   return
-  
+
+P.src.epmc.statement = (pmcid, rec) ->
+  pmcid ?= @params.statement ? @params.pmc ? @params.pmcid ? @params.PMC ? @params.PMCID
+  if pmcid
+    pmcid = 'PMC' + (pmcid + '').toLowerCase().replace('pmc', '')
+    if xml = await @src.epmc.xml pmcid, rec
+      # because of xml parsing issues with embedded html in pmc xml, just regex it out if present
+      # pubmed data does not hold corresponding statements to pmc, but the pmc records from ncbi do contain them as they are the same as fulltext records from epmc
+      # see <notes notes-type="data-availability"> in
+      # https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=PMC9206389
+      # or <custom-meta id="data-availability"> in 
+      # https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=PMC9009769
+      # which also has it in "notes" but with no type and no other content <notes> but a <title> of Data Availability
+      # catches most of https://www.ncbi.nlm.nih.gov/books/NBK541158/
+      statement = ''
+      strs = []
+      if xml.includes 'type="data-availability">'
+        statement = xml.split('type="data-availability">')[1].split('</sec>')[0].split('</notes>')[0]
+        statement = statement.split('<title>').pop().split('</title')[0] if statement.includes '<title>'
+      else if xml.includes 'id="data-availability"'
+        statement = xml.split('id="data-availability"')[1]
+        statement = statement.split('meta-value>')[1].split(',')[0] if statement.includes 'meta-value'
+      if not statement and xml.includes '<notes>'
+        for ps in xml.split '<notes>'
+          psl = ps.toLowerCase()
+          if psl.includes('data availability') or psl.includes('data accessibility') or psl.includes 'supporting data'
+            statement = ps.split('</title>')[1] if ps.includes '</title>'
+            statement = statement.split('</notes>')[0]
+            break
+      # if still no statement could look in other fields, but they mostly appear in notes and are of more certain quality when they do
+      #statement = '' if statement.includes '<def-item' # seem to be more junk in these
+      if statement
+        statement = statement.split('<list-item').pop().split('>').pop() if statement.includes '<list-item'
+        # most examples so far are a statement paragraph with zero or one url...
+        statement = statement.replace(/<[ap].*?>/gi, '').replace(/<\/[ap]>/gi, '').replace(/<xref.*?>/gi, '').replace(/<\/xref>/gi, '').replace(/<ext.*?>/gi, '').replace(/<\/ext.*?>/gi, '').replace(/<br>/gi, '').replace(/\n/g, '').split('</')[0].trim()
+        return statement if statement.length > 10 # hard to be a good statement if shorter than this
+  return
+
 P.src.epmc.aam = (pmcid, rec, fulltext) ->
   pmcid ?= @params.aam ? @params.pmcid ? @params.epmc
   if typeof fulltext is 'string' and fulltext.includes('pub-id-type=\'manuscript\'') and fulltext.includes('pub-id-type="manuscript"')
@@ -180,8 +218,8 @@ P.src.epmc.aam = (pmcid, rec, fulltext) ->
       else
         await @sleep 1000
         url = 'https://europepmc.org/articles/PMC' + pmcid.toLowerCase().replace 'pmc', ''
-        console.log url
-        pg = await @puppet url
+        #pg = await @puppet url
+        pg = await @fetch url
         if not pg
           return aam: false, info: 'not in EPMC (404)'
         else if typeof pg is 'string'

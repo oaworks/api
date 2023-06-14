@@ -257,6 +257,8 @@ P = () ->
               else if typeof @S.async is 'string'
                 console.log 'NOT running scheduled task because not on the available async process', fnm, @datetime()
               else
+                if _schedule[fnm].fn._schedule is 'loop'
+                  console.log 'starting scheduled loop function', fnm
                 console.log 'scheduled task', fnm, @datetime()
                 _schedule[fnm].last = await @datetime()
                 delete _schedule[fnm].error
@@ -268,10 +270,19 @@ P = () ->
                   try _schedule[fnm].result = JSON.stringify(crd).substr 0, 200
                   _schedule[fnm].success = true
                   console.log 'scheduled task result', crd
+                  if _schedule[fnm].fn._schedule is 'loop'
+                    console.log 'Schedule looping', fnm
+                    lpd = await sfn fnm
+                    lpd()
                 catch err
                   _schedule[fnm].success = false
                   try _schedule[fnm].error = JSON.stringify err
-          cron.schedule a[k]._schedule, sfn nd
+          if a[k]._schedule is 'loop'
+            console.log 'Scheduling loop', nd
+            lpd = await sfn nd
+            lpd()
+          else
+            cron.schedule a[k]._schedule, sfn nd
 
         if not k.startsWith '_' # underscored methods cannot be accessed from URLs
           if prs.length and prs[0] is k and @fn.startsWith n
@@ -599,7 +610,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                   if pfs
                     keys = ['DOI', 'funder.name', 'funder.award', 'authorships.institutions.display_name','authorships.institutions.ror']
                   for key in keys
-                    await fs.appendFile out, (if not first then ',"' else '"') + key + '"'
+                    await fs.appendFile out, (if not first then ',"' else '"') + key.replace('supplements.', '') + '"'
                     first = false
                   for await blr from @index._for rt, qry, {scroll: '5m', max: if notify is 'joe@oa.works' then 100000 else 100000}
                     await fs.appendFile out, '\n'

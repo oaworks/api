@@ -8,7 +8,8 @@ P.licence = (url, content, start, end) ->
     url = url.replace /(^\s*)|(\s*$)/g,''
     if not content
       console.log url
-      try content = await @puppet url
+      #try content = await @puppet url
+      try content = await @fetch url
   content = undefined if typeof content is 'number'
   start ?= @params.start
   end ?= @params.end

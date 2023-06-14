@@ -10,7 +10,8 @@ P.scrape = (content, doi) ->
       mr = new RegExp /\/(10\.[^ &#]+\/[^ &#]+)$/
       ud = mr.exec decodeURIComponent content
       meta.doi = ud[1] if ud and ud.length > 1 and 9 < ud[1].length and ud[1].length < 45 and ud[1].indexOf('/') isnt -1 and ud[1].indexOf('10.') is 0
-    content = await @puppet content
+    #content = await @puppet content
+    content = await @fetch content
 
   return {} if typeof content isnt 'string'
 

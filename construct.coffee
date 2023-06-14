@@ -304,9 +304,11 @@ _w = () ->
     if 'worker' in args or 'server' in args # server needs worker to be built as well anyway
       fs.writeFileSync './worker/dist/worker.js', wfl
       await _exec 'cd ./worker && npm run build'
+      try fs.unlinkSync './worker/dist/worker.min.js.LICENSE.txt' #webpack adds this file, but it's not needed
       console.log 'Worker file size ' + (fs.statSync('./worker/dist/worker.min.js').size)/1024 + 'K'
     if 'server' in args
       fs.writeFileSync './server/dist/server.js', sfl
+      try fs.unlinkSync './server/dist/server.min.js.LICENSE.txt' #webpack adds this file, but it's not needed
       await _exec 'cd ./server && npm run build'
 
   if 'deploy' in args

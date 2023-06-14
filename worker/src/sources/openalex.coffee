@@ -1,4 +1,7 @@
 
+S.src.openalex ?= {}
+try S.src.openalex = JSON.parse SECRETS_OPENALEX
+
 # https://docs.openalex.org/api
 # https://docs.openalex.org/download-snapshot/snapshot-data-format
 # https://docs.openalex.org/download-snapshot/download-to-your-machine
@@ -9,7 +12,6 @@
 
 P.src.openalex = () ->
   return true
-  
 
 P.src.openalex.authors = _index: {settings: {number_of_shards: 9}}, _prefix: false
 P.src.openalex.works = _index: {settings: {number_of_shards: 9}}, _prefix: false
@@ -20,7 +22,7 @@ P.src.openalex.venues = _index: true, _prefix: false
 P.src.openalex.works.doi = (doi) ->
   doi ?= @params.doi
   if not found = await @src.openalex.works 'ids.doi:"https://doi.org/' + doi + '"', 1
-    if found = await @fetch 'https://api.openalex.org/works/https://doi.org/' + doi
+    if found = await @fetch 'https://api.openalex.org/works/https://doi.org/' + doi #+ '?api_key=' + @S.src.openalex.apikey
       if found.abstract_inverted_index?
         abs = []
         for word of found.abstract_inverted_index
@@ -90,6 +92,7 @@ P.src.openalex.load = (what, changes, clear, sync, last) ->
       # to just use streams of the files in each change folder direct from s3, and never have to land them on disk
       _dofile = (infile) =>
         batch = []
+        deletes = []
         for await line from readline.createInterface input: fs.createReadStream(infiles + '/' + updated + '/' + infile).pipe zlib.createGunzip() #, crlfDelay: Infinity
           break if total is howmany
           rec = JSON.parse line.trim().replace /\,$/, ''
@@ -109,6 +112,7 @@ P.src.openalex.load = (what, changes, clear, sync, last) ->
               rec._id = rec.id.split('/').pop() if not rec._id or not rec._id.startsWith '10.'
             catch
               rec._id = rec.id.split('/').pop()
+            deletes.push(rec.id) if changes and rec.id and rec._id and rec._id.startsWith('10.') and rec._id isnt rec.id and prev = await @src.openalex.works {_id: rec.id}, 1
             try
               abs = []
               for word of rec.abstract_inverted_index
@@ -125,6 +129,7 @@ P.src.openalex.load = (what, changes, clear, sync, last) ->
             console.log 'Openalex ' + what + ' bulk loading', updated, infile, batch.length, total
             await @src.openalex[what] batch
             batch = []
+        await @index._bulk('src_openalex_works', deletes, 'delete') if deletes.length
         await @src.openalex[what](batch) if batch.length
         console.log 'removing', infiles + '/' + updated + '/' + infile
         await fs.unlink infiles + '/' + updated + '/' + infile
@@ -155,6 +160,91 @@ P.src.openalex.load._auth = 'root'
 P.src.openalex.changes = (what, last) ->
   what ?= @params.changes ? @params.openalex
   last ?= @params.last # can be a date like 2022-12-13 to match the last updated file date on openalex update files
+  # if no last, calculate it as previous day? or read last from index?
+  last ?= await @date await @epoch() - 86400000
+  # doing this only for works now, as it does not appear the other types get updated in the same way any more
+  whats = ['works'] #, 'venues', 'authors', 'institutions', 'concepts']
+  if what
+    return false if what not in whats
+  else
+    what = whats
+
+  # https://docs.openalex.org/how-to-use-the-api/get-lists-of-entities/paging
+  total = 0
+  for w in (if Array.isArray(what) then what else [what])
+    try
+      batch = []
+      deletes = []
+      cursor = '*'
+      # does created count as an updated, or do we also need to to from_created_date? Created appear to be included already, so all good
+      url = 'https://api.openalex.org/' + w + '?filter=from_updated_date:' + last + '&api_key=' + @S.src.openalex.apikey + '&per-page=200&cursor='
+      res = await @fetch url + cursor
+      while res? and typeof res is 'object' and Array.isArray(res.results) and res.results.length
+        for rec in res.results
+          try
+            for xc in rec.concepts
+              xc.score = Math.floor(xc.score) if xc.score?
+          try
+            rec._id = rec.doi ? rec.DOI ? rec.ids?.doi
+            rec._id = '10.' + rec._id.split('/10.').pop() if rec._id.includes('http') and rec._id.includes '/10.'
+            rec._id = rec.id.split('/').pop() if not rec._id or not rec._id.startsWith '10.'
+          catch
+            rec._id = rec.id.split('/').pop()
+          deletes.push(rec.id) if rec.id and rec._id and rec._id.startsWith('10.') and rec._id isnt rec.id and prev = await @src.openalex.works {_id: rec.id}, 1
+          try
+            abs = []
+            for word of rec.abstract_inverted_index
+              abs[n] = word for n in rec.abstract_inverted_index[word]
+            rec.abstract = abs.join(' ') if abs.length
+          try delete rec.abstract_inverted_index
+
+          batch.push rec
+        
+        if batch.length >= 30000
+          console.log 'Openalex ' + what + ' bulk loading changes', batch.length, total
+          total += batch.length
+          await @src.openalex[what] batch
+          batch = []
+
+        if res.meta?.next_cursor
+          cursor = res.meta.next_cursor
+          res = await @fetch url + encodeURIComponent cursor
+    
+      if batch.length
+        total += batch.length
+        await @src.openalex[what] batch
+        batch = []
+      await @index._bulk('src_openalex_works', deletes, 'delete') if deletes.length
+
+  return total
+
+P.src.openalex.changes._bg = true
+P.src.openalex.changes._async = true
+P.src.openalex.changes._auth = 'root'
+
+P.src.openalex.fixids = () ->
+  total = 0
+  deletes = []
+  expected = await @src.openalex.works.count 'NOT DOI:* AND NOT doi:* AND NOT ids.doi:*'
+  console.log 'openalex fix IDs expecting to process', expected
+  for await rec from @index._for 'src_openalex_works', 'NOT DOI:* AND NOT doi:* AND NOT ids.doi:*', scroll: '30m', include: ['_id', 'id']
+    console.log(total, deletes.length) if total % 100 is 0
+    total += 1
+    deletes.push(rec.id) if count = await @src.openalex.works.count 'id.keyword:"' + rec.id + '" AND (DOI:* OR doi:* OR ids.doi:*)'
+    if deletes.length is 30000
+      await @index._bulk 'src_openalex_works', deletes, 'delete'
+      deletes = []
+      console.log 'deleting obsoletes from openalex works', total, expected
+  await @index._bulk('src_openalex_works', deletes, 'delete') if deletes.length
+  console.log 'deleting obsoletes from openalex works finished having done', total, expected
+  return total
+P.src.openalex.fixids._bg = true
+P.src.openalex.fixids._async = true
+P.src.openalex.fixids._auth = 'root'
+
+'''P.src.openalex.loadchanges = (what, last) ->
+  what ?= @params.changes ? @params.openalex
+  last ?= @params.last # can be a date like 2022-12-13 to match the last updated file date on openalex update files
   whats = ['works', 'venues', 'authors', 'institutions', 'concepts']
   if what
     return false if what not in whats
@@ -167,12 +257,10 @@ P.src.openalex.changes = (what, last) ->
     
   return total
 
-P.src.openalex.changes._bg = true
-P.src.openalex.changes._async = true
-P.src.openalex.changes._auth = 'root'
-# add changes onto a schedule as well
-
-
+P.src.openalex.loadchanges._bg = true
+P.src.openalex.loadchanges._async = true
+P.src.openalex.loadchanges._auth = 'root'
+'''
 
 P.src.openalex.latest = (what) ->
   what ?= @params.latest ? @params.openalex

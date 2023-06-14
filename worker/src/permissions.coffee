@@ -444,11 +444,13 @@ P.permissions.journals.oa = (issn, oadoi) ->
 
 P.permissions.journals.oa.type = (issns, doajrnl, oadoi, crossref) ->
   issns ?= oadoi?.journal_issns ? crossref?.ISSN ? @params.journals ? @params.journal ? @params.type ? @params.issn ? @params.issns
+  if typeof issns is 'string'
+    issns = issns.split('doi.org/')[1] if issns.includes 'doi.org/'
+    if issns.startsWith '10.'
+      oadoi ?= await @src.oadoi issns
+      crossref ?= await @src.crossref.works issns
+      issns = oadoi?.journal_issns ? crossref?.ISSN
   issns = issns.split(',') if typeof issns is 'string'
-  if typeof issns is 'string' and issns.startsWith '10.'
-    oadoi ?= await @src.oadoi issns
-    crossref ?= await @src.crossref.works issns
-    issns = undefined
 
   js = 'unknown'
   if crossref?.type? and crossref.type isnt 'journal-article'

@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "coffeescript": "^2.7.0",
+    "uglify-js": "^3.17.4",
+    "uglifyjs": "^2.4.11"
+  }
+}

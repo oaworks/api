@@ -352,7 +352,7 @@ P.index.mapping = (route) ->
 
 # use this like: for await rec from @index._for route, q, opts
 # see index._each below for example of how to call this for/yield generator
-P.index._for = (route, q, opts, prefix) ->
+P.index._for = (route, q, opts, prefix, alias) ->
   opts = {until: opts} if typeof opts is 'number'
   if opts?.scroll # set this longer, e.g. 10m, if the processing to be done with the records may take longer than a minute
     scroll = opts.scroll
@@ -371,16 +371,16 @@ P.index._for = (route, q, opts, prefix) ->
   qy.sort ?= ['_doc'] # performance improved for scrolling sorted on _doc if no other sort was configured
   # use scan/scroll for each, because _pit is only available in "default" ES, which ES means is NOT the open one, so our OSS distro does not include it!
   # https://www.elastic.co/guide/en/elasticsearch/reference/7.10/paginate-search-results.html#search-after
-  res = await @index._send route + '/_search?scroll=' + scroll, qy, undefined, prefix
+  res = await @index._send route + '/_search?scroll=' + scroll, qy, undefined, prefix, alias
   if res?._scroll_id
     prs = res._scroll_id.replace /==$/, ''
   max = res.hits.total if res?.hits?.total and (not max? or max > res.hits.total)
   counter = 0
   loop
     if (not res?.hits?.hits or res.hits.hits.length is 0) and res?._scroll_id # get more if possible
-      res = await @index._send '/_search/scroll?scroll=' + scroll + '&scroll_id=' + res._scroll_id, undefined, undefined, prefix
+      res = await @index._send '/_search/scroll?scroll=' + scroll + '&scroll_id=' + res._scroll_id, undefined, undefined, prefix, alias
       if res?._scroll_id isnt prs
-        await @index._send '/_search/scroll?scroll_id=' + prs, '', undefined, prefix
+        await @index._send '/_search/scroll?scroll_id=' + prs, '', undefined, prefix, allias
         prs = res?._scroll_id
     if counter isnt max and res?.hits?.hits? and res.hits.hits.length
       counter += 1
@@ -389,11 +389,11 @@ P.index._for = (route, q, opts, prefix) ->
       ret._id ?= r._id
       yield ret
     else
-      await @index._send('/_search/scroll?scroll_id=' + prs, '', undefined, prefix) if prs # don't keep too many old scrolls open (default ES max is 500)
+      await @index._send('/_search/scroll?scroll_id=' + prs, '', undefined, prefix, alias) if prs # don't keep too many old scrolls open (default ES max is 500)
       break
   return
 
-P.index._each = (route, q, opts, fn, prefix) ->
+P.index._each = (route, q, opts, fn, prefix, alias) ->
   # Performs a function on each record. If the function should make changes to a record, optionally 
   # avoid many writes by having the function return the record object or the string ID, and specify 
   # an "action" in opts. returned objects can then be bulk "insert" or "update", or string IDs for "remove"
@@ -414,7 +414,7 @@ P.index._each = (route, q, opts, fn, prefix) ->
   if sz > 50
     qy = await @index.translate q, opts
     qy.size = 1
-    chk = await @index._send route, qy, undefined, prefix
+    chk = await @index._send route, qy, undefined, prefix, alias
     if chk?.hits?.total? and chk.hits.total isnt 0
       # try to make query result size not take up more than about 1gb. In a scroll-scan size is per shard, not per result set
       max_size = Math.floor(1000000000 / (Buffer.byteLength(JSON.stringify(chk.hits.hits[0])) * chk._shards.total))
@@ -423,25 +423,33 @@ P.index._each = (route, q, opts, fn, prefix) ->
 
   processed = 0
   updates = []
-  for await rec from @index._for route, (qy ? q), opts, prefix
+  for await rec from @index._for route, (qy ? q), opts, prefix, alias
     fr = await fn.call this, rec
     processed += 1
     updates.push(fr) if fr? and (typeof fr is 'object' or typeof fr is 'string')
     if action and updates.length > sz
-      await @index._bulk route, updates, action, undefined, prefix
+      await @index._bulk route, updates, action, undefined, prefix, alias
       updates = []
-  @index._bulk(route, updates, action, undefined, prefix) if action and updates.length # catch any left over
+  @index._bulk(route, updates, action, undefined, prefix, alias) if action and updates.length # catch any left over
   console.log('_each processed ' + processed) if @S.dev and @S.bg is true
 
-P.index._bulk = (route, data, action='index', bulk=50000, prefix) ->
+P.index._bulk = (route, data, action='index', bulk=50000, prefix, alias) ->
   action = 'index' if action is true
-  prefix ?= await @dot P, (route.split('/')[0]).replace(/_/g, '.') + '._prefix'
-  if prefix isnt false # need to do this here as well as in _send so it can be set below in each object of the bulk
+  rso = route.split('/')[0]
+  dtp = await @dot P, rso.replace /_/g, '.' # need to do this here as well as in _send so it can be set below in each object of the bulk
+  alias ?= @params._alias ? @S.alias?[rso] ? dtp?._alias
+  if typeof alias is 'string'
+    alias = '_' + alias if not alias.startsWith '_'
+    alias = alias.replace /\//g, '_'
+    rso = route.split('/')[0]
+    route = route.replace(rso, rso + alias) if not rso.endsWith alias
+  prefix ?= dtp?._prefix
+  if prefix isnt false 
     route = (if typeof prefix is 'string' then prefix else @S.index.name) + '_' + route
   this.index ?= P.index
   if typeof data is 'string' and data.indexOf('\n') isnt -1
     # TODO should this check through the string and make sure it only indexes to the specified route?
-    await @index._send '/_bulk', {body:data, headers: {'Content-Type': 'application/x-ndjson'}}, undefined, prefix # new ES 7.x requires this rather than text/plain
+    await @index._send '/_bulk', {body:data, headers: {'Content-Type': 'application/x-ndjson'}}, undefined, prefix, alias # new ES 7.x requires this rather than text/plain
     return true
   else
     rows = if typeof data is 'object' and not Array.isArray(data) and data?.hits?.hits? then data.hits.hits else data
@@ -467,7 +475,7 @@ P.index._bulk = (route, data, action='index', bulk=50000, prefix) ->
         pkg += JSON.stringify({doc: row}) + '\n' # is it worth expecting other kinds of update in bulk import?
       # don't need a second row for deletes
       if counter is bulk or parseInt(r) is (rows.length - 1) or pkg.length > 70000000
-        rs = await @index._send '/_bulk', {body:pkg, headers: {'Content-Type': 'application/x-ndjson'}}, undefined, prefix
+        rs = await @index._send '/_bulk', {body:pkg, headers: {'Content-Type': 'application/x-ndjson'}}, undefined, prefix, alias
         if this?.S?.dev and this?.S?.bg is true and rs?.errors
           errors = []
           for it in rs.items
@@ -648,7 +656,7 @@ P.index.translate = (q, opts) ->
         v = undefined if isNaN v
     # some URL params that may be commonly used in this API along with valid ES URL query params will be removed here by default too
     # this makes it easy to handle them in routes whilst also just passing the whole params here and still get back a valid ES query
-    qry[k] = v if v? and k not in ['apikey', '_', 'callback', 'refresh', 'key', 'counts', 'index', 'search', 'source', 'q'] and k.replace('_', '').replace('s', '') not in ['include', 'exclude']
+    qry[k] = v if v? and k not in ['apikey', '_', 'callback', 'refresh', 'key', 'counts', 'index', 'search', 'source', 'q', '_alias'] and k.replace('_', '').replace('s', '') not in ['include', 'exclude']
 
   try
     # order: (default) count is highest count first, reverse_count is lowest first. term is ordered alphabetical by term, reverse_term is reverse alpha
@@ -673,7 +681,7 @@ P.index.translate._auth = false
 
 # calling this should be given a correct URL route for ES7.x, domain part of the URL is optional though.
 # call the above to have the route constructed. method is optional and will be inferred if possible (may be removed)
-P.index._send = (route, data, method, prefix) ->
+P.index._send = (route, data, method, prefix, alias) ->
   if route.includes '?'
     [route, rqp] = route.split '?'
     rqp = '?' + rqp
@@ -686,8 +694,16 @@ P.index._send = (route, data, method, prefix) ->
   # TODO if data is a query that also has a _delete key in it, remove that key and do a delete by query? and should that be bulked? is dbq still allowed in ES7.x?
   return false if method is 'DELETE' and route.indexOf('/_all') isnt -1 # nobody can delete all via the API
   if not route.startsWith 'http' # which it probably doesn't
+    rso = route.split('/')[0]
+    dtp = await @dot P, rso.replace /_/g, '.'
+    alias ?= @params._alias ? @S.alias?[rso] ? dtp?._alias
+    if typeof alias is 'string'
+      alias = '_' + alias if not alias.startsWith '_'
+      alias = alias.replace /\//g, '_'
+      route = route.replace(rso, rso + alias) if not rso.endsWith alias
     if @S.index.name and not route.startsWith(@S.index.name) and not route.startsWith '_'
-      prefix ?= await @dot P, (route.split('/')[0]).replace(/_/g, '.') + '._prefix'
+      #prefix ?= await @dot P, (route.split('/')[0]).replace(/_/g, '.') + '._prefix'
+      prefix ?= dtp?._prefix
       # TODO could allow prefix to be a list of names, and if index name is in the list, alias the index into those namespaces, to share indexes between specific instances rather than just one or global
       if prefix isnt false
         route = (if typeof prefix is 'string' then prefix else @S.index.name) + '_' + route
@@ -739,7 +755,9 @@ P.index._send = (route, data, method, prefix) ->
     # do anything for 409 (version mismatch?)
     return undefined
   else
-    try res.q = data if @S.dev and data?.query?
+    if @S.dev and typeof res is 'object' and res.hits?
+      try res.q = data if data?.query?
+      try res._alias = alias if alias
     res._scroll_id = res._scroll_id.replace(/==$/, '') if res?._scroll_id
     await @index._send('/_search/scroll?scroll_id=' + provided_scroll_id, '') if provided_scroll_id and provided_scroll_id isnt res?._scroll_id
     return res

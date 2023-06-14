@@ -1,4 +1,7 @@
 
+S.src.doaj ?= {}
+try S.src.doaj.secrets = JSON.parse SECRETS_DOAJ
+
 P.src.doaj = {}
 
 P.src.doaj.journals = _index: true, _prefix: false
@@ -7,7 +10,7 @@ P.src.doaj.journals.load = () ->
   fldr = '/tmp/doaj_' + await @uid()
   await fs.mkdir fldr
   fldr += '/'
-  await fs.writeFile fldr + 'doaj.tar', await @fetch 'https://doaj.org/public-data-dump/journal', buffer: true
+  await fs.writeFile fldr + 'doaj.tar', await @fetch 'https://doaj.org/public-data-dump/journal?api_key=' + S.src.doaj.secrets.apikey, buffer: true
   tar.extract file: fldr + 'doaj.tar', cwd: fldr, sync: true # extracted doaj dump folders end 2020-10-01
   current = false
   for f in await fs.readdir fldr
