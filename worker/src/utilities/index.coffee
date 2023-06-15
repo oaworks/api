@@ -437,7 +437,7 @@ P.index._bulk = (route, data, action='index', bulk=50000, prefix, alias) ->
   action = 'index' if action is true
   rso = route.split('/')[0]
   dtp = await @dot P, rso.replace /_/g, '.' # need to do this here as well as in _send so it can be set below in each object of the bulk
-  alias ?= @params._alias ? @S.alias?[rso] ? dtp?._alias
+  alias ?= @params._alias ? @S.alias?[if rso.startsWith(@S.index.name + '_') then rso.replace(@S.index.name + '_', '') else rso] ? dtp?._alias
   if typeof alias is 'string'
     alias = '_' + alias if not alias.startsWith '_'
     alias = alias.replace /\//g, '_'
@@ -696,7 +696,7 @@ P.index._send = (route, data, method, prefix, alias) ->
   if not route.startsWith 'http' # which it probably doesn't
     rso = route.split('/')[0]
     dtp = await @dot P, rso.replace /_/g, '.'
-    alias ?= @params._alias ? @S.alias?[rso] ? dtp?._alias
+    alias ?= @params._alias ? @S.alias?[if rso.startsWith(@S.index.name + '_') then rso.replace(@S.index.name + '_', '') else rso] ? dtp?._alias
     if typeof alias is 'string'
       alias = '_' + alias if not alias.startsWith '_'
       alias = alias.replace /\//g, '_'
