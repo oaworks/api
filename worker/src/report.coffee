@@ -360,7 +360,7 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced) ->
       sup.DOI = cr.DOI
       sup.replaced = ud
       await @report.orgs.supplements sup.osdid, ''
-      sup._id = sup.osdid = sup.osdid.split('_10.') + '_' + sup.DOI.replace(/[\u{0080}-\u{FFFF}]/gu, '').toLowerCase().replace(/\//g, '_').replace(/ /g, '_')
+      sup._id = sup.osdid = sup.osdid.split('_10.')[0] + '_' + sup.DOI.replace(/[\u{0080}-\u{FFFF}]/gu, '').toLowerCase().replace(/\//g, '_').replace(/ /g, '_')
       brd.push sup
     for ud in (cr['update-to'] ? [])
       if ud.DOI isnt cr.DOI and ud.type.toLowerCase() not in ['erratum', 'correction'] # some new version statements are for the same DOI, so no point changing anything
@@ -400,7 +400,15 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced) ->
   rec ?= {}
   rec.DOI = cr.toLowerCase() if not rec.DOI and typeof cr is 'string'
 
-  return if rec.is_paratext or rec.is_retracted
+  if rec.is_paratext or rec.is_retracted
+    if rec.DOI
+      try
+        pfn = (if rec.is_paratext then 'paratext' else 'retracted') + (if @S.dev then '_dev' else '')
+        prds = []
+        try prds = JSON.parse (await fs.readFile @S.static.folder + pfn + '.json').toString()
+        prds.push(rec.DOI) if rec.DOI not in prds
+        await fs.writeFile @S.static.folder + pfn + '.json', JSON.stringify prds, '', 2
+    return 
 
   delete rec.is_paratext
   delete rec.is_retracted
@@ -525,7 +533,7 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced) ->
   rec.supplemented = await @epoch()
   rec.updated ?= rec.supplemented
   rec.took = rec.supplemented - started
-  if rec.DOI and @params.process is rec.DOI
+  if rec.DOI and @params.process is rec.DOI and @params.save isnt false
     await @report.works rec
   #console.log 'report works processed', rec.DOI, rec.took
   return rec
@@ -621,7 +629,7 @@ P.report.works.load = (timestamp, orgname, dois, year, refresh, supplements, eve
   #await @report.works.load(undefined, undefined, undefined, undefined, undefined, undefined, true) if not dois
 
   took = await @epoch() - started
-  text = 'Report works loaded ' + total + '\n'
+  text = 'Report works loaded ' + total + (if @S.dev then ' (dev)' else '') + '\n'
   text += 'All old works were removed before loading began\n' if refresh
   text += dois.length + ' DOIs were provided to process\n' if dois and dois.length
   text += 'These were derived by searching for all works that already have supplements attached\n' if @params.load is 'supplements'
