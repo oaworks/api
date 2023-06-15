@@ -448,8 +448,8 @@ P = async function() {
           };
           sfn = (fnm) => {
             return async() => {
-              var crd, err, lpd;
-              if (this.S.dev !== true && process.env.pm_id !== 1) {
+              var crd, err, lpd, ref16;
+              if (this.S.dev !== true && ((ref16 = process.env.pm_id) !== 1 && ref16 !== '1')) {
                 return console.log('NOT running scheduled task because not on dev and process pid is not 1', fnm, this.datetime());
               } else if (typeof this.S.async === 'string') {
                 return console.log('NOT running scheduled task because not on the available async process', fnm, this.datetime());
@@ -16086,7 +16086,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Thu Jun 15 2023 12:12:58 GMT+0100";
+S.built = "Thu Jun 15 2023 17:08:41 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
