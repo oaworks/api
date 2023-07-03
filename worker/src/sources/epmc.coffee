@@ -166,6 +166,15 @@ P.src.epmc.xml = (pmcid, rec) ->
           await @src.epmc rec.id, rec
   return
 
+P.src.epmc.fulltext = (pmcid) -> # check fulltext exists in epmc explicitly
+  pmcid ?= @params.fulltext ? @params.pmcid ? @params.epmc
+  if pmcid
+    await @sleep 150
+    exists = await @fetch 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML', method: 'HEAD'
+    return exists?.status is 200
+  else
+    return
+
 P.src.epmc.statement = (pmcid, rec) ->
   pmcid ?= @params.statement ? @params.pmc ? @params.pmcid ? @params.PMC ? @params.PMCID
   if pmcid

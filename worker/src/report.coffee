@@ -11,7 +11,8 @@ P.report.dev2live = (reverse) ->
   else
     f = 'paradigm_report_works'
     t = 'paradigm_b_report_works'
-  await @index._send t, '', undefined, false
+  if @params.clear
+    await @index._send t, '', undefined, false
   counter = 0
   batch = []
   for await rm from @index._for f
@@ -355,7 +356,6 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced) ->
     rec.crossref_is_oa = if not cr.is_oa? then false else cr.is_oa
 
     brd = []
-    newer = false
     _rsup = (sup, ud) =>
       sup.DOI = cr.DOI
       sup.replaced = ud
@@ -369,10 +369,10 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced) ->
         await @report.works(ud.DOI, '') if ude = await @report.works ud.DOI
         _rsup(sup, ud.DOI) for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'DOI.keyword:"' + ud.DOI + '"'
     for rr in (cr.relation?['is-same-as'] ? [])
-      if rr['id-type'] is 'doi' and rr.id isnt cr.DOI and newer = await @src.crossref.works rr.id
+      if rr['id-type'] is 'doi' and rr.id isnt cr.DOI and rr.id isnt replaced and newer = await @src.crossref.works rr.id # crossref is capable of saying a DOI is the same as another DOI that does not exist in crossref
         _rsup(sup, rr.id) for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'DOI.keyword:"' + cr.DOI + '"'
     await @report.orgs.supplements(brd) if brd.length
-    if newer isnt false
+    if newer?
       return @report.works.process newer, openalex, refresh, everything, cr.DOI
     if replaced # if this was passed in by a secondary call to process
       rec.replaces ?= []
@@ -489,7 +489,7 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced) ->
         rec.author_email_name = 'Dr. ' + best_initial
 
   rec.email = await @encrypt(rec.email) if typeof rec.email is 'string' and rec.email.includes '@'
-  
+
   everything = true if rec.orgs.length and (exists?.orgs ? []).length isnt rec.orgs.length # control whether to run time-expensive things on less important records
 
   #if (not exists? and rec.orgs.length) or (exists?.orgs ? []).length isnt rec.orgs.length or (rec.paid and rec.paid isnt exists?.paid) #or not exists.journal_oa_type
@@ -539,11 +539,11 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced) ->
   return rec
 
 
-P.report.works.load = (timestamp, orgname, dois, year, refresh, supplements, everything, info) ->
+P.report.works.load = (timestamp, org, dois, year, refresh, supplements, everything, info) ->
   started = await @epoch()
   year ?= @params.load ? (await @date()).split('-')[0] # load could be supplements or everything but in that case year is not used anyway
-  orgname ?= @params.org
-  dois ?= @params.load
+  org ?= @params.org ? @params.orgs ? @params.load is 'orgs'
+  dois = @params.load if not dois? and @params.load? and @params.load.startsWith '10.'
   dois = [dois] if typeof dois is 'string'
   refresh ?= @refresh
   everything ?= @params.load is 'everything'
@@ -559,6 +559,7 @@ P.report.works.load = (timestamp, orgname, dois, year, refresh, supplements, eve
 
   _batch = (cr, ol) =>
     bt += 1
+    console.log bt, cr, ol
     if typeof cr is 'string' and cr.startsWith('W') and not ol
       ol = cr
       cr = undefined
@@ -598,8 +599,11 @@ P.report.works.load = (timestamp, orgname, dois, year, refresh, supplements, eve
       cc = []
       cc.push(cr.DOI) for await cr from @index._for 'src_crossref_works', cq, include: ['DOI'], scroll: '30m' #, include: ['DOI', 'subject', 'title', 'subtitle', 'volume', 'issue', 'year', 'publisher', 'published', 'funder', 'license', 'is_oa', 'ISSN', 'update-to', 'reference-count']
       console.log 'report works load crossref by query counted', cc.length
+      await @mail to: ['mark@oa.works'], subject: 'report works load crossref by query counted ' + cc.length, text: cc.length + '\n\n' + cq
       await _batch(d) for d in cc.slice processed
-    await _crossref()
+      await @mail to: ['mark@oa.works'], subject: 'report works load crossref done ' + bt, text: bt + ''
+
+    await _crossref() if org isnt true
 
     _openalex = (oq) =>
       processed = oo.length
@@ -611,14 +615,16 @@ P.report.works.load = (timestamp, orgname, dois, year, refresh, supplements, eve
         if ol.id and ol.id.includes('/') and (not oodoi or (oodoi not in oo and oodoi not in cc))
           oo.push ol.id.split('/').pop()
       console.log 'report works load openalex by query counted', oo.length
+      await @mail to: ['mark@oa.works'], subject: 'report works load crossref by query counted ' + cc.length, text: oo.length + '\n\n' + oq
       await _batch(undefined, o) for o in oo.slice processed
+      await @mail to: ['mark@oa.works'], subject: 'report works load openalex done ' + bt, text: bt + ''
     
-    await _openalex()
+    await _openalex() if org isnt true
 
-    for await org from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs', (if orgname then 'name:"' + orgname + '"' else 'paid:true'), scroll: '10m'
+    for await o from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs', (if typeof org is 'string' then 'name:"' + org + '"' else 'paid:true'), scroll: '10m'
       # if an org has no known records in report/works yet, could default it here to a timestamp of start of current year, or older, to pull in all records first time round
-      await _crossref(org.source.crossref) if org.source?.crossref
-      await _openalex(org.source.openalex) if org.source?.openalex
+      try await _crossref(o.source.crossref) if o.source?.crossref
+      try await _openalex(o.source.openalex) if o.source?.openalex
 
     if timestamp
       for await crt from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'orgs:* AND updated:<' + timestamp, scroll: '10m'
@@ -635,7 +641,7 @@ P.report.works.load = (timestamp, orgname, dois, year, refresh, supplements, eve
   text += 'These were derived by searching for all works that already have supplements attached\n' if @params.load is 'supplements'
   text += 'These were derived by searching for all works that have not yet had everything fully processed\n' if everything
   text += 'These were provided by an orgs supplements refresh which took ' + Math.ceil((started - supplements)/1000/60) + 'm\n' if supplements
-  text += 'The load process was limited to ' + orgname + '\n' if orgname
+  text += 'The load process was limited to ' + org + '\n' if typeof org is 'string'
   text += 'The load process was run for changes since ' + (await @datetime timestamp) + '\n' if timestamp
   text += 'The load process was run for year ' + year + '\n' if year and not (dois ? []).length
   text += 'Crossref queries counted ' + cc.length + ' works\n' if cc.length
@@ -648,16 +654,17 @@ P.report.works.load = (timestamp, orgname, dois, year, refresh, supplements, eve
 P.report.works.load._async = true
 P.report.works.load._auth = '@oa.works'
 
-P.report.works.changes = (timestamp, orgname) ->
+P.report.works.changes = (timestamp, org) ->
+  # do not reload orgs first before running changes, Joe wants that to remain a manual process
   timestamp ?= @params.changes ? @params.timestamp ? Date.now() - 90000000
-  orgname ?= @params.org
-  @report.works.load timestamp, orgname # start from timestamp a little more than a day ago, by default
+  org ?= @params.org
+  @report.works.load timestamp, org # start from timestamp a little more than a day ago, by default
   return true
 P.report.works.changes._bg = true
-P.report.works.changes._async = true
+#P.report.works.changes._async = true
 P.report.works.changes._auth = '@oa.works'
 
-P.report.works.check = (year) ->
+'''P.report.works.check = (year) ->
   year ?= @params.check ? @params.year ? '2023'
   res = year: year, crossref: 0, openalex: 0, crossref_in_works: 0, crossref_in_works_had_openalex: 0, crossref_not_in_works_in_openalex: 0, openalex_in_works: 0, openalex_in_works_by_id: 0, openalex_with_doi_but_not_seen: 0, openalex_not_in_works: 0, duplicates: 0
   cq = '(funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year
@@ -716,3 +723,4 @@ P.report.test.add = ->
     res.ford += 1
     res.records.push i
   return res
+'''

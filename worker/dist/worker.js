@@ -5059,7 +5059,9 @@ P.report.dev2live = async function(reverse) {
     f = 'paradigm_report_works';
     t = 'paradigm_b_report_works';
   }
-  await this.index._send(t, '', void 0, false);
+  if (this.params.clear) {
+    await this.index._send(t, '', void 0, false);
+  }
   counter = 0;
   batch = [];
   ref = this.index._for(f);
@@ -5177,7 +5179,7 @@ P.report.cleandoi = function(doi) {
 P.report.orgs = {
   _sheet: S.report.orgs_sheet,
   _format: async function(recs = []) {
-    var bs, err, h, j, len, len1, m, nr, ready, rec, ref, ref1, s;
+    var bs, err, h, j, l, len, len1, nr, ready, rec, ref, ref1, s;
     ready = [];
     bs = 0;
     ref = (typeof recs === 'object' && !Array.isArray(recs) ? [recs] : recs);
@@ -5213,8 +5215,8 @@ P.report.orgs = {
       }
       if (Array.isArray(nr.sheets)) {
         ref1 = nr.sheets;
-        for (m = 0, len1 = ref1.length; m < len1; m++) {
-          s = ref1[m];
+        for (l = 0, len1 = ref1.length; l < len1; l++) {
+          s = ref1[l];
           s.url = (await this.encrypt(s.url));
         }
       } else {
@@ -5284,7 +5286,7 @@ P.report.orgs.supplements = {
 };
 
 P.report.orgs.supplements.load = async function(orgname, sheetname, clear) {
-  var aps, check, deletes, dois, h, header, headers, hp, j, k, kc, last, latest, ld, len, len1, len2, len3, len4, len5, lt, m, n, org, osdids, osw, p, present, prs, q, r, rc, rec, recs, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref3, ref4, ref5, ref6, ref7, ref8, ref9, replacements, row, rows, rr, s, sheetnames, sheets, started, sup, sups, total, tries, update;
+  var aps, check, deletes, dois, h, header, headers, hp, j, k, kc, l, last, latest, ld, len, len1, len2, len3, len4, len5, lt, m, n, org, osdids, osw, p, present, prs, q, rc, rec, recs, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref3, ref4, ref5, ref6, ref7, ref8, ref9, replacements, row, rows, rr, s, sheetnames, sheets, started, sup, sups, total, tries, update;
   started = (await this.epoch());
   if (clear == null) {
     clear = this.params.clear;
@@ -5340,8 +5342,8 @@ P.report.orgs.supplements.load = async function(orgname, sheetname, clear) {
     }
     if (Array.isArray(org.sheets)) {
       ref2 = org.sheets;
-      for (m = 0, len1 = ref2.length; m < len1; m++) {
-        s = ref2[m];
+      for (l = 0, len1 = ref2.length; l < len1; l++) {
+        s = ref2[l];
         if ((!orgname || org.name === orgname) && (!sheetname || s.name === sheetname)) {
           console.log(org.name, s.name, s.url);
           rc = 0;
@@ -5403,12 +5405,12 @@ P.report.orgs.supplements.load = async function(orgname, sheetname, clear) {
             }
             if (Array.isArray(rows) && rows.length) {
               ref4 = rows.shift();
-              for (n = 0, len2 = ref4.length; n < len2; n++) {
-                header = ref4[n];
+              for (m = 0, len2 = ref4.length; m < len2; m++) {
+                header = ref4[m];
                 headers.push(header.toLowerCase().trim().replace(/ /g, '_').replace('?', ''));
               }
-              for (p = 0, len3 = rows.length; p < len3; p++) {
-                row = rows[p];
+              for (n = 0, len3 = rows.length; n < len3; n++) {
+                row = rows[n];
                 rc += 1;
                 rr = {
                   org: org.name,
@@ -5459,8 +5461,8 @@ P.report.orgs.supplements.load = async function(orgname, sheetname, clear) {
                       }
                       try {
                         ref14 = present.supplements;
-                        for (q = 0, len4 = ref14.length; q < len4; q++) {
-                          prs = ref14[q];
+                        for (p = 0, len4 = ref14.length; p < len4; p++) {
+                          prs = ref14[p];
                           if (prs.osdid === rr.osdid) {
                             present = prs;
                             break;
@@ -5519,8 +5521,8 @@ P.report.orgs.supplements.load = async function(orgname, sheetname, clear) {
   // check for sheets that have since been removed
   if (!clear && !orgname && !sheetname) {
     ref19 = (await this.report.works.suggest('supplements.sheets', void 0, 5000));
-    for (r = 0, len5 = ref19.length; r < len5; r++) {
-      aps = ref19[r];
+    for (q = 0, len5 = ref19.length; q < len5; q++) {
+      aps = ref19[q];
       if (indexOf.call(sheetnames, aps) < 0) {
         ref20 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs_supplements', 'sheets.keyword:"' + aps + '"', {
           scroll: '5m',
@@ -5599,7 +5601,7 @@ P.report.works = {
 };
 
 P.report.works.process = async function(cr, openalex, refresh, everything, replaced) {
-  var _rsup, a, ad, ass, assl, best_initial, best_name, best_score, brd, c, email, epmc, exists, f, i, i1, j, k, lc, len, len1, len10, len11, len12, len2, len3, len4, len5, len6, len7, len8, len9, lic, loc, lvs, m, n, newer, oadoi, ok, ox, p, permissions, pfn, pp, prds, pt, pubmed, q, r, ran, rec, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref45, ref46, ref47, ref48, ref49, ref5, ref50, ref51, ref52, ref53, ref54, ref6, ref7, ref8, ref9, ren, rn, rr, score, sd, started, sup, u, ud, ude, v, w, x, xref, y, z;
+  var _rsup, a, ad, ass, assl, best_initial, best_name, best_score, brd, c, email, epmc, exists, f, i, j, k, l, lc, len, len1, len10, len11, len12, len2, len3, len4, len5, len6, len7, len8, len9, lic, loc, lvs, m, n, newer, oadoi, ok, ox, p, permissions, pfn, pp, prds, pt, pubmed, q, r, ran, rec, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref45, ref46, ref47, ref48, ref49, ref5, ref50, ref51, ref52, ref53, ref54, ref6, ref7, ref8, ref9, ren, rn, rr, score, sd, started, sup, u, ud, ude, v, w, x, xref, y, z;
   started = (await this.epoch());
   if (cr == null) {
     cr = this.params.process;
@@ -5715,8 +5717,8 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
       }
     }
     ref5 = (ref4 = rec.funder) != null ? ref4 : [];
-    for (m = 0, len1 = ref5.length; m < len1; m++) {
-      f = ref5[m];
+    for (l = 0, len1 = ref5.length; l < len1; l++) {
+      f = ref5[l];
       delete f['doi-asserted-by'];
     }
     if (cr.title && cr.title.length) {
@@ -5729,15 +5731,14 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
       rec['reference-count'] = cr['reference-count'];
     }
     ref7 = (ref6 = cr.license) != null ? ref6 : [];
-    for (n = 0, len2 = ref7.length; n < len2; n++) {
-      lc = ref7[n];
+    for (m = 0, len2 = ref7.length; m < len2; m++) {
+      lc = ref7[m];
       if ((ref8 = lc['content-version']) === 'am' || ref8 === 'vor' || ref8 === 'tdm' || ref8 === 'unspecified') {
         rec['crossref_license_url_' + lc['content-version']] = lc.URL;
       }
     }
     rec.crossref_is_oa = cr.is_oa == null ? false : cr.is_oa;
     brd = [];
-    newer = false;
     _rsup = async(sup, ud) => {
       sup.DOI = cr.DOI;
       sup.replaced = ud;
@@ -5746,8 +5747,8 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
       return brd.push(sup);
     };
     ref10 = (ref9 = cr['update-to']) != null ? ref9 : [];
-    for (p = 0, len3 = ref10.length; p < len3; p++) {
-      ud = ref10[p];
+    for (n = 0, len3 = ref10.length; n < len3; n++) {
+      ud = ref10[n];
       if (ud.DOI !== cr.DOI && ((ref11 = ud.type.toLowerCase()) !== 'erratum' && ref11 !== 'correction')) { // some new version statements are for the same DOI, so no point changing anything
         rec.replaces = [];
         rec.replaces.push({
@@ -5765,9 +5766,9 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
       }
     }
     ref16 = (ref14 = (ref15 = cr.relation) != null ? ref15['is-same-as'] : void 0) != null ? ref14 : [];
-    for (q = 0, len4 = ref16.length; q < len4; q++) {
-      rr = ref16[q];
-      if (rr['id-type'] === 'doi' && rr.id !== cr.DOI && (newer = (await this.src.crossref.works(rr.id)))) {
+    for (p = 0, len4 = ref16.length; p < len4; p++) {
+      rr = ref16[p];
+      if (rr['id-type'] === 'doi' && rr.id !== cr.DOI && rr.id !== replaced && (newer = (await this.src.crossref.works(rr.id)))) { // crossref is capable of saying a DOI is the same as another DOI that does not exist in crossref
         ref17 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs_supplements', 'DOI.keyword:"' + cr.DOI + '"');
         for await (sup of ref17) {
           _rsup(sup, rr.id);
@@ -5777,7 +5778,7 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
     if (brd.length) {
       await this.report.orgs.supplements(brd);
     }
-    if (newer !== false) {
+    if (newer != null) {
       return this.report.works.process(newer, openalex, refresh, everything, cr.DOI);
     }
     if (replaced) { // if this was passed in by a secondary call to process
@@ -5810,8 +5811,8 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
       rec.title = openalex.title;
     }
     ref21 = ['authorships', 'concepts', 'cited_by_count', 'type', 'is_paratext', 'is_retracted'];
-    for (r = 0, len5 = ref21.length; r < len5; r++) {
-      ok = ref21[r];
+    for (q = 0, len5 = ref21.length; q < len5; q++) {
+      ok = ref21[q];
       rec[ok] = openalex[ok];
     }
     if (openalex.publication_date) {
@@ -5830,19 +5831,19 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
       rec['referenced_works'] = openalex['referenced_works'].length;
     }
     ref24 = (ref23 = rec.concepts) != null ? ref23 : [];
-    for (u = 0, len6 = ref24.length; u < len6; u++) {
-      c = ref24[u];
+    for (r = 0, len6 = ref24.length; r < len6; r++) {
+      c = ref24[r];
       delete c.wikidata;
       try {
         c.score = Math.floor(c.score * 100);
       } catch (error) {}
     }
     ref26 = (ref25 = rec.authorships) != null ? ref25 : [];
-    for (v = 0, len7 = ref26.length; v < len7; v++) {
-      a = ref26[v];
+    for (u = 0, len7 = ref26.length; u < len7; u++) {
+      a = ref26[u];
       ref28 = (ref27 = a.institutions) != null ? ref27 : [];
-      for (w = 0, len8 = ref28.length; w < len8; w++) {
-        i = ref28[w];
+      for (v = 0, len8 = ref28.length; v < len8; v++) {
+        i = ref28[v];
         delete i.type;
       }
     }
@@ -5875,8 +5876,8 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
     rec.oadoi = true;
     oadoi = (await this.src.oadoi(rec.DOI));
     ref31 = (ref30 = oadoi != null ? oadoi.oa_locations : void 0) != null ? ref30 : [];
-    for (x = 0, len9 = ref31.length; x < len9; x++) {
-      loc = ref31[x];
+    for (w = 0, len9 = ref31.length; w < len9; w++) {
+      loc = ref31[w];
       if (loc.host_type === 'publisher') {
         if (rec.publisher_license == null) {
           rec.publisher_license = loc.license;
@@ -5902,8 +5903,8 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
         }
         if (!rec.repository_url || !rec.repository_url.includes('pmc')) {
           ref32 = ['license', 'url_for_pdf', 'url', 'version'];
-          for (y = 0, len10 = ref32.length; y < len10; y++) {
-            ok = ref32[y];
+          for (x = 0, len10 = ref32.length; x < len10; x++) {
+            ok = ref32[x];
             if (loc[ok]) {
               rec['repository_' + ok] = loc[ok];
             }
@@ -5988,8 +5989,8 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
       best_name = '';
       best_score = 1000000;
       ref38 = rec.authorships;
-      for (z = 0, len11 = ref38.length; z < len11; z++) {
-        rn = ref38[z];
+      for (y = 0, len11 = ref38.length; y < len11; y++) {
+        rn = ref38[y];
         if (ran = (ref39 = rn.author) != null ? ref39.display_name : void 0) {
           lvs = (await this.levenshtein(ren, ran.toLowerCase().replace(/[^a-z]/g, '')));
           score = lvs.distance / ran.length;
@@ -6065,8 +6066,8 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
             rec.accepted_date = epmc.firstPublicationDate;
           }
           ref52 = (ref51 = epmc.pubTypeList) != null ? ref51 : [];
-          for (i1 = 0, len12 = ref52.length; i1 < len12; i1++) {
-            pt = ref52[i1];
+          for (z = 0, len12 = ref52.length; z < len12; z++) {
+            pt = ref52[z];
             rec.pubtype = Array.isArray(rec.pubtype) ? rec.pubtype : rec.pubtype ? [rec.pubtype] : [];
             if (ref53 = pt.pubType, indexOf.call(rec.pubtype, ref53) < 0) {
               rec.pubtype.push(pt.pubType);
@@ -6104,16 +6105,16 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
   return rec;
 };
 
-P.report.works.load = async function(timestamp, orgname, dois, year, refresh, supplements, everything, info) {
-  var _batch, _crossref, _openalex, batch, batchsize, bt, cc, crt, d, i, j, len, len1, m, oo, org, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, sd, started, sup, text, took, total, updated;
+P.report.works.load = async function(timestamp, org, dois, year, refresh, supplements, everything, info) {
+  var _batch, _crossref, _openalex, batch, batchsize, bt, cc, crt, d, i, j, l, len, len1, o, oo, ref, ref1, ref10, ref11, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, sd, started, sup, text, took, total, updated;
   started = (await this.epoch());
   if (year == null) {
     year = (ref = this.params.load) != null ? ref : ((await this.date())).split('-')[0];
   }
-  if (orgname == null) {
-    orgname = this.params.org;
+  if (org == null) {
+    org = (ref1 = (ref2 = this.params.org) != null ? ref2 : this.params.orgs) != null ? ref1 : this.params.load === 'orgs';
   }
-  if (dois == null) {
+  if ((dois == null) && (this.params.load != null) && this.params.load.startsWith('10.')) {
     dois = this.params.load;
   }
   if (typeof dois === 'string') {
@@ -6137,6 +6138,7 @@ P.report.works.load = async function(timestamp, orgname, dois, year, refresh, su
   _batch = async(cr, ol) => {
     var prc;
     bt += 1;
+    console.log(bt, cr, ol);
     if (typeof cr === 'string' && cr.startsWith('W') && !ol) {
       ol = cr;
       cr = void 0;
@@ -6163,12 +6165,12 @@ P.report.works.load = async function(timestamp, orgname, dois, year, refresh, su
     if (dois == null) {
       dois = [];
     }
-    ref1 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs_supplements', (timestamp ? 'updated:<' + timestamp : void 0), {
+    ref3 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs_supplements', (timestamp ? 'updated:<' + timestamp : void 0), {
       scroll: '5m',
       include: ['DOI']
     });
-    for await (sup of ref1) {
-      if (ref2 = sup.DOI, indexOf.call(dois, ref2) < 0) {
+    for await (sup of ref3) {
+      if (ref4 = sup.DOI, indexOf.call(dois, ref4) < 0) {
         dois.push(sup.DOI);
       }
     }
@@ -6177,12 +6179,12 @@ P.report.works.load = async function(timestamp, orgname, dois, year, refresh, su
     if (dois == null) {
       dois = [];
     }
-    ref3 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', 'NOT pmc_has_data_availability_statement:*', {
+    ref5 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', 'NOT pmc_has_data_availability_statement:*', {
       scroll: '5m',
       include: ['DOI', 'openalex']
     });
-    for await (sup of ref3) {
-      sd = (ref4 = sup.DOI) != null ? ref4 : sup.openalex;
+    for await (sup of ref5) {
+      sd = (ref6 = sup.DOI) != null ? ref6 : sup.openalex;
       if (indexOf.call(dois, sd) < 0) {
         dois.push(sd);
       }
@@ -6196,7 +6198,7 @@ P.report.works.load = async function(timestamp, orgname, dois, year, refresh, su
     }
   } else {
     _crossref = async(cq) => {
-      var cr, len1, m, processed, ref5, ref6, results;
+      var cr, l, len1, processed, ref7, ref8;
       processed = cc.length;
       if (cq == null) {
         cq = '(funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year;
@@ -6206,26 +6208,36 @@ P.report.works.load = async function(timestamp, orgname, dois, year, refresh, su
       }
       console.log('report works load crossref by query', cq);
       cc = [];
-      ref5 = this.index._for('src_crossref_works', cq, {
+      ref7 = this.index._for('src_crossref_works', cq, {
         include: ['DOI'],
         scroll: '30m'
       });
       //, include: ['DOI', 'subject', 'title', 'subtitle', 'volume', 'issue', 'year', 'publisher', 'published', 'funder', 'license', 'is_oa', 'ISSN', 'update-to', 'reference-count']
-      for await (cr of ref5) {
+      for await (cr of ref7) {
         cc.push(cr.DOI);
       }
       console.log('report works load crossref by query counted', cc.length);
-      ref6 = cc.slice(processed);
-      results = [];
-      for (m = 0, len1 = ref6.length; m < len1; m++) {
-        d = ref6[m];
-        results.push((await _batch(d)));
+      await this.mail({
+        to: ['mark@oa.works'],
+        subject: 'report works load crossref by query counted ' + cc.length,
+        text: cc.length + '\n\n' + cq
+      });
+      ref8 = cc.slice(processed);
+      for (l = 0, len1 = ref8.length; l < len1; l++) {
+        d = ref8[l];
+        await _batch(d);
       }
-      return results;
+      return (await this.mail({
+        to: ['mark@oa.works'],
+        subject: 'report works load crossref done ' + bt,
+        text: bt + ''
+      }));
     };
-    await _crossref();
+    if (org !== true) {
+      await _crossref();
+    }
     _openalex = async(oq) => {
-      var len1, m, o, ol, oodoi, processed, ref5, ref6, ref7, results;
+      var l, len1, o, ol, oodoi, processed, ref7, ref8, ref9;
       processed = oo.length;
       if (oq == null) {
         oq = 'authorships.institutions.display_name:* AND publication_year:' + year; // NOT ids.doi:* AND 
@@ -6234,43 +6246,57 @@ P.report.works.load = async function(timestamp, orgname, dois, year, refresh, su
         oq = '(' + oq + ') AND updated_date:>' + timestamp;
       }
       console.log('report works load openalex by query', oq);
-      ref5 = this.index._for('src_openalex_works', oq, {
+      ref7 = this.index._for('src_openalex_works', oq, {
         include: ['id', 'ids'],
         scroll: '30m'
       });
-      for await (ol of ref5) {
-        oodoi = ((ref6 = ol.ids) != null ? ref6.doi : void 0) ? '10.' + ol.ids.doi.split('/10.')[1] : void 0;
+      for await (ol of ref7) {
+        oodoi = ((ref8 = ol.ids) != null ? ref8.doi : void 0) ? '10.' + ol.ids.doi.split('/10.')[1] : void 0;
         if (ol.id && ol.id.includes('/') && (!oodoi || (indexOf.call(oo, oodoi) < 0 && indexOf.call(cc, oodoi) < 0))) {
           oo.push(ol.id.split('/').pop());
         }
       }
       console.log('report works load openalex by query counted', oo.length);
-      ref7 = oo.slice(processed);
-      results = [];
-      for (m = 0, len1 = ref7.length; m < len1; m++) {
-        o = ref7[m];
-        results.push((await _batch(void 0, o)));
+      await this.mail({
+        to: ['mark@oa.works'],
+        subject: 'report works load crossref by query counted ' + cc.length,
+        text: oo.length + '\n\n' + oq
+      });
+      ref9 = oo.slice(processed);
+      for (l = 0, len1 = ref9.length; l < len1; l++) {
+        o = ref9[l];
+        await _batch(void 0, o);
       }
-      return results;
+      return (await this.mail({
+        to: ['mark@oa.works'],
+        subject: 'report works load openalex done ' + bt,
+        text: bt + ''
+      }));
     };
-    await _openalex();
-    ref5 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs', (orgname ? 'name:"' + orgname + '"' : 'paid:true'), {
+    if (org !== true) {
+      await _openalex();
+    }
+    ref7 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs', (typeof org === 'string' ? 'name:"' + org + '"' : 'paid:true'), {
       scroll: '10m'
     });
-    for await (org of ref5) {
-      if ((ref6 = org.source) != null ? ref6.crossref : void 0) {
-        // if an org has no known records in report/works yet, could default it here to a timestamp of start of current year, or older, to pull in all records first time round
-        await _crossref(org.source.crossref);
-      }
-      if ((ref7 = org.source) != null ? ref7.openalex : void 0) {
-        await _openalex(org.source.openalex);
-      }
+    for await (o of ref7) {
+      try {
+        if ((ref8 = o.source) != null ? ref8.crossref : void 0) {
+          // if an org has no known records in report/works yet, could default it here to a timestamp of start of current year, or older, to pull in all records first time round
+          await _crossref(o.source.crossref);
+        }
+      } catch (error) {}
+      try {
+        if ((ref9 = o.source) != null ? ref9.openalex : void 0) {
+          await _openalex(o.source.openalex);
+        }
+      } catch (error) {}
     }
     if (timestamp) {
-      ref8 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', 'orgs:* AND updated:<' + timestamp, {
+      ref10 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', 'orgs:* AND updated:<' + timestamp, {
         scroll: '10m'
       });
-      for await (crt of ref8) {
+      for await (crt of ref10) {
         if (updated = (await this.src.crossref.works('DOI:"' + crt.DOI + '" AND srcday:>' + timestamp))) {
           await _batch(crt);
         }
@@ -6298,8 +6324,8 @@ P.report.works.load = async function(timestamp, orgname, dois, year, refresh, su
   if (supplements) {
     text += 'These were provided by an orgs supplements refresh which took ' + Math.ceil((started - supplements) / 1000 / 60) + 'm\n';
   }
-  if (orgname) {
-    text += 'The load process was limited to ' + orgname + '\n';
+  if (typeof org === 'string') {
+    text += 'The load process was limited to ' + org + '\n';
   }
   if (timestamp) {
     text += 'The load process was run for changes since ' + ((await this.datetime(timestamp))) + '\n';
@@ -6314,9 +6340,9 @@ P.report.works.load = async function(timestamp, orgname, dois, year, refresh, su
     text += 'Openalex queries counted ' + oo.length + ' works\n';
   }
   text += 'Load processing took ' + Math.ceil(took / 1000 / 60) + 'm\n';
-  ref9 = info != null ? info : [];
-  for (m = 0, len1 = ref9.length; m < len1; m++) {
-    i = ref9[m];
+  ref11 = info != null ? info : [];
+  for (l = 0, len1 = ref11.length; l < len1; l++) {
+    i = ref11[l];
     text += '\n' + JSON.stringify(i) + '\n';
   }
   console.log('Report works loaded', total, took);
@@ -6332,141 +6358,83 @@ P.report.works.load._async = true;
 
 P.report.works.load._auth = '@oa.works';
 
-P.report.works.changes = function(timestamp, orgname) {
+P.report.works.changes = function(timestamp, org) {
   var ref, ref1;
+  // do not reload orgs first before running changes, Joe wants that to remain a manual process
   if (timestamp == null) {
     timestamp = (ref = (ref1 = this.params.changes) != null ? ref1 : this.params.timestamp) != null ? ref : Date.now() - 90000000;
   }
-  if (orgname == null) {
-    orgname = this.params.org;
+  if (org == null) {
+    org = this.params.org;
   }
-  this.report.works.load(timestamp, orgname); // start from timestamp a little more than a day ago, by default
+  this.report.works.load(timestamp, org); // start from timestamp a little more than a day ago, by default
   return true;
 };
 
 P.report.works.changes._bg = true;
 
-P.report.works.changes._async = true;
-
+//P.report.works.changes._async = true
 P.report.works.changes._auth = '@oa.works';
 
-P.report.works.check = async function(year) {
-  var cq, cr, not_in_works, ol, olx, oodoi, oq, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, res, seen, worked;
-  if (year == null) {
-    year = (ref = (ref1 = this.params.check) != null ? ref1 : this.params.year) != null ? ref : '2023';
-  }
-  res = {
-    year: year,
-    crossref: 0,
-    openalex: 0,
-    crossref_in_works: 0,
-    crossref_in_works_had_openalex: 0,
-    crossref_not_in_works_in_openalex: 0,
-    openalex_in_works: 0,
-    openalex_in_works_by_id: 0,
-    openalex_with_doi_but_not_seen: 0,
-    openalex_not_in_works: 0,
-    duplicates: 0
-  };
-  cq = '(funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year;
-  seen = [];
-  not_in_works = [];
-  ref2 = this.index._for('src_crossref_works', cq, {
-    include: ['DOI']
-  });
-  //, scroll: '30m'
-  for await (cr of ref2) {
-    console.log('crossref', res.crossref);
-    if (ref3 = cr.DOI, indexOf.call(seen, ref3) < 0) {
-      seen.push(cr.DOI);
-    } else {
-      res.duplicates += 1;
-    }
-    res.crossref += 1;
-    if (worked = (await this.report.works(cr.DOI))) {
-      res.crossref_in_works += 1;
-    }
-    if (!worked && (ref4 = cr.DOI, indexOf.call(not_in_works, ref4) < 0)) {
-      not_in_works.push(cr.DOI);
-    }
-    if (worked != null ? worked.openalex : void 0) {
-      res.crossref_in_works_had_openalex += 1;
-    } else if (olx = (await this.src.openalex.works('ids.doi:"' + cr.DOI + '"'))) {
-      res.crossref_not_in_works_in_openalex += 1;
-    }
-  }
-  oq = 'authorships.institutions.display_name:* AND publication_year:' + year;
-  ref5 = this.index._for('src_openalex_works', oq, {
-    include: ['id', 'ids']
-  });
-  //, scroll: '30m'
-  for await (ol of ref5) {
-    console.log('openalex', res.openalex);
-    res.openalex += 1;
-    oodoi = ((ref6 = ol.ids) != null ? ref6.doi : void 0) ? '10.' + ol.ids.doi.split('/10.')[1] : void 0;
-    if (oodoi) {
-      if (indexOf.call(seen, oodoi) < 0) {
-        if (oodoi) {
-          res.openalex_with_doi_but_not_seen += 1;
-        }
-        seen.push(oodoi);
-      } else {
-        res.duplicates += 1;
-      }
-    }
-    if (oodoi && (worked = (await this.report.works(oodoi)))) {
-      res.openalex_in_works += 1;
-    } else if (worked = (await this.report.works('openalex.keyword:"' + ol.id + '"', 1))) {
-      res.openalex_in_works += 1;
-      res.openalex_in_works_by_id += 1;
-    } else {
-      res.openalex_not_in_works += 1;
-    }
-    if (!worked && (ref7 = oodoi != null ? oodoi : ol.id, indexOf.call(not_in_works, ref7) < 0)) {
-      not_in_works.push(oodoi != null ? oodoi : ol.id);
-    }
-  }
-  res.seen = seen.length;
-  res.not_in_works = not_in_works.length;
-  try {
-    await fs.writeFile(this.S.static.folder + 'report_check_' + year + '.json', JSON.stringify(res, '', 2));
-  } catch (error) {}
-  try {
-    await fs.writeFile(this.S.static.folder + 'report_check_seen_' + year + '.json', JSON.stringify(seen, '', 2));
-  } catch (error) {}
-  try {
-    await fs.writeFile(this.S.static.folder + 'report_check_missing_' + year + '.json', JSON.stringify(not_in_works, '', 2));
-  } catch (error) {}
-  return res;
-};
+`P.report.works.check = (year) ->
+year ?= @params.check ? @params.year ? '2023'
+res = year: year, crossref: 0, openalex: 0, crossref_in_works: 0, crossref_in_works_had_openalex: 0, crossref_not_in_works_in_openalex: 0, openalex_in_works: 0, openalex_in_works_by_id: 0, openalex_with_doi_but_not_seen: 0, openalex_not_in_works: 0, duplicates: 0
+cq = '(funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year
+seen = []
+not_in_works = []
+for await cr from @index._for 'src_crossref_works', cq, include: ['DOI'] #, scroll: '30m'
+  console.log 'crossref', res.crossref
+  if cr.DOI not in seen
+    seen.push cr.DOI
+  else
+    res.duplicates += 1
+  res.crossref += 1
+  res.crossref_in_works += 1 if worked = await @report.works cr.DOI
+  not_in_works.push(cr.DOI) if not worked and cr.DOI not in not_in_works
+  if worked?.openalex
+    res.crossref_in_works_had_openalex += 1
+  else if olx = await @src.openalex.works 'ids.doi:"' + cr.DOI + '"'
+    res.crossref_not_in_works_in_openalex += 1
 
-P.report.works.check._async = true;
+oq = 'authorships.institutions.display_name:* AND publication_year:' + year
+for await ol from @index._for 'src_openalex_works', oq, include: ['id', 'ids'] #, scroll: '30m'
+  console.log 'openalex', res.openalex
+  res.openalex += 1
+  oodoi = if ol.ids?.doi then '10.' + ol.ids.doi.split('/10.')[1] else undefined
+  if oodoi
+    if oodoi not in seen
+      res.openalex_with_doi_but_not_seen += 1 if oodoi
+      seen.push oodoi
+    else
+      res.duplicates += 1
+  if oodoi and worked = await @report.works oodoi
+    res.openalex_in_works += 1
+  else if worked = await @report.works 'openalex.keyword:"' + ol.id + '"', 1
+    res.openalex_in_works += 1
+    res.openalex_in_works_by_id += 1
+  else
+    res.openalex_not_in_works += 1
+  not_in_works.push(oodoi ? ol.id) if not worked and (oodoi ? ol.id) not in not_in_works
 
-P.report.test = {
-  _index: true,
-  _alias: 'altest2'
-};
+res.seen = seen.length
+res.not_in_works = not_in_works.length
+try await fs.writeFile @S.static.folder + 'report_check_' + year + '.json', JSON.stringify res, '', 2
+try await fs.writeFile @S.static.folder + 'report_check_seen_' + year + '.json', JSON.stringify seen, '', 2
+try await fs.writeFile @S.static.folder + 'report_check_missing_' + year + '.json', JSON.stringify not_in_works, '', 2
+return res
+P.report.works.check._async = true
 
-P.report.test.add = async function() {
-  var i, l, ref, res;
-  l = (await this.dot(P, 'report.test._alias'));
-  await this.report.test({
-    hello: 'world',
-    alias: l != null ? l : 'none'
-  });
-  await this.sleep(2000);
-  res = {
-    count: (await this.report.test.count()),
-    ford: 0,
-    records: []
-  };
-  ref = this.index._for('report_test', '*');
-  for await (i of ref) {
-    res.ford += 1;
-    res.records.push(i);
-  }
-  return res;
-};
+P.report.test = _index: true, _alias: 'altest2'
+
+P.report.test.add = ->
+l = await @dot P, 'report.test._alias'
+await @report.test hello: 'world', alias: l ? 'none'
+await @sleep 2000
+res = count: await @report.test.count(), ford: 0, records: []
+for await i from @index._for 'report_test', '*'
+  res.ford += 1
+  res.records.push i
+return res`;
 
 `P.report.works = _index: true, _key: 'DOI'
 P.report.works._process = (cr, openalex) ->
@@ -9145,6 +9113,22 @@ P.src.epmc.xml = async function(pmcid, rec) {
         }
       }
     }
+  }
+};
+
+P.src.epmc.fulltext = async function(pmcid) { // check fulltext exists in epmc explicitly
+  var exists, ref, ref1;
+  if (pmcid == null) {
+    pmcid = (ref = (ref1 = this.params.fulltext) != null ? ref1 : this.params.pmcid) != null ? ref : this.params.epmc;
+  }
+  if (pmcid) {
+    await this.sleep(150);
+    exists = (await this.fetch('https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML', {
+      method: 'HEAD'
+    }));
+    return (exists != null ? exists.status : void 0) === 200;
+  } else {
+
   }
 };
 
@@ -13122,7 +13106,7 @@ P.fetch = async function(url, params) {
       }
     }
     _f = async() => {
-      var buff, r, ref13, response;
+      var buff, hd, len5, o, r, ref13, ref14, ref15, response;
       if (params.stream) {
         delete params.stream;
         // return full response with status, ok, redirected, bodyUsed, size, timeout url, statusText, clone, body, arrayBuffer, blob, json, text, buffer, textConverted 
@@ -13152,8 +13136,19 @@ P.fetch = async function(url, params) {
         }
         if (buff) {
           r = (await response.buffer());
+        } else if ((ref14 = params.method) === 'HEAD') {
+          r = {
+            status: response.status
+          };
+          ref15 = [...response.headers];
+          for (o = 0, len5 = ref15.length; o < len5; o++) {
+            hd = ref15[o];
+            r[hd[0]] = hd[1];
+          }
         } else {
-          r = (await response.text()); // await response.json() can get json direct, but it will error if the wrong sort of data is provided, so just try it here
+          try {
+            r = (await response.text()); // await response.json() can get json direct, but it will error if the wrong sort of data is provided, so just try it here
+          } catch (error) {}
           try {
             if (typeof r === 'string' && (r.startsWith('{') || r.startsWith('['))) {
               r = JSON.parse(r);
@@ -14020,7 +14015,7 @@ P.index._for = async function*(route, q, opts, prefix, alias) {
     if ((!(res != null ? (ref3 = res.hits) != null ? ref3.hits : void 0 : void 0) || res.hits.hits.length === 0) && (res != null ? res._scroll_id : void 0)) { // get more if possible
       res = (await this.index._send('/_search/scroll?scroll=' + scroll + '&scroll_id=' + res._scroll_id, void 0, void 0, prefix, alias));
       if ((res != null ? res._scroll_id : void 0) !== prs) {
-        await this.index._send('/_search/scroll?scroll_id=' + prs, '', void 0, prefix, allias);
+        await this.index._send('/_search/scroll?scroll_id=' + prs, '', void 0, prefix, alias);
         prs = res != null ? res._scroll_id : void 0;
       }
     }
@@ -14615,7 +14610,7 @@ P.index._send = async function(route, data, method, prefix, alias) {
     if (alias == null) {
       alias = (ref2 = (ref3 = this.params._alias) != null ? ref3 : (ref4 = this.S.alias) != null ? ref4[rso.startsWith(this.S.index.name + '_') ? rso.replace(this.S.index.name + '_', '') : rso] : void 0) != null ? ref2 : dtp != null ? dtp._alias : void 0;
     }
-    if (typeof alias === 'string') {
+    if (typeof alias === 'string' && !route.startsWith('_')) {
       if (!alias.startsWith('_')) {
         alias = '_' + alias;
       }
@@ -16086,7 +16081,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Thu Jun 15 2023 17:08:41 GMT+0100";
+S.built = "Mon Jul 03 2023 01:29:53 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
