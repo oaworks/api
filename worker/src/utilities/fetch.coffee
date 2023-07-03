@@ -136,8 +136,11 @@ P.fetch = (url, params) ->
           console.log response
         if buff
           r = await response.buffer()
+        else if params.method in ['HEAD']
+          r = status: response.status
+          r[hd[0]] = hd[1] for hd in [...response.headers]
         else
-          r = await response.text() # await response.json() can get json direct, but it will error if the wrong sort of data is provided, so just try it here
+          try r = await response.text() # await response.json() can get json direct, but it will error if the wrong sort of data is provided, so just try it here
           try r = JSON.parse(r) if typeof r is 'string' and (r.startsWith('{') or r.startsWith('['))
         if response.status is 404
           return

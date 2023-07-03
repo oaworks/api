@@ -380,7 +380,7 @@ P.index._for = (route, q, opts, prefix, alias) ->
     if (not res?.hits?.hits or res.hits.hits.length is 0) and res?._scroll_id # get more if possible
       res = await @index._send '/_search/scroll?scroll=' + scroll + '&scroll_id=' + res._scroll_id, undefined, undefined, prefix, alias
       if res?._scroll_id isnt prs
-        await @index._send '/_search/scroll?scroll_id=' + prs, '', undefined, prefix, allias
+        await @index._send '/_search/scroll?scroll_id=' + prs, '', undefined, prefix, alias
         prs = res?._scroll_id
     if counter isnt max and res?.hits?.hits? and res.hits.hits.length
       counter += 1
@@ -697,7 +697,7 @@ P.index._send = (route, data, method, prefix, alias) ->
     rso = route.split('/')[0]
     dtp = await @dot P, rso.replace /_/g, '.'
     alias ?= @params._alias ? @S.alias?[if rso.startsWith(@S.index.name + '_') then rso.replace(@S.index.name + '_', '') else rso] ? dtp?._alias
-    if typeof alias is 'string'
+    if typeof alias is 'string' and not route.startsWith '_'
       alias = '_' + alias if not alias.startsWith '_'
       alias = alias.replace /\//g, '_'
       route = route.replace(rso, rso + alias) if not rso.endsWith alias
