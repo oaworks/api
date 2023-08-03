@@ -55,7 +55,6 @@ P.dot = (o, k, v, d, ae) -> # ae will attempt to recurse into the last object el
         return P.dot o[k[0]], k.slice(1), v, d, ae
       
 
-
 P.flatten = (obj, arrayed) ->
   arrayed ?= @params.arrayed ? false # arrayed puts objects in arrays at keys like author.0.name Whereas not arrayed shoves them all in one author.name (which means some that don't have the value could cause position mismatch in lists)
   if not obj?

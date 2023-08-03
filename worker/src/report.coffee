@@ -73,6 +73,7 @@ P.report.cleandoi = (doi) ->
   try doi = '10.' + doi.split('/10.')[1] if doi.startsWith 'http'
   try doi = doi.toLowerCase().replace('doi ', '') if doi.startsWith 'doi '
   try doi = doi.toLowerCase().trim().split('\\')[0].replace(/\/\//g, '/').replace(/\/ /g, '/').replace(/^\//, '').split(' ')[0].split('?')[0].split('#')[0].split(' pmcid')[0].split('\n')[0].replace(/[\u{0080}-\u{FFFF}]/gu, '').trim()
+  try doi = doi.split(',http')[0] # due to dirty data
   if typeof doi is 'string' and doi.startsWith '10.'
     return doi
   else
@@ -167,7 +168,7 @@ P.report.orgs.supplements.load = (orgname, sheetname, clear) ->
         else if rec[h].includes ';'
           rec[h] = rec[h].replace(/; /g, ';').replace(/ ;/g, ';').trim().split ';'
       if h.includes '.'
-        try @dot org, h, rec[h]
+        try await @dot org, h, rec[h]
       else
         org[h] = rec[h]
     if Array.isArray org.sheets
@@ -177,29 +178,32 @@ P.report.orgs.supplements.load = (orgname, sheetname, clear) ->
           rc = 0
           osdids = []
           headers = []
-          update = true
+          rows = []
+          update = @params.update ? true
+          last = false
           sups = []
           await @sleep 1000
-          try
-            check = await @src.google.sheets sheetid: s.url, sheet: 'm_admin', headers: false
-            await @sleep 1000 # more sleeps to avoid google 429 sadness
-            if Array.isArray(check) and check.length and check[0][0].toLowerCase() is 'last updated' and last = check[0][1]
-              [ld, lt] = last.split ' '
-              ld = ld.split('/').reverse().join('-')
-              last = await @epoch ld + 'T' + lt
-              console.log org.name, s.name, 'last updated', last
-              if typeof last is 'number' and last > 1672531200000 # start of 2023, just in case of a bad date
-                latest = await @report.orgs.supplements 'sheets.keyword:"' + s.name + '"', size: 1, sort: updated: 'desc'
-                latest = latest.hits.hits[0]._source if latest.hits?.hits?
-                update = last if latest?.updated and last <= latest.updated
+          if not @params.update? # can force an update on URL call
+            try
+              check = await @src.google.sheets sheetid: s.url, sheet: 'm_admin', headers: false
+              await @sleep 1000 # more sleeps to avoid google 429 sadness
+              if Array.isArray(check) and check.length and check[0][0].toLowerCase() is 'last updated' and last = check[0][1]
+                [ld, lt] = last.split ' '
+                ld = ld.split('/').reverse().join('-')
+                last = await @epoch ld + 'T' + lt
+                console.log org.name, s.name, 'last updated', last
+                if typeof last is 'number' and last > 1672531200000 # start of 2023, just in case of a bad date
+                  latest = await @report.orgs.supplements 'sheets.keyword:"' + s.name + '"', size: 1, sort: updated: 'desc'
+                  latest = latest.hits.hits[0]._source if latest.hits?.hits?
+                  update = last if latest?.updated and last <= latest.updated
           if update isnt true
-            console.log org.name, s.name, 'NOT loading because', last, 'is not after', latest?.updated
+            console.log org.name, s.name, 'NOT loading because', last, 'is not after', update
           else
             await @sleep 1000
             try rows = await @src.google.sheets sheetid: s.url, sheet: 'Export', headers: false
             tries = 0
-            while (not Array.isArray(rows) or not rows.length) and tries < 3 # https://github.com/oaworks/Gates/issues/375
-              await @sleep 2000
+            while (not Array.isArray(rows) or not rows.length) and tries < 5 # https://github.com/oaworks/Gates/issues/375
+              await @sleep 5000
               tries += 1
               try rows = await @src.google.sheets sheetid: s.url, sheet: 'Export', headers: false
             if Array.isArray(rows) and rows.length
@@ -211,13 +215,18 @@ P.report.orgs.supplements.load = (orgname, sheetname, clear) ->
                   h = headers[hp]
                   if h in ['doi', 'DOI']
                     rr[h] = row[hp]
-                  else if h is 'apc_cost'
-                    try rr.apc_cost = parseInt row[hp]
-                  else if h.includes '.'
-                    await @dot rr, h, if not row[hp] then undefined else if row[hp].trim().toLowerCase() in ['true', 'yes'] then true else if row[hp].trim().toLowerCase() in ['false', 'no'] then false else if h.toLowerCase() in ['grant_id', 'ror'] then row[hp].replace(/\//g, ',').replace(/ /g, '').split(',') else if typeof row[hp] is 'string' and row[hp].includes(';') then row[hp].split(';') else row[hp]
                   else
-                    rr[h] = if not row[hp] then undefined else if row[hp].trim().toLowerCase() in ['true', 'yes'] then true else if row[hp].trim().toLowerCase() in ['false', 'no'] then false else if h.toLowerCase() in ['grant_id', 'ror'] then row[hp].replace(/\//g, ',').replace(/ /g, '').split(',') else row[hp]
-                    rr[h] = rr[h].split(';') if typeof rr[h] is 'string' and rr[h].includes ';'
+                    hpv = ''
+                    if h in ['apc_cost', 'wellcome.apc_paid_actual_currency_excluding_vat', 'wellcome.apc_paid_gbp_inc_vat_if_charged', 'wellcome.additional_publication_fees_gbp', 'wellcome.amount_of_apc_charged_to_coaf_grant_inc_vat_if_charged_in_gbp', 'wellcome.amount_of_apc_charged_to_rcuk_oa_fund_inc_vat_if_charged_in_gbp']
+                      try hpv = parseFloat row[hp]
+                    else
+                      hpv = if typeof row[hp] is 'number' then row[hp] else if not row[hp] then undefined else if row[hp].trim().toLowerCase() in ['true', 'yes'] then true else if row[hp].trim().toLowerCase() in ['false', 'no'] then false else if h.toLowerCase() in ['grant_id', 'ror'] then row[hp].replace(/\//g, ',').replace(/ /g, '').split(',') else row[hp]
+                      hpv = row[hp].split(';') if typeof row[hp] is 'string' and row[hp].includes(';')
+                    if hpv? and hpv isnt ''
+                      if h.includes '.'
+                        await @dot rr, h, hpv
+                      else
+                        rr[h] = hpv
                 if not rr.doi
                   rr.doi = (rr.DOI ? '') + ''
                 else
@@ -227,7 +236,8 @@ P.report.orgs.supplements.load = (orgname, sheetname, clear) ->
                     rr.replaced = rr.DOI
                     rr.DOI = replacements[rr.DOI] #rep.DOI
                   rr.email = await @encrypt(rr.email) if typeof rr.email is 'string' and rr.email.includes '@'
-                  rr._id = rr.osdid = (org.name.replace(/[^a-zA-Z0-9-_ ]/g, '') + '_' + s.name + '_' + rr.DOI).replace(/[\u{0080}-\u{FFFF}]/gu, '').toLowerCase().replace(/\//g, '_').replace(/ /g, '_')
+                  rr.osdid = (org.name.replace(/[^a-zA-Z0-9-_ ]/g, '') + '_' + s.name + '_' + rr.DOI).replace(/[\u{0080}-\u{FFFF}]/gu, '').toLowerCase().replace(/\//g, '_').replace(/ /g, '_')
+                  rr._id = rr.osdid
                   osdids.push rr.osdid
                   if rr.DOI not in dois
                     kc = false
@@ -251,7 +261,8 @@ P.report.orgs.supplements.load = (orgname, sheetname, clear) ->
                   total += 1
               console.log org.name, s.name, sups.length, dois.length
               await @report.orgs.supplements sups
-            for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'org.keyword:"' + org.name + '" AND sheets.keyword:"' + s.name + '"', scroll: '5m', include: ['osdid']
+            await @sleep 2000
+            for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'org.keyword:"' + org.name + '" AND sheets.keyword:"' + s.name + '"', scroll: '30m', include: ['osdid']
               if sup.osdid not in osdids
                 await @report.orgs.supplements sup.osdid, ''
                 deletes.push sup.osdid
@@ -263,10 +274,10 @@ P.report.orgs.supplements.load = (orgname, sheetname, clear) ->
   if not clear and not orgname and not sheetname
     for aps in await @report.works.suggest 'supplements.sheets', undefined, 5000
       if aps not in sheetnames
-        for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'sheets.keyword:"' + aps + '"', scroll: '5m', include: ['osdid']
+        for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'sheets.keyword:"' + aps + '"', scroll: '30m', include: ['osdid']
           await @report.orgs.supplements sup.osdid, ''
           deletes.push sup.osdid
-        for await osw from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'supplements.sheets.keyword:"' + aps + '"', scroll: '5m', include: ['DOI']
+        for await osw from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'supplements.sheets.keyword:"' + aps + '"', scroll: '30m', include: ['DOI']
           dois.push(osw.DOI) if osw.DOI and osw.DOI not in dois
 
   await @sleep 60000 # wait a while for the supplements index to finish building and then run the processing for DOIs
@@ -318,7 +329,8 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced) ->
         exists = await @report.works _id: openalex
         exists = undefined if not exists?.updated or (refresh and exists and exists.updated < refresh)
       if openalex.startsWith('W') or not exists?.openalex
-        ox = await @src.openalex.works _id: openalex
+        ox = await @src.openalex.works 'id.keyword:"https://openalex.org/' + openalex + '"', 1
+        try ox = ox.hits.hits[0]._source if ox?.hits?.hits?.length
         openalex = ox if ox?.id
   openalex = undefined if typeof openalex is 'string' and not (openalex.startsWith('W') or openalex.startsWith('10.'))
 
@@ -511,11 +523,11 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced) ->
       rec.journal_oa_type ?= 'unsuccessful'
 
     if everything
-      if not rec.PMCID or not rec.pubtype or not rec.submitted_date or not rec.accepted_date # only thing restricted to orgs supplements for now is remote epmc lookup and epmc licence calculation below
+      if not rec.PMCID or not rec.pubtype #or not rec.submitted_date or not rec.accepted_date # only thing restricted to orgs supplements for now is remote epmc lookup and epmc licence calculation below
         if epmc = await @src.epmc.doi rec.DOI
           rec.PMCID = epmc.pmcid if epmc.pmcid
-          rec.submitted_date ?= epmc.firstIndexDate
-          rec.accepted_date ?= epmc.firstPublicationDate
+          #rec.submitted_date ?= epmc.firstIndexDate - removed as found to be not accurate enough https://github.com/oaworks/Gates/issues/559
+          #rec.accepted_date ?= epmc.firstPublicationDate
           for pt in (epmc.pubTypeList ? [])
             rec.pubtype = if Array.isArray(rec.pubtype) then rec.pubtype else if rec.pubtype then [rec.pubtype] else []
             rec.pubtype.push(pt.pubType) if pt.pubType not in rec.pubtype
@@ -543,7 +555,7 @@ P.report.works.load = (timestamp, org, dois, year, refresh, supplements, everyth
   started = await @epoch()
   year ?= @params.load ? (await @date()).split('-')[0] # load could be supplements or everything but in that case year is not used anyway
   org ?= @params.org ? @params.orgs ? @params.load is 'orgs'
-  dois = @params.load if not dois? and @params.load? and @params.load.startsWith '10.'
+  dois = @params.load if not dois? and typeof @params.load is 'string' and @params.load.startsWith '10.'
   dois = [dois] if typeof dois is 'string'
   refresh ?= @refresh
   everything ?= @params.load is 'everything'
@@ -559,7 +571,7 @@ P.report.works.load = (timestamp, org, dois, year, refresh, supplements, everyth
 
   _batch = (cr, ol) =>
     bt += 1
-    console.log bt, cr, ol
+    #console.log bt, cr, ol
     if typeof cr is 'string' and cr.startsWith('W') and not ol
       ol = cr
       cr = undefined
@@ -599,9 +611,9 @@ P.report.works.load = (timestamp, org, dois, year, refresh, supplements, everyth
       cc = []
       cc.push(cr.DOI) for await cr from @index._for 'src_crossref_works', cq, include: ['DOI'], scroll: '30m' #, include: ['DOI', 'subject', 'title', 'subtitle', 'volume', 'issue', 'year', 'publisher', 'published', 'funder', 'license', 'is_oa', 'ISSN', 'update-to', 'reference-count']
       console.log 'report works load crossref by query counted', cc.length
-      await @mail to: ['mark@oa.works'], subject: 'report works load crossref by query counted ' + cc.length, text: cc.length + '\n\n' + cq
+      #await @mail to: ['mark@oa.works'], subject: 'report works load crossref by query counted ' + cc.length, text: cc.length + '\n\n' + cq
       await _batch(d) for d in cc.slice processed
-      await @mail to: ['mark@oa.works'], subject: 'report works load crossref done ' + bt, text: bt + ''
+      #await @mail to: ['mark@oa.works'], subject: 'report works load crossref done ' + bt, text: bt + ''
 
     await _crossref() if org isnt true
 
@@ -615,16 +627,20 @@ P.report.works.load = (timestamp, org, dois, year, refresh, supplements, everyth
         if ol.id and ol.id.includes('/') and (not oodoi or (oodoi not in oo and oodoi not in cc))
           oo.push ol.id.split('/').pop()
       console.log 'report works load openalex by query counted', oo.length
-      await @mail to: ['mark@oa.works'], subject: 'report works load crossref by query counted ' + cc.length, text: oo.length + '\n\n' + oq
+      #await @mail to: ['mark@oa.works'], subject: 'report works load crossref by query counted ' + cc.length, text: oo.length + '\n\n' + oq
       await _batch(undefined, o) for o in oo.slice processed
-      await @mail to: ['mark@oa.works'], subject: 'report works load openalex done ' + bt, text: bt + ''
+      #await @mail to: ['mark@oa.works'], subject: 'report works load openalex done ' + bt, text: bt + ''
     
     await _openalex() if org isnt true
 
     for await o from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs', (if typeof org is 'string' then 'name:"' + org + '"' else 'paid:true'), scroll: '10m'
       # if an org has no known records in report/works yet, could default it here to a timestamp of start of current year, or older, to pull in all records first time round
-      try await _crossref(o.source.crossref) if o.source?.crossref
-      try await _openalex(o.source.openalex) if o.source?.openalex
+      if o.source?.crossref
+        try o.source.crossref = decodeURIComponent(decodeURIComponent(o.source.crossref)) if o.source.crossref.includes '%'
+        try await _crossref o.source.crossref
+      if o.source?.openalex
+        try o.source.openalex = decodeURIComponent(decodeURIComponent(o.source.openalex)) if o.source.openalex.includes '%'
+        try await _openalex o.source.openalex
 
     if timestamp
       for await crt from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'orgs:* AND updated:<' + timestamp, scroll: '10m'
@@ -661,7 +677,7 @@ P.report.works.changes = (timestamp, org) ->
   @report.works.load timestamp, org # start from timestamp a little more than a day ago, by default
   return true
 P.report.works.changes._bg = true
-#P.report.works.changes._async = true
+P.report.works.changes._async = true
 P.report.works.changes._auth = '@oa.works'
 
 '''P.report.works.check = (year) ->
