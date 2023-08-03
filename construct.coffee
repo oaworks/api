@@ -121,7 +121,7 @@ _put = (data) ->
         path: '/client/v4/accounts/' + CNE.ACCOUNT_ID + '/workers/scripts/' + CNE.SCRIPT_ID + ps
         method: 'PUT'
         headers:
-          'Content-Type': 'application/javascript'
+          'Content-Type': if ps then 'application/json' else 'application/javascript'
           #'Content-Length': data.length
           'Authorization': 'Bearer ' + CNE.API_TOKEN
       try console.log('ERROR', e.code, e.message) for e in ret.errors
@@ -291,7 +291,7 @@ _w = () ->
                   console.log "To push secrets to cloudflare, cloudflare account ID, API token, and script ID must be set to keys ACCOUNT_ID, API_TOKEN, SCRIPT_ID, in ./secrets/construct.json"
                 else
                   console.log 'Sending worker ' + SECRETS_NAME + ' secrets to cloudflare'
-                  await _put {name: SECRETS_NAME, text: JSON.stringify(SECRETS_DATA)}
+                  await _put {name: SECRETS_NAME, text: JSON.stringify(SECRETS_DATA), type: 'secret_text'}
             if 'server' in args
               console.log 'Saving worker ' + SECRETS_NAME + ' to server file'
               sfl = "var " + SECRETS_NAME + " = '" + JSON.stringify(SECRETS_DATA) + "';\n" + sfl
