@@ -253,7 +253,7 @@ P = () ->
           _schedule[nd] = schedule: a[k]._schedule, fn: a[k]
           sfn = (fnm) =>
             return () =>
-              if @S.dev isnt true and process.env.pm_id not in [1, '1']
+              if @S.dev isnt true and not @S.async and not @S.async_loop and not @S.async_schedule and process.env.pm_id not in [1, '1']
                 console.log 'NOT running scheduled task because not on dev and process pid is not 1', fnm, @datetime()
               else if not @S.async_schedule and typeof @S.async is 'string'
                 console.log 'NOT running scheduled task because not on the available async process', fnm, @datetime()
