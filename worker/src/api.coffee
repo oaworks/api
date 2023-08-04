@@ -16,8 +16,9 @@ S.version ?= '6.1.0' # the construct script will use this to overwrite any versi
 # S.pass can be set to false if there is a bg URL but worker errors should NOT pass through on exception to it (otherwise they will by default)
 S.pass = ['docs', 'client', '.well-known'] # if this is a list of strings, any route starting with these will throw error and pass back to bg (this would happen anyway with no function defined for them, but this avoids unnecessary processing)
 S.dev ?= true
-try
-  S.async = true if process.env.name.includes 'async'
+try S.async = true if process.env.name.endsWith '_async' # optional setting defining a URL to an async worker to pass requests to
+try S.async_loop = true if process.env.name.endsWith '_loop' # additional setting defining a URL to pass async looped scheduled requests to
+try S.async_schedule = true if process.env.name.endsWith '_schedule' # additional setting defining a URL to pass async scheduled requests to (including looped ones, if async_loop is not set)
 S.headers ?=
   'Access-Control-Allow-Methods': 'HEAD, GET, PUT, POST, DELETE, OPTIONS'
   'Access-Control-Allow-Origin': '*'
@@ -252,10 +253,14 @@ P = () ->
           _schedule[nd] = schedule: a[k]._schedule, fn: a[k]
           sfn = (fnm) =>
             return () =>
-              if @S.dev isnt true and process.env.pm_id not in [1, '1']
+              if @S.dev isnt true and not @S.async and not @S.async_loop and not @S.async_schedule and process.env.pm_id not in [1, '1']
                 console.log 'NOT running scheduled task because not on dev and process pid is not 1', fnm, @datetime()
-              else if typeof @S.async is 'string'
+              else if not @S.async_schedule and typeof @S.async is 'string'
                 console.log 'NOT running scheduled task because not on the available async process', fnm, @datetime()
+              else if typeof @S.async_schedule is 'string' and (_schedule[fnm].fn._schedule isnt 'loop' or not @S.async_loop)
+                console.log 'NOT running scheduled task because not on the available async scheduled process', fnm, @datetime()
+              else if typeof @S.async_loop is 'string' and _schedule[fnm].fn._schedule is 'loop'
+                console.log 'NOT running scheduled looped task because not on the available loop process', fnm, @datetime()
               else
                 if _schedule[fnm].fn._schedule is 'loop'
                   console.log 'starting scheduled loop function', fnm
@@ -419,7 +424,10 @@ P._response = (res, fn) ->
   try @S.headers['x-' + @S.name.toLowerCase() + '-took'] = Date.now() - @started
   try @S.headers['x-' + @S.name.toLowerCase() + '-cached'] = @cached if @cached
   try
-    return new Response res, {status: status, headers: @S.headers}
+    if @S.bg is true
+      return status: status, headers: @S.headers, body: res
+    else
+      return new Response res, {status: status, headers: @S.headers}
   catch
     return status: status, headers: @S.headers, body: res
 
@@ -783,6 +791,7 @@ P.src = {}
 P.status = ->
   res = name: S.name, version: S.version, built: S.built
   try res.pmid = process.env.pm_id
+  try res.pmname = process.env.name
   for k in ['rid', 'params', 'base', 'parts', 'opts', 'routes']
     try res[k] ?= @[k]
   if @S.bg is true

@@ -44,8 +44,20 @@ if (S.dev == null) {
 }
 
 try {
-  if (process.env.name.includes('async')) {
+  if (process.env.name.endsWith('_async')) { // optional setting defining a URL to an async worker to pass requests to
     S.async = true;
+  }
+} catch (error) {}
+
+try {
+  if (process.env.name.endsWith('_loop')) { // additional setting defining a URL to pass async looped scheduled requests to
+    S.async_loop = true;
+  }
+} catch (error) {}
+
+try {
+  if (process.env.name.endsWith('_schedule')) { // additional setting defining a URL to pass async scheduled requests to (including looped ones, if async_loop is not set)
+    S.async_schedule = true;
   }
 } catch (error) {}
 
@@ -449,10 +461,14 @@ P = async function() {
           sfn = (fnm) => {
             return async() => {
               var crd, err, lpd, ref16;
-              if (this.S.dev !== true && ((ref16 = process.env.pm_id) !== 1 && ref16 !== '1')) {
+              if (this.S.dev !== true && !this.S.async && !this.S.async_loop && !this.S.async_schedule && ((ref16 = process.env.pm_id) !== 1 && ref16 !== '1')) {
                 return console.log('NOT running scheduled task because not on dev and process pid is not 1', fnm, this.datetime());
-              } else if (typeof this.S.async === 'string') {
+              } else if (!this.S.async_schedule && typeof this.S.async === 'string') {
                 return console.log('NOT running scheduled task because not on the available async process', fnm, this.datetime());
+              } else if (typeof this.S.async_schedule === 'string' && (_schedule[fnm].fn._schedule !== 'loop' || !this.S.async_loop)) {
+                return console.log('NOT running scheduled task because not on the available async scheduled process', fnm, this.datetime());
+              } else if (typeof this.S.async_loop === 'string' && _schedule[fnm].fn._schedule === 'loop') {
+                return console.log('NOT running scheduled looped task because not on the available loop process', fnm, this.datetime());
               } else {
                 if (_schedule[fnm].fn._schedule === 'loop') {
                   console.log('starting scheduled loop function', fnm);
@@ -712,10 +728,18 @@ P._response = async function(res, fn) {
     }
   } catch (error) {}
   try {
-    return new Response(res, {
-      status: status,
-      headers: this.S.headers
-    });
+    if (this.S.bg === true) {
+      return {
+        status: status,
+        headers: this.S.headers,
+        body: res
+      };
+    } else {
+      return new Response(res, {
+        status: status,
+        headers: this.S.headers
+      });
+    }
   } catch (error) {
     return {
       status: status,
@@ -1341,6 +1365,9 @@ P.status = async function() {
   };
   try {
     res.pmid = process.env.pm_id;
+  } catch (error) {}
+  try {
+    res.pmname = process.env.name;
   } catch (error) {}
   ref = ['rid', 'params', 'base', 'parts', 'opts', 'routes'];
   for (i = 0, len = ref.length; i < len; i++) {
@@ -6074,18 +6101,14 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
       }
     }
     if (everything) {
-      if (!rec.PMCID || !rec.pubtype || !rec.submitted_date || !rec.accepted_date) { // only thing restricted to orgs supplements for now is remote epmc lookup and epmc licence calculation below
+      if (!rec.PMCID || !rec.pubtype) { //or not rec.submitted_date or not rec.accepted_date # only thing restricted to orgs supplements for now is remote epmc lookup and epmc licence calculation below
         if (epmc = (await this.src.epmc.doi(rec.DOI))) {
           if (epmc.pmcid) {
             rec.PMCID = epmc.pmcid;
           }
-          if (rec.submitted_date == null) {
-            rec.submitted_date = epmc.firstIndexDate;
-          }
-          if (rec.accepted_date == null) {
-            rec.accepted_date = epmc.firstPublicationDate;
-          }
           ref54 = (ref53 = epmc.pubTypeList) != null ? ref53 : [];
+          //rec.submitted_date ?= epmc.firstIndexDate - removed as found to be not accurate enough https://github.com/oaworks/Gates/issues/559
+          //rec.accepted_date ?= epmc.firstPublicationDate
           for (z = 0, len12 = ref54.length; z < len12; z++) {
             pt = ref54[z];
             rec.pubtype = Array.isArray(rec.pubtype) ? rec.pubtype : rec.pubtype ? [rec.pubtype] : [];
@@ -16100,7 +16123,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Wed Aug 02 2023 08:24:14 GMT+0100";
+S.built = "Fri Aug 04 2023 10:04:03 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor

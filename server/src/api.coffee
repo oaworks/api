@@ -1,4 +1,11 @@
 
+# for running with pm2:
+# pm2 start server/dist/server.min.js --name paradigm_b --watch --node-args="--max_old_space_size=8192"
+# can use --watch to restart on file changes, and --node-args --max_old_space_size to increase memory limit, 
+# and -i 0 to run as many instances as there are cores, or -i x to run x instance per core
+# and give different names to different running processes (see below for assigning different port numbers by name ending)
+# can specify node version with --interpreter=.nvm/v4.4.2/bin/node 
+
 import fetch from 'node-fetch' # used in fetch
 import FormData from 'form-data'
 import http from 'http'
@@ -86,12 +93,14 @@ server = http.createServer (req, res) ->
     res.end '405'
 
 S.port ?= if S.dev then 4000 else 3000
-S.port += 1 if process.env.name.includes 'async'
+pen = process.env.name
+pmid = process.env.pm_id
+S.port += if pen.endsWith('_async') then 1 else if pen.endsWith('_loop') then 2 else if pen.endsWith('_schedule') then 3 else 0
 server.listen S.port, 'localhost'
 
 fetch 'http://localhost:' + S.port + '/status'
 
-console.log S.name + ' v' + S.version + ' built ' + S.built + ', available on http://localhost:' + S.port
+console.log S.name + ' v' + S.version + ' ' + pen + ' pmid ' + pmid + ' built ' + S.built + ', available on http://localhost:' + S.port
 
 if S.demo
   console.log 'Congrats! You have a demo up and running'
