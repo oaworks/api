@@ -16123,7 +16123,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Fri Aug 04 2023 09:51:43 GMT+0100";
+S.built = "Fri Aug 04 2023 10:04:03 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor

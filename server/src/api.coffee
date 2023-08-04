@@ -94,12 +94,13 @@ server = http.createServer (req, res) ->
 
 S.port ?= if S.dev then 4000 else 3000
 pen = process.env.name
+pmid = process.env.pm_id
 S.port += if pen.endsWith('_async') then 1 else if pen.endsWith('_loop') then 2 else if pen.endsWith('_schedule') then 3 else 0
 server.listen S.port, 'localhost'
 
 fetch 'http://localhost:' + S.port + '/status'
 
-console.log S.name + ' v' + S.version + ' built ' + S.built + ', available on http://localhost:' + S.port
+console.log S.name + ' v' + S.version + ' ' + pen + ' pmid ' + pmid + ' built ' + S.built + ', available on http://localhost:' + S.port
 
 if S.demo
   console.log 'Congrats! You have a demo up and running'
