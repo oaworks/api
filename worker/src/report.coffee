@@ -21,7 +21,7 @@ P.report.dev2live = (reverse) ->
     counter += 1
     batch.push(rm) if rm.DOI and not rm.DOI.includes(' pmcid:') and not rm.DOI.includes('\n') and not rm.DOI.includes '?ref'
     if batch.length is 30000
-      console.log 'report works', (if reverse then 'live2dev' else 'dev2live'), f, t, counter
+      console.log 'report works', (if reverse then 'live2dev' else 'dev2live'), f, t, toalias, counter
       await @index._bulk t, batch, undefined, undefined, false, toalias
       batch = []
 
