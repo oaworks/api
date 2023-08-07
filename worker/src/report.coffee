@@ -5,6 +5,8 @@ S.report ?= {}
 P.report = () -> return 'OA.Works report'
 
 P.report.dev2live = (reverse) ->
+  toalias = @params.toalias
+  toalias += '' if typeof toalias is 'number'
   if not reverse
     f = 'paradigm_b_report_works'
     t = 'paradigm_report_works'
@@ -12,19 +14,19 @@ P.report.dev2live = (reverse) ->
     f = 'paradigm_report_works'
     t = 'paradigm_b_report_works'
   if @params.clear
-    await @index._send t, '', undefined, false
+    await @index._send t, '', undefined, false, toalias
   counter = 0
   batch = []
-  for await rm from @index._for f
+  for await rm from @index._for f # q, opts, prefix, alias
     counter += 1
     batch.push(rm) if rm.DOI and not rm.DOI.includes(' pmcid:') and not rm.DOI.includes('\n') and not rm.DOI.includes '?ref'
     if batch.length is 30000
       console.log 'report works', (if reverse then 'live2dev' else 'dev2live'), f, t, counter
-      await @index._bulk t, batch, undefined, undefined, false
+      await @index._bulk t, batch, undefined, undefined, false, toalias
       batch = []
 
   if batch.length
-    await @index._bulk t, batch, undefined, undefined, false
+    await @index._bulk t, batch, undefined, undefined, false, toalias
     batch = []
 
   return counter
@@ -727,16 +729,24 @@ P.report.works.changes._auth = '@oa.works'
   try await fs.writeFile @S.static.folder + 'report_check_missing_' + year + '.json', JSON.stringify not_in_works, '', 2
   return res
 P.report.works.check._async = true
+'''
 
+'''
 P.report.test = _index: true, _alias: 'altest2'
-
 P.report.test.add = ->
+  toalias = @params.toalias
+  toalias += '' if typeof toalias is 'number'
   l = await @dot P, 'report.test._alias'
   await @report.test hello: 'world', alias: l ? 'none'
   await @sleep 2000
   res = count: await @report.test.count(), ford: 0, records: []
+  t = 'report_test'
+  batch = [{hello: 'world', alias: l ? 'none', batch: 1}, {hello: 'world', alias: l ? 'none', batch: 2}]
+  await @index._bulk t, batch, undefined, undefined, undefined, toalias
+  await @sleep 2000
   for await i from @index._for 'report_test', '*'
     res.ford += 1
     res.records.push i
   return res
 '''
+

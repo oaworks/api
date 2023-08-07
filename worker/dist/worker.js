@@ -5078,7 +5078,11 @@ P.report = function() {
 };
 
 P.report.dev2live = async function(reverse) {
-  var batch, counter, f, ref, rm, t;
+  var batch, counter, f, ref, rm, t, toalias;
+  toalias = this.params.toalias;
+  if (typeof toalias === 'number') {
+    toalias += '';
+  }
   if (!reverse) {
     f = 'paradigm_b_report_works';
     t = 'paradigm_report_works';
@@ -5087,11 +5091,12 @@ P.report.dev2live = async function(reverse) {
     t = 'paradigm_b_report_works';
   }
   if (this.params.clear) {
-    await this.index._send(t, '', void 0, false);
+    await this.index._send(t, '', void 0, false, toalias);
   }
   counter = 0;
   batch = [];
   ref = this.index._for(f);
+  // q, opts, prefix, alias
   for await (rm of ref) {
     counter += 1;
     if (rm.DOI && !rm.DOI.includes(' pmcid:') && !rm.DOI.includes('\n') && !rm.DOI.includes('?ref')) {
@@ -5099,12 +5104,12 @@ P.report.dev2live = async function(reverse) {
     }
     if (batch.length === 30000) {
       console.log('report works', (reverse ? 'live2dev' : 'dev2live'), f, t, counter);
-      await this.index._bulk(t, batch, void 0, void 0, false);
+      await this.index._bulk(t, batch, void 0, void 0, false, toalias);
       batch = [];
     }
   }
   if (batch.length) {
-    await this.index._bulk(t, batch, void 0, void 0, false);
+    await this.index._bulk(t, batch, void 0, void 0, false, toalias);
     batch = [];
   }
   return counter;
@@ -6464,19 +6469,24 @@ try await fs.writeFile @S.static.folder + 'report_check_' + year + '.json', JSON
 try await fs.writeFile @S.static.folder + 'report_check_seen_' + year + '.json', JSON.stringify seen, '', 2
 try await fs.writeFile @S.static.folder + 'report_check_missing_' + year + '.json', JSON.stringify not_in_works, '', 2
 return res
-P.report.works.check._async = true
+P.report.works.check._async = true`;
 
-P.report.test = _index: true, _alias: 'altest2'
-
+`P.report.test = _index: true, _alias: 'altest2'
 P.report.test.add = ->
-l = await @dot P, 'report.test._alias'
-await @report.test hello: 'world', alias: l ? 'none'
-await @sleep 2000
-res = count: await @report.test.count(), ford: 0, records: []
-for await i from @index._for 'report_test', '*'
-  res.ford += 1
-  res.records.push i
-return res`;
+  toalias = @params.toalias
+  toalias += '' if typeof toalias is 'number'
+  l = await @dot P, 'report.test._alias'
+  await @report.test hello: 'world', alias: l ? 'none'
+  await @sleep 2000
+  res = count: await @report.test.count(), ford: 0, records: []
+  t = 'report_test'
+  batch = [{hello: 'world', alias: l ? 'none', batch: 1}, {hello: 'world', alias: l ? 'none', batch: 2}]
+  await @index._bulk t, batch, undefined, undefined, undefined, toalias
+  await @sleep 2000
+  for await i from @index._for 'report_test', '*'
+    res.ford += 1
+    res.records.push i
+  return res`;
 
 `P.report.works = _index: true, _key: 'DOI'
 P.report.works._process = (cr, openalex) ->
@@ -14139,7 +14149,7 @@ P.index._each = async function(route, q, opts, fn, prefix, alias) {
 };
 
 P.index._bulk = async function(route, data, action = 'index', bulk = 50000, prefix, alias) {
-  var counter, dtp, errorcount, errors, it, j, len, meta, pkg, r, ref1, ref10, ref11, ref12, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rid, row, rows, rs, rso;
+  var counter, dtp, errorcount, errors, it, j, len, meta, pkg, r, ref1, ref10, ref11, ref12, ref13, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rid, row, rows, rs, rso;
   if (action === true) {
     action = 'index';
   }
@@ -14153,16 +14163,23 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000, pref
       alias = '_' + alias;
     }
     alias = alias.replace(/\//g, '_');
-    rso = route.split('/')[0];
     if (!rso.endsWith(alias)) {
       route = route.replace(rso, rso + alias);
     }
   }
-  if (prefix == null) {
-    prefix = dtp != null ? dtp._prefix : void 0;
+  if (prefix === true) {
+    prefix = this.S.index.name;
   }
-  if (prefix !== false) {
-    route = (typeof prefix === 'string' ? prefix : this.S.index.name) + '_' + route;
+  if (prefix == null) {
+    prefix = (ref4 = dtp != null ? dtp._prefix : void 0) != null ? ref4 : this.S.index.name;
+  }
+  if (typeof prefix === 'string') {
+    if (prefix.length && !prefix.endsWith('_')) {
+      prefix += '_';
+    }
+    if (!route.startsWith(prefix)) {
+      route = prefix + route;
+    }
   }
   if (this.index == null) {
     this.index = P.index;
@@ -14177,7 +14194,7 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000, pref
     }, void 0, prefix, alias); // new ES 7.x requires this rather than text/plain
     return true;
   } else {
-    rows = typeof data === 'object' && !Array.isArray(data) && ((data != null ? (ref4 = data.hits) != null ? ref4.hits : void 0 : void 0) != null) ? data.hits.hits : data;
+    rows = typeof data === 'object' && !Array.isArray(data) && ((data != null ? (ref5 = data.hits) != null ? ref5.hits : void 0 : void 0) != null) ? data.hits.hits : data;
     if (!Array.isArray(rows)) {
       rows = [rows];
     }
@@ -14188,7 +14205,7 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000, pref
       row = rows[r];
       counter += 1;
       if (typeof row === 'object') {
-        rid = (ref5 = (ref6 = row._id) != null ? ref6 : (ref7 = row._source) != null ? ref7._id : void 0) != null ? ref5 : (await this.uid());
+        rid = (ref6 = (ref7 = row._id) != null ? ref7 : (ref8 = row._source) != null ? ref8._id : void 0) != null ? ref6 : (await this.uid());
         if (typeof rid === 'string') {
           rid = rid.replace(/\//g, '_');
         }
@@ -14201,7 +14218,7 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000, pref
       meta[action] = {
         "_index": route
       };
-      meta[action]._id = action === 'delete' && ((ref8 = typeof row) === 'string' || ref8 === 'number') ? row : rid; // what if action is delete but can't set an ID?
+      meta[action]._id = action === 'delete' && ((ref9 = typeof row) === 'string' || ref9 === 'number') ? row : rid; // what if action is delete but can't set an ID?
       pkg += JSON.stringify(meta) + '\n';
       if (action === 'create' || action === 'index') {
         pkg += JSON.stringify(row) + '\n';
@@ -14218,13 +14235,13 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000, pref
             'Content-Type': 'application/x-ndjson'
           }
         }, void 0, prefix, alias));
-        if ((this != null ? (ref9 = this.S) != null ? ref9.dev : void 0 : void 0) && (this != null ? (ref10 = this.S) != null ? ref10.bg : void 0 : void 0) === true && (rs != null ? rs.errors : void 0)) {
+        if ((this != null ? (ref10 = this.S) != null ? ref10.dev : void 0 : void 0) && (this != null ? (ref11 = this.S) != null ? ref11.bg : void 0 : void 0) === true && (rs != null ? rs.errors : void 0)) {
           errors = [];
-          ref11 = rs.items;
-          for (j = 0, len = ref11.length; j < len; j++) {
-            it = ref11[j];
+          ref12 = rs.items;
+          for (j = 0, len = ref12.length; j < len; j++) {
+            it = ref12[j];
             try {
-              if ((ref12 = it[action].status) !== 200 && ref12 !== 201) {
+              if ((ref13 = it[action].status) !== 200 && ref13 !== 201) {
                 errors.push(it[action]);
                 errorcount += 1;
               }
@@ -14625,7 +14642,7 @@ P.index.translate._auth = false;
 // calling this should be given a correct URL route for ES7.x, domain part of the URL is optional though.
 // call the above to have the route constructed. method is optional and will be inferred if possible (may be removed)
 P.index._send = async function(route, data, method, prefix, alias) {
-  var dtp, opts, provided_scroll_id, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, res, rqp, rso, url;
+  var dtp, opts, provided_scroll_id, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, rqp, rso, url;
   if (route.includes('?')) {
     [route, rqp] = route.split('?');
     rqp = '?' + rqp;
@@ -14647,31 +14664,37 @@ P.index._send = async function(route, data, method, prefix, alias) {
     return false;
   }
   if (!route.startsWith('http')) { // which it probably doesn't
-    rso = route.split('/')[0];
-    dtp = (await this.dot(P, rso.replace(/_/g, '.')));
-    if (alias == null) {
-      alias = (ref2 = (ref3 = this.params._alias) != null ? ref3 : (ref4 = this.S.alias) != null ? ref4[rso.startsWith(this.S.index.name + '_') ? rso.replace(this.S.index.name + '_', '') : rso] : void 0) != null ? ref2 : dtp != null ? dtp._alias : void 0;
-    }
-    if (typeof alias === 'string' && !route.startsWith('_')) {
-      if (!alias.startsWith('_')) {
-        alias = '_' + alias;
+    if (!route.startsWith('_')) {
+      rso = route.split('/')[0];
+      dtp = (await this.dot(P, rso.replace(/_/g, '.')));
+      if (alias == null) {
+        alias = (ref2 = (ref3 = this.params._alias) != null ? ref3 : (ref4 = this.S.alias) != null ? ref4[rso.startsWith(this.S.index.name + '_') ? rso.replace(this.S.index.name + '_', '') : rso] : void 0) != null ? ref2 : dtp != null ? dtp._alias : void 0;
       }
-      alias = alias.replace(/\//g, '_');
-      if (!rso.endsWith(alias)) {
-        route = route.replace(rso, rso + alias);
+      if (typeof alias === 'string') {
+        if (!alias.startsWith('_')) {
+          alias = '_' + alias;
+        }
+        alias = alias.replace(/\//g, '_');
+        if (!rso.endsWith(alias)) {
+          route = route.replace(rso, rso + alias);
+        }
       }
-    }
-    if (this.S.index.name && !route.startsWith(this.S.index.name) && !route.startsWith('_')) {
-      //prefix ?= await @dot P, (route.split('/')[0]).replace(/_/g, '.') + '._prefix'
       if (prefix == null) {
-        prefix = dtp != null ? dtp._prefix : void 0;
+        prefix = (ref5 = dtp != null ? dtp._prefix : void 0) != null ? ref5 : this.S.index.name;
       }
-      // TODO could allow prefix to be a list of names, and if index name is in the list, alias the index into those namespaces, to share indexes between specific instances rather than just one or global
-      if (prefix !== false) {
-        route = (typeof prefix === 'string' ? prefix : this.S.index.name) + '_' + route;
+      if (prefix === true) {
+        prefix = this.S.index.name;
+      }
+      if (typeof prefix === 'string') {
+        if (prefix.length && !prefix.endsWith('_')) {
+          prefix += '_';
+        }
+        if (!route.startsWith(prefix)) { // TODO could allow prefix to be a list of names, and if index name is in the list, alias the index into those namespaces, to share indexes between specific instances rather than just one or global
+          route = prefix + route;
+        }
       }
     }
-    url = (this != null ? (ref5 = this.S) != null ? (ref6 = ref5.index) != null ? ref6.url : void 0 : void 0 : void 0) ? this.S.index.url : (ref7 = S.index) != null ? ref7.url : void 0;
+    url = (this != null ? (ref6 = this.S) != null ? (ref7 = ref6.index) != null ? ref7.url : void 0 : void 0 : void 0) ? this.S.index.url : (ref8 = S.index) != null ? ref8.url : void 0;
     if (Array.isArray(url)) {
       url = url[Math.floor(Math.random() * url.length)];
     }
@@ -14692,7 +14715,7 @@ P.index._send = async function(route, data, method, prefix, alias) {
     if (typeof data.scroll === 'number' || (typeof data.scroll === 'string' && !data.scroll.endsWith('m'))) {
       data.scroll += 'm';
     }
-    route += (route.indexOf('?') === -1 ? '?' : '&') + 'scroll=' + ((ref8 = data.scroll) != null ? ref8 : '2m');
+    route += (route.indexOf('?') === -1 ? '?' : '&') + 'scroll=' + ((ref9 = data.scroll) != null ? ref9 : '2m');
     if (data.scroll_id) {
       provided_scroll_id = data.scroll_id;
       route = route.split('://')[0] + '://' + route.split('://')[1].split('/')[0] + '/_search/scroll' + (route.includes('?') ? '?' + route.split('?')[1] : '');
@@ -16123,7 +16146,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Fri Aug 04 2023 10:04:03 GMT+0100";
+S.built = "Mon Aug 07 2023 08:17:03 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
