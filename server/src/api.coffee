@@ -96,6 +96,10 @@ S.port ?= if S.dev then 4000 else 3000
 pen = process.env.name
 pmid = process.env.pm_id
 S.port += if pen.endsWith('_async') then 1 else if pen.endsWith('_loop') then 2 else if pen.endsWith('_schedule') then 3 else 0
+for k, v of (S.async_runner ? {})
+  if pen.endsWith k.replace /\./g, '_'
+    S.port = parseInt v.replace('http://', '').replace('https://', '').split(':')[1]
+    break
 server.listen S.port, 'localhost'
 
 fetch 'http://localhost:' + S.port + '/status'

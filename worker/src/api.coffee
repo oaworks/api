@@ -253,37 +253,39 @@ P = () ->
           _schedule[nd] = schedule: a[k]._schedule, fn: a[k]
           sfn = (fnm) =>
             return () =>
+              fno = _schedule[fnm].fn
+              aru = @S.async_runner?[fno._runner ? fnm]
               if @S.dev isnt true and not @S.async and not @S.async_loop and not @S.async_schedule and process.env.pm_id not in [1, '1']
                 console.log 'NOT running scheduled task because not on dev and process pid is not 1', fnm, @datetime()
-              else if not @S.async_schedule and typeof @S.async is 'string'
+              else if typeof aru isnt 'string' and not @S.async_schedule and typeof @S.async is 'string'
                 console.log 'NOT running scheduled task because not on the available async process', fnm, @datetime()
-              else if typeof @S.async_schedule is 'string' and (_schedule[fnm].fn._schedule isnt 'loop' or not @S.async_loop)
+              else if typeof aru isnt 'string' and typeof @S.async_schedule is 'string' and (fno._schedule isnt 'loop' or not @S.async_loop)
                 console.log 'NOT running scheduled task because not on the available async scheduled process', fnm, @datetime()
-              else if typeof @S.async_loop is 'string' and _schedule[fnm].fn._schedule is 'loop'
+              else if typeof aru isnt 'string' and typeof @S.async_loop is 'string' and fno._schedule is 'loop'
                 console.log 'NOT running scheduled looped task because not on the available loop process', fnm, @datetime()
+              else if typeof aru is 'string' and not process.env.name.endsWith (fno._runner ? fnm).replace /\./g, '_'
+                console.log 'NOT running scheduled task because not on the specified process runner', (fno._runner ? fnm), @datetime()
               else
-                if _schedule[fnm].fn._schedule is 'loop'
-                  console.log 'starting scheduled loop function', fnm
                 console.log 'scheduled task', fnm, @datetime()
                 _schedule[fnm].last = await @datetime()
                 delete _schedule[fnm].error
                 try
-                  if _schedule[fnm].fn._sheet
-                    crd = await @_loadsheet _schedule[fnm].fn, _schedule[fnm].fn._name.replace /\./g, '_'
+                  if fno._sheet
+                    crd = await @_loadsheet _schedule[fnm].fn, fno._name.replace /\./g, '_'
                   else
-                    crd = await _schedule[fnm].fn _schedule[fnm].fn._args # args can optionally be provided for the scheduled call
+                    crd = await _schedule[fnm].fn fno._args # args can optionally be provided for the scheduled call
                   try _schedule[fnm].result = JSON.stringify(crd).substr 0, 200
                   _schedule[fnm].success = true
                   console.log 'scheduled task result', crd
-                  if _schedule[fnm].fn._schedule is 'loop'
+                  if fno._schedule is 'loop'
                     console.log 'Schedule looping', fnm
                     lpd = await sfn fnm
                     lpd()
                 catch err
                   _schedule[fnm].success = false
                   try _schedule[fnm].error = JSON.stringify err
-          if a[k]._schedule is 'loop'
-            console.log 'Scheduling loop', nd
+          if a[k]._schedule in ['loop', 'startup']
+            console.log 'Starting scheduled', a[k]._schedule, nd
             lpd = await sfn nd
             lpd()
           else
@@ -311,9 +313,10 @@ P = () ->
 
   if typeof fn in ['object', 'function'] and fn._bg and typeof @S.bg is 'string' and @S.bg.startsWith 'http'
     throw new Error()
-  else if typeof fn in ['object', 'function'] and fn._async and typeof @S.async is 'string'
-    console.log 'Fetching from async process', @S.async, @request.url
-    res = await @fetch @S.async + @request.url, method: @request.method, headers: @headers, body: @request.body
+  else if typeof fn in ['object', 'function'] and fn._async and typeof @S.async is 'string' and (typeof @S.async_runner?[fn._runner ? @fn] isnt 'string' or not process.env.name.endsWith (fn._runner ? @fn).replace /\./g, '_' )
+    asr = @S.async_runner?[fn._runner ? @fn] ? @S.async
+    console.log 'Fetching from async process', asr, @request.url
+    res = await @fetch asr + @request.url, method: @request.method, headers: @headers, body: @request.body
   else if typeof fn is 'function'
     authd = if @fn is 'auth' then undefined else await @auth()
     @user = authd if typeof authd is 'object' and authd._id and authd.email

@@ -233,6 +233,17 @@ P.src.crossref.load = () ->
   # https://academictorrents.com/details/4dcfdf804775f2d92b7a030305fa0350ebef6f3e
   # https://academictorrents.com/download/4dcfdf804775f2d92b7a030305fa0350ebef6f3e.torrent
 
+  # and 2023 update:
+  # https://www.crossref.org/blog/2023-public-data-file-now-available-with-new-and-improved-retrieval-options/
+  # https://academictorrents.com/details/d9e554f4f0c3047d9f49e448a7004f7aa1701b69
+  # https://academictorrents.com/download/d9e554f4f0c3047d9f49e448a7004f7aa1701b69.torrent
+
+  # we also now have metadata plus: 
+  # https://www.crossref.org/documentation/metadata-plus/metadata-plus-snapshots/
+  # export CRTOKEN='<insert-your-token-here>'
+  # curl -o "all.json.tar.gz" --progress-bar -L -X GET  https://api.crossref.org/snapshots/monthly/latest/all.json.tar.gz -H "Crossref-Plus-API-Token: Bearer ${CRTOKEN}"
+  # and there may be issues downloading, at least FAQ seems to indicate some people may have. If so, redo above command to continue where failed with added -C - 
+
   infolder = @S.directory + '/crossref/data/'
   lastfile = @S.directory + '/crossref/last' # where to record the ID of the last file processed
   
@@ -247,6 +258,7 @@ P.src.crossref.load = () ->
 
   # there were 40228 in the 2020 data dump,  but oddly 9999 was missing
   # for 2022 there are 26810
+  # for 2023 there are 28701
   while filenumber >= 0 and filenumber isnt files and filenumber < 26810
     if filenumber not in [] # should make this a file exists check probably (just added 9999 to this list when running 2020)
       break if total is howmany

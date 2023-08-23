@@ -4,6 +4,93 @@ S.report ?= {}
 
 P.report = () -> return 'OA.Works report'
 
+
+_queue_batch = []
+_queue_batch_last = Date.now()
+_do_batch = []
+_done_batch = []
+_processed_batch = []
+_processed_batch_last = Date.now()
+
+P.report.queued = _index: true, _auth: '@oa.works'
+P.report.queue = (doi) ->
+  doi ?= @params.queue
+  _queue_batch.push(doi) if doi and typeof doi is 'string' and doi.startsWith('10.') and doi not in _queue_batch
+  if _queue_batch.length > 2000 or Date.now() > (_queue_batch_last + 15000)
+    batch = []
+    batch.push(_id: d, DOI: d, createdAt: Date.now()) while d = _queue_batch.shift()
+    await @report.queued(batch) if batch.length
+    _queue_batch_last = Date.now()
+  return
+    queue: _queue_batch.length
+    queue_last: await @datetime _queue_batch_last
+    processed_last: await @datetime _processed_batch_last
+    queued: await @report.queued.count()
+P.report.queue._auth = '@oa.works'
+
+P.report.doqueue = (doi) ->
+  doi ?= @params.doqueue
+  if not doi?
+    if not _do_batch.length
+      q = await @report.queued '*', size: 100, sort: createdAt: 'asc' # if running more than one queue processor, this will need a better approach
+      await @sleep(1000) if not q?.hits?.total
+      _do_batch.push(qd._source.DOI) for qd in (q?.hits?.hits ? [])
+    doi = _do_batch.shift()
+  console.log 'report doqueue', doi
+  if typeof doi is 'string' and doi.startsWith '10.'
+    res = await @report.works.process doi
+    _done_batch.push doi
+    _processed_batch.push(res) if res?._id?
+  if _processed_batch.length > 2000 or Date.now() > (_processed_batch_last + 15000)
+    console.log 'do queue saving batch', _processed_batch.length
+    await @report.works _processed_batch
+    _processed_batch = []
+    await @report.queued(ddd, '') while ddd = _done_batch.shift()
+    _processed_batch_last = Date.now()
+  if _queue_batch.length > 2000 or Date.now() > (_queue_batch_last + 15000)
+    batch = []
+    batch.push(_id: d, DOI: d, createdAt: Date.now()) while d = _queue_batch.shift()
+    await @report.queued(batch) if batch.length
+    _queue_batch_last = Date.now()
+  return true
+P.report.doqueue._async = true
+P.report.doqueue._auth = '@oa.works'
+P.report.doqueue._bg = true
+# add a loop schedule to doqueue repeatedly unless queued is empty
+
+'''
+P.report.testq = ->
+  counter = 0
+  if @params.load
+    try
+      dois = JSON.parse (await fs.readFile @S.static.folder + '/report_check_missing_2023.json').toString()
+    catch
+      dstr = (await fs.readFile @S.static.folder + '/report_check_missing_2023.json').toString()
+      dstr.replace '[', ''
+      dstr.replace /\]$/g, ''
+      dois = []
+      for ad in dstr.split ','
+        ad = ad.trim()
+        dois.push(ad) if ad.startsWith('10.') and ad.includes '/'
+    for doi in dois
+      await @report.queue(doi) if typeof doi is 'string' and doi.startsWith '10.'
+      counter += 1
+      console.log('testq', counter) if counter % 1000 is 0
+    await @sleep 1000
+  s1 = await @report.queue()
+  await @sleep 1000
+  queued = await @report.queued.count()
+  did = await @report.doqueue()
+  s2 = await @report.queue()
+  console.log counter, s1, queued, did, s2
+  return [counter, s1, queued, did, s2]
+P.report.testq._async = true
+P.report.testq._runner = 'report.doqueue'
+P.report.testq._auth = '@oa.works'
+P.report.testq._bg = true
+'''
+
+
 P.report.dev2live = (reverse) ->
   toalias = @params.toalias
   toalias += '' if typeof toalias is 'number'
@@ -362,7 +449,7 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced) ->
         sd = await @dateparts ass.value
         rec.submitted_date ?= sd.date if sd?.date
     delete f['doi-asserted-by'] for f in rec.funder ? []
-    rec.title = cr.title[0] if cr.title and cr.title.length
+    rec.title = cr.title[0] if cr.title and typeof cr.title isnt 'string' and cr.title.length
     rec.journal = cr['container-title'][0] if cr['container-title'] and cr['container-title'].length
     rec['reference-count'] = cr['reference-count'] if cr['reference-count']?
     for lc in cr.license ? []
@@ -419,9 +506,9 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced) ->
       try
         pfn = (if rec.is_paratext then 'paratext' else 'retracted') + (if @S.dev then '_dev' else '')
         prds = []
-        try prds = JSON.parse (await fs.readFile @S.static.folder + pfn + '.json').toString()
+        try prds = JSON.parse (await fs.readFile @S.static.folder + '/' + pfn + '.json').toString()
         prds.push(rec.DOI) if rec.DOI not in prds
-        await fs.writeFile @S.static.folder + pfn + '.json', JSON.stringify prds, '', 2
+        await fs.writeFile @S.static.folder + '/' + pfn + '.json', JSON.stringify prds, '', 2
     return 
 
   delete rec.is_paratext
@@ -682,54 +769,145 @@ P.report.works.changes._bg = true
 P.report.works.changes._async = true
 P.report.works.changes._auth = '@oa.works'
 
-'''P.report.works.check = (year) ->
+
+
+P.report.works.check = (year) ->
   year ?= @params.check ? @params.year ? '2023'
-  res = year: year, crossref: 0, openalex: 0, crossref_in_works: 0, crossref_in_works_had_openalex: 0, crossref_not_in_works_in_openalex: 0, openalex_in_works: 0, openalex_in_works_by_id: 0, openalex_with_doi_but_not_seen: 0, openalex_not_in_works: 0, duplicates: 0
-  cq = '(funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year
   seen = []
   not_in_works = []
-  for await cr from @index._for 'src_crossref_works', cq, include: ['DOI'] #, scroll: '30m'
-    console.log 'crossref', res.crossref
+  crossref_seen_openalex = []
+  res = year: year, crossref: 0, crossref_count: 0, openalex: 0, openalex_count: 0, crossref_in_works: 0, crossref_in_works_had_openalex: 0, crossref_not_in_works_in_openalex: 0, openalex_already_seen_in_works_by_crossref: 0, openalex_in_works: 0, openalex_in_works_by_id: 0, openalex_with_doi_but_not_seen: 0, openalex_not_in_works: 0, duplicates: 0
+  await fs.writeFile @S.static.folder + '/report_check_missing_' + year + '.json', '['
+
+  cq = '(funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year
+  res.crossref_count = await @src.crossref.works.count cq
+  await fs.writeFile @S.static.folder + '/report_check_' + year + '.json', JSON.stringify res, '', 2
+  for await cr from @index._for 'src_crossref_works', cq, include: ['DOI'], scroll: '30m'
+    console.log(res) if res.crossref % 100 is 0
     if cr.DOI not in seen
       seen.push cr.DOI
     else
       res.duplicates += 1
     res.crossref += 1
     res.crossref_in_works += 1 if worked = await @report.works cr.DOI
-    not_in_works.push(cr.DOI) if not worked and cr.DOI not in not_in_works
+    if not worked and cr.DOI not in not_in_works
+      await fs.appendFile @S.static.folder + '/report_check_missing_' + year + '.json', (if not_in_works.length then ',' else '') + '\n"' + cr.DOI + '"'
+      not_in_works.push cr.DOI
     if worked?.openalex
       res.crossref_in_works_had_openalex += 1
-    else if olx = await @src.openalex.works 'ids.doi:"' + cr.DOI + '"'
+      crossref_seen_openalex.push cr.DOI
+    else if olx = await @src.openalex.works.count 'ids.doi:"https://doi.org/' + cr.DOI + '"'
       res.crossref_not_in_works_in_openalex += 1
 
   oq = 'authorships.institutions.display_name:* AND publication_year:' + year
-  for await ol from @index._for 'src_openalex_works', oq, include: ['id', 'ids'] #, scroll: '30m'
-    console.log 'openalex', res.openalex
+  res.openalex_count = await @src.openalex.works.count oq
+  await fs.writeFile @S.static.folder + '/report_check_' + year + '.json', JSON.stringify res, '', 2
+  for await ol from @index._for 'src_openalex_works', oq, include: ['id', 'ids'], scroll: '30m'
+    console.log(res) if res.openalex % 100 is 0
     res.openalex += 1
     oodoi = if ol.ids?.doi then '10.' + ol.ids.doi.split('/10.')[1] else undefined
     if oodoi
+      res.openalex_already_seen_in_works_by_crossref += 1 if oodoi in crossref_seen_openalex
       if oodoi not in seen
         res.openalex_with_doi_but_not_seen += 1 if oodoi
         seen.push oodoi
       else
         res.duplicates += 1
+    olid = ol.id.split('/').pop()
     if oodoi and worked = await @report.works oodoi
       res.openalex_in_works += 1
-    else if worked = await @report.works 'openalex.keyword:"' + ol.id + '"', 1
+    else if worked = await @report.works 'openalex.keyword:"' + olid + '"', 1
       res.openalex_in_works += 1
       res.openalex_in_works_by_id += 1
     else
       res.openalex_not_in_works += 1
-    not_in_works.push(oodoi ? ol.id) if not worked and (oodoi ? ol.id) not in not_in_works
+    if not worked and (oodoi ? olid) not in not_in_works
+      await fs.appendFile @S.static.folder + '/report_check_missing_' + year + '.json', (if not_in_works.length then ',' else '') + '\n"' + (oodoi ? olid) + '"'
+      not_in_works.push oodoi ? olid
 
   res.seen = seen.length
   res.not_in_works = not_in_works.length
-  try await fs.writeFile @S.static.folder + 'report_check_' + year + '.json', JSON.stringify res, '', 2
-  try await fs.writeFile @S.static.folder + 'report_check_seen_' + year + '.json', JSON.stringify seen, '', 2
-  try await fs.writeFile @S.static.folder + 'report_check_missing_' + year + '.json', JSON.stringify not_in_works, '', 2
+
+  await fs.appendFile @S.static.folder + '/report_check_missing_' + year + '.json', '\n]'
+  await fs.writeFile @S.static.folder + '/report_check_seen_' + year + '.json', JSON.stringify seen, '', 2
+  await fs.writeFile @S.static.folder + '/report_check_' + year + '.json', JSON.stringify res, '', 2
+  console.log res
   return res
 P.report.works.check._async = true
+P.report.works.check._bg = true
+P.report.works.check._auth = '@oa.works'
+
+
+
+'''P.report.fixmedline = ->
+  fixes = []
+  checked = 0
+  for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'DOI:* AND submitted_date:* AND PMCID:*', scroll: '30m', include: ['DOI', 'PMID']
+    checked += 1
+    console.log('fix medline checked', checked) if checked % 1000 is 0
+    from_crossref = false
+    if cr = await @src.crossref.works rec.DOI
+      for ass in (cr.assertion ? [])
+        if (ass.label ? '').toLowerCase().includes 'received'
+          from_crossref = true
+          break
+    from_pubmed = false
+    if not from_crossref
+      if pubmed = (if rec.PMID then await @src.pubmed(rec.PMID) else await @src.pubmed.doi rec.DOI)
+        from_pubmed = true if pubmed.dates?.PubMedPubDate_received?.date
+    if not from_crossref and not from_pubmed
+      fixes.push rec.DOI
+      console.log 'fix medline found', fixes.length, 'to fix'
+  batch = []
+  if fixes.length
+    for DOI in fixes
+      if rec = await @report.works DOI
+        delete rec.submitted_date
+        delete rec.accepted_date
+        batch.push rec
+      if batch.length is 5000
+        await @report.works batch
+        batch = []
+    if batch.length
+      await @report.works batch
+  console.log 'fix medline completed with', fixes.length, 'fixed'
+  return fixes.length
+P.report.fixmedline._bg = true
+P.report.fixmedline._async = true
+P.report.fixmedline._auth = '@oa.works'
 '''
+
+P.report.fixtitle = ->
+  fixes = 0
+  checked = 0
+  batch = []
+  for alpha in 'abcdefghijklmnopqrstuvwxyz'.split ''
+    for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'title.keyword:"' + alpha + '" OR title.keyword:"' + alpha.toUpperCase() + '"', scroll: '30m'
+      checked += 1
+      console.log('fix title checked', alpha, checked, fixes) if checked % 1000 is 0
+      if rec.title.length is 1
+        if oadoi = await @src.oadoi rec.DOI
+          rec.title = oadoi.title if oadoi.title
+        if rec.title.length is 1 and openalex = await @src.openalex.works rec.DOI
+          rec.title = openalex.title if openalex.title
+        if rec.title.length is 1 and cr = await @src.crossref.works rec.DOI
+          rec.title = cr.title if cr.title
+          rec.title = rec.title[0] if typeof rec.title isnt 'string'
+        if rec.title.length isnt 1
+          fixes += 1
+          batch.push rec
+        if batch.length is 20000
+          await @report.works batch
+          batch = []
+  if batch.length
+    await @report.works batch
+  console.log 'fix title completed with', checked, fixes
+  return fixes
+P.report.fixtitle._bg = true
+P.report.fixtitle._async = true
+P.report.fixtitle._auth = '@oa.works'
+
+
 
 '''
 P.report.test = _index: true, _alias: 'altest2'
