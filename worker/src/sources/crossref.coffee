@@ -238,12 +238,6 @@ P.src.crossref.load = () ->
   # https://academictorrents.com/details/d9e554f4f0c3047d9f49e448a7004f7aa1701b69
   # https://academictorrents.com/download/d9e554f4f0c3047d9f49e448a7004f7aa1701b69.torrent
 
-  # we also now have metadata plus: 
-  # https://www.crossref.org/documentation/metadata-plus/metadata-plus-snapshots/
-  # export CRTOKEN='<insert-your-token-here>'
-  # curl -o "all.json.tar.gz" --progress-bar -L -X GET  https://api.crossref.org/snapshots/monthly/latest/all.json.tar.gz -H "Crossref-Plus-API-Token: Bearer ${CRTOKEN}"
-  # and there may be issues downloading, at least FAQ seems to indicate some people may have. If so, redo above command to continue where failed with added -C - 
-
   infolder = @S.directory + '/crossref/data/'
   lastfile = @S.directory + '/crossref/last' # where to record the ID of the last file processed
   
@@ -352,3 +346,44 @@ P.src.crossref.changes._bg = true
 P.src.crossref.changes._async = true
 P.src.crossref.changes._auth = 'root'
 P.src.crossref.changes._notify = false
+
+
+
+P.src.crossref.plus = {}
+P.src.crossref.plus.load = ->
+  # we now have metadata plus: 
+  # https://www.crossref.org/documentation/metadata-plus/metadata-plus-snapshots/
+  # export CRTOKEN='<insert-your-token-here>'
+  # curl -o "all.json.tar.gz" --progress-bar -L -X GET  https://api.crossref.org/snapshots/monthly/latest/all.json.tar.gz -H "Crossref-Plus-API-Token: Bearer ${CRTOKEN}"
+  # and there may be issues downloading, at least FAQ seems to indicate some people may have. If so, redo above command to continue where failed with added -C - 
+
+  #await @src.crossref.works('') if @params.clear
+  batchsize = 30000
+  fn = @S.directory + '/imports/crossref/all.json.tar.gz'
+  total = 0
+  batch = []
+  lines = ''
+  for await line from readline.createInterface input: fs.createReadStream(fn).pipe zlib.createGunzip()
+    lines += line
+    console.log lines
+    if lines.endsWith('}\n')
+      rec = JSON.parse lines #(lines).items
+      total += 1
+      #rec = await @src.crossref.works._format rec
+      #rec.srcfile = filenumber
+      #batch.push rec
+      lines = ''
+      
+      if batch.length is batchsize
+        console.log 'Crossref plus load ' + total
+        await @src.crossref.works batch
+        batch = []
+
+  await @src.crossref.works(batch) if batch.length
+
+  console.log total
+  return total
+
+P.src.crossref.plus.load._bg = true
+P.src.crossref.plus.load._async = true
+P.src.crossref.plus.load._auth = 'root'

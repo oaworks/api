@@ -5920,7 +5920,7 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
       f = ref7[l];
       delete f['doi-asserted-by'];
     }
-    if (cr.title && cr.title.length) {
+    if (cr.title && typeof cr.title !== 'string' && cr.title.length) {
       rec.title = cr.title[0];
     }
     if (cr['container-title'] && cr['container-title'].length) {
@@ -6570,71 +6570,6 @@ P.report.works.changes._async = true;
 
 P.report.works.changes._auth = '@oa.works';
 
-P.report.fixmedline = async function() {
-  var DOI, ass, batch, checked, cr, fixes, from_crossref, from_pubmed, j, l, len, len1, pubmed, rec, ref, ref1, ref2, ref3, ref4, ref5;
-  fixes = [];
-  checked = 0;
-  ref = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', 'DOI:* AND submitted_date:* AND PMCID:*', {
-    scroll: '30m',
-    include: ['DOI', 'PMID']
-  });
-  for await (rec of ref) {
-    checked += 1;
-    if (checked % 1000 === 0) {
-      console.log('fix medline checked', checked);
-    }
-    from_crossref = false;
-    if (cr = (await this.src.crossref.works(rec.DOI))) {
-      ref2 = (ref1 = cr.assertion) != null ? ref1 : [];
-      for (j = 0, len = ref2.length; j < len; j++) {
-        ass = ref2[j];
-        if (((ref3 = ass.label) != null ? ref3 : '').toLowerCase().includes('received')) {
-          from_crossref = true;
-          break;
-        }
-      }
-    }
-    from_pubmed = false;
-    if (!from_crossref) {
-      if (pubmed = (rec.PMID ? (await this.src.pubmed(rec.PMID)) : (await this.src.pubmed.doi(rec.DOI)))) {
-        if ((ref4 = pubmed.dates) != null ? (ref5 = ref4.PubMedPubDate_received) != null ? ref5.date : void 0 : void 0) {
-          from_pubmed = true;
-        }
-      }
-    }
-    if (!from_crossref && !from_pubmed) {
-      fixes.push(rec.DOI);
-      console.log('fix medline found', fixes.length, 'to fix');
-    }
-  }
-  batch = [];
-  if (fixes.length) {
-    for (l = 0, len1 = fixes.length; l < len1; l++) {
-      DOI = fixes[l];
-      if (rec = (await this.report.works(DOI))) {
-        delete rec.submitted_date;
-        delete rec.accepted_date;
-        batch.push(rec);
-      }
-      if (batch.length === 5000) {
-        await this.report.works(batch);
-        batch = [];
-      }
-    }
-    if (batch.length) {
-      await this.report.works(batch);
-    }
-  }
-  console.log('fix medline completed with', fixes.length, 'fixed');
-  return fixes.length;
-};
-
-P.report.fixmedline._bg = true;
-
-P.report.fixmedline._async = true;
-
-P.report.fixmedline._auth = '@oa.works';
-
 P.report.works.check = async function(year) {
   var cq, cr, crossref_seen_openalex, not_in_works, ol, olid, olx, oodoi, oq, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, res, seen, worked;
   if (year == null) {
@@ -6745,6 +6680,102 @@ P.report.works.check._async = true;
 P.report.works.check._bg = true;
 
 P.report.works.check._auth = '@oa.works';
+
+`P.report.fixmedline = ->
+fixes = []
+checked = 0
+for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'DOI:* AND submitted_date:* AND PMCID:*', scroll: '30m', include: ['DOI', 'PMID']
+  checked += 1
+  console.log('fix medline checked', checked) if checked % 1000 is 0
+  from_crossref = false
+  if cr = await @src.crossref.works rec.DOI
+    for ass in (cr.assertion ? [])
+      if (ass.label ? '').toLowerCase().includes 'received'
+        from_crossref = true
+        break
+  from_pubmed = false
+  if not from_crossref
+    if pubmed = (if rec.PMID then await @src.pubmed(rec.PMID) else await @src.pubmed.doi rec.DOI)
+      from_pubmed = true if pubmed.dates?.PubMedPubDate_received?.date
+  if not from_crossref and not from_pubmed
+    fixes.push rec.DOI
+    console.log 'fix medline found', fixes.length, 'to fix'
+batch = []
+if fixes.length
+  for DOI in fixes
+    if rec = await @report.works DOI
+      delete rec.submitted_date
+      delete rec.accepted_date
+      batch.push rec
+    if batch.length is 5000
+      await @report.works batch
+      batch = []
+  if batch.length
+    await @report.works batch
+console.log 'fix medline completed with', fixes.length, 'fixed'
+return fixes.length
+P.report.fixmedline._bg = true
+P.report.fixmedline._async = true
+P.report.fixmedline._auth = '@oa.works'`;
+
+P.report.fixtitle = async function() {
+  var alpha, batch, checked, cr, fixes, j, len, oadoi, openalex, rec, ref, ref1;
+  fixes = 0;
+  checked = 0;
+  batch = [];
+  ref = 'abcdefghijklmnopqrstuvwxyz'.split('');
+  for (j = 0, len = ref.length; j < len; j++) {
+    alpha = ref[j];
+    ref1 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', 'title.keyword:"' + alpha + '" OR title.keyword:"' + alpha.toUpperCase() + '"', {
+      scroll: '30m'
+    });
+    for await (rec of ref1) {
+      checked += 1;
+      if (checked % 1000 === 0) {
+        console.log('fix title checked', alpha, checked, fixes);
+      }
+      if (rec.title.length === 1) {
+        if (oadoi = (await this.src.oadoi(rec.DOI))) {
+          if (oadoi.title) {
+            rec.title = oadoi.title;
+          }
+        }
+        if (rec.title.length === 1 && (openalex = (await this.src.openalex.works(rec.DOI)))) {
+          if (openalex.title) {
+            rec.title = openalex.title;
+          }
+        }
+        if (rec.title.length === 1 && (cr = (await this.src.crossref.works(rec.DOI)))) {
+          if (cr.title) {
+            rec.title = cr.title;
+          }
+          if (typeof rec.title !== 'string') {
+            rec.title = rec.title[0];
+          }
+        }
+        if (rec.title.length !== 1) {
+          fixes += 1;
+          batch.push(rec);
+        }
+        if (batch.length === 20000) {
+          await this.report.works(batch);
+          batch = [];
+        }
+      }
+    }
+  }
+  if (batch.length) {
+    await this.report.works(batch);
+  }
+  console.log('fix title completed with', checked, fixes);
+  return fixes;
+};
+
+P.report.fixtitle._bg = true;
+
+P.report.fixtitle._async = true;
+
+P.report.fixtitle._auth = '@oa.works';
 
 `P.report.test = _index: true, _alias: 'altest2'
 P.report.test.add = ->
@@ -7528,6 +7559,11 @@ P.src.crossref.load = async function() {
   // https://www.crossref.org/blog/2022-public-data-file-of-more-than-134-million-metadata-records-now-available/
   // https://academictorrents.com/details/4dcfdf804775f2d92b7a030305fa0350ebef6f3e
   // https://academictorrents.com/download/4dcfdf804775f2d92b7a030305fa0350ebef6f3e.torrent
+
+  // and 2023 update:
+  // https://www.crossref.org/blog/2023-public-data-file-now-available-with-new-and-improved-retrieval-options/
+  // https://academictorrents.com/details/d9e554f4f0c3047d9f49e448a7004f7aa1701b69
+  // https://academictorrents.com/download/d9e554f4f0c3047d9f49e448a7004f7aa1701b69.torrent
   infolder = this.S.directory + '/crossref/data/';
   lastfile = this.S.directory + '/crossref/last'; // where to record the ID of the last file processed
   files = -1; // max number of files to process. set to -1 to keep going
@@ -7543,6 +7579,7 @@ P.src.crossref.load = async function() {
   
     // there were 40228 in the 2020 data dump,  but oddly 9999 was missing
   // for 2022 there are 26810
+  // for 2023 there are 28701
   while (filenumber >= 0 && filenumber !== files && filenumber < 26810) {
     if (indexOf.call([], filenumber) < 0) {
       if (total === howmany) {
@@ -7681,6 +7718,54 @@ P.src.crossref.changes._auth = 'root';
 
 P.src.crossref.changes._notify = false;
 
+P.src.crossref.plus = {};
+
+P.src.crossref.plus.load = async function() {
+  var batch, batchsize, fn, line, lines, rec, ref, total;
+  // we now have metadata plus: 
+  // https://www.crossref.org/documentation/metadata-plus/metadata-plus-snapshots/
+  // export CRTOKEN='<insert-your-token-here>'
+  // curl -o "all.json.tar.gz" --progress-bar -L -X GET  https://api.crossref.org/snapshots/monthly/latest/all.json.tar.gz -H "Crossref-Plus-API-Token: Bearer ${CRTOKEN}"
+  // and there may be issues downloading, at least FAQ seems to indicate some people may have. If so, redo above command to continue where failed with added -C - 
+
+  //await @src.crossref.works('') if @params.clear
+  batchsize = 30000;
+  fn = this.S.directory + '/all.json.tar.gz';
+  total = 0;
+  batch = [];
+  lines = '';
+  ref = readline.createInterface({
+    input: fs.createReadStream(fn).pipe(zlib.createGunzip())
+  });
+  for await (line of ref) {
+    lines += line;
+    if (lines.endsWith('}\n')) {
+      rec = JSON.parse(lines); //(lines).items
+      total += 1;
+      rec = (await this.src.crossref.works._format(rec));
+      rec.srcfile = filenumber;
+      batch.push(rec);
+      lines = '';
+      if (batch.length === batchsize) {
+        console.log('Crossref load ' + total);
+        await this.src.crossref.works(batch);
+        batch = [];
+      }
+    }
+  }
+  if (batch.length) {
+    await this.src.crossref.works(batch);
+  }
+  console.log(total);
+  return total;
+};
+
+P.src.crossref.plus.load._bg = true;
+
+P.src.crossref.plus.load._async = true;
+
+P.src.crossref.plus.load._auth = 'root';
+
 var base;
 
 if ((base = S.src).doaj == null) {
@@ -7786,6 +7871,8 @@ P.src.doaj.title = (title) ->
 // can also use HAS_PDF:y to get back ones where we should expect to be able to get a pdf, but it is not clear if those are OA and available via eupmc
 // can ensure a DOI is available using HAS_DOI
 // can search publication date via FIRST_PDATE:1995-02-01 or FIRST_PDATE:[2000-10-14 TO 2010-11-15] to get range
+var indexOf = [].indexOf;
+
 P.src.epmc = {
   _index: true,
   _prefix: false,
@@ -8078,65 +8165,6 @@ P.src.epmc.fulltext = async function(pmcid) { // check fulltext exists in epmc e
   }
 };
 
-P.src.epmc.statement = async function(pmcid, rec) {
-  var i, len, ps, psl, ref, ref1, ref2, ref3, ref4, statement, strs, xml;
-  if (pmcid == null) {
-    pmcid = (ref = (ref1 = (ref2 = (ref3 = this.params.statement) != null ? ref3 : this.params.pmc) != null ? ref2 : this.params.pmcid) != null ? ref1 : this.params.PMC) != null ? ref : this.params.PMCID;
-  }
-  if (pmcid) {
-    pmcid = 'PMC' + (pmcid + '').toLowerCase().replace('pmc', '');
-    if (xml = (await this.src.epmc.xml(pmcid, rec))) {
-      // because of xml parsing issues with embedded html in pmc xml, just regex it out if present
-      // pubmed data does not hold corresponding statements to pmc, but the pmc records from ncbi do contain them as they are the same as fulltext records from epmc
-      // see <notes notes-type="data-availability"> in
-      // https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=PMC9206389
-      // or <custom-meta id="data-availability"> in 
-      // https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=PMC9009769
-      // which also has it in "notes" but with no type and no other content <notes> but a <title> of Data Availability
-      // catches most of https://www.ncbi.nlm.nih.gov/books/NBK541158/
-      statement = '';
-      strs = [];
-      if (xml.includes('type="data-availability">')) {
-        statement = xml.split('type="data-availability">')[1].split('</sec>')[0].split('</notes>')[0];
-        if (statement.includes('<title>')) {
-          statement = statement.split('<title>').pop().split('</title')[0];
-        }
-      } else if (xml.includes('id="data-availability"')) {
-        statement = xml.split('id="data-availability"')[1];
-        if (statement.includes('meta-value')) {
-          statement = statement.split('meta-value>')[1].split(',')[0];
-        }
-      }
-      if (!statement && xml.includes('<notes>')) {
-        ref4 = xml.split('<notes>');
-        for (i = 0, len = ref4.length; i < len; i++) {
-          ps = ref4[i];
-          psl = ps.toLowerCase();
-          if (psl.includes('data availability') || psl.includes('data accessibility') || psl.includes('supporting data')) {
-            if (ps.includes('</title>')) {
-              statement = ps.split('</title>')[1];
-            }
-            statement = statement.split('</notes>')[0];
-            break;
-          }
-        }
-      }
-      // if still no statement could look in other fields, but they mostly appear in notes and are of more certain quality when they do
-      //statement = '' if statement.includes '<def-item' # seem to be more junk in these
-      if (statement) {
-        if (statement.includes('<list-item')) {
-          statement = statement.split('<list-item').pop().split('>').pop();
-        }
-        // most examples so far are a statement paragraph with zero or one url...
-        statement = statement.replace(/<[ap].*?>/gi, '').replace(/<\/[ap]>/gi, '').replace(/<xref.*?>/gi, '').replace(/<\/xref>/gi, '').replace(/<ext.*?>/gi, '').replace(/<\/ext.*?>/gi, '').replace(/<br>/gi, '').replace(/\n/g, '').split('</')[0].trim();
-        if (statement.length > 10) { // hard to be a good statement if shorter than this
-          return statement;
-        }
-      }
-    }
-  }
-};
-
 P.src.epmc.aam = async function(pmcid, rec, fulltext) {
   var pg, ref, ref1, s1, s2, s3, s4, url;
   if (pmcid == null) {
@@ -8206,6 +8234,310 @@ P.src.epmc.aam = async function(pmcid, rec, fulltext) {
     aam: false,
     info: ''
   };
+};
+
+P.src.epmc.statement = async function(pmcid, rec) {
+  var i, len, ps, psl, ref, ref1, ref2, ref3, ref4, statement, strs, xml;
+  if (pmcid == null) {
+    pmcid = (ref = (ref1 = (ref2 = (ref3 = this.params.statement) != null ? ref3 : this.params.pmc) != null ? ref2 : this.params.pmcid) != null ? ref1 : this.params.PMC) != null ? ref : this.params.PMCID;
+  }
+  if (pmcid) {
+    pmcid = 'PMC' + (pmcid + '').toLowerCase().replace('pmc', '');
+    if (xml = (await this.src.epmc.xml(pmcid, rec))) {
+      // because of xml parsing issues with embedded html in pmc xml, just regex it out if present
+      // pubmed data does not hold corresponding statements to pmc, but the pmc records from ncbi do contain them as they are the same as fulltext records from epmc
+      // see <notes notes-type="data-availability"> in
+      // https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=PMC9206389
+      // or <custom-meta id="data-availability"> in 
+      // https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=PMC9009769
+      // which also has it in "notes" but with no type and no other content <notes> but a <title> of Data Availability
+      // catches most of https://www.ncbi.nlm.nih.gov/books/NBK541158/
+      statement = '';
+      strs = [];
+      if (xml.includes('type="data-availability">')) {
+        statement = xml.split('type="data-availability">')[1].split('</sec>')[0].split('</notes>')[0];
+        if (statement.includes('<title>')) {
+          statement = statement.split('<title>').pop().split('</title')[0];
+        }
+      } else if (xml.includes('id="data-availability"')) {
+        statement = xml.split('id="data-availability"')[1];
+        if (statement.includes('meta-value')) {
+          statement = statement.split('meta-value>')[1].split(',')[0];
+        }
+      }
+      if (!statement && xml.includes('<notes>')) {
+        ref4 = xml.split('<notes>');
+        for (i = 0, len = ref4.length; i < len; i++) {
+          ps = ref4[i];
+          psl = ps.toLowerCase();
+          if (psl.includes('data availability') || psl.includes('data accessibility') || psl.includes('supporting data')) {
+            if (ps.includes('</title>')) {
+              statement = ps.split('</title>')[1];
+            }
+            statement = statement.split('</notes>')[0];
+            break;
+          }
+        }
+      }
+      // if still no statement could look in other fields, but they mostly appear in notes and are of more certain quality when they do
+      //statement = '' if statement.includes '<def-item' # seem to be more junk in these
+      if (statement) {
+        if (statement.includes('<list-item')) {
+          statement = statement.split('<list-item').pop().split('>').pop();
+        }
+        // most examples so far are a statement paragraph with zero or one url...
+        statement = statement.replace(/<[ap].*?>/gi, '').replace(/<\/[ap]>/gi, '').replace(/<xref.*?>/gi, '').replace(/<\/xref>/gi, '').replace(/<ext.*?>/gi, '').replace(/<\/ext.*?>/gi, '').replace(/<br>/gi, '').replace(/\n/g, '').split('</')[0].trim();
+        if (statement.length > 10) { // hard to be a good statement if shorter than this
+          return statement;
+        }
+      }
+    }
+  }
+};
+
+P.src.epmc.dass = async function() {
+  var daclose, dasclose, ex, fl, ft, ftl, had, matches, max, post, pre, prep, ps, rec, ref, ref1, res, saysavail, saysdata, saysstate;
+  // what about code availability statements without data availability e.g. PMC6198754
+  max = (ref = this.params.dass) != null ? ref : 1;
+  res = [];
+  had = 0;
+  fl = 0;
+  prep = 0;
+  saysdata = 0;
+  saysavail = 0;
+  saysstate = 0;
+  daclose = 0;
+  dasclose = 0;
+  ref1 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', 'PMCID:PMC9722710 AND orgs:Melinda', {
+    include: ['PMCID']
+  });
+  //, sort: 'PMCID': 'asc'
+  for await (rec of ref1) {
+    if (res.length === max) {
+      break;
+    }
+    try {
+      ft = ((await fs.readFile('/home/cloo/static/epmc/fulltext/' + rec.PMCID + '.xml'))).toString();
+    } catch (error) {}
+    if (ft) {
+      fl += 1;
+      ex = {
+        pmcid: rec.PMCID // catch multiple relevant statements like in PMC8012878, or PMC9722710 where there are sec within sec all part of the statement (and after an earlier false data match)
+      };
+      ftl = ft.toLowerCase();
+      if (ftl.includes('>data') || ftl.includes('"data') || ftl.includes(' data')) {
+        saysdata += 1;
+        if (ftl.includes('availab')) {
+          saysavail += 1;
+          matches = ftl.match(/.{100}[>" ](data|availab).{1,50}(availab|data).{200}/g);
+          if ((matches != null) && matches.length && matches[0].includes('data') && matches[0].includes('availab')) {
+            daclose += 1;
+            ex.close = matches[0];
+            ex.index = matches.index;
+          }
+          if (ftl.includes('statement')) {
+            saysstate += 1;
+            matches = ftl.match(/.{100}[>" ](data|availab|statement).{1,50}(availab|data|statement).{1,50}(availab|data|statement).{200}/g);
+            if ((matches != null) && matches.length && smatches[0].includes('data') && matches[0].includes('availab') && matches[0].includes('statement')) {
+              dasclose += 1;
+              ex.closer = matches[0];
+              ex.index = matches.index;
+            }
+          }
+        }
+      }
+      if (ft.includes('"data')) {
+        [pre, post] = ft.split('"data');
+        ex.pre = pre.slice(-100);
+        ex.post = post.slice(0, 1000);
+        ex.tag = pre.split('<').pop().split('>')[0].split(' ')[0];
+        post = post.split('</' + ex.tag)[0];
+        post = post.split(/\>(.*)/s)[1];
+        if (post.split('</').length > 2) {
+          post = post.replace('</', ': </').replace('::', ':').replace('.:', ':');
+        }
+        post = post.replace(/\n/g, ' ').replace(/\s+/g, ' ').replace(/(<([^>]+)>)/ig, '');
+        if (post.length > 20 && post.length < 1000 && (ex.pre + post).toLowerCase().includes('availab') && (ex.pre + post).toLowerCase().includes('data')) {
+          ex.das = ((await this.decode(post.trim()))).replace(/"/g, '').replace(/\s+/g, ' ');
+        }
+      }
+      if (!ex.das && (ft.includes('>Data') || ft.includes('>Availab') || ft.includes('>data'))) {
+        [pre, post] = ft.split(ft.includes('>Data') ? '>Data' : ft.includes('>Availab') ? '>Availab' : '>data');
+        ex.pre = pre.slice(-100);
+        ex.post = post.slice(0, 1000);
+        post = (post.startsWith('il') || post.startsWith('l') ? 'Availab' : 'Data ') + post;
+        ex.tag = pre.split('<').pop().split(' ')[0];
+        if (post.indexOf('</' + ex.tag) < 40) {
+          post = post.replace('</' + ex.tag + '>', ': ').replace('::', ':').replace('.:', ':');
+          ps = pre.split('<');
+          ex.tag = ps[ps.length - 2].split(' ')[0];
+        }
+        post = post.split('</' + ex.tag)[0];
+        post = post.replace(/\n/g, ' ').replace(/\s+/g, ' ').replace(/(<([^>]+)>)/ig, '');
+        if (post.length > 20 && post.length < 1000 && (ex.pre + post).toLowerCase().includes('availab') && (ex.pre + post).toLowerCase().includes('data')) {
+          ex.das = ((await this.decode(post.trim()))).replace(/"/g, '').replace(/\s+/g, ' ');
+        }
+      }
+      res.push(ex); //pmcid: ex.pmcid, das: ex.das) #if ex.das
+      if (ex.das) {
+        had += 1;
+      }
+      if (ex.pre && ex.post) {
+        prep += 1;
+      }
+    }
+  }
+  return {
+    total: res.length,
+    files: fl,
+    data: saysdata,
+    available: saysavail,
+    statement: saysstate,
+    close: daclose,
+    closer: dasclose,
+    index: -1,
+    prep: prep,
+    das: had,
+    records: res
+  };
+};
+
+P.src.epmc.das = async function(pmcid, verbose) { // restrict to report/works records if pmcid is directly provided?
+  var clean, ex, ft, ftl, i, len, matches, max, nt, part, post, pre, ps, rec, ref, ref1, ref2, res, split, splits, splitter, tag;
+  max = (ref = pmcid != null ? pmcid : this.params.das) != null ? ref : 100; // ['PMC9722710', 'PMC8012878', 'PMC6198754'] # multiples PMC8012878. code? PMC6198754. Another example for something? was PMC9682356
+  if (typeof max === 'string') {
+    max = max.split(',');
+  }
+  if (verbose == null) {
+    verbose = this.params.verbose;
+  }
+  res = {
+    total: 0,
+    files: 0,
+    data: 0,
+    available: 0,
+    statement: 0,
+    close: 0,
+    closer: 0,
+    prep: 0,
+    das: 0,
+    records: []
+  };
+  ref1 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', '(PMCID:' + (typeof max === 'number' ? '*' : max.join(' OR PMCID:')) + ') AND orgs:Melinda', {
+    include: ['PMCID'],
+    sort: {
+      'PMCID.keyword': 'asc'
+    }
+  });
+  for await (rec of ref1) {
+    if (typeof max === 'number' && res.records.length === max) {
+      break;
+    }
+    try {
+      ft = ((await fs.readFile('/home/cloo/static/epmc/fulltext/' + rec.PMCID + '.xml'))).toString();
+    } catch (error) {}
+    if (ft) {
+      res.files += 1;
+      ex = {
+        pmcid: rec.PMCID,
+        file: 'https://static.oa.works/epmc/fulltext/' + rec.PMCID + '.xml',
+        splits: [],
+        tag: [],
+        pre: [],
+        post: [],
+        das: []
+      };
+      ftl = ft.toLowerCase();
+      if (ftl.includes('>data') || ftl.includes('"data') || ftl.includes(' data')) {
+        res.data += 1;
+        if (ftl.includes('availab')) {
+          res.available += 1;
+          matches = ftl.match(/.{100}[>" ](data|availab).{1,50}(availab|data).{200}/g);
+          if ((matches != null) && matches.length && matches[0].includes('data') && matches[0].includes('availab')) {
+            res.close += 1;
+            ex.close = matches;
+          }
+          if (ftl.includes('statement')) {
+            res.statement += 1;
+            matches = ftl.match(/.{100}[>" ](data|availab|statement).{1,50}(availab|data|statement).{1,50}(availab|data|statement).{200}/g);
+            if ((matches != null) && matches.length && matches[0].includes('data') && matches[0].includes('availab') && matches[0].includes('statement')) {
+              res.closer += 1;
+              ex.closer = matches;
+            }
+          }
+        }
+      }
+      ref2 = ['"data', '>Data', '>Availab', '>data'];
+      for (i = 0, len = ref2.length; i < len; i++) {
+        split = ref2[i];
+        if (ft.includes(split)) {
+          ex.splits.push(split);
+          pre = '';
+          splits = ft.split(split);
+          while (part = splits.shift()) {
+            if (!pre) {
+              pre = part;
+            } else {
+              ex.pre.push(pre.slice(-1000));
+              tag = pre.split('<').pop().split('>')[0].split(' ')[0];
+              post = split.startsWith('"') ? part.split(/\>(.*)/s)[1] : (part.startsWith('il') || part.startsWith('l') ? 'Availab' : 'Data') + part;
+              ex.post.push(post.slice(0, 1000));
+              if (post.includes('</' + tag) && post.indexOf('</' + tag) < 40) {
+                ps = pre.split('<');
+                nt = ps[ps.length - 2].split('>')[0].split(' ')[0];
+                if (!nt.startsWith('/')) {
+                  //post = post.replace('</' + tag + '>', ': ').replace('::', ':').replace('.:', ':')
+                  tag = nt;
+                }
+              }
+              ex.tag.push(tag);
+              splitter = '\n' + pre.split('<' + tag)[0].split('\n').pop().split('<')[0] + '</' + tag;
+              if (post.split('</' + tag)[0].includes('\n')) {
+                while (!post.includes(splitter) && splits[0]) {
+                  post += (split.startsWith('>') ? '>' : '') + (splits[0].startsWith('il') || splits[0].startsWith('l') ? 'Availab' : 'Data') + splits.shift();
+                }
+              }
+              post = post.split(splitter)[0];
+              //post = post.split(/\>(.*)/s)[1]
+              //post = post.replace('</', ': </').replace('::', ':').replace('.:', ':') if post.split('</').length > 2
+              post = post.replace(/\n/g, ' ').replace(/\s+/g, ' ').replace(/(<([^>]+)>)/ig, '');
+              if (post.length > 20 && post.length < 3000 && (pre + post).toLowerCase().includes('availab') && (pre + post).toLowerCase().includes('data')) {
+                clean = ((await this.decode(post.trim()))).replace(/"/g, '').replace(/\s+/g, ' ');
+                if (indexOf.call(ex.das, clean) < 0) {
+                  ex.das.push(clean);
+                }
+                delete ex.close;
+                delete ex.closer;
+              }
+              pre = '';
+            }
+          }
+        }
+      }
+      res.records.push(verbose === false ? {
+        file: ex.file,
+        das: ex.das
+      } : ex);
+      if (ex.das.length) {
+        res.das += 1;
+      }
+      if (ex.pre && ex.post) {
+        res.prep += 1;
+      }
+    }
+  }
+  res.total = res.records.length;
+  if (verbose === false) {
+    res = {
+      total: res.total,
+      das: res.das,
+      records: res.records
+    };
+  }
+  if (verbose === false && res.total === 1) {
+    res = (res.records.length && res.records[0].das.length ? res.records[0].das[0] : false);
+  }
+  return res;
 };
 
 var base;
@@ -14987,9 +15319,13 @@ P.decode = async function(content) {
     };
     return content.replace(translator, (function(match, entity) {
       return translate[entity];
-    })).replace(/&#(\d+);/gi, (function(match, numStr) {
+    })).replace(/&#(x?[0-9A-Fa-f]+);/gi, (function(match, numStr) {
       var num;
-      num = parseInt(numStr, 10);
+      if (numStr.startsWith('x')) {
+        num = parseInt(numStr.replace('x', ''), 16);
+      } else {
+        num = parseInt(numStr, 10);
+      }
       return String.fromCharCode(num);
     }));
   };
@@ -15030,17 +15366,21 @@ P.decode = async function(content) {
     re = new RegExp(c.bad, 'g');
     text = text.replace(re, c.good);
   }
-  if (text.indexOf('%2') !== -1) {
-    text = decodeURIComponent(text);
-  }
-  if (text.indexOf('%2') !== -1) { // some of the data we handle was double encoded, so like %2520, so need two decodes
-    text = decodeURIComponent(text);
-  }
+  try {
+    if (text.indexOf('%2') !== -1) {
+      text = decodeURIComponent(text);
+    }
+  } catch (error) {}
+  try {
+    if (text.indexOf('%2') !== -1) { // some of the data we handle was double encoded, so like %2520, so need two decodes
+      text = decodeURIComponent(text);
+    }
+  } catch (error) {}
   return text;
 };
 
 
-S.built = "Sun Aug 13 2023 03:34:05 GMT+0100";
+S.built = "Tue Aug 29 2023 03:44:36 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
