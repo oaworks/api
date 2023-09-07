@@ -698,7 +698,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                         await fs.appendFile out, (if not first then ',"' else '"') + val + '"'
                         first = false
                   if notify
-                    await @mail to: notify, subject: 'Your export is complete (ref: ' + out.split('/').pop() + ')', text: 'Your export is complete. We recommend you download and store files elsewhere as soon as possible as we may delete this file at any time.<br><br><a href="' + eurl + '">Download csv</a>\n\nThanks'
+                    await @mail to: notify, subject: 'Your export is complete (ref: ' + out.split('/').pop() + ')', text: 'Your export is complete. We recommend you download and store files elsewhere as soon as possible as we may delete this file at any time.<br><br><a href="' + eurl + '">Download csv</a><br><br>Thanks'
                 @waitUntil _makecsv rt, qry, out, ks, nfeml, eurl, pfs, pok
                 delete @format
                 res = eurl
