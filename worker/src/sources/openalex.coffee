@@ -19,18 +19,31 @@ P.src.openalex.institutions = _index: true, _prefix: false
 P.src.openalex.concepts = _index: true, _prefix: false
 P.src.openalex.venues = _index: true, _prefix: false
 
-P.src.openalex.works.doi = (doi) ->
+P.src.openalex.works.doi = (doi, refresh) ->
   doi ?= @params.doi
-  if not found = await @src.openalex.works 'ids.doi:"https://doi.org/' + doi + '"', 1
-    if found = await @fetch 'https://api.openalex.org/works/https://doi.org/' + doi #+ '?api_key=' + @S.src.openalex.apikey
-      if found.abstract_inverted_index?
-        abs = []
-        for word of found.abstract_inverted_index
-          abs[n] = word for n in found.abstract_inverted_index[word]
-        found.abstract = abs.join(' ') if abs.length
-        delete found.abstract_inverted_index
-      @waitUntil @src.openalex.works doi.toLowerCase(), found
+  refresh ?= @refresh
+  if refresh or not found = await @src.openalex.works 'ids.doi:"https://doi.org/' + doi + '"', 1
+    if found = await @fetch 'https://api.openalex.org/works/https://doi.org/' + doi + '?api_key=' + @S.src.openalex.apikey
+      if found.id? # somehow managed to get back a positive response that had no ID. So can it be a valid record? assume no.
+        if found.abstract_inverted_index?
+          abs = []
+          for word of found.abstract_inverted_index
+            abs[n] = word for n in found.abstract_inverted_index[word]
+          found.abstract = abs.join(' ') if abs.length
+          delete found.abstract_inverted_index
+        try
+          for xc in found.concepts
+            found.score = Math.floor(found.score) if found.score?
+        try
+          found._id = found.doi ? found.DOI ? found.ids?.doi
+          found._id = '10.' + found._id.split('/10.').pop() if found._id.includes('http') and found._id.includes '/10.'
+          found._id = found.id.split('/').pop() if not found._id or not found._id.startsWith '10.'
+        catch
+          found._id = found.id.split('/').pop()
+        @waitUntil @src.openalex.works doi.toLowerCase(), found
   return found
+
+
 
 P.src.openalex.load = (what, changes, clear, sync, last) ->
   what ?= @params.load ? @params.openalex

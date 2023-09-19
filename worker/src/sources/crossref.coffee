@@ -307,7 +307,8 @@ P.src.crossref.changes = (startday, endday, created) ->
   loaded = 0
   days = 0
   batch = []
-  while startday < dn
+  retries = 0
+  while startday < dn and retries < 3
     console.log 'Crossref changes', (if created then 'for created' else undefined), startday, days
     cursor = '*' # set a new cursor on each index day query
     days += 1
@@ -319,6 +320,7 @@ P.src.crossref.changes = (startday, endday, created) ->
       if not thisdays?.data
         console.log 'crossref error'
         await @sleep 2000 # wait on crossref downtime
+        retries += 1
       else
         for rec in thisdays.data
           fr = await @src.crossref.works._format rec

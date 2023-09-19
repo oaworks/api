@@ -6718,64 +6718,124 @@ P.report.fixmedline._bg = true
 P.report.fixmedline._async = true
 P.report.fixmedline._auth = '@oa.works'`;
 
-P.report.fixtitle = async function() {
-  var alpha, batch, checked, cr, fixes, j, len, oadoi, openalex, rec, ref, ref1;
+`P.report.fixtitle = ->
+  fixes = 0
+  checked = 0
+  batch = []
+  for alpha in 'abcdefghijklmnopqrstuvwxyz'.split ''
+    for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'title.keyword:"' + alpha + '" OR title.keyword:"' + alpha.toUpperCase() + '"', scroll: '30m'
+      checked += 1
+      console.log('fix title checked', alpha, checked, fixes) if checked % 1000 is 0
+      if rec.title.length is 1
+        if oadoi = await @src.oadoi rec.DOI
+          rec.title = oadoi.title if oadoi.title
+        if rec.title.length is 1 and openalex = await @src.openalex.works rec.DOI
+          rec.title = openalex.title if openalex.title
+        if rec.title.length is 1 and cr = await @src.crossref.works rec.DOI
+          rec.title = cr.title if cr.title
+          rec.title = rec.title[0] if typeof rec.title isnt 'string'
+        if rec.title.length isnt 1
+          fixes += 1
+          batch.push rec
+        if batch.length is 20000
+          await @report.works batch
+          batch = []
+  if batch.length
+    await @report.works batch
+  console.log 'fix title completed with', checked, fixes
+  return fixes
+P.report.fixtitle._bg = true
+P.report.fixtitle._async = true
+P.report.fixtitle._auth = '@oa.works'`;
+
+P.report.fixcroa = async function() {
+  var batch, checked, cr, fixes, rec, ref;
   fixes = 0;
   checked = 0;
   batch = [];
-  ref = 'abcdefghijklmnopqrstuvwxyz'.split('');
-  for (j = 0, len = ref.length; j < len; j++) {
-    alpha = ref[j];
-    ref1 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', 'title.keyword:"' + alpha + '" OR title.keyword:"' + alpha.toUpperCase() + '"', {
-      scroll: '30m'
-    });
-    for await (rec of ref1) {
-      checked += 1;
-      if (checked % 1000 === 0) {
-        console.log('fix title checked', alpha, checked, fixes);
+  ref = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', 'crossref_is_oa:true', {
+    scroll: '30m'
+  });
+  for await (rec of ref) {
+    checked += 1;
+    if (checked % 100 === 0) {
+      console.log('fix crossref is OA checked', checked, fixes);
+    }
+    if (cr = (await this.src.crossref.works(rec.DOI))) {
+      if (cr.is_oa !== true) {
+        fixes += 1;
+        rec.crossref_is_oa = false;
+        batch.push(rec);
       }
-      if (rec.title.length === 1) {
-        if (oadoi = (await this.src.oadoi(rec.DOI))) {
-          if (oadoi.title) {
-            rec.title = oadoi.title;
-          }
-        }
-        if (rec.title.length === 1 && (openalex = (await this.src.openalex.works(rec.DOI)))) {
-          if (openalex.title) {
-            rec.title = openalex.title;
-          }
-        }
-        if (rec.title.length === 1 && (cr = (await this.src.crossref.works(rec.DOI)))) {
-          if (cr.title) {
-            rec.title = cr.title;
-          }
-          if (typeof rec.title !== 'string') {
-            rec.title = rec.title[0];
-          }
-        }
-        if (rec.title.length !== 1) {
-          fixes += 1;
-          batch.push(rec);
-        }
-        if (batch.length === 20000) {
-          await this.report.works(batch);
-          batch = [];
-        }
-      }
+    }
+    if (batch.length === 20000) {
+      await this.report.works(batch);
+      batch = [];
     }
   }
   if (batch.length) {
     await this.report.works(batch);
   }
-  console.log('fix title completed with', checked, fixes);
+  console.log('fix crossref is OA completed with', checked, fixes);
   return fixes;
 };
 
-P.report.fixtitle._bg = true;
+P.report.fixcroa._bg = true;
 
-P.report.fixtitle._async = true;
+P.report.fixcroa._async = true;
 
-P.report.fixtitle._auth = '@oa.works';
+P.report.fixcroa._auth = '@oa.works';
+
+P.report.fixtype = async function() {
+  var batch, checked, fixed, fixes, fixols, nol, nool, ol, rec, ref;
+  fixes = 0;
+  fixols = 0;
+  nool = 0;
+  checked = 0;
+  batch = [];
+  ref = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', 'NOT type:*', {
+    scroll: '30m'
+  });
+  for await (rec of ref) {
+    checked += 1;
+    if (checked % 100 === 0) {
+      console.log('fix type checked', checked, fixes, fixols, nool, batch.length);
+    }
+    fixed = false;
+    if (ol = (await this.src.openalex.works(rec.DOI))) {
+      if (ol.type) {
+        fixed = true;
+        fixes += 1;
+        rec.type = ol.type;
+        batch.push(rec);
+      }
+    } else {
+      nool += 1;
+    }
+    if (!fixed && (nol = (await this.src.openalex.works.doi(rec.DOI, true)))) {
+      console.log('report fixtype updated openalex', rec.DOI);
+      fixes += 1;
+      fixols += 1;
+      rec.type = nol.type;
+      batch.push(rec);
+    }
+    if (batch.length === 5000) {
+      await this.report.works(batch);
+      batch = [];
+    }
+  }
+  if (batch.length) {
+    await this.report.works(batch);
+  }
+  console.log('fix type completed with', checked, fixes, fixols, nool);
+  return fixes;
+};
+
+P.report.fixtype._bg = true;
+
+P.report.fixtype._async = true;
+
+P.report.fixtype._auth = '@oa.works';
 
 `P.report.test = _index: true, _alias: 'altest2'
 P.report.test.add = ->
@@ -7627,7 +7687,7 @@ P.src.crossref.load._async = true;
 P.src.crossref.load._auth = 'root';
 
 P.src.crossref.changes = async function(startday, endday, created) {
-  var batch, batchsize, cursor, days, dn, fr, fromthisday, j, last, len, loaded, rec, ref, ref1, searchtype, thisdays, totalthisday;
+  var batch, batchsize, cursor, days, dn, fr, fromthisday, j, last, len, loaded, rec, ref, ref1, retries, searchtype, thisdays, totalthisday;
   if (startday == null) {
     startday = this.params.changes;
   }
@@ -7666,7 +7726,8 @@ P.src.crossref.changes = async function(startday, endday, created) {
   loaded = 0;
   days = 0;
   batch = [];
-  while (startday < dn) {
+  retries = 0;
+  while (startday < dn && retries < 3) {
     console.log('Crossref changes', (created ? 'for created' : void 0), startday, days);
     cursor = '*'; // set a new cursor on each index day query
     days += 1;
@@ -7678,6 +7739,7 @@ P.src.crossref.changes = async function(startday, endday, created) {
       if (!(thisdays != null ? thisdays.data : void 0)) {
         console.log('crossref error');
         await this.sleep(2000); // wait on crossref downtime
+        retries += 1;
       } else {
         ref = thisdays.data;
         for (j = 0, len = ref.length; j < len; j++) {
@@ -7730,7 +7792,7 @@ P.src.crossref.plus.load = async function() {
 
   //await @src.crossref.works('') if @params.clear
   batchsize = 30000;
-  fn = this.S.directory + '/all.json.tar.gz';
+  fn = this.S.directory + '/imports/crossref/all.json.tar.gz';
   total = 0;
   batch = [];
   lines = '';
@@ -7739,15 +7801,16 @@ P.src.crossref.plus.load = async function() {
   });
   for await (line of ref) {
     lines += line;
+    console.log(lines);
     if (lines.endsWith('}\n')) {
       rec = JSON.parse(lines); //(lines).items
       total += 1;
-      rec = (await this.src.crossref.works._format(rec));
-      rec.srcfile = filenumber;
-      batch.push(rec);
+      //rec = await @src.crossref.works._format rec
+      //rec.srcfile = filenumber
+      //batch.push rec
       lines = '';
       if (batch.length === batchsize) {
-        console.log('Crossref load ' + total);
+        console.log('Crossref plus load ' + total);
         await this.src.crossref.works(batch);
         batch = [];
       }
@@ -9444,28 +9507,53 @@ P.src.openalex.venues = {
   _prefix: false
 };
 
-P.src.openalex.works.doi = async function(doi) {
-  var abs, found, i, len, n, ref, word;
+P.src.openalex.works.doi = async function(doi, refresh) {
+  var abs, found, i, j, len, len1, n, ref, ref1, ref2, ref3, ref4, word, xc;
   if (doi == null) {
     doi = this.params.doi;
   }
-  if (!(found = (await this.src.openalex.works('ids.doi:"https://doi.org/' + doi + '"', 1)))) {
-    if (found = (await this.fetch('https://api.openalex.org/works/https://doi.org/' + doi))) { //+ '?api_key=' + @S.src.openalex.apikey
-      if (found.abstract_inverted_index != null) {
-        abs = [];
-        for (word in found.abstract_inverted_index) {
-          ref = found.abstract_inverted_index[word];
-          for (i = 0, len = ref.length; i < len; i++) {
-            n = ref[i];
-            abs[n] = word;
+  if (refresh == null) {
+    refresh = this.refresh;
+  }
+  if (refresh || !(found = (await this.src.openalex.works('ids.doi:"https://doi.org/' + doi + '"', 1)))) {
+    if (found = (await this.fetch('https://api.openalex.org/works/https://doi.org/' + doi + '?api_key=' + this.S.src.openalex.apikey))) {
+      if (found.id != null) {
+        if (found.abstract_inverted_index != null) {
+          abs = [];
+          for (word in found.abstract_inverted_index) {
+            ref = found.abstract_inverted_index[word];
+            for (i = 0, len = ref.length; i < len; i++) {
+              n = ref[i];
+              abs[n] = word;
+            }
           }
+          if (abs.length) {
+            found.abstract = abs.join(' ');
+          }
+          delete found.abstract_inverted_index;
         }
-        if (abs.length) {
-          found.abstract = abs.join(' ');
+        try {
+          ref1 = found.concepts;
+          for (j = 0, len1 = ref1.length; j < len1; j++) {
+            xc = ref1[j];
+            if (found.score != null) {
+              found.score = Math.floor(found.score);
+            }
+          }
+        } catch (error) {}
+        try {
+          found._id = (ref2 = (ref3 = found.doi) != null ? ref3 : found.DOI) != null ? ref2 : (ref4 = found.ids) != null ? ref4.doi : void 0;
+          if (found._id.includes('http') && found._id.includes('/10.')) {
+            found._id = '10.' + found._id.split('/10.').pop();
+          }
+          if (!found._id || !found._id.startsWith('10.')) {
+            found._id = found.id.split('/').pop();
+          }
+        } catch (error) {
+          found._id = found.id.split('/').pop();
         }
-        delete found.abstract_inverted_index;
+        this.waitUntil(this.src.openalex.works(doi.toLowerCase(), found)); // somehow managed to get back a positive response that had no ID. So can it be a valid record? assume no.
       }
-      this.waitUntil(this.src.openalex.works(doi.toLowerCase(), found));
     }
   }
   return found;
@@ -15380,7 +15468,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Tue Aug 29 2023 03:44:36 GMT+0100";
+S.built = "Sun Sep 17 2023 21:41:54 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
