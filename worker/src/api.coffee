@@ -612,7 +612,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                     orgsidx = qry._source.excludes.indexOf 'orgs'
                     qry._source.excludes = qry._source.excludes.splice(orgsidx, 1) if orgsidx isnt -1
                 if nfeml
-                  await @mail to: nfeml, subject: 'Your export has started (ref: ' + flid + '.csv)', text: 'Your export has started. You can download the file any time, it will keep growing until it is complete, when you will get another notification.<br><br><a href="' + eurl + '">Download csv</a><br><br>Thanks'
+                  await @mail to: nfeml, subject: 'Your export has started (ref: ' + flid + '.csv)', text: 'Your export has started. You can download the file any time, it will keep growing until it is complete, when you will get another notification.<br><br><a href="' + eurl + '">Download CSV</a><br><br>Thanks'
                 _makecsv = (rt, qry, out, keys, notify, eurl, pfs, pok) =>
                   first = true
                   if pok?
@@ -698,7 +698,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                         await fs.appendFile out, (if not first then ',"' else '"') + val + '"'
                         first = false
                   if notify
-                    await @mail to: notify, subject: 'Your export is complete (ref: ' + out.split('/').pop() + ')', text: 'Your export is complete. We recommend you download and store files elsewhere as soon as possible as we may delete this file at any time.<br><br><a href="' + eurl + '">Download csv</a>\n\nThanks'
+                    await @mail to: notify, subject: 'Your export is complete (ref: ' + out.split('/').pop() + ')', text: 'Your export is complete. We recommend you download and store files elsewhere as soon as possible as we may delete this file at any time.<br><br><a href="' + eurl + '">Download CSV</a><br><br>Thanks'
                 @waitUntil _makecsv rt, qry, out, ks, nfeml, eurl, pfs, pok
                 delete @format
                 res = eurl
