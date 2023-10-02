@@ -969,6 +969,25 @@ P.report.fixtype._async = true
 P.report.fixtype._auth = '@oa.works'
 
 
+'''P.exports = ->
+  for idx in ['paradigm_svc_rscvd']
+    total = 0
+    fdn = @S.directory + '/report/export_' + idx + '.jsonl'
+    try
+      out = await fs.createWriteStream fdn #, 'utf-8'
+      for await o from @index._for idx, undefined, undefined, false
+        await out.write (if total then '\n' else '') + JSON.stringify o
+        total += 1
+        console.log('exporting', total) if total % 1000 is 0
+    catch err
+      console.log 'exports error', JSON.stringify err
+    console.log idx, 'export done', total
+  return true
+P.exports._bg = true
+P.exports._async = true
+P.exports._log = false'''
+
+
 
 '''
 P.report.test = _index: true, _alias: 'altest2'

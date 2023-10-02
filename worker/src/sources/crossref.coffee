@@ -293,8 +293,16 @@ P.src.crossref.changes = (startday, endday, created) ->
     try
       last = await @src.crossref.works 'srcday:*', size: 1, sort: srcday: 'desc'
       startday = last.srcday
-  startday ?= 1607126400000 # the timestamp of when changes appeared to start after the last data dump, around 12/12/2020
+      console.log 'Crossref changes start day set from latest record srcday', await @date startday
+  if not startday
+    try
+      last = await @src.crossref.works 'indexed.timestamp:*', size: 1, sort: 'indexed.timestamp': 'desc'
+      startday = last.indexed.timestamp
+      console.log 'Crossref changes start day set from latest record indexed timestamp', await @date startday
+  startday ?= 1693526400000 # 1st September 2023
+  # 1607126400000 # the timestamp of when changes appeared to start after the last data dump, around 12/12/2020
   # for the 2022 update 1649635200000 was used for 11th April 2022
+  startday = await @epoch await @date startday
   endday ?= @params.end
   endday = await @epoch(endday) if typeof endday is 'string' and (endday.includes('/') or endday.includes('-'))
   created ?= @params.created
@@ -304,12 +312,13 @@ P.src.crossref.changes = (startday, endday, created) ->
 
   batchsize = 10000
   dn = endday ? Date.now()
+  dn = await @epoch await @date dn
   loaded = 0
   days = 0
   batch = []
   retries = 0
   while startday < dn and retries < 3
-    console.log 'Crossref changes', (if created then 'for created' else undefined), startday, days
+    console.log 'Crossref changes', startday, days
     cursor = '*' # set a new cursor on each index day query
     days += 1
     totalthisday = false
@@ -328,7 +337,7 @@ P.src.crossref.changes = (startday, endday, created) ->
           batch.push fr
           loaded += 1
         if batch.length >= batchsize
-          console.log 'Crossref bulk load', (if created then 'for created' else undefined), startday, days, totalthisday, fromthisday, loaded
+          console.log 'Crossref bulk load', startday, days, totalthisday, fromthisday, loaded
           await @src.crossref.works batch
           batch = []
         if totalthisday is false
@@ -340,8 +349,7 @@ P.src.crossref.changes = (startday, endday, created) ->
 
   await @src.crossref.works(batch) if batch.length
   
-  console.log loaded, days, (if created then 'for created' else undefined)
-  #@src.crossref.changes(startday, endday, true) if not created
+  console.log loaded, days
   return loaded
 
 P.src.crossref.changes._bg = true

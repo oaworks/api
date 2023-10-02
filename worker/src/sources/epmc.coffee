@@ -385,3 +385,5 @@ P.src.epmc.das = (pmcid, verbose) -> # restrict to report/works records if pmcid
   res = {total: res.total, das: res.das, records: res.records} if verbose is false
   res = (if res.records.length and res.records[0].das.length then res.records[0].das[0] else false) if verbose is false and res.total is 1
   return res
+
+

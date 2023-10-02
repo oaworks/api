@@ -171,25 +171,5 @@ P.src.oadoi.changes._auth = 'root'
 P.src.oadoi.changes._notify = false
 
 
-P.src.oadoi.local = () ->
-  batchsize = 50000
-  counter = 0
-  if @params.local and @params.local.length is 10 and @params.local.split('-').length is 3 and not @params.local.includes '/'
-    fn = @S.directory + '/oadoi/' + @params.local + '.jsonl'
-    batch = []
-    for await line from readline.createInterface input: fs.createReadStream fn
-      counter += 1
-      rec = JSON.parse line.trim().replace /\,$/, ''
-      rec._id = rec.doi.replace /\//g, '_'
-      batch.push rec
-      if batch.length >= batchsize
-        await @src.oadoi batch
-        batch = []
-  
-    await @src.oadoi(batch) if batch.length
 
-  console.log counter
-  return counter
-  
-P.src.oadoi.local._bg = true
-P.src.oadoi.local._auth = 'root'
+

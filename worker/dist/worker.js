@@ -1043,7 +1043,7 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
                   await this.mail({
                     to: nfeml,
                     subject: 'Your export has started (ref: ' + flid + '.csv)',
-                    text: 'Your export has started. You can download the file any time, it will keep growing until it is complete, when you will get another notification.<br><br><a href="' + eurl + '">Download csv</a><br><br>Thanks'
+                    text: 'Your export has started. You can download the file any time, it will keep growing until it is complete, when you will get another notification.<br><br><a href="' + eurl + '">Download CSV</a><br><br>Thanks'
                   });
                 }
                 _makecsv = async(rt, qry, out, keys, notify, eurl, pfs, pok) => {
@@ -1191,7 +1191,7 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
                     return (await this.mail({
                       to: notify,
                       subject: 'Your export is complete (ref: ' + out.split('/').pop() + ')',
-                      text: 'Your export is complete. We recommend you download and store files elsewhere as soon as possible as we may delete this file at any time.<br><br><a href="' + eurl + '">Download csv</a>\n\nThanks'
+                      text: 'Your export is complete. We recommend you download and store files elsewhere as soon as possible as we may delete this file at any time.<br><br><a href="' + eurl + '">Download CSV</a><br><br>Thanks'
                     }));
                   }
                 };
@@ -6837,6 +6837,38 @@ P.report.fixtype._async = true;
 
 P.report.fixtype._auth = '@oa.works';
 
+P.exports = async function() {
+  var err, fdn, idx, j, len, o, out, ref, ref1, total;
+  ref = ['paradigm_svc_rscvd'];
+  for (j = 0, len = ref.length; j < len; j++) {
+    idx = ref[j];
+    total = 0;
+    fdn = this.S.directory + '/report/export_' + idx + '.jsonl';
+    try {
+      out = (await fs.createWriteStream(fdn)); //, 'utf-8'
+      ref1 = this.index._for(idx, void 0, void 0, false);
+      for await (o of ref1) {
+        await out.write((total ? '\n' : '') + JSON.stringify(o));
+        total += 1;
+        if (total % 1000 === 0) {
+          console.log('exporting', total);
+        }
+      }
+    } catch (error) {
+      err = error;
+      console.log('exports error', JSON.stringify(err));
+    }
+    console.log(idx, 'export done', total);
+  }
+  return true;
+};
+
+P.exports._bg = true;
+
+P.exports._async = true;
+
+P.exports._log = false;
+
 `P.report.test = _index: true, _alias: 'altest2'
 P.report.test.add = ->
   toalias = @params.toalias
@@ -7703,12 +7735,27 @@ P.src.crossref.changes = async function(startday, endday, created) {
         }
       }));
       startday = last.srcday;
+      console.log('Crossref changes start day set from latest record srcday', (await this.date(startday)));
+    } catch (error) {}
+  }
+  if (!startday) {
+    try {
+      last = (await this.src.crossref.works('indexed.timestamp:*', {
+        size: 1,
+        sort: {
+          'indexed.timestamp': 'desc'
+        }
+      }));
+      startday = last.indexed.timestamp;
+      console.log('Crossref changes start day set from latest record indexed timestamp', (await this.date(startday)));
     } catch (error) {}
   }
   if (startday == null) {
-    startday = 1607126400000; // the timestamp of when changes appeared to start after the last data dump, around 12/12/2020
+    startday = 1693526400000; // 1st September 2023
   }
+  // 1607126400000 # the timestamp of when changes appeared to start after the last data dump, around 12/12/2020
   // for the 2022 update 1649635200000 was used for 11th April 2022
+  startday = (await this.epoch((await this.date(startday))));
   if (endday == null) {
     endday = this.params.end;
   }
@@ -7723,12 +7770,13 @@ P.src.crossref.changes = async function(startday, endday, created) {
   searchtype = 'indexed'; //if created then 'created' else 'updated'
   batchsize = 10000;
   dn = endday != null ? endday : Date.now();
+  dn = (await this.epoch((await this.date(dn))));
   loaded = 0;
   days = 0;
   batch = [];
   retries = 0;
   while (startday < dn && retries < 3) {
-    console.log('Crossref changes', (created ? 'for created' : void 0), startday, days);
+    console.log('Crossref changes', startday, days);
     cursor = '*'; // set a new cursor on each index day query
     days += 1;
     totalthisday = false;
@@ -7750,7 +7798,7 @@ P.src.crossref.changes = async function(startday, endday, created) {
           loaded += 1;
         }
         if (batch.length >= batchsize) {
-          console.log('Crossref bulk load', (created ? 'for created' : void 0), startday, days, totalthisday, fromthisday, loaded);
+          console.log('Crossref bulk load', startday, days, totalthisday, fromthisday, loaded);
           await this.src.crossref.works(batch);
           batch = [];
         }
@@ -7767,8 +7815,7 @@ P.src.crossref.changes = async function(startday, endday, created) {
   if (batch.length) {
     await this.src.crossref.works(batch);
   }
-  console.log(loaded, days, (created ? 'for created' : void 0));
-  //@src.crossref.changes(startday, endday, true) if not created
+  console.log(loaded, days);
   return loaded;
 };
 
@@ -9419,38 +9466,6 @@ P.src.oadoi.changes._async = true;
 P.src.oadoi.changes._auth = 'root';
 
 P.src.oadoi.changes._notify = false;
-
-P.src.oadoi.local = async function() {
-  var batch, batchsize, counter, fn, line, rec, ref;
-  batchsize = 50000;
-  counter = 0;
-  if (this.params.local && this.params.local.length === 10 && this.params.local.split('-').length === 3 && !this.params.local.includes('/')) {
-    fn = this.S.directory + '/oadoi/' + this.params.local + '.jsonl';
-    batch = [];
-    ref = readline.createInterface({
-      input: fs.createReadStream(fn)
-    });
-    for await (line of ref) {
-      counter += 1;
-      rec = JSON.parse(line.trim().replace(/\,$/, ''));
-      rec._id = rec.doi.replace(/\//g, '_');
-      batch.push(rec);
-      if (batch.length >= batchsize) {
-        await this.src.oadoi(batch);
-        batch = [];
-      }
-    }
-    if (batch.length) {
-      await this.src.oadoi(batch);
-    }
-  }
-  console.log(counter);
-  return counter;
-};
-
-P.src.oadoi.local._bg = true;
-
-P.src.oadoi.local._auth = 'root';
 
 var base,
   indexOf = [].indexOf;
@@ -15468,7 +15483,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Sun Sep 17 2023 21:41:54 GMT+0100";
+S.built = "Mon Oct 02 2023 07:57:26 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
