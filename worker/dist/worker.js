@@ -15416,7 +15416,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Tue Oct 03 2023 03:45:30 GMT+0100";
+S.built = "Tue Oct 03 2023 04:09:51 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
