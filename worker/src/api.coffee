@@ -16,9 +16,9 @@ S.version ?= '6.1.0' # the construct script will use this to overwrite any versi
 # S.pass can be set to false if there is a bg URL but worker errors should NOT pass through on exception to it (otherwise they will by default)
 S.pass = ['docs', 'client', '.well-known'] # if this is a list of strings, any route starting with these will throw error and pass back to bg (this would happen anyway with no function defined for them, but this avoids unnecessary processing)
 S.dev ?= true
-try S.async = true if process.env.name.endsWith '_async' # optional setting defining a URL to an async worker to pass requests to
-try S.async_loop = true if process.env.name.endsWith '_loop' # additional setting defining a URL to pass async looped scheduled requests to
-try S.async_schedule = true if process.env.name.endsWith '_schedule' # additional setting defining a URL to pass async scheduled requests to (including looped ones, if async_loop is not set)
+try S.async = true if process.env.name and process.env.name.endsWith '_async' # optional setting defining a URL to an async worker to pass requests to
+try S.async_loop = true if process.env.name and process.env.name.endsWith '_loop' # additional setting defining a URL to pass async looped scheduled requests to
+try S.async_schedule = true if process.env.name and process.env.name.endsWith '_schedule' # additional setting defining a URL to pass async scheduled requests to (including looped ones, if async_loop is not set)
 S.headers ?=
   'Access-Control-Allow-Methods': 'HEAD, GET, PUT, POST, DELETE, OPTIONS'
   'Access-Control-Allow-Origin': '*'
@@ -253,37 +253,39 @@ P = () ->
           _schedule[nd] = schedule: a[k]._schedule, fn: a[k]
           sfn = (fnm) =>
             return () =>
-              if @S.dev isnt true and not @S.async and not @S.async_loop and not @S.async_schedule and process.env.pm_id not in [1, '1']
+              fno = _schedule[fnm].fn
+              aru = @S.async_runner?[fno._runner ? fnm]
+              if @S.dev isnt true and not @S.async and not @S.async_loop and not @S.async_schedule and process.env.pm_id? and process.env.pm_id not in [1, '1']
                 console.log 'NOT running scheduled task because not on dev and process pid is not 1', fnm, @datetime()
-              else if not @S.async_schedule and typeof @S.async is 'string'
+              else if typeof aru isnt 'string' and not @S.async_schedule and typeof @S.async is 'string'
                 console.log 'NOT running scheduled task because not on the available async process', fnm, @datetime()
-              else if typeof @S.async_schedule is 'string' and (_schedule[fnm].fn._schedule isnt 'loop' or not @S.async_loop)
+              else if typeof aru isnt 'string' and typeof @S.async_schedule is 'string' and (fno._schedule isnt 'loop' or not @S.async_loop)
                 console.log 'NOT running scheduled task because not on the available async scheduled process', fnm, @datetime()
-              else if typeof @S.async_loop is 'string' and _schedule[fnm].fn._schedule is 'loop'
+              else if typeof aru isnt 'string' and typeof @S.async_loop is 'string' and fno._schedule is 'loop'
                 console.log 'NOT running scheduled looped task because not on the available loop process', fnm, @datetime()
+              else if typeof aru is 'string' and process.env.name and not process.env.name.endsWith (fno._runner ? fnm).replace /\./g, '_'
+                console.log 'NOT running scheduled task because not on the specified process runner', (fno._runner ? fnm), @datetime()
               else
-                if _schedule[fnm].fn._schedule is 'loop'
-                  console.log 'starting scheduled loop function', fnm
                 console.log 'scheduled task', fnm, @datetime()
                 _schedule[fnm].last = await @datetime()
                 delete _schedule[fnm].error
                 try
-                  if _schedule[fnm].fn._sheet
-                    crd = await @_loadsheet _schedule[fnm].fn, _schedule[fnm].fn._name.replace /\./g, '_'
+                  if fno._sheet
+                    crd = await @_loadsheet _schedule[fnm].fn, fno._name.replace /\./g, '_'
                   else
-                    crd = await _schedule[fnm].fn _schedule[fnm].fn._args # args can optionally be provided for the scheduled call
+                    crd = await _schedule[fnm].fn fno._args # args can optionally be provided for the scheduled call
                   try _schedule[fnm].result = JSON.stringify(crd).substr 0, 200
                   _schedule[fnm].success = true
                   console.log 'scheduled task result', crd
-                  if _schedule[fnm].fn._schedule is 'loop'
+                  if fno._schedule is 'loop'
                     console.log 'Schedule looping', fnm
                     lpd = await sfn fnm
                     lpd()
                 catch err
                   _schedule[fnm].success = false
                   try _schedule[fnm].error = JSON.stringify err
-          if a[k]._schedule is 'loop'
-            console.log 'Scheduling loop', nd
+          if a[k]._schedule in ['loop', 'startup']
+            console.log 'Starting scheduled', a[k]._schedule, nd
             lpd = await sfn nd
             lpd()
           else
@@ -311,9 +313,10 @@ P = () ->
 
   if typeof fn in ['object', 'function'] and fn._bg and typeof @S.bg is 'string' and @S.bg.startsWith 'http'
     throw new Error()
-  else if typeof fn in ['object', 'function'] and fn._async and typeof @S.async is 'string'
-    console.log 'Fetching from async process', @S.async, @request.url
-    res = await @fetch @S.async + @request.url, method: @request.method, headers: @headers, body: @request.body
+  else if typeof fn in ['object', 'function'] and fn._async and typeof @S.async is 'string' and (typeof @S.async_runner?[fn._runner ? @fn] isnt 'string' or not process.env.name or not process.env.name.endsWith (fn._runner ? @fn).replace /\./g, '_' )
+    asr = @S.async_runner?[fn._runner ? @fn] ? @S.async
+    console.log 'Fetching from async process', asr, @request.url
+    res = await @fetch asr + @request.url, method: @request.method, headers: @headers, body: @request.body
   else if typeof fn is 'function'
     authd = if @fn is 'auth' then undefined else await @auth()
     @user = authd if typeof authd is 'object' and authd._id and authd.email
@@ -609,7 +612,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                     orgsidx = qry._source.excludes.indexOf 'orgs'
                     qry._source.excludes = qry._source.excludes.splice(orgsidx, 1) if orgsidx isnt -1
                 if nfeml
-                  await @mail to: nfeml, subject: 'Your export has started (ref: ' + flid + '.csv)', text: 'Your export has started. You can download the file any time, it will keep growing until it is complete, when you will get another notification.<br><br><a href="' + eurl + '">Download csv</a><br><br>Thanks'
+                  await @mail to: nfeml, subject: 'Your export has started (ref: ' + flid + '.csv)', text: 'Your export has started. You can download the file any time, it will keep growing until it is complete, when you will get another notification.<br><br><a href="' + eurl + '">Download CSV</a><br><br>Thanks'
                 _makecsv = (rt, qry, out, keys, notify, eurl, pfs, pok) =>
                   first = true
                   if pok?
@@ -695,7 +698,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                         await fs.appendFile out, (if not first then ',"' else '"') + val + '"'
                         first = false
                   if notify
-                    await @mail to: notify, subject: 'Your export is complete (ref: ' + out.split('/').pop() + ')', text: 'Your export is complete. We recommend you download and store files elsewhere as soon as possible as we may delete this file at any time.<br><br><a href="' + eurl + '">Download csv</a>\n\nThanks'
+                    await @mail to: notify, subject: 'Your export is complete (ref: ' + out.split('/').pop() + ')', text: 'Your export is complete. We recommend you download and store files elsewhere as soon as possible as we may delete this file at any time.<br><br><a href="' + eurl + '">Download CSV</a><br><br>Thanks'
                 @waitUntil _makecsv rt, qry, out, ks, nfeml, eurl, pfs, pok
                 delete @format
                 res = eurl
@@ -778,7 +781,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
         res = await _as rt, f, arguments
 
     # _log
-    if f._log isnt false
+    if f._log isnt false and not n.includes '._'
       lg.took = Date.now() - started
       @log lg
 

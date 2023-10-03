@@ -11,8 +11,7 @@ try S.src.oadoi = JSON.parse SECRETS_OADOI
   else
     return'''
     
-#P.src.oadoi._index = settings: number_of_shards: 9
-P.src.oadoi = _index: settings: number_of_shards: 9
+P.src.oadoi = _index: settings: number_of_shards: 15
 P.src.oadoi._key = 'doi'
 P.src.oadoi._prefix = false
 
@@ -54,43 +53,88 @@ P.src.oadoi.hybrid = (issns) ->
 # https://support.unpaywall.org/support/solutions/articles/44001867302-unpaywall-change-notes
 # https://unpaywall.org/products/data-feed/changefiles
 P.src.oadoi.load = () ->
-  batchsize = 30000 # how many records to batch upload at a time - 20k ran smooth, took about 6 hours.
-  howmany = @params.howmany ? -1 # max number of lines to process. set to -1 to keep going
+  started = await @epoch()
+  #batchsize = 10000 # how many records to batch upload at a time - 20k ran smooth, took about 6 hours.
+  #howmany = @params.howmany ? -1 # max number of lines to process. set to -1 to keep going
 
-  infile = @S.directory + '/oadoi/snapshot.jsonl' # where the lines should be read from
+  infile = @S.directory + '/import/oadoi/snapshot.jsonl' # where the lines should be read from
   # could also be possible to stream this from oadoi source via api key, which always returns the snapshot from the previous day 0830
+  # streaming caused timeouts so download first if not present
   # http://api.unpaywall.org/feed/snapshot?api_key=
-  lastfile = @S.directory + '/oadoi/last' # where to record the ID of the last item read from the file
-  try lastrecord = (await fs.readFile lastfile).toString() if not @refresh
+  try
+    stats = await fs.stat infile # check if file exists in async fs promises which does not have .exists
+  catch
+    console.log 'OADOI downloading snapshot'
+    resp = await fetch 'https://api.unpaywall.org/feed/snapshot?api_key=' + @S.src.oadoi.apikey
+    wstr = fs.createWriteStream infile
+    await new Promise (resolve, reject) =>
+      resp.body.pipe wstr
+      resp.body.on 'error', reject
+      wstr.on 'finish', resolve
+    console.log 'snapshot downloaded'
 
-  await @src.oadoi('') if not lastrecord
+  #lastfile = @S.directory + '/import/oadoi/last' # where to record the ID of the last item read from the file
+  #try lastrecord = (await fs.readFile lastfile).toString() if not @refresh
+
+  await @src.oadoi('') if @params.clear #if not lastrecord
 
   total = 0
   batch = []
+  lines = ''
+  complete = false
 
+  '''
   # it appears it IS gz compressed even if they provide it without the .gz file extension
   for await line from readline.createInterface input: fs.createReadStream(infile).pipe zlib.createGunzip() #, crlfDelay: Infinity
     break if total is howmany
-    try
-      rec = JSON.parse line.trim().replace /\,$/, ''
-      if not lastrecord or lastrecord is rec.doi
-        lastrecord = undefined
-        total += 1
-        rec._id = rec.doi.replace /\//g, '_'
-        batch.push rec
-        if batch.length is batchsize
-          console.log 'OADOI bulk loading', batch.length, total
-          await @src.oadoi batch
-          batch = []
-          await fs.writeFile lastfile, rec.doi
+    rec = JSON.parse line.trim().replace /\,$/, ''
+    if not lastrecord or lastrecord.toLowerCase() is rec.doi.toLowerCase()
+      lastrecord = undefined
+      total += 1
+      rec._id = rec.doi.replace /\//g, '_'
+      batch.push rec
+      if batch.length is batchsize
+        console.log 'OADOI bulk loading', batch.length, total
+        await @src.oadoi batch
+        batch = []
+        await fs.writeFile lastfile, rec.doi
+  '''
 
+  strm = fs.createReadStream(infile).pipe zlib.createGunzip()
+  strm.on 'data', (chunk) =>
+    line = chunk.toString 'utf8'
+    lines += line if typeof line is 'string' and line
+    while lines.includes '\n'
+      [lp, lines] = lines.replace('\n', 'X0X0X0X0X0X0X0X0X0X0X0').split('X0X0X0X0X0X0X0X0X0X0X0') # cheap split on first occurrence
+      rec = {}
+      try rec = JSON.parse lp #.trim().replace /\,$/, ''
+      if rec?.doi
+        batch.push rec
+      else
+        console.log 'oadoi load failed to parse record from string', lp
+      if batch.length >= 10000
+        total += batch.length
+        console.log 'OADOI bulk loading', batch.length, total
+        await @src.oadoi batch
+        batch = []
+    lines ?= ''
+
+  strm.on 'error', (err) => console.log 'oadoi load file stream error', JSON.stringify err
+  strm.on 'end', () =>
+    console.log 'stream complete for oadoi load'
+    complete = true
+  while not complete
+    console.log 'oadoi load streaming file', lines.length, total, Math.floor((Date.now()-started)/1000/60) + 'm'
+    await @sleep 30000
   await @src.oadoi(batch) if batch.length
-  console.log total
+  ended = Date.now()
+  console.log 'oadoi load complete', total, started, ended, Math.floor((ended-started)/1000/60) + 'm'
   return total
 
 P.src.oadoi.load._bg = true
 P.src.oadoi.load._async = true
-P.src.oadoi.load._auth = 'root'
+P.src.oadoi.load._log = false
+#P.src.oadoi.load._auth = 'root'
 
 
 P.src.oadoi.changes = (oldest) ->
@@ -99,8 +143,8 @@ P.src.oadoi.changes = (oldest) ->
   # suspect it can't all be streamed before timing out. So write file locally then import then delete, and write 
   # error file dates to a list file, and manually load them separately if necessary
 
-  uptofile = @S.directory + '/oadoi/upto' # where to record the ID of the most recent change day file that's been processed up to
-  errorfile = @S.directory + '/oadoi/errors'
+  uptofile = @S.directory + '/import/oadoi/upto' # where to record the ID of the most recent change day file that's been processed up to
+  #errorfile = @S.directory + '/import/oadoi/errors'
 
   oldest ?= @params.changes
   if not oldest
@@ -130,7 +174,7 @@ P.src.oadoi.changes = (oldest) ->
       batch = []
 
       lc = 0
-      lfl = @S.directory + '/oadoi/' + lr.date + '.jsonl.gz'
+      lfl = @S.directory + '/import/oadoi/' + lr.date + '.jsonl.gz'
 
       resp = await fetch lr.url
       wstr = fs.createWriteStream lfl
@@ -141,13 +185,9 @@ P.src.oadoi.changes = (oldest) ->
 
       #for await line from readline.createInterface input: (await fetch lr.url).body.pipe zlib.createGunzip().on('error', (err) -> fs.appendFile(errorfile, lr.date); console.log err)
       for await line from readline.createInterface input: fs.createReadStream(lfl).pipe zlib.createGunzip()
-        upto = lm #if upto is false
+        upto = lm # if upto is false
         lc += 1
         rec = JSON.parse line.trim().replace /\,$/, ''
-        #if rec.doi in seen
-        #  dups += 1
-        #else
-        #seen.push rec.doi # work backwards so don't bother saving old copies of the same records
         rec._id = rec.doi.replace /\//g, '_'
         batch.push rec
         counter += 1
@@ -162,7 +202,7 @@ P.src.oadoi.changes = (oldest) ->
     if upto
       try await fs.writeFile uptofile, upto
     
-  console.log days, counter #, seen.length, dups
+  console.log 'oadoi changes complete', days, counter #, seen.length, dups
   return counter #seen.length
 
 P.src.oadoi.changes._bg = true
@@ -170,26 +210,3 @@ P.src.oadoi.changes._async = true
 P.src.oadoi.changes._auth = 'root'
 P.src.oadoi.changes._notify = false
 
-
-P.src.oadoi.local = () ->
-  batchsize = 50000
-  counter = 0
-  if @params.local and @params.local.length is 10 and @params.local.split('-').length is 3 and not @params.local.includes '/'
-    fn = @S.directory + '/oadoi/' + @params.local + '.jsonl'
-    batch = []
-    for await line from readline.createInterface input: fs.createReadStream fn
-      counter += 1
-      rec = JSON.parse line.trim().replace /\,$/, ''
-      rec._id = rec.doi.replace /\//g, '_'
-      batch.push rec
-      if batch.length >= batchsize
-        await @src.oadoi batch
-        batch = []
-  
-    await @src.oadoi(batch) if batch.length
-
-  console.log counter
-  return counter
-  
-P.src.oadoi.local._bg = true
-P.src.oadoi.local._auth = 'root'

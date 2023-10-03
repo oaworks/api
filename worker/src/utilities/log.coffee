@@ -29,6 +29,7 @@ P.log = (msg, store) ->
 
   if @S.log isnt false and @nolog isnt true
     store = not msg? if store isnt true # an empty call to log stores everything in the _logs list
+    store = true if store isnt true and (@_logs.length > 30000 or _bg_log_batch.length > 30000)
     
     if typeof msg is 'string'
       if msg.indexOf('/') isnt -1 and msg.indexOf(' ') is -1

@@ -93,15 +93,18 @@ P.decode = (content) ->
     translate = "nbsp":" ", "amp" : "&", "quot": "\"", "lt"  : "<", "gt"  : ">"
     return content.replace(translator, ((match, entity) ->
       return translate[entity]
-    )).replace(/&#(\d+);/gi, ((match, numStr) ->
-      num = parseInt(numStr, 10)
-      return String.fromCharCode(num)
+    )).replace(/&#(x?[0-9A-Fa-f]+);/gi, ((match, numStr) ->
+      if numStr.startsWith 'x'
+        num = parseInt numStr.replace('x', ''), 16
+      else
+        num = parseInt numStr, 10
+      return String.fromCharCode num
     ))
   text = await _decode content
   text = text.replace /\n/g, ' '
   for c in [{bad: '‘', good: "'"}, {bad: '’', good: "'"}, {bad: '´', good: "'"}, {bad: '“', good: '"'}, {bad: '”', good: '"'}, {bad: '–', good: '-'}, {bad: '-', good: '-'}]
     re = new RegExp c.bad, 'g'
     text = text.replace re, c.good
-  text = decodeURIComponent(text) if text.indexOf('%2') isnt -1
-  text = decodeURIComponent(text) if text.indexOf('%2') isnt -1 # some of the data we handle was double encoded, so like %2520, so need two decodes
+  try text = decodeURIComponent(text) if text.indexOf('%2') isnt -1
+  try text = decodeURIComponent(text) if text.indexOf('%2') isnt -1 # some of the data we handle was double encoded, so like %2520, so need two decodes
   return text

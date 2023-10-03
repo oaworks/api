@@ -340,10 +340,31 @@ P.index.range = (route, key, qry) -> return @index.min route, key, qry, 'range'
 P.index.sum = (route, key, qry) -> return @index.min route, key, qry, 'sum'
 P.index.average = (route, key, qry) -> return @index.min route, key, qry, 'average'
 
-P.index.mapping = (route) ->
+# can be used to put new fields into a mapping such as:
+'''{
+  "properties": {
+    "assertion": {
+      "properties": {
+        "label": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256
+            }
+          }
+        }
+      }
+    }
+  }
+}'''
+P.index.mapping = (route, map) ->
   route = route.replace /^\//, '' # remove any leading /
   route = route + '/' if route.indexOf('/') is -1
   route = route.replace('/','/_mapping') if route.indexOf('_mapping') is -1
+  if map?
+    mapped = await @index._send route, map, 'PUT'
+    console.log route, 'mapped', mapped
   ret = await @index._send route
   rtm = (await @keys ret)[0] #route.replace('/_mapping', '').replace(/\//g, '_').replace(/^_/, '')
   return ret[rtm].mappings.properties
@@ -441,11 +462,12 @@ P.index._bulk = (route, data, action='index', bulk=50000, prefix, alias) ->
   if typeof alias is 'string'
     alias = '_' + alias if not alias.startsWith '_'
     alias = alias.replace /\//g, '_'
-    rso = route.split('/')[0]
     route = route.replace(rso, rso + alias) if not rso.endsWith alias
-  prefix ?= dtp?._prefix
-  if prefix isnt false 
-    route = (if typeof prefix is 'string' then prefix else @S.index.name) + '_' + route
+  prefix = @S.index.name if prefix is true
+  prefix ?= dtp?._prefix ? @S.index.name
+  if typeof prefix is 'string'
+    prefix += '_' if prefix.length and not prefix.endsWith '_'
+    route = prefix + route if not route.startsWith prefix 
   this.index ?= P.index
   if typeof data is 'string' and data.indexOf('\n') isnt -1
     # TODO should this check through the string and make sure it only indexes to the specified route?
@@ -694,19 +716,19 @@ P.index._send = (route, data, method, prefix, alias) ->
   # TODO if data is a query that also has a _delete key in it, remove that key and do a delete by query? and should that be bulked? is dbq still allowed in ES7.x?
   return false if method is 'DELETE' and route.indexOf('/_all') isnt -1 # nobody can delete all via the API
   if not route.startsWith 'http' # which it probably doesn't
-    rso = route.split('/')[0]
-    dtp = await @dot P, rso.replace /_/g, '.'
-    alias ?= @params._alias ? @S.alias?[if rso.startsWith(@S.index.name + '_') then rso.replace(@S.index.name + '_', '') else rso] ? dtp?._alias
-    if typeof alias is 'string' and not route.startsWith '_'
-      alias = '_' + alias if not alias.startsWith '_'
-      alias = alias.replace /\//g, '_'
-      route = route.replace(rso, rso + alias) if not rso.endsWith alias
-    if @S.index.name and not route.startsWith(@S.index.name) and not route.startsWith '_'
-      #prefix ?= await @dot P, (route.split('/')[0]).replace(/_/g, '.') + '._prefix'
-      prefix ?= dtp?._prefix
-      # TODO could allow prefix to be a list of names, and if index name is in the list, alias the index into those namespaces, to share indexes between specific instances rather than just one or global
-      if prefix isnt false
-        route = (if typeof prefix is 'string' then prefix else @S.index.name) + '_' + route
+    if not route.startsWith '_'
+      rso = route.split('/')[0]
+      dtp = await @dot P, rso.replace /_/g, '.'
+      alias ?= @params._alias ? @S.alias?[if rso.startsWith(@S.index.name + '_') then rso.replace(@S.index.name + '_', '') else rso] ? dtp?._alias
+      if typeof alias is 'string'
+        alias = '_' + alias if not alias.startsWith '_'
+        alias = alias.replace /\//g, '_'
+        route = route.replace(rso, rso + alias) if not rso.endsWith alias
+      prefix ?= dtp?._prefix ? @S.index.name
+      prefix = @S.index.name if prefix is true
+      if typeof prefix is 'string'
+        prefix += '_' if prefix.length and not prefix.endsWith '_'
+        route = prefix + route if not route.startsWith prefix # TODO could allow prefix to be a list of names, and if index name is in the list, alias the index into those namespaces, to share indexes between specific instances rather than just one or global
     url = if this?.S?.index?.url then @S.index.url else S.index?.url
     url = url[Math.floor(Math.random()*url.length)] if Array.isArray url
     if typeof url isnt 'string'

@@ -408,7 +408,7 @@ P.permissions.journals.example = (issn) ->
 P.permissions.journals.transformative = _index: true, _prefix: false
 P.permissions.journals.transformative.load = () ->
   batch = []
-  tfs = await @fetch 'https://api.journalcheckertool.org/tj?q=*&include=title,issn&size=10000'
+  tfs = await @fetch 'https://api.journalcheckertool.org/journal?q=tj:true&include=issn&size=10000'
   batch.push(rec._source) for rec in tfs.hits.hits
   if batch.length
     await @permissions.journals.transformative ''

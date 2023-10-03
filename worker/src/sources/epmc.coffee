@@ -175,6 +175,44 @@ P.src.epmc.fulltext = (pmcid) -> # check fulltext exists in epmc explicitly
   else
     return
 
+P.src.epmc.aam = (pmcid, rec, fulltext) ->
+  pmcid ?= @params.aam ? @params.pmcid ? @params.epmc
+  if typeof fulltext is 'string' and fulltext.includes('pub-id-type=\'manuscript\'') and fulltext.includes('pub-id-type="manuscript"')
+    return aam: true, info: 'fulltext'
+  else
+    # if EPMC API authMan / epmcAuthMan / nihAuthMan become reliable we can use those instead
+    try rec = await @src.epmc.pmc(pmcid) if pmcid and not rec
+    pmcid ?= rec?.pmcid
+    if pmcid
+      fulltext = await @src.epmc.xml pmcid, rec
+      if typeof fulltext is 'string' and fulltext.includes('pub-id-type=\'manuscript\'') and fulltext.includes('pub-id-type="manuscript"')
+        return aam: true, info: 'fulltext'
+      else
+        await @sleep 1000
+        url = 'https://europepmc.org/articles/PMC' + pmcid.toLowerCase().replace 'pmc', ''
+        #pg = await @puppet url
+        pg = await @fetch url
+        if not pg
+          return aam: false, info: 'not in EPMC (404)'
+        else if typeof pg is 'string'
+          s1 = 'Author Manuscript; Accepted for publication in peer reviewed journal'
+          s2 = 'Author manuscript; available in PMC'
+          s3 = 'logo-nihpa.gif'
+          s4 = 'logo-wtpa2.gif'
+          if pg.includes(s1) or pg.includes(s2) or pg.includes(s3) or pg.includes(s4)
+            return aam: true, info: 'splashpage'
+          else
+            return aam: false, info: 'EPMC splashpage checked, no indicator found'
+        else if pg?
+          return info: 'EPMC was accessed but aam could not be decided from what was returned'
+        else #if typeof pg is 'object' and pg.status is 403
+          return info: 'EPMC may be blocking access, AAM status unknown'
+  return aam: false, info: ''
+
+
+
+
+
 P.src.epmc.statement = (pmcid, rec) ->
   pmcid ?= @params.statement ? @params.pmc ? @params.pmcid ? @params.PMC ? @params.PMCID
   if pmcid
@@ -212,37 +250,140 @@ P.src.epmc.statement = (pmcid, rec) ->
         return statement if statement.length > 10 # hard to be a good statement if shorter than this
   return
 
-P.src.epmc.aam = (pmcid, rec, fulltext) ->
-  pmcid ?= @params.aam ? @params.pmcid ? @params.epmc
-  if typeof fulltext is 'string' and fulltext.includes('pub-id-type=\'manuscript\'') and fulltext.includes('pub-id-type="manuscript"')
-    return aam: true, info: 'fulltext'
-  else
-    # if EPMC API authMan / epmcAuthMan / nihAuthMan become reliable we can use those instead
-    try rec = await @src.epmc.pmc(pmcid) if pmcid and not rec
-    pmcid ?= rec?.pmcid
-    if pmcid
-      fulltext = await @src.epmc.xml pmcid, rec
-      if typeof fulltext is 'string' and fulltext.includes('pub-id-type=\'manuscript\'') and fulltext.includes('pub-id-type="manuscript"')
-        return aam: true, info: 'fulltext'
-      else
-        await @sleep 1000
-        url = 'https://europepmc.org/articles/PMC' + pmcid.toLowerCase().replace 'pmc', ''
-        #pg = await @puppet url
-        pg = await @fetch url
-        if not pg
-          return aam: false, info: 'not in EPMC (404)'
-        else if typeof pg is 'string'
-          s1 = 'Author Manuscript; Accepted for publication in peer reviewed journal'
-          s2 = 'Author manuscript; available in PMC'
-          s3 = 'logo-nihpa.gif'
-          s4 = 'logo-wtpa2.gif'
-          if pg.includes(s1) or pg.includes(s2) or pg.includes(s3) or pg.includes(s4)
-            return aam: true, info: 'splashpage'
-          else
-            return aam: false, info: 'EPMC splashpage checked, no indicator found'
-        else if pg?
-          return info: 'EPMC was accessed but aam could not be decided from what was returned'
-        else #if typeof pg is 'object' and pg.status is 403
-          return info: 'EPMC may be blocking access, AAM status unknown'
-  return aam: false, info: ''
+P.src.epmc.dass = ->
+  # what about code availability statements without data availability e.g. PMC6198754
+  max = @params.dass ? 1
+  res = []
+  had = 0
+  fl = 0
+  prep = 0
+  saysdata = 0
+  saysavail = 0
+  saysstate = 0
+  daclose = 0
+  dasclose = 0
+  for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'PMCID:PMC9722710 AND orgs:Melinda', include: ['PMCID'] #, sort: 'PMCID': 'asc'
+    break if res.length is max
+    try ft = (await fs.readFile '/home/cloo/static/epmc/fulltext/' + rec.PMCID + '.xml').toString()
+    if ft
+      fl += 1
+      ex = pmcid: rec.PMCID # catch multiple relevant statements like in PMC8012878, or PMC9722710 where there are sec within sec all part of the statement (and after an earlier false data match)
+      ftl = ft.toLowerCase()
+      if ftl.includes('>data') or ftl.includes('"data') or ftl.includes ' data'
+        saysdata += 1
+        if ftl.includes 'availab'
+          saysavail += 1
+          matches = ftl.match /.{100}[>" ](data|availab).{1,50}(availab|data).{200}/g
+          if matches? and matches.length and matches[0].includes('data') and matches[0].includes('availab')
+            daclose += 1
+            ex.close = matches[0]
+            ex.index = matches.index
+          if ftl.includes 'statement'
+            saysstate += 1
+            matches = ftl.match /.{100}[>" ](data|availab|statement).{1,50}(availab|data|statement).{1,50}(availab|data|statement).{200}/g
+            if matches? and matches.length and smatches[0].includes('data') and matches[0].includes('availab') and matches[0].includes('statement')
+              dasclose += 1 
+              ex.closer = matches[0] 
+              ex.index = matches.index
+      if ft.includes '"data'
+        [pre, post] = ft.split '"data'
+        ex.pre = pre.slice -100
+        ex.post = post.slice 0, 1000
+        ex.tag = pre.split('<').pop().split('>')[0].split(' ')[0]
+        post = post.split('</' + ex.tag)[0]
+        post = post.split(/\>(.*)/s)[1]
+        post = post.replace('</', ': </').replace('::', ':').replace('.:', ':') if post.split('</').length > 2
+        post = post.replace(/\n/g, ' ').replace(/\s+/g, ' ').replace /(<([^>]+)>)/ig, ''
+        ex.das = (await @decode post.trim()).replace(/"/g, '').replace(/\s+/g, ' ') if post.length > 20 and post.length < 1000 and (ex.pre+post).toLowerCase().includes('availab') and (ex.pre+post).toLowerCase().includes('data')
+      if not ex.das and (ft.includes('>Data') or ft.includes('>Availab') or ft.includes('>data'))
+        [pre, post] = ft.split(if ft.includes('>Data') then '>Data' else if ft.includes('>Availab') then '>Availab' else '>data')
+        ex.pre = pre.slice -100
+        ex.post = post.slice 0, 1000
+        post = (if post.startsWith('il') or post.startsWith('l') then 'Availab' else 'Data ') + post
+        ex.tag = pre.split('<').pop().split(' ')[0]
+        if post.indexOf('</' + ex.tag) < 40
+          post = post.replace('</' + ex.tag + '>', ': ').replace('::', ':').replace('.:', ':')
+          ps = pre.split '<'
+          ex.tag = ps[ps.length-2].split(' ')[0]
+        post = post.split('</' + ex.tag)[0]
+        post = post.replace(/\n/g, ' ').replace(/\s+/g, ' ').replace /(<([^>]+)>)/ig, ''
+        ex.das = (await @decode post.trim()).replace(/"/g, '').replace(/\s+/g, ' ') if post.length > 20 and post.length < 1000 and (ex.pre+post).toLowerCase().includes('availab') and (ex.pre+post).toLowerCase().includes('data')
+      res.push(ex) #pmcid: ex.pmcid, das: ex.das) #if ex.das
+      had += 1 if ex.das
+      prep += 1 if ex.pre and ex.post
+  return total: res.length, files: fl, data: saysdata, available: saysavail, statement: saysstate, close: daclose, closer: dasclose, index: -1, prep: prep, das: had, records: res
+
+
+
+P.src.epmc.das = (pmcid, verbose) -> # restrict to report/works records if pmcid is directly provided?
+  max = pmcid ? @params.das ? 100 # ['PMC9722710', 'PMC8012878', 'PMC6198754'] # multiples PMC8012878. code? PMC6198754. Another example for something? was PMC9682356
+  max = max.split(',') if typeof max is 'string'
+  verbose ?= @params.verbose
+  res = total: 0, files: 0, data: 0, available: 0, statement: 0, close: 0, closer: 0, prep: 0, das: 0, records: []
+  for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', '(PMCID:' + (if typeof max is 'number' then '*' else max.join(' OR PMCID:')) + ') AND orgs:Melinda', include: ['PMCID'], sort: 'PMCID.keyword': 'asc'
+    break if typeof max is 'number' and res.records.length is max
+    try ft = (await fs.readFile '/home/cloo/static/epmc/fulltext/' + rec.PMCID + '.xml').toString()
+    if ft
+      res.files += 1
+      ex = pmcid: rec.PMCID, file: 'https://static.oa.works/epmc/fulltext/' + rec.PMCID + '.xml', splits: [], tag: [], pre: [], post: [], das: []
+      ftl = ft.toLowerCase()
+      if ftl.includes('>data') or ftl.includes('"data') or ftl.includes ' data'
+        res.data += 1
+        if ftl.includes 'availab'
+          res.available += 1
+          matches = ftl.match /.{100}[>" ](data|availab).{1,50}(availab|data).{200}/g
+          if matches? and matches.length and matches[0].includes('data') and matches[0].includes('availab')
+            res.close += 1
+            ex.close = matches
+          if ftl.includes 'statement'
+            res.statement += 1
+            matches = ftl.match /.{100}[>" ](data|availab|statement).{1,50}(availab|data|statement).{1,50}(availab|data|statement).{200}/g
+            if matches? and matches.length and matches[0].includes('data') and matches[0].includes('availab') and matches[0].includes('statement')
+              res.closer += 1 
+              ex.closer = matches 
+
+      for split in ['"data', '>Data', '>Availab', '>data']
+        if ft.includes split
+          ex.splits.push split
+          pre = ''
+          splits = ft.split split
+          while part = splits.shift()
+            if not pre
+              pre = part
+            else
+              ex.pre.push pre.slice -1000
+              tag = pre.split('<').pop().split('>')[0].split(' ')[0]
+              post = if split.startsWith('"') then part.split(/\>(.*)/s)[1] else (if part.startsWith('il') or part.startsWith('l') then 'Availab' else 'Data') + part
+              ex.post.push post.slice 0, 1000
+              if post.includes('</' + tag) and post.indexOf('</' + tag) < 40
+                ps = pre.split '<'
+                nt = ps[ps.length-2].split('>')[0].split(' ')[0]
+                if not nt.startsWith '/'
+                  #post = post.replace('</' + tag + '>', ': ').replace('::', ':').replace('.:', ':')
+                  tag = nt
+              ex.tag.push tag
+              splitter = '\n' + pre.split('<' + tag)[0].split('\n').pop().split('<')[0] + '</' + tag
+              if post.split('</' + tag)[0].includes '\n'
+                while not post.includes(splitter) and splits[0] #and splits[0].includes splitter
+                  post += (if split.startsWith('>') then '>' else '') + (if splits[0].startsWith('il') or splits[0].startsWith('l') then 'Availab' else 'Data') +  splits.shift()
+              post = post.split(splitter)[0]
+              #post = post.split(/\>(.*)/s)[1]
+              #post = post.replace('</', ': </').replace('::', ':').replace('.:', ':') if post.split('</').length > 2
+              post = post.replace(/\n/g, ' ').replace(/\s+/g, ' ').replace /(<([^>]+)>)/ig, ''
+              if post.length > 20 and post.length < 3000 and (pre+post).toLowerCase().includes('availab') and (pre+post).toLowerCase().includes('data')
+                clean = (await @decode post.trim()).replace(/"/g, '').replace(/\s+/g, ' ')
+                ex.das.push(clean) if clean not in ex.das
+                delete ex.close
+                delete ex.closer
+              pre = ''
+
+      res.records.push if verbose is false then {file: ex.file, das: ex.das} else ex
+      res.das += 1 if ex.das.length
+      res.prep += 1 if ex.pre and ex.post
+
+  res.total = res.records.length
+  res = {total: res.total, das: res.das, records: res.records} if verbose is false
+  res = (if res.records.length and res.records[0].das.length then res.records[0].das[0] else false) if verbose is false and res.total is 1
+  return res
+
 

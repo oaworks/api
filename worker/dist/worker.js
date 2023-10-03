@@ -44,19 +44,19 @@ if (S.dev == null) {
 }
 
 try {
-  if (process.env.name.endsWith('_async')) { // optional setting defining a URL to an async worker to pass requests to
+  if (process.env.name && process.env.name.endsWith('_async')) { // optional setting defining a URL to an async worker to pass requests to
     S.async = true;
   }
 } catch (error) {}
 
 try {
-  if (process.env.name.endsWith('_loop')) { // additional setting defining a URL to pass async looped scheduled requests to
+  if (process.env.name && process.env.name.endsWith('_loop')) { // additional setting defining a URL to pass async looped scheduled requests to
     S.async_loop = true;
   }
 } catch (error) {}
 
 try {
-  if (process.env.name.endsWith('_schedule')) { // additional setting defining a URL to pass async scheduled requests to (including looped ones, if async_loop is not set)
+  if (process.env.name && process.env.name.endsWith('_schedule')) { // additional setting defining a URL to pass async scheduled requests to (including looped ones, if async_loop is not set)
     S.async_schedule = true;
   }
 } catch (error) {}
@@ -139,7 +139,7 @@ _unique = {};
 _schedule = {};
 
 P = async function() {
-  var _lp, authd, base, base1, base2, base3, bd, cpk, ct, du, entry, fd, fn, hd, hk, i, j, kp, kpn, l, len, len1, len2, len3, name, o, pf, pk, pkn, pkp, pks, prs, qp, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, resp, rk, shn, si;
+  var _lp, asr, authd, base, base1, base2, base3, bd, cpk, ct, du, entry, fd, fn, hd, hk, i, j, kp, kpn, l, len, len1, len2, len3, name, o, pf, pk, pkn, pkp, pks, prs, qp, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref4, ref5, ref6, ref7, ref8, ref9, res, resp, rk, shn, si;
   // the context here is the fetch event
   this.started = Date.now(); // not strictly accurate in a workers environment, but handy nevertheless, used for comparison when logs are finally written
   try {
@@ -385,7 +385,7 @@ P = async function() {
   pk = void 0;
   pks = [];
   _lp = async(p, a, n, auths, caches) => {
-    var base10, base11, base4, base5, base6, base7, base8, base9, ik, len3, lpd, nd, o, ref14, ref15, results, sfn, uk;
+    var base10, base11, base4, base5, base6, base7, base8, base9, ik, len3, lpd, nd, o, ref14, ref15, ref16, results, sfn, uk;
     if (pk && this.fn.startsWith(n)) {
       while (prs.length && (p[prs[0]] == null)) {
         this.params[pk] = (this.params[pk] ? this.params[pk] + '/' : '') + prs.shift();
@@ -460,34 +460,35 @@ P = async function() {
           };
           sfn = (fnm) => {
             return async() => {
-              var crd, err, lpd, ref16;
-              if (this.S.dev !== true && !this.S.async && !this.S.async_loop && !this.S.async_schedule && ((ref16 = process.env.pm_id) !== 1 && ref16 !== '1')) {
+              var aru, crd, err, fno, lpd, ref16, ref17, ref18, ref19, ref20;
+              fno = _schedule[fnm].fn;
+              aru = (ref16 = this.S.async_runner) != null ? ref16[(ref17 = fno._runner) != null ? ref17 : fnm] : void 0;
+              if (this.S.dev !== true && !this.S.async && !this.S.async_loop && !this.S.async_schedule && (process.env.pm_id != null) && ((ref18 = process.env.pm_id) !== 1 && ref18 !== '1')) {
                 return console.log('NOT running scheduled task because not on dev and process pid is not 1', fnm, this.datetime());
-              } else if (!this.S.async_schedule && typeof this.S.async === 'string') {
+              } else if (typeof aru !== 'string' && !this.S.async_schedule && typeof this.S.async === 'string') {
                 return console.log('NOT running scheduled task because not on the available async process', fnm, this.datetime());
-              } else if (typeof this.S.async_schedule === 'string' && (_schedule[fnm].fn._schedule !== 'loop' || !this.S.async_loop)) {
+              } else if (typeof aru !== 'string' && typeof this.S.async_schedule === 'string' && (fno._schedule !== 'loop' || !this.S.async_loop)) {
                 return console.log('NOT running scheduled task because not on the available async scheduled process', fnm, this.datetime());
-              } else if (typeof this.S.async_loop === 'string' && _schedule[fnm].fn._schedule === 'loop') {
+              } else if (typeof aru !== 'string' && typeof this.S.async_loop === 'string' && fno._schedule === 'loop') {
                 return console.log('NOT running scheduled looped task because not on the available loop process', fnm, this.datetime());
+              } else if (typeof aru === 'string' && process.env.name && !process.env.name.endsWith(((ref19 = fno._runner) != null ? ref19 : fnm).replace(/\./g, '_'))) {
+                return console.log('NOT running scheduled task because not on the specified process runner', (ref20 = fno._runner) != null ? ref20 : fnm, this.datetime());
               } else {
-                if (_schedule[fnm].fn._schedule === 'loop') {
-                  console.log('starting scheduled loop function', fnm);
-                }
                 console.log('scheduled task', fnm, this.datetime());
                 _schedule[fnm].last = (await this.datetime());
                 delete _schedule[fnm].error;
                 try {
-                  if (_schedule[fnm].fn._sheet) {
-                    crd = (await this._loadsheet(_schedule[fnm].fn, _schedule[fnm].fn._name.replace(/\./g, '_')));
+                  if (fno._sheet) {
+                    crd = (await this._loadsheet(_schedule[fnm].fn, fno._name.replace(/\./g, '_')));
                   } else {
-                    crd = (await _schedule[fnm].fn(_schedule[fnm].fn._args)); // args can optionally be provided for the scheduled call
+                    crd = (await _schedule[fnm].fn(fno._args)); // args can optionally be provided for the scheduled call
                   }
                   try {
                     _schedule[fnm].result = JSON.stringify(crd).substr(0, 200);
                   } catch (error) {}
                   _schedule[fnm].success = true;
                   console.log('scheduled task result', crd);
-                  if (_schedule[fnm].fn._schedule === 'loop') {
+                  if (fno._schedule === 'loop') {
                     console.log('Schedule looping', fnm);
                     lpd = (await sfn(fnm));
                     return lpd();
@@ -502,8 +503,8 @@ P = async function() {
               }
             };
           };
-          if (a[k]._schedule === 'loop') {
-            console.log('Scheduling loop', nd);
+          if ((ref16 = a[k]._schedule) === 'loop' || ref16 === 'startup') {
+            console.log('Starting scheduled', a[k]._schedule, nd);
             lpd = (await sfn(nd));
             lpd();
           } else {
@@ -558,9 +559,10 @@ P = async function() {
   }
   if (((ref14 = typeof fn) === 'object' || ref14 === 'function') && fn._bg && typeof this.S.bg === 'string' && this.S.bg.startsWith('http')) {
     throw new Error();
-  } else if (((ref15 = typeof fn) === 'object' || ref15 === 'function') && fn._async && typeof this.S.async === 'string') {
-    console.log('Fetching from async process', this.S.async, this.request.url);
-    res = (await this.fetch(this.S.async + this.request.url, {
+  } else if (((ref15 = typeof fn) === 'object' || ref15 === 'function') && fn._async && typeof this.S.async === 'string' && (typeof ((ref16 = this.S.async_runner) != null ? ref16[(ref17 = fn._runner) != null ? ref17 : this.fn] : void 0) !== 'string' || !process.env.name || !process.env.name.endsWith(((ref18 = fn._runner) != null ? ref18 : this.fn).replace(/\./g, '_')))) {
+    asr = (ref19 = (ref20 = this.S.async_runner) != null ? ref20[(ref21 = fn._runner) != null ? ref21 : this.fn] : void 0) != null ? ref19 : this.S.async;
+    console.log('Fetching from async process', asr, this.request.url);
+    res = (await this.fetch(asr + this.request.url, {
       method: this.request.method,
       headers: this.headers,
       body: this.request.body
@@ -580,7 +582,7 @@ P = async function() {
       authd = true;
     }
     if (authd || this.system) {
-      if ((ref16 = this.request.method) === 'HEAD' || ref16 === 'OPTIONS') {
+      if ((ref22 = this.request.method) === 'HEAD' || ref22 === 'OPTIONS') {
         res = '';
       } else if (fn._cache !== false && !this.refresh && (this.request.method === 'GET' || (this.request.method === 'POST' && (await this.index.translate(this.params)))) && (res = (await this.cache()))) { // this will return empty if nothing relevant was ever put in there anyway
         // how about caching of responses to logged in users, by param or header?
@@ -604,22 +606,22 @@ P = async function() {
   if (((res == null) || (typeof res === 'object' && res.status === 404)) && this.url.replace('.ico', '').replace('.gif', '').replace('.png', '').endsWith('favicon')) {
     res = '';
   }
-  resp = typeof res === 'object' && !Array.isArray(res) && typeof ((ref17 = res.headers) != null ? ref17.append : void 0) === 'function' ? res : (await this._response(res, fn));
-  if (this.parts.length && ((ref18 = this.parts[0]) !== 'log' && ref18 !== 'status') && (!this.system || ((ref19 = this.parts[0]) !== 'kv' && ref19 !== 'index')) && ((ref20 = this.request.method) !== 'HEAD' && ref20 !== 'OPTIONS') && (res != null) && res !== '') {
-    if (this.completed && fn._cache !== false && resp.status === 200 && (typeof res !== 'object' || Array.isArray(res) || ((ref21 = res.hits) != null ? ref21.total : void 0) !== 0) && (typeof res !== 'number' || !this.refresh)) {
+  resp = typeof res === 'object' && !Array.isArray(res) && typeof ((ref23 = res.headers) != null ? ref23.append : void 0) === 'function' ? res : (await this._response(res, fn));
+  if (this.parts.length && ((ref24 = this.parts[0]) !== 'log' && ref24 !== 'status') && (!this.system || ((ref25 = this.parts[0]) !== 'kv' && ref25 !== 'index')) && ((ref26 = this.request.method) !== 'HEAD' && ref26 !== 'OPTIONS') && (res != null) && res !== '') {
+    if (this.completed && fn._cache !== false && resp.status === 200 && (typeof res !== 'object' || Array.isArray(res) || ((ref27 = res.hits) != null ? ref27.total : void 0) !== 0) && (typeof res !== 'number' || !this.refresh)) {
       si = fn._cache; // fn._cache can be a number of seconds for cache to live, so pass it to cache to use if suitable
-      if ((si == null) && typeof res === 'object' && !Array.isArray(res) && (((ref22 = res.hits) != null ? ref22.hits : void 0) != null)) { // if this is a search result, cache only 1 minute max if nothing else was set for it
+      if ((si == null) && typeof res === 'object' && !Array.isArray(res) && (((ref28 = res.hits) != null ? ref28.hits : void 0) != null)) { // if this is a search result, cache only 1 minute max if nothing else was set for it
         si = 60;
       }
       this.cache(void 0, resp, si);
     } else if (this.refresh) {
       this.cache(void 0, '');
     }
-    if (((ref23 = typeof fn) !== 'object' && ref23 !== 'function') || fn._log !== false) {
+    if (((ref29 = typeof fn) !== 'object' && ref29 !== 'function') || fn._log !== false) {
       this.log();
     }
   }
-  if (!this.completed && !this.cached && !this.unauthorised && this.S.pass !== false && typeof this.S.bg === 'string' && ((ref24 = this.request.method) !== 'HEAD' && ref24 !== 'OPTIONS')) {
+  if (!this.completed && !this.cached && !this.unauthorised && this.S.pass !== false && typeof this.S.bg === 'string' && ((ref30 = this.request.method) !== 'HEAD' && ref30 !== 'OPTIONS')) {
     throw new Error(); // TODO check for functions that often timeout and set them to _bg by default
   } else {
     return resp;
@@ -1041,7 +1043,7 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
                   await this.mail({
                     to: nfeml,
                     subject: 'Your export has started (ref: ' + flid + '.csv)',
-                    text: 'Your export has started. You can download the file any time, it will keep growing until it is complete, when you will get another notification.<br><br><a href="' + eurl + '">Download csv</a><br><br>Thanks'
+                    text: 'Your export has started. You can download the file any time, it will keep growing until it is complete, when you will get another notification.<br><br><a href="' + eurl + '">Download CSV</a><br><br>Thanks'
                   });
                 }
                 _makecsv = async(rt, qry, out, keys, notify, eurl, pfs, pok) => {
@@ -1189,7 +1191,7 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
                     return (await this.mail({
                       to: notify,
                       subject: 'Your export is complete (ref: ' + out.split('/').pop() + ')',
-                      text: 'Your export is complete. We recommend you download and store files elsewhere as soon as possible as we may delete this file at any time.<br><br><a href="' + eurl + '">Download csv</a>\n\nThanks'
+                      text: 'Your export is complete. We recommend you download and store files elsewhere as soon as possible as we may delete this file at any time.<br><br><a href="' + eurl + '">Download CSV</a><br><br>Thanks'
                     }));
                   }
                 };
@@ -1344,7 +1346,7 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
       }
     }
     // _log
-    if (f._log !== false) {
+    if (f._log !== false && !n.includes('._')) {
       lg.took = Date.now() - started;
       this.log(lg);
     }
@@ -4937,7 +4939,7 @@ P.permissions.journals.transformative = {
 P.permissions.journals.transformative.load = async function() {
   var batch, i, len, rec, ref, tfs;
   batch = [];
-  tfs = (await this.fetch('https://api.journalcheckertool.org/tj?q=*&include=title,issn&size=10000'));
+  tfs = (await this.fetch('https://api.journalcheckertool.org/journal?q=tj:true&include=issn&size=10000'));
   ref = tfs.hits.hits;
   for (i = 0, len = ref.length; i < len; i++) {
     rec = ref[i];
@@ -5063,7 +5065,8 @@ P.permissions.publishers.oa = async function(publisher) {
   return ret;
 };
 
-var indexOf = [].indexOf;
+var _do_batch, _done_batch, _processed_batch, _processed_batch_last, _queue_batch, _queue_batch_last,
+  indexOf = [].indexOf;
 
 try {
   S.report = JSON.parse(SECRETS_REPORT);
@@ -5077,8 +5080,163 @@ P.report = function() {
   return 'OA.Works report';
 };
 
+_queue_batch = [];
+
+_queue_batch_last = Date.now();
+
+_do_batch = [];
+
+_done_batch = [];
+
+_processed_batch = [];
+
+_processed_batch_last = Date.now();
+
+P.report.queued = {
+  _index: true,
+  _auth: '@oa.works'
+};
+
+P.report.queue = async function(dois, ol, refresh, everything) {
+  var batch, d, doi, j, len, ref;
+  if (dois == null) {
+    dois = this.params.queue;
+  }
+  ref = (!Array.isArray(dois) ? [dois] : dois);
+  for (j = 0, len = ref.length; j < len; j++) {
+    doi = ref[j];
+    if (typeof doi === 'object') {
+      doi = doi.DOI;
+    }
+    if (doi && typeof doi === 'string' && doi.startsWith('10.') && indexOf.call(_queue_batch, doi) < 0) {
+      _queue_batch.push(doi);
+    }
+  }
+  if (_queue_batch.length > 2000 || Date.now() > (_queue_batch_last + 15000)) {
+    batch = [];
+    while (d = _queue_batch.shift()) {
+      batch.push({
+        _id: d,
+        DOI: d,
+        createdAt: Date.now()
+      });
+    }
+    if (batch.length) {
+      await this.report.queued(batch);
+    }
+    _queue_batch_last = Date.now();
+  }
+  return {
+    queue: _queue_batch.length,
+    queue_last: (await this.datetime(_queue_batch_last)),
+    processed_last: (await this.datetime(_processed_batch_last)),
+    queued: (await this.report.queued.count())
+  };
+};
+
+P.report.queue._auth = '@oa.works';
+
+P.report.doqueue = async function(doi) {
+  var batch, d, ddd, j, len, q, qd, ref, ref1, ref2, ref3, res;
+  if (doi == null) {
+    doi = this.params.doqueue;
+  }
+  if (doi == null) {
+    if (!_do_batch.length) {
+      q = (await this.report.queued('*', {
+        size: 100,
+        sort: {
+          createdAt: 'desc' // if running more than one queue processor, this will need a better approach
+        }
+      }));
+      if (!(q != null ? (ref = q.hits) != null ? ref.total : void 0 : void 0)) {
+        await this.sleep(1000);
+      }
+      ref3 = (ref1 = q != null ? (ref2 = q.hits) != null ? ref2.hits : void 0 : void 0) != null ? ref1 : [];
+      for (j = 0, len = ref3.length; j < len; j++) {
+        qd = ref3[j];
+        _do_batch.push(qd._source.DOI);
+      }
+    }
+    doi = _do_batch.shift();
+  }
+  console.log('report doqueue', doi);
+  if (typeof doi === 'string' && doi.startsWith('10.')) {
+    res = (await this.report.works.process(doi));
+    _done_batch.push(doi);
+    if ((res != null ? res._id : void 0) != null) {
+      _processed_batch.push(res);
+    }
+  }
+  if (_processed_batch.length > 2000 || Date.now() > (_processed_batch_last + 15000)) {
+    console.log('do queue saving batch', _processed_batch.length);
+    await this.report.works(_processed_batch);
+    _processed_batch = [];
+    while (ddd = _done_batch.shift()) {
+      await this.report.queued(ddd, '');
+    }
+    _processed_batch_last = Date.now();
+  }
+  if (_queue_batch.length > 2000 || Date.now() > (_queue_batch_last + 15000)) {
+    batch = [];
+    while (d = _queue_batch.shift()) {
+      batch.push({
+        _id: d,
+        DOI: d,
+        createdAt: Date.now()
+      });
+    }
+    if (batch.length) {
+      await this.report.queued(batch);
+    }
+    _queue_batch_last = Date.now();
+  }
+  return true;
+};
+
+P.report.doqueue._async = true;
+
+P.report.doqueue._auth = '@oa.works';
+
+P.report.doqueue._bg = true;
+
+// add a loop schedule to doqueue repeatedly unless queued is empty
+`P.report.testq = ->
+  counter = 0
+  if @params.load
+    try
+      dois = JSON.parse (await fs.readFile @S.static.folder + '/report_check_missing_2023.json').toString()
+    catch
+      dstr = (await fs.readFile @S.static.folder + '/report_check_missing_2023.json').toString()
+      dstr.replace '[', ''
+      dstr.replace /\]$/g, ''
+      dois = []
+      for ad in dstr.split ','
+        ad = ad.trim()
+        dois.push(ad) if ad.startsWith('10.') and ad.includes '/'
+    for doi in dois
+      await @report.queue(doi) if typeof doi is 'string' and doi.startsWith '10.'
+      counter += 1
+      console.log('testq', counter) if counter % 1000 is 0
+    await @sleep 1000
+  s1 = await @report.queue()
+  await @sleep 1000
+  queued = await @report.queued.count()
+  did = await @report.doqueue()
+  s2 = await @report.queue()
+  console.log counter, s1, queued, did, s2
+  return [counter, s1, queued, did, s2]
+P.report.testq._async = true
+P.report.testq._runner = 'report.doqueue'
+P.report.testq._auth = '@oa.works'
+P.report.testq._bg = true`;
+
 P.report.dev2live = async function(reverse) {
-  var batch, counter, f, ref, rm, t;
+  var batch, counter, f, ref, rm, t, toalias;
+  toalias = this.params.toalias;
+  if (typeof toalias === 'number') {
+    toalias += '';
+  }
   if (!reverse) {
     f = 'paradigm_b_report_works';
     t = 'paradigm_report_works';
@@ -5087,24 +5245,25 @@ P.report.dev2live = async function(reverse) {
     t = 'paradigm_b_report_works';
   }
   if (this.params.clear) {
-    await this.index._send(t, '', void 0, false);
+    await this.index._send(t, '', void 0, false, toalias);
   }
   counter = 0;
   batch = [];
   ref = this.index._for(f);
+  // q, opts, prefix, alias
   for await (rm of ref) {
     counter += 1;
     if (rm.DOI && !rm.DOI.includes(' pmcid:') && !rm.DOI.includes('\n') && !rm.DOI.includes('?ref')) {
       batch.push(rm);
     }
     if (batch.length === 30000) {
-      console.log('report works', (reverse ? 'live2dev' : 'dev2live'), f, t, counter);
-      await this.index._bulk(t, batch, void 0, void 0, false);
+      console.log('report works', (reverse ? 'live2dev' : 'dev2live'), f, t, toalias, counter);
+      await this.index._bulk(t, batch, void 0, void 0, false, toalias);
       batch = [];
     }
   }
   if (batch.length) {
-    await this.index._bulk(t, batch, void 0, void 0, false);
+    await this.index._bulk(t, batch, void 0, void 0, false, toalias);
     batch = [];
   }
   return counter;
@@ -5114,8 +5273,7 @@ P.report.dev2live._async = true;
 
 P.report.dev2live._bg = true;
 
-P.report.dev2live._auth = 'root';
-
+//P.report.dev2live._auth = 'root'
 P.report.live2dev = function() {
   return this.report.dev2live(true);
 };
@@ -5316,7 +5474,7 @@ P.report.orgs.supplements = {
 };
 
 P.report.orgs.supplements.load = async function(orgname, sheetname, clear) {
-  var aps, check, deletes, dois, h, header, headers, hp, hpv, j, k, kc, l, last, latest, ld, len, len1, len2, len3, len4, len5, lt, m, n, org, osdids, osw, p, present, prs, q, rc, rec, recs, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref3, ref4, ref5, ref6, ref7, ref8, ref9, replacements, row, rows, rr, s, sheetnames, sheets, started, sup, sups, total, tries, update;
+  var aps, check, deletes, dois, h, header, headers, hp, hpv, j, k, kc, l, last, latest, ld, len, len1, len2, len3, len4, len5, lt, m, n, org, osdids, osw, p, present, prs, r, rc, rec, recs, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref3, ref4, ref5, ref6, ref7, ref8, ref9, replacements, row, rows, rr, s, sheetnames, sheets, started, sup, sups, total, tries, update;
   started = (await this.epoch());
   if (clear == null) {
     clear = this.params.clear;
@@ -5565,8 +5723,8 @@ P.report.orgs.supplements.load = async function(orgname, sheetname, clear) {
   // check for sheets that have since been removed
   if (!clear && !orgname && !sheetname) {
     ref17 = (await this.report.works.suggest('supplements.sheets', void 0, 5000));
-    for (q = 0, len5 = ref17.length; q < len5; q++) {
-      aps = ref17[q];
+    for (r = 0, len5 = ref17.length; r < len5; r++) {
+      aps = ref17[r];
       if (indexOf.call(sheetnames, aps) < 0) {
         ref18 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs_supplements', 'sheets.keyword:"' + aps + '"', {
           scroll: '30m',
@@ -5645,7 +5803,7 @@ P.report.works = {
 };
 
 P.report.works.process = async function(cr, openalex, refresh, everything, replaced) {
-  var _rsup, a, ad, ass, assl, best_initial, best_name, best_score, brd, c, email, epmc, exists, f, i, j, k, l, lc, len, len1, len10, len11, len12, len2, len3, len4, len5, len6, len7, len8, len9, lic, loc, lvs, m, n, newer, oadoi, ok, ox, p, permissions, pfn, pp, prds, pt, pubmed, q, r, ran, rec, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref45, ref46, ref47, ref48, ref49, ref5, ref50, ref51, ref52, ref53, ref54, ref55, ref56, ref6, ref7, ref8, ref9, ren, rn, rr, score, sd, started, sup, u, ud, ude, v, w, x, xref, y, z;
+  var _rsup, a, ad, ass, assl, best_initial, best_name, best_score, brd, c, email, epmc, exists, f, i, i1, j, j1, k, l, lc, len, len1, len10, len11, len12, len13, len2, len3, len4, len5, len6, len7, len8, len9, lic, loc, lvs, m, n, newer, oadoi, ok, ox, p, permissions, pfn, pp, prds, pt, pubmed, r, ran, rec, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref45, ref46, ref47, ref48, ref49, ref5, ref50, ref51, ref52, ref53, ref54, ref55, ref56, ref57, ref6, ref7, ref8, ref9, ren, rn, rr, rtype, score, sd, started, sup, u, ud, ude, v, w, x, xref, y, z;
   started = (await this.epoch());
   if (cr == null) {
     cr = this.params.process;
@@ -5768,7 +5926,7 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
       f = ref7[l];
       delete f['doi-asserted-by'];
     }
-    if (cr.title && cr.title.length) {
+    if (cr.title && typeof cr.title !== 'string' && cr.title.length) {
       rec.title = cr.title[0];
     }
     if (cr['container-title'] && cr['container-title'].length) {
@@ -5812,13 +5970,18 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
         }
       }
     }
-    ref18 = (ref16 = (ref17 = cr.relation) != null ? ref17['is-same-as'] : void 0) != null ? ref16 : [];
-    for (p = 0, len4 = ref18.length; p < len4; p++) {
-      rr = ref18[p];
-      if (rr['id-type'] === 'doi' && rr.id !== cr.DOI && rr.id !== replaced && (newer = (await this.src.crossref.works(rr.id)))) { // crossref is capable of saying a DOI is the same as another DOI that does not exist in crossref
-        ref19 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs_supplements', 'DOI.keyword:"' + cr.DOI + '"');
-        for await (sup of ref19) {
-          _rsup(sup, rr.id);
+    ref16 = ['is-same-as', 'is-version-of'];
+    // has-version
+    for (p = 0, len4 = ref16.length; p < len4; p++) {
+      rtype = ref16[p];
+      ref19 = (ref17 = (ref18 = cr.relation) != null ? ref18[rtype] : void 0) != null ? ref17 : [];
+      for (r = 0, len5 = ref19.length; r < len5; r++) {
+        rr = ref19[r];
+        if (rr['id-type'] === 'doi' && rr.id !== cr.DOI && rr.id !== replaced && (newer = (await this.src.crossref.works(rr.id)))) { // crossref is capable of saying a DOI is the same as another DOI that does not exist in crossref
+          ref20 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs_supplements', 'DOI.keyword:"' + cr.DOI + '"');
+          for await (sup of ref20) {
+            _rsup(sup, rr.id);
+          }
         }
       }
     }
@@ -5834,7 +5997,7 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
       }
       rec.replaces.push({
         DOI: replaced,
-        type: 'relation.is-same-as'
+        type: 'relation'
       });
     }
   }
@@ -5845,21 +6008,21 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
     if (openalex.id) {
       rec.openalex = openalex.id.split('/').pop();
     }
-    if (!rec.DOI && (((ref20 = openalex.ids) != null ? ref20.doi : void 0) != null)) {
+    if (!rec.DOI && (((ref21 = openalex.ids) != null ? ref21.doi : void 0) != null)) {
       rec.DOI = openalex.ids.doi.split('doi.org/').pop().toLowerCase();
     }
-    if ((ref21 = openalex.ids) != null ? ref21.pmid : void 0) {
+    if ((ref22 = openalex.ids) != null ? ref22.pmid : void 0) {
       rec.PMID = openalex.ids.pmid.split('/').pop();
     }
-    if (!rec.PMCID && ((ref22 = openalex.ids) != null ? ref22.pmcid : void 0)) {
+    if (!rec.PMCID && ((ref23 = openalex.ids) != null ? ref23.pmcid : void 0)) {
       rec.PMCID = 'PMC' + openalex.ids.pmcid.split('/').pop().toLowerCase().replace('pmc', '');
     }
     if (openalex.title) {
       rec.title = openalex.title;
     }
-    ref23 = ['authorships', 'concepts', 'cited_by_count', 'type', 'is_paratext', 'is_retracted'];
-    for (q = 0, len5 = ref23.length; q < len5; q++) {
-      ok = ref23[q];
+    ref24 = ['authorships', 'concepts', 'cited_by_count', 'type', 'is_paratext', 'is_retracted'];
+    for (u = 0, len6 = ref24.length; u < len6; u++) {
+      ok = ref24[u];
       rec[ok] = openalex[ok];
     }
     if (openalex.publication_date) {
@@ -5868,7 +6031,7 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
     if (openalex.publication_year) {
       rec.published_year = openalex.publication_year;
     }
-    if (((ref24 = openalex.host_venue) != null ? ref24.issn : void 0) && openalex.host_venue.issn.length) {
+    if (((ref25 = openalex.host_venue) != null ? ref25.issn : void 0) && openalex.host_venue.issn.length) {
       rec.issn = openalex.host_venue.issn;
     }
     if (openalex.biblio) {
@@ -5877,20 +6040,20 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
     if (openalex['referenced_works']) {
       rec['referenced_works'] = openalex['referenced_works'].length;
     }
-    ref26 = (ref25 = rec.concepts) != null ? ref25 : [];
-    for (r = 0, len6 = ref26.length; r < len6; r++) {
-      c = ref26[r];
+    ref27 = (ref26 = rec.concepts) != null ? ref26 : [];
+    for (v = 0, len7 = ref27.length; v < len7; v++) {
+      c = ref27[v];
       delete c.wikidata;
       try {
         c.score = Math.floor(c.score * 100);
       } catch (error) {}
     }
-    ref28 = (ref27 = rec.authorships) != null ? ref27 : [];
-    for (u = 0, len7 = ref28.length; u < len7; u++) {
-      a = ref28[u];
-      ref30 = (ref29 = a.institutions) != null ? ref29 : [];
-      for (v = 0, len8 = ref30.length; v < len8; v++) {
-        i = ref30[v];
+    ref29 = (ref28 = rec.authorships) != null ? ref28 : [];
+    for (w = 0, len8 = ref29.length; w < len8; w++) {
+      a = ref29[w];
+      ref31 = (ref30 = a.institutions) != null ? ref30 : [];
+      for (x = 0, len9 = ref31.length; x < len9; x++) {
+        i = ref31[x];
         delete i.type;
       }
     }
@@ -5907,12 +6070,12 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
         pfn = (rec.is_paratext ? 'paratext' : 'retracted') + (this.S.dev ? '_dev' : '');
         prds = [];
         try {
-          prds = JSON.parse(((await fs.readFile(this.S.static.folder + pfn + '.json'))).toString());
+          prds = JSON.parse(((await fs.readFile(this.S.static.folder + '/' + pfn + '.json'))).toString());
         } catch (error) {}
-        if (ref31 = rec.DOI, indexOf.call(prds, ref31) < 0) {
+        if (ref32 = rec.DOI, indexOf.call(prds, ref32) < 0) {
           prds.push(rec.DOI);
         }
-        await fs.writeFile(this.S.static.folder + pfn + '.json', JSON.stringify(prds, '', 2));
+        await fs.writeFile(this.S.static.folder + '/' + pfn + '.json', JSON.stringify(prds, '', 2));
       } catch (error) {}
     }
     return;
@@ -5922,9 +6085,9 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
   if (!(exists != null ? exists.oadoi : void 0) && rec.DOI) {
     rec.oadoi = true;
     oadoi = (await this.src.oadoi(rec.DOI));
-    ref33 = (ref32 = oadoi != null ? oadoi.oa_locations : void 0) != null ? ref32 : [];
-    for (w = 0, len9 = ref33.length; w < len9; w++) {
-      loc = ref33[w];
+    ref34 = (ref33 = oadoi != null ? oadoi.oa_locations : void 0) != null ? ref33 : [];
+    for (y = 0, len10 = ref34.length; y < len10; y++) {
+      loc = ref34[y];
       if (loc.host_type === 'publisher') {
         if (rec.publisher_license == null) {
           rec.publisher_license = loc.license;
@@ -5949,9 +6112,9 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
           }
         }
         if (!rec.repository_url || !rec.repository_url.includes('pmc')) {
-          ref34 = ['license', 'url_for_pdf', 'url', 'version'];
-          for (x = 0, len10 = ref34.length; x < len10; x++) {
-            ok = ref34[x];
+          ref35 = ['license', 'url_for_pdf', 'url', 'version'];
+          for (z = 0, len11 = ref35.length; z < len11; z++) {
+            ok = ref35[z];
             if (loc[ok]) {
               rec['repository_' + ok] = loc[ok];
             }
@@ -5966,8 +6129,8 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
       rec.repository_url_in_pmc = true;
     }
     if (oadoi != null) {
-      rec.best_oa_location_url = (ref35 = oadoi.best_oa_location) != null ? ref35.url : void 0;
-      rec.best_oa_location_url_for_pdf = (ref36 = oadoi.best_oa_location) != null ? ref36.url_for_pdf : void 0;
+      rec.best_oa_location_url = (ref36 = oadoi.best_oa_location) != null ? ref36.url : void 0;
+      rec.best_oa_location_url_for_pdf = (ref37 = oadoi.best_oa_location) != null ? ref37.url_for_pdf : void 0;
       rec.oa_status = oadoi.oa_status;
       rec.has_repository_copy = oadoi.has_repository_copy;
       rec.has_oa_locations_embargoed = (oadoi.oa_locations_embargoed != null) && oadoi.oa_locations_embargoed.length ? true : false;
@@ -5995,13 +6158,13 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
   rec.supplements = [];
   rec.orgs = [];
   if (rec.DOI) {
-    ref37 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs_supplements', 'DOI.keyword:"' + rec.DOI + '"', {
+    ref38 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs_supplements', 'DOI.keyword:"' + rec.DOI + '"', {
       sort: {
         'osdid.keyword': 'asc'
       }
     });
-    for await (sup of ref37) {
-      if (ref38 = sup.org, indexOf.call(rec.orgs, ref38) < 0) {
+    for await (sup of ref38) {
+      if (ref39 = sup.org, indexOf.call(rec.orgs, ref39) < 0) {
         rec.orgs.push(sup.org);
       }
       if (sup.paid) {
@@ -6029,16 +6192,16 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
   if ((rec.authorships != null) && rec.email && !rec.author_email_name && (((exists != null ? exists.authorships : void 0) == null) || !(exists != null ? exists.email : void 0))) {
     email = rec.email.includes('@') ? rec.email : (await this.decrypt(rec.email));
     if (rec.authorships.length === 1) {
-      rec.author_email_name = 'Dr. ' + ((ref39 = rec.authorships[0].author) != null ? ref39.display_name : void 0);
+      rec.author_email_name = 'Dr. ' + ((ref40 = rec.authorships[0].author) != null ? ref40.display_name : void 0);
     } else {
       ren = email.split('@')[0].toLowerCase().replace(/[^a-z]/g, '');
       best_initial = '';
       best_name = '';
       best_score = 1000000;
-      ref40 = rec.authorships;
-      for (y = 0, len11 = ref40.length; y < len11; y++) {
-        rn = ref40[y];
-        if (ran = (ref41 = rn.author) != null ? ref41.display_name : void 0) {
+      ref41 = rec.authorships;
+      for (i1 = 0, len12 = ref41.length; i1 < len12; i1++) {
+        rn = ref41[i1];
+        if (ran = (ref42 = rn.author) != null ? ref42.display_name : void 0) {
           lvs = (await this.levenshtein(ren, ran.toLowerCase().replace(/[^a-z]/g, '')));
           score = lvs.distance / ran.length;
           if (score < best_score) {
@@ -6065,7 +6228,7 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
   if (typeof rec.email === 'string' && rec.email.includes('@')) {
     rec.email = (await this.encrypt(rec.email));
   }
-  if (rec.orgs.length && ((ref42 = exists != null ? exists.orgs : void 0) != null ? ref42 : []).length !== rec.orgs.length) { // control whether to run time-expensive things on less important records
+  if (rec.orgs.length && ((ref43 = exists != null ? exists.orgs : void 0) != null ? ref43 : []).length !== rec.orgs.length) { // control whether to run time-expensive things on less important records
     everything = true;
   }
   
@@ -6073,28 +6236,28 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
   if (rec.DOI) {
     if (!rec.PMCID || !rec.PMID || !rec.pubtype || !rec.submitted_date || !rec.accepted_date) {
       if (pubmed = (rec.PMID ? (await this.src.pubmed(rec.PMID)) : (await this.src.pubmed.doi(rec.DOI)))) { // pubmed is faster to lookup but can't rely on it being right if no PMC found in it, e.g. 10.1111/nyas.14608
-        if (!rec.PMCID && (pubmed != null ? (ref43 = pubmed.identifier) != null ? ref43.pmc : void 0 : void 0)) {
+        if (!rec.PMCID && (pubmed != null ? (ref44 = pubmed.identifier) != null ? ref44.pmc : void 0 : void 0)) {
           rec.PMCID = 'PMC' + pubmed.identifier.pmc.toLowerCase().replace('pmc', '');
         }
-        if (!rec.PMID && (pubmed != null ? (ref44 = pubmed.identifier) != null ? ref44.pubmed : void 0 : void 0)) {
+        if (!rec.PMID && (pubmed != null ? (ref45 = pubmed.identifier) != null ? ref45.pubmed : void 0 : void 0)) {
           rec.PMID = pubmed.identifier.pubmed;
         }
         rec.pubtype = pubmed.type; // this is a list
         if (rec.submitted_date == null) {
-          rec.submitted_date = (ref45 = pubmed.dates) != null ? (ref46 = ref45.PubMedPubDate_received) != null ? ref46.date : void 0 : void 0;
+          rec.submitted_date = (ref46 = pubmed.dates) != null ? (ref47 = ref46.PubMedPubDate_received) != null ? ref47.date : void 0 : void 0;
         }
         if (rec.accepted_date == null) {
-          rec.accepted_date = (ref47 = pubmed.dates) != null ? (ref48 = ref47.PubMedPubDate_accepted) != null ? ref48.date : void 0 : void 0;
+          rec.accepted_date = (ref48 = pubmed.dates) != null ? (ref49 = ref48.PubMedPubDate_accepted) != null ? ref49.date : void 0 : void 0;
         }
       }
     }
     if (!rec.journal_oa_type) { // restrict permissions only to records with orgs supplements? for now no
       permissions = (await this.permissions((await this.copy(rec)), void 0, void 0, oadoi, cr, started - 1209600000)); // (if refresh then undefined else started - 1209600000) # use cached best permissions up to two weeks old
-      rec.can_archive = permissions != null ? (ref49 = permissions.best_permission) != null ? ref49.can_archive : void 0 : void 0;
-      if ((rec.can_archive == null) && (((ref50 = oadoi != null ? (ref51 = oadoi.best_oa_location) != null ? ref51.license : void 0 : void 0) != null ? ref50 : '').includes('cc') || (oadoi != null ? oadoi.journal_is_in_doaj : void 0))) {
+      rec.can_archive = permissions != null ? (ref50 = permissions.best_permission) != null ? ref50.can_archive : void 0 : void 0;
+      if ((rec.can_archive == null) && (((ref51 = oadoi != null ? (ref52 = oadoi.best_oa_location) != null ? ref52.license : void 0 : void 0) != null ? ref51 : '').includes('cc') || (oadoi != null ? oadoi.journal_is_in_doaj : void 0))) {
         rec.can_archive = true;
       }
-      rec.version = permissions != null ? (ref52 = permissions.best_permission) != null ? ref52.version : void 0 : void 0;
+      rec.version = permissions != null ? (ref53 = permissions.best_permission) != null ? ref53.version : void 0 : void 0;
       rec.journal_oa_type = (await this.permissions.journals.oa.type(rec.issn, void 0, oadoi, cr)); // calculate journal oa type separately because it can be different for a journal in general than for what permissions calculates in more specificity
       if (rec.journal_oa_type == null) {
         rec.journal_oa_type = 'unsuccessful';
@@ -6106,13 +6269,13 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
           if (epmc.pmcid) {
             rec.PMCID = epmc.pmcid;
           }
-          ref54 = (ref53 = epmc.pubTypeList) != null ? ref53 : [];
+          ref55 = (ref54 = epmc.pubTypeList) != null ? ref54 : [];
           //rec.submitted_date ?= epmc.firstIndexDate - removed as found to be not accurate enough https://github.com/oaworks/Gates/issues/559
           //rec.accepted_date ?= epmc.firstPublicationDate
-          for (z = 0, len12 = ref54.length; z < len12; z++) {
-            pt = ref54[z];
+          for (j1 = 0, len13 = ref55.length; j1 < len13; j1++) {
+            pt = ref55[j1];
             rec.pubtype = Array.isArray(rec.pubtype) ? rec.pubtype : rec.pubtype ? [rec.pubtype] : [];
-            if (ref55 = pt.pubType, indexOf.call(rec.pubtype, ref55) < 0) {
+            if (ref56 = pt.pubType, indexOf.call(rec.pubtype, ref56) < 0) {
               rec.pubtype.push(pt.pubType);
             }
           }
@@ -6132,7 +6295,7 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
       rec.data_availability_statement = (await this.src.epmc.statement(rec.PMCID, epmc));
     }
   }
-  rec.is_oa = rec.oadoi_is_oa || rec.crossref_is_oa || ((ref56 = rec.journal_oa_type) === 'gold');
+  rec.is_oa = rec.oadoi_is_oa || rec.crossref_is_oa || ((ref57 = rec.journal_oa_type) === 'gold');
   if (rec._id == null) {
     rec._id = rec.DOI ? rec.DOI.toLowerCase().replace(/\//g, '_') : rec.openalex; // and if no openalex it will get a default ID
   }
@@ -6149,7 +6312,7 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
 };
 
 P.report.works.load = async function(timestamp, org, dois, year, refresh, supplements, everything, info) {
-  var _batch, _crossref, _openalex, batch, batchsize, bt, cc, crt, d, i, j, l, len, len1, o, oo, ref, ref1, ref10, ref11, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, sd, started, sup, text, took, total, updated;
+  var _batch, _crossref, _openalex, bt, cc, crt, d, i, j, l, len, len1, o, oo, ref, ref1, ref10, ref11, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, sd, started, sup, text, took, total, updated;
   started = (await this.epoch());
   if (year == null) {
     year = (ref = this.params.load) != null ? ref : ((await this.date())).split('-')[0];
@@ -6172,14 +6335,13 @@ P.report.works.load = async function(timestamp, org, dois, year, refresh, supple
   if (refresh) {
     await this.report.works('');
   }
-  batch = [];
-  batchsize = 2000;
+  //batch = []
+  //batchsize = 2000
   bt = 0;
   total = 0;
   cc = [];
   oo = [];
   _batch = async(cr, ol) => {
-    var prc;
     bt += 1;
     //console.log bt, cr, ol
     if (typeof cr === 'string' && cr.startsWith('W') && !ol) {
@@ -6187,21 +6349,19 @@ P.report.works.load = async function(timestamp, org, dois, year, refresh, supple
       cr = void 0;
     }
     if ((cr != null) || (ol != null)) {
-      prc = (await this.report.works.process(cr, ol, timestamp != null ? timestamp : refresh, everything));
-      if ((prc != null ? prc._id : void 0) != null) {
-        batch.push(prc);
-        total += 1;
-      } else {
-        console.log('report works load finding empty works', cr, ol, prc);
-      }
-      if (batch.length % 200 === 0) {
-        console.log('report load building batch', batch.length);
-      }
-      if (batch.length === batchsize) {
-        await this.report.works(batch);
-        batch = [];
-        return console.log('report works load', total, bt, (dois ? dois.length : void 0), (await this.epoch()) - started);
-      }
+      await this.report.queue(cr, ol, timestamp != null ? timestamp : refresh, everything); // TODO update report.queue to handle params
+      total += 1;
+      return `prc = await @report.works.process cr, ol, (timestamp ? refresh), everything
+if prc?._id?
+  batch.push prc
+  total += 1
+else
+  console.log 'report works load finding empty works', cr, ol, prc
+console.log('report load building batch', batch.length) if batch.length % 200 is 0
+if batch.length is batchsize
+  await @report.works batch
+  batch = []
+  console.log 'report works load', total, bt, (if dois then dois.length else undefined), await @epoch() - started`;
     }
   };
   if (this.params.load === 'supplements') {
@@ -6338,8 +6498,8 @@ P.report.works.load = async function(timestamp, org, dois, year, refresh, supple
         scroll: '10m'
       });
       for await (crt of ref10) {
-        if (updated = (await this.src.crossref.works('DOI:"' + crt.DOI + '" AND srcday:>' + timestamp))) {
-          await _batch(crt);
+        if (updated = (await this.src.crossref.works.count('DOI:"' + crt.DOI + '" AND srcday:>' + timestamp))) {
+          await _batch(crt.DOI);
         }
       }
     }
@@ -6418,1446 +6578,325 @@ P.report.works.changes._async = true;
 
 P.report.works.changes._auth = '@oa.works';
 
-`P.report.works.check = (year) ->
-year ?= @params.check ? @params.year ? '2023'
-res = year: year, crossref: 0, openalex: 0, crossref_in_works: 0, crossref_in_works_had_openalex: 0, crossref_not_in_works_in_openalex: 0, openalex_in_works: 0, openalex_in_works_by_id: 0, openalex_with_doi_but_not_seen: 0, openalex_not_in_works: 0, duplicates: 0
-cq = '(funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year
-seen = []
-not_in_works = []
-for await cr from @index._for 'src_crossref_works', cq, include: ['DOI'] #, scroll: '30m'
-  console.log 'crossref', res.crossref
-  if cr.DOI not in seen
-    seen.push cr.DOI
-  else
-    res.duplicates += 1
-  res.crossref += 1
-  res.crossref_in_works += 1 if worked = await @report.works cr.DOI
-  not_in_works.push(cr.DOI) if not worked and cr.DOI not in not_in_works
-  if worked?.openalex
-    res.crossref_in_works_had_openalex += 1
-  else if olx = await @src.openalex.works 'ids.doi:"' + cr.DOI + '"'
-    res.crossref_not_in_works_in_openalex += 1
+P.report.works.check = async function(year) {
+  var cq, cr, crossref_seen_openalex, not_in_works, ol, olid, olx, oodoi, oq, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, res, seen, worked;
+  if (year == null) {
+    year = (ref = (ref1 = this.params.check) != null ? ref1 : this.params.year) != null ? ref : '2023';
+  }
+  seen = [];
+  not_in_works = [];
+  crossref_seen_openalex = [];
+  res = {
+    year: year,
+    crossref: 0,
+    crossref_count: 0,
+    openalex: 0,
+    openalex_count: 0,
+    crossref_in_works: 0,
+    crossref_in_works_had_openalex: 0,
+    crossref_not_in_works_in_openalex: 0,
+    openalex_already_seen_in_works_by_crossref: 0,
+    openalex_in_works: 0,
+    openalex_in_works_by_id: 0,
+    openalex_with_doi_but_not_seen: 0,
+    openalex_not_in_works: 0,
+    duplicates: 0
+  };
+  await fs.writeFile(this.S.static.folder + '/report_check_missing_' + year + '.json', '[');
+  cq = '(funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year;
+  res.crossref_count = (await this.src.crossref.works.count(cq));
+  await fs.writeFile(this.S.static.folder + '/report_check_' + year + '.json', JSON.stringify(res, '', 2));
+  ref2 = this.index._for('src_crossref_works', cq, {
+    include: ['DOI'],
+    scroll: '30m'
+  });
+  for await (cr of ref2) {
+    if (res.crossref % 100 === 0) {
+      console.log(res);
+    }
+    if (ref3 = cr.DOI, indexOf.call(seen, ref3) < 0) {
+      seen.push(cr.DOI);
+    } else {
+      res.duplicates += 1;
+    }
+    res.crossref += 1;
+    if (worked = (await this.report.works(cr.DOI))) {
+      res.crossref_in_works += 1;
+    }
+    if (!worked && (ref4 = cr.DOI, indexOf.call(not_in_works, ref4) < 0)) {
+      await fs.appendFile(this.S.static.folder + '/report_check_missing_' + year + '.json', (not_in_works.length ? ',' : '') + '\n"' + cr.DOI + '"');
+      not_in_works.push(cr.DOI);
+    }
+    if (worked != null ? worked.openalex : void 0) {
+      res.crossref_in_works_had_openalex += 1;
+      crossref_seen_openalex.push(cr.DOI);
+    } else if (olx = (await this.src.openalex.works.count('ids.doi:"https://doi.org/' + cr.DOI + '"'))) {
+      res.crossref_not_in_works_in_openalex += 1;
+    }
+  }
+  oq = 'authorships.institutions.display_name:* AND publication_year:' + year;
+  res.openalex_count = (await this.src.openalex.works.count(oq));
+  await fs.writeFile(this.S.static.folder + '/report_check_' + year + '.json', JSON.stringify(res, '', 2));
+  ref5 = this.index._for('src_openalex_works', oq, {
+    include: ['id', 'ids'],
+    scroll: '30m'
+  });
+  for await (ol of ref5) {
+    if (res.openalex % 100 === 0) {
+      console.log(res);
+    }
+    res.openalex += 1;
+    oodoi = ((ref6 = ol.ids) != null ? ref6.doi : void 0) ? '10.' + ol.ids.doi.split('/10.')[1] : void 0;
+    if (oodoi) {
+      if (indexOf.call(crossref_seen_openalex, oodoi) >= 0) {
+        res.openalex_already_seen_in_works_by_crossref += 1;
+      }
+      if (indexOf.call(seen, oodoi) < 0) {
+        if (oodoi) {
+          res.openalex_with_doi_but_not_seen += 1;
+        }
+        seen.push(oodoi);
+      } else {
+        res.duplicates += 1;
+      }
+    }
+    olid = ol.id.split('/').pop();
+    if (oodoi && (worked = (await this.report.works(oodoi)))) {
+      res.openalex_in_works += 1;
+    } else if (worked = (await this.report.works('openalex.keyword:"' + olid + '"', 1))) {
+      res.openalex_in_works += 1;
+      res.openalex_in_works_by_id += 1;
+    } else {
+      res.openalex_not_in_works += 1;
+    }
+    if (!worked && (ref7 = oodoi != null ? oodoi : olid, indexOf.call(not_in_works, ref7) < 0)) {
+      await fs.appendFile(this.S.static.folder + '/report_check_missing_' + year + '.json', (not_in_works.length ? ',' : '') + '\n"' + (oodoi != null ? oodoi : olid) + '"');
+      not_in_works.push(oodoi != null ? oodoi : olid);
+    }
+  }
+  res.seen = seen.length;
+  res.not_in_works = not_in_works.length;
+  await fs.appendFile(this.S.static.folder + '/report_check_missing_' + year + '.json', '\n]');
+  await fs.writeFile(this.S.static.folder + '/report_check_seen_' + year + '.json', JSON.stringify(seen, '', 2));
+  await fs.writeFile(this.S.static.folder + '/report_check_' + year + '.json', JSON.stringify(res, '', 2));
+  console.log(res);
+  return res;
+};
 
-oq = 'authorships.institutions.display_name:* AND publication_year:' + year
-for await ol from @index._for 'src_openalex_works', oq, include: ['id', 'ids'] #, scroll: '30m'
-  console.log 'openalex', res.openalex
-  res.openalex += 1
-  oodoi = if ol.ids?.doi then '10.' + ol.ids.doi.split('/10.')[1] else undefined
-  if oodoi
-    if oodoi not in seen
-      res.openalex_with_doi_but_not_seen += 1 if oodoi
-      seen.push oodoi
-    else
-      res.duplicates += 1
-  if oodoi and worked = await @report.works oodoi
-    res.openalex_in_works += 1
-  else if worked = await @report.works 'openalex.keyword:"' + ol.id + '"', 1
-    res.openalex_in_works += 1
-    res.openalex_in_works_by_id += 1
-  else
-    res.openalex_not_in_works += 1
-  not_in_works.push(oodoi ? ol.id) if not worked and (oodoi ? ol.id) not in not_in_works
+P.report.works.check._async = true;
 
-res.seen = seen.length
-res.not_in_works = not_in_works.length
-try await fs.writeFile @S.static.folder + 'report_check_' + year + '.json', JSON.stringify res, '', 2
-try await fs.writeFile @S.static.folder + 'report_check_seen_' + year + '.json', JSON.stringify seen, '', 2
-try await fs.writeFile @S.static.folder + 'report_check_missing_' + year + '.json', JSON.stringify not_in_works, '', 2
-return res
-P.report.works.check._async = true
+P.report.works.check._bg = true;
 
-P.report.test = _index: true, _alias: 'altest2'
+P.report.works.check._auth = '@oa.works';
 
-P.report.test.add = ->
-l = await @dot P, 'report.test._alias'
-await @report.test hello: 'world', alias: l ? 'none'
-await @sleep 2000
-res = count: await @report.test.count(), ford: 0, records: []
-for await i from @index._for 'report_test', '*'
-  res.ford += 1
-  res.records.push i
-return res`;
-
-`P.report.works = _index: true, _key: 'DOI'
-P.report.works._process = (cr, openalex) ->
-  if cr?.DOI?
-    rec = DOI: cr.DOI.toLowerCase(), subject: cr.subject, subtitle: cr.subtitle, volume: cr.volume, published_year: cr.year, issue: cr.issue, publisher: cr.publisher, published_date: cr.published, funder: cr.funder
+`P.report.fixmedline = ->
+fixes = []
+checked = 0
+for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'DOI:* AND submitted_date:* AND PMCID:*', scroll: '30m', include: ['DOI', 'PMID']
+  checked += 1
+  console.log('fix medline checked', checked) if checked % 1000 is 0
+  from_crossref = false
+  if cr = await @src.crossref.works rec.DOI
     for ass in (cr.assertion ? [])
-      assl = (ass.label ? '').toLowerCase()
-      rec.accepted_date ?= cr.assertion.value if assl.includes('accepted') and not assl.split(' ').length > 2
-      rec.submitted_date ?= cr.assertion.value if assl.includes 'received'
-    for f in rec.funder ? []
-      delete f['doi-asserted-by']
-    rec.title = cr.title[0] if cr.title and cr.title.length
-    rec.journal = cr['container-title'][0] if cr['container-title'] and cr['container-title'].length
-    for lc in cr.license ? []
-      if lc['content-version'] in ['am', 'vor', 'tdm', 'unspecified']
-        rec['crossref_license_url_' + lc['content-version']] = lc.URL
-    rec.crossref_is_oa = if not cr.is_oa? then false else cr.is_oa
-  else if openalex?
-    rec = openalex: openalex.id.split('/').pop(), title: openalex.title
-    rec.DOI = openalex.ids.doi.split('doi.org/').pop().toLowerCase() if openalex.ids?.doi?
-    rec.pmid = openalex.ids.pmid.split('/').pop() if openalex.ids?.pmid?
-  else
-    return
-    
-  oadoi = await @src.oadoi rec.DOI
-
-  for loc in oadoi?.oa_locations ? []
-    if loc.host_type is 'publisher'
-      rec.publisher_license ?= loc.license
-      rec.publisher_url_for_pdf ?= loc.url_for_pdf
-      rec.publisher_version ?= loc.version
-    if loc.host_type is 'repository'
-      if loc.url and loc.url.toLowerCase().includes 'pmc'
-        if not rec.PMCID
-          pp = loc.url.toLowerCase().split('pmc')[1].split('/')[0].split('?')[0].split('#')[0]
-          rec.PMCID = 'PMC' + pp if pp.length and pp.replace(/[^0-9]/g, '').length is pp.length and not isNaN parseInt pp
-        if loc.license and not rec.epmc_licence
-          rec.epmc_licence = loc.license
-      if not rec.repository_url or not rec.repository_url.includes 'pmc'
-        for ok in ['license', 'url_for_pdf', 'url', 'version']
-          rec['repository_' + ok] = loc[ok] if loc[ok]
-  if rec.repository_url and rec.repository_url.toLowerCase().includes 'pmc'
-    rec.PMCID ?= 'PMC' + rec.repository_url.toLowerCase().split('pmc').pop().split('/')[0].split('#')[0].split('?')[0]
-    rec.repository_url_in_pmc = true
-  if oadoi?
-    rec.best_oa_location_url = oadoi.best_oa_location?.url
-    rec.best_oa_location_url_for_pdf = oadoi.best_oa_location?.url_for_pdf
-    rec.oa_status = oadoi.oa_status
-    rec.has_repository_copy = oadoi.has_repository_copy
-    rec.has_oa_locations_embargoed = if oadoi.oa_locations_embargoed? and oadoi.oa_locations_embargoed.length then true else false
-    rec.title = oadoi.title
-    rec.journal ?= oadoi.journal_name
-    rec.publisher ?= oadoi.publisher
-    rec.published_date = oadoi.published_date if oadoi.published_date
-    rec.published_year = oadoi.year if oadoi.year
-    #rec.updated = oadoi.updated # removed in favour of adding our own as instructed by JM
-
-  prc = await @copy rec
-  permissions = await @permissions prc, undefined, undefined, oadoi, cr
-  rec.can_archive = permissions?.best_permission?.can_archive
-  rec.version = permissions?.best_permission?.version
-  rec.journal_oa_type = await @permissions.journals.oa.type undefined, undefined, oadoi, cr # this does this again, separately, because Joe asked for it
-
-  if not rec.can_archive? and ((oadoi?.best_oa_location?.license ? '').includes('cc') or oadoi?.journal_is_in_doaj)
-    rec.can_archive = true
-
-  rec.oadoi_is_oa = oadoi?.is_oa
-  rec.is_oa = rec.oadoi_is_oa or rec.crossref_is_oa or rec.journal_oa_type in ['gold'] # what about transformative or diamond? or any others?
-
-  if rec.DOI
-    hasml = await @report.emails rec.DOI
-    rec.email = hasml.Email if hasml?.Email?
-    rec.email_cw_batch_count = hasml.email_cw_batch_count if hasml?.email_cw_batch_count?
-    if typeof rec.email is 'string' and rec.email.includes '@'
-      rec.email = await @encrypt rec.email
-
-  openalex ?= await @src.openalex.works 'ids.doi:"https://doi.org/' + rec.DOI + '"', 1
-  if openalex?
-    rec[ok] = openalex[ok] for ok in ['authorships', 'concepts', 'cited_by_count', 'type', 'is_paratext', 'is_retracted']
-    rec.title = openalex.title if openalex.title 
-    rec.published_date = openalex.publication_date if openalex.publication_date and not oadoi?.published_date
-    rec.published_year = openalex.publication_year if openalex.publication_year and not oadoi?.year
-    rec.issn = openalex.host_venue?.issn
-    for c in rec.concepts ? []
-      delete c.wikidata
-    for a in rec.authorships ? []
-      for i in a.institutions ? []
-        delete i.type
-    rec.PMCID = 'PMC' + openalex.ids.pmcid.split('/').pop().toLowerCase().replace('pmc', '') if not rec.PMCID and openalex.ids?.pmcid
-
-  rec.updated = await @epoch()
-  return rec
-
-P.report.works.load = (timestamp, crossref, openalex, supplement, qry, oaqry, notify, after) ->
-  started = await @epoch()
-
-  timestamp ?= @params.load ? @params.timestamp
-  crossref ?= @params.crossref
-  openalex ?= @params.openalex
-  supplement ?= false #@params.supplement
-  after ?= @params.after
-  after = ((await @epoch()) - 604800000) if after is true
-  overwrite = @params.overwrite ? true
-
-  if @params.clear
-    await @report.works ''
-
-  batch = []
-
-  if @params.year
-    year = @params.year
-    year = '(' + year.replace(/ /g, '').split(',').join(' OR ') + ')' if typeof year is 'string' and year.includes ','
-  else
-    year = '2022'
-    #await @report.works('') if not timestamp
-
-  total = batch.length
-  if batch.length
-    await @report.works batch
-    batch = []
-  
-  qry ?= '(funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year
-  qry = '(' + qry + ') AND year.keyword:' + year if year and not qry.includes ':' + year
-  qry = '(' + qry + ') AND srcday:>' + timestamp if timestamp and not qry.includes ':>' + timestamp
-  console.log qry
-  crcount = await @src.crossref.works.count qry
-  console.log crcount, 'records available for update from crossref'
-  looped = 0
-  if crossref isnt false
-    console.log 'Starting OA report works loading from crossref'
-    for await cr from @index._for 'src_crossref_works', qry, scroll: '30m', max: @params.max, include: ['DOI', 'subject', 'title', 'subtitle', 'volume', 'issue', 'year', 'publisher', 'published', 'funder', 'license', 'is_oa']
-      looped += 1
-      if (overwrite is true and not after) or not await @report.works (if after then 'DOI.keyword:"' + cr.DOI + '" AND updated:<' + after else cr.DOI)
-        total += 1
-        prc = await @report.works._process cr
-        if prc? and not prc.is_retracted and not prc.is_paratext
-          delete prc.is_retracted
-          delete prc.is_paratext
-          dt = await @date()
-          if dt.includes(year) and timestamp
-            exists = await @report.works cr.DOI
-            if exists?.supplements?
-              prc[e] ?= exists[e] for e in ['supplements', 'orgs', 'author_email_name', 'pmc_checked', 'paid', 'PMCID', 'epmc_licence', 'pmc_has_data_availability_statement']
-          batch.push prc
-        if batch.length is 10000
-          await @report.works batch
-          console.log 'OA report works loading', total, Math.ceil ((await @epoch()) - started)/60000
-          batch = []
-      console.log('report works load xref', total, looped) if not timestamp and ((total and total % 20 is 0) or (looped and looped % 20 is 0))
-
-  if notify isnt false and crossref isnt false and not timestamp
-    @mail
-      to: ['mark@oa.works', 'joe@oa.works']
-      subject: 'OA report works finished crossref load ' + total + ' in ' + took + ' minutes' + (if timestamp then ' for ' + (await @date timestamp) else '') + ', ' + crcount + ' crosref, '
-      text: 'https://bg.' + (if @S.dev then 'beta' else 'api') + '.oa.works/report/works'
-
-  oaqry ?= 'authorships.institutions.display_name:* AND publication_year:' + year
-  oaqry = '(' + oaqry + ') AND publication_year:' + year if year and not oaqry.includes ':' + year
-  oaqry = '(' + oaqry + ') AND updated_date:>' + timestamp if timestamp and not oaqry.includes ':>' + timestamp
-  console.log oaqry
-  alexcount = await @src.openalex.works.count oaqry
-  console.log alexcount, 'records available for update from openalex'
-  if openalex isnt false
-    console.log 'Starting OA report works loading from openalex'
-    for await ol from @index._for 'src_openalex_works', oaqry, scroll: '30m', max: @params.max
-      if not ol.ids?.doi
-        #exists = await @report.works ol.ids.doi.split('doi.org/')[1].toLowerCase()
-        if true #(overwrite is true or not exists?) and not exists?.authorships?
-          total += 1
-          console.log('report works load oalx', total) if not timestamp and total % 20 is 0
-          prc = await @report.works._process undefined, ol
-          if prc? and not prc.is_retracted and not prc.is_paratext
-            delete prc.is_retracted
-            delete prc.is_paratext
-            batch.push prc
-          if batch.length is 10000
-            await @report.works batch
-            console.log 'OA report works loading from openalex', total, Math.ceil ((await @epoch()) - started)/60000
-            batch = []
-
-  if batch.length
-    await @report.works batch
-
-  @report.orgs.supplement() if supplement isnt false # this will run async and should be run because the above may have written over records that had supplements in them
-
-  took = Math.ceil ((await @epoch()) - started)/60000
-  console.log 'OA report done loading after ' + took + ' minutes'
-  if notify isnt false
-    @mail
-      to: ['mark@oa.works', 'joe@oa.works']
-      subject: 'OA report works loaded ' + total + ' in ' + took + ' minutes' + (if timestamp then ' for ' + (await @date timestamp) else '') + ', ' + crcount + ' crosref, ' + alexcount + ' openalex'
-      text: 'https://bg.' + (if @S.dev then 'beta' else 'api') + '.oa.works/report/works'
-  return total
-
-P.report.works.load._bg = true
-P.report.works.load._async = true
-P.report.works.load._auth = '@oa.works'
-
-P.report.works.changes = (timestamp, orgname) ->
-  timestamp ?= @params.changes ? @params.timestamp ? Date.now() - 90000000
-  orgname ?= @params.org
-  if @params.paid isnt false
-    for await org from @index._for 'report_orgs', 'paid:true AND (source.crossref:* OR source.openalex:*)'
-      xcnts = 0
-      ocnts = 0
-      # if an org has no known records in report/works yet, could default it here to a timestamp of start of current year, or older, to pull in all records first time round
-      if not orgname or orgname is org.name
-        await @report.works.load timestamp, (if org.source.crossref then undefined else false), (if org.source.openalex then undefined else false), undefined, (if org.source.crossref then decodeURIComponent(decodeURIComponent(org.source.crossref)) else undefined), (if org.source.openalex then decodeURIComponent(decodeURIComponent(org.source.openalex)) else undefined) #, false
-        if org.source.supplements
-          for await rec from @index._for 'report_works', decodeURIComponent(decodeURIComponent(org.source.supplements)) #'paid:"' + org.name + '" AND DOI:*'
-            if rec.DOI and not rec.DOI.includes(' pmcid:') and not rec.DOI.includes('\n') and not rec.DOI.includes '?ref'
-              supd = await @src.crossref.works 'DOI:"' + rec.DOI + '" AND srcday:>' + timestamp
-              if supd?.hits?.total is 1
-                xcnts += 1
-                console.log 'xref', org.name, xcnts
-                await @report.orgs.supplement undefined, undefined, undefined, rec, undefined, undefined, supd.hits.hits[0]._source
-              oupd = await @src.openalex.works 'ids.doi:"https://doi.org/' + rec.DOI + '" AND updated_date:>' + timestamp
-              if oupd?.hits?.total is 1
-                ocnts += 1
-                console.log 'oalx', org.name, ocnts
-                await @report.orgs.supplement undefined, undefined, undefined, rec, undefined, undefined, undefined, oupd.hits.hits[0]._source
-  else
-    @report.works.load timestamp # start from timestamp a little more than a day ago, by default
-  return true
-P.report.works.changes._bg = true
-P.report.works.changes._async = true
-P.report.works.changes._auth = '@oa.works'`;
-`P.report.articles.compare = () ->
-  missing = processed: 0, counts: {}, article: [], cleaned: [], supplements: [], duplicates: []
-  for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'orgs:* AND DOI:*', scroll: '10m', include: ['DOI']
-    missing.processed += 1
-    console.log('report articles comparing', missing.processed) if missing.processed % 200 is 0
-    if not exists = await @report.articles rec.DOI
-      if rec.DOI in missing.article
-        missing.duplicates.push rec.DOI
-      else
-        cd = rec.DOI.toLowerCase().trim().split('\\')[0].replace(/\/\//g, '/').replace(/ /g, '').replace(/^\//, '').split('?')[0].split(' pmcid')[0].split('\n')[0].replace(/[\u{0080}-\u{FFFF}]/gu, '')
-        if typeof cd is 'string' and cd.length and cleaned = await @report.articles cd
-          missing.cleaned.push rec.DOI
-        else if not sup = await @report.orgs.supplements.count 'DOI:"' + rec.DOI + '"'
-          missing.supplements.push rec.DOI
-        else
-          missing.article.push rec.DOI
-  missing.counts = article: missing.article.length, cleaned: missing.cleaned.length, supplements: missing.supplements.length, duplicates: missing.duplicates.length
-  out = @S.static.folder + '/report_articles_works_compare.json'
-  await fs.writeFile out, JSON.stringify missing, "", 2
-  @mail to: 'mark@oa.works', subject: 'OA report articles works compared ', text: out
-  return missing`;
-`P.report.orgs.supplements.compare = () ->
-  res = orgs: 0, sheets: 0, review: [], failed: []
-  for rec in await @src.google.sheets S.report.orgs_sheet
-    res.orgs += 1
-    try rec.sheets = JSON.parse rec.sheets
-    if Array.isArray rec.sheets
-      for s in rec.sheets
-        res.sheets += 1
-        sr = name: rec.name, sheet: s.name, url: s.url, rows: 0, rowed: 0, dois: 0, duplicates: 0, exists: 0, supplements: 0, supplemented: 0, missing: [], bad: [], nodoi: []
-        console.log sr
-        try
-          rows = await @src.google.sheets sheetid: s.url, sheet: 'Export', headers: false
-          headers = []
-          headers.push(header.toLowerCase().trim().replace(/ /g, '_').replace('?', '')) for header in rows.shift()
-          sr.rows = rows.length
-          sr.supplements = await @report.articles.count 'supplements.sheets.keyword:"' + s.name + '"'
-          dups = []
-          for r of rows
-            row = rows[r]
-            sr.rowed += 1
-            di = headers.indexOf 'doi'
-            di = headers.indexOf('DOI') if di is -1
-            if di >= 0 and doi = row[di]
-              if doi = await @report.cleandoi doi
-                sr.duplicates += 1 if doi in dups
-                dups.push doi
-                sr.dois += 1
-                if osdid = (sr.name.replace(/[^a-zA-Z0-9-_ ]/g, '') + '_' + sr.sheet + '_' + doi).replace(/[\u{0080}-\u{FFFF}]/gu, '').toLowerCase().replace(/\//g, '_').replace(/ /g, '_')
-                  if exists = await @report.orgs.supplements _id: osdid
-                    sr.exists += 1
-                  else
-                    sr.missing.push doi
-                  sr.supplemented += await @report.articles.count 'supplements.osdid.keyword:"' + osdid + '"'
-              else
-                sr.bad.push doi
-            else
-              sr.nodoi.push r
-        catch
-          res.failed.push s.name
-        console.log sr
-        res.review.push sr
-  await fs.writeFile '/home/cloo/static/supplements_compare.json', JSON.stringify res, '', 2
-  await @mail to: ['mark@oa.works'], subject: 'OA report articles orgs supplements compare done', text: JSON.stringify res, '', 2
-  console.log 'orgs supplements compare done'
-  return res
-P.report.orgs.supplements.compare._async = true`;
-`P.report.orgs.supplement = (sheetname, orgname, max, changed, reload, reprocess, xref, olx) ->
-  sheetname ?= @params.sheet
-  orgname ?= @params.org
-  max ?= @params.max
-  reload ?= @params.reload
-  reprocess ?= @params.reprocess
-  repmc = @params.repmc ? false # trigger an epmc lookup again, even if not setting reload to true
-  
-  if typeof changed is 'string'
-    changed = await @report.works changed
-    changed ?= await @src.crossref.works changed
-
-  paramdoi = false
-  if not changed? and @params.supplement and @params.supplement.startsWith '10.'
-    paramdoi = @params.supplement.toLowerCase()
-    changed = await @src.crossref.works paramdoi
-
-  tried = []
-  failed = []
-  loaded = 0
-  doid = 0
-  dois = {}
-  counts = {}
-  orgsheets = {}
-
-  if not changed? or paramdoi
-    for await org from @index._for 'report_orgs', 'sheets.url:*'
-      if not orgname or org.name is orgname
-        orgsheets[org.name] ?= {}
-        console.log 'supplementing for', org.name
-        for s in org.sheets
-          orgsheets[org.name][s.name] ?= 0
-          if not sheetname or s.name is sheetname
-            console.log 'supplementing from sheet', s.name
-            url = await @decrypt s.url
-            tried.push org.name + ' ' + s.name + ' ' + url
-            headers = []
-            rows = []
-            tries = 0
-            await @sleep 2000 # https://github.com/oaworks/Gates/issues/375
-            try
-              rows = await @src.google.sheets sheetid: url, sheet: 'Export', headers: false # just get rows because headers are in different places, and want to simplify them as well
-            catch
-              failed.push org.name + ' ' + s.name + ' ' + url
-            while (not Array.isArray(rows) or not rows.length) and tries < 3 # https://github.com/oaworks/Gates/issues/375
-              await @sleep 5000
-              tries += 1
-              try rows = await @src.google.sheets sheetid: url, sheet: 'Export', headers: false
-            if Array.isArray(rows) and rows.length
-              headers.push(header.toLowerCase().trim().replace(/ /g, '_').replace('?', '')) for header in rows.shift()
-            else
-              rows = []
-            console.log rows.length, 'rows from sheet with headers', JSON.stringify headers
-            mx = 0
-            rc = 0
-            for row in rows
-              orgsheets[org.name][s.name] += 1
-              rc += 1
-              console.log 'processing row', rc, 'for', org.name, s.name
-              mx += 1
-              if mx is max
-                console.log 'stopping supplementing for', s.name, 'due to max limit'
-                break 
-              rr = supplements: [{orgs: [org.name], sheets: [s.name], ror: org.ror, paid: org.paid}], orgs: [org.name], paid: if org.paid then [org.name] else []
-              for hp of headers
-                h = headers[hp]
-                if h in ['doi', 'DOI']
-                  rr[h] = row[hp]
-                else if h is 'apc_cost'
-                  try rr.supplements[0].apc_cost = parseInt row[hp]
-                else if h.includes '.'
-                  await @dot rr.supplements[0], h, if not row[hp] then undefined else if row[hp].trim().toLowerCase() in ['true', 'yes'] then true else if row[hp].trim().toLowerCase() in ['false', 'no'] then false else if h.toLowerCase() in ['grant_id', 'ror'] then row[hp].replace(/\//g, ',').replace(/ /g, '').split(',') else if typeof row[hp] is 'string' and row[hp].includes(';') then row[hp].split(';') else row[hp]
-                else
-                  rr.supplements[0][h] = if not row[hp] then undefined else if row[hp].trim().toLowerCase() in ['true', 'yes'] then true else if row[hp].trim().toLowerCase() in ['false', 'no'] then false else if h.toLowerCase() in ['grant_id', 'ror'] then row[hp].replace(/\//g, ',').replace(/ /g, '').split(',') else row[hp]
-                  rr.supplements[0][h] = rr.supplements[0][h].split(';') if typeof rr.supplements[0][h] is 'string' and rr.supplements[0][h].includes ';'
-              rr.DOI ?= rr.doi
-              if rr.DOI and rr.DOI.startsWith 'http'
-                try rr.DOI = '10.' + rr.DOI.split('/10.')[1] # avoid dirty inputs that are full URLs
-              rr.DOI = rr.DOI.toLowerCase().split('\\')[0].trim().replace(/^\//, '').split('?')[0].split(' pmcid')[0].split('\n')[0] if rr.DOI # also catch problems like 10.1021/acscentsci.0c00732?ref=pdf
-              if rr.DOI and (not paramdoi or paramdoi is rr.DOI)
-                doid += 1
-                if dois[rr.DOI]?
-                  rr[k] ?= dois[rr.DOI][k] for k of dois[rr.DOI]
-                  rr.supplements.push(sp) for sp in dois[rr.DOI].supplements when (not orgname or orgname not in sp.orgs) and (not sheetname or sheetname not in sp.sheets)
-                  rr.paid.push(pp) for pp in dois[rr.DOI].paid when pp not in rr.paid
-                  rr.orgs.push(og) for og in dois[rr.DOI].orgs when og not in rr.orgs
-                dois[rr.DOI] = rr
-                counts[rr.DOI] ?= 0
-                counts[rr.DOI] += 1
-  else
-    dois[changed.DOI] = changed
-
-  batch = []
-  for d of dois
-    loaded += 1
-    console.log loaded
-    rr = dois[d]
-    if reload isnt true and (not changed? or paramdoi) and wrr = await @report.works rr.DOI
-      if wrr.hits?.hits? # catch problems caused by bad input DOIs
-        if wrr.hits.hits.length is 1
-          wrr = wrr.hits.hits[0]._source
-        else
-          wrr = undefined
-      if wrr?
-        rr[k] ?= wrr[k] for k of wrr when k not in ['hits', '_shards', 'took', 'timed_out', 'q', 'is_paratext', 'is_retracted'] 
-        if wrr.supplements and (orgname or sheetname)
-          for sp in wrr.supplements
-            rr.supplements.push(sp) if (not orgname or orgname not in sp.orgs) and (not sheetname or sheetname not in sp.sheets)
-        if wrr.paid and (orgname or sheetname)
-          rr.paid.push(pp) for pp in wrr.paid when typeof pp is 'string' and pp not in rr.paid 
-        if wrr.orgs and (orgname or sheetname)
-          rr.orgs.push(og) for og in wrr.orgs when typeof og is 'string' and og not in rr.orgs 
-
-    if not wrr?.title or not wrr?.authorships? or xref? or olx? or reprocess is true #xref and olx are passed from the changes check for paid records
-      cr = xref ? await @src.crossref.works rr.DOI # ? await @src.crossref.works.doi rr.DOI
-      ol = olx ? await @src.openalex.works 'ids.doi:"https://doi.org/' + rr.DOI + '"', 1
-      ol ?= await @src.openalex.works.doi rr.DOI
-      if (cr? or ol?) and processed = await @report.works._process cr, ol
-        if processed.is_paratext or processed.is_retracted
-          rr = undefined
-        else
-          rr[k] ?= processed[k] for k of processed when k not in ['is_paratext', 'is_retracted']
-    
-    if rr?.authorships? and not rr.author_email_name
-      an_email = rr.email
-      an_email = sup.email for sup in rr.supplements when sup.email and not an_email
-      if an_email
-        an_email = an_email[0] if typeof an_email isnt 'string'
-        rr.email ?= an_email
-        if rr.authorships.length is 1
-          rr.author_email_name = 'Dr. ' + rr.authorships[0].author?.display_name
-        else
-          ren = an_email.split('@')[0].toLowerCase().replace(/[^a-z]/g, '')
-          best_initial = ''
-          best_name = ''
-          best_score = 1000000
-          for rn in rr.authorships
-            if ran = rn.author?.display_name
-              lvs = await @levenshtein ren, ran.toLowerCase().replace(/[^a-z]/g, '')
-              score = lvs.distance / ran.length
-              if score < best_score
-                best_score = score
-                best_name = ran
-              if best_score > .2 and (ren.endsWith(ran.split(' ').pop().toLowerCase()) or (ran.split(' ')[0].length > 4 and ren.includes ran.split(' ')[0].toLowerCase()))
-                best_score = .1
-                best_name = ran
-              if not best_initial and ren.startsWith (ran.split(' ')[0].slice(0,1) + ran.split(' ').pop().slice(0,1)).toLowerCase()
-                best_initial = ran
-          if best_name and best_score < .7
-            rr.author_email_name = 'Dr. ' + best_name.split(' ').pop()
-          if not rr.author_email_name and best_initial
-            rr.author_email_name = 'Dr. ' + best_initial
-
-    if rr?.paid? and rr.paid.length and @params.pmc isnt false and (not rr.pmc_checked or reload is true or repmc is true)
-      console.log('checking for pmc', rr.PMCID, rr.DOI) if paramdoi
-      rr.pmc_checked = true
-      if not rr.PMCID and pubmed = await @src.pubmed.doi rr.DOI # pubmed is faster to lookup but can't rely on it being right if no PMC found in it, e.g. 10.1111/nyas.14608
-        rr.PMCID = 'PMC' + pubmed.identifier.pmc.toLowerCase().replace('pmc', '') if pubmed?.identifier?.pmc
-      epmc = undefined
-      if not rr.PMCID and epmc = await @src.epmc.doi rr.DOI
-        rr.PMCID = epmc.pmcid if epmc.pmcid
-      if rr.PMCID and rr.repository_url_in_pmc and not rr.epmc_licence
-        lic = await @src.epmc.licence rr.PMCID, epmc
-        rr.epmc_licence = lic?.licence
-      rr.pmc_has_data_availability_statement = rr.PMCID and await @src.pubmed.availability rr.PMCID
-
-    if rr?
-      rr.updated = await @epoch()
-      for sp of rr.supplements
-        if rr.supplements[sp].email?
-          rr.supplements[sp].email = rr.supplements[sp].email[0] if Array.isArray rr.supplements[sp].email
-          if typeof rr.supplements[sp].email is 'string' and rr.supplements[sp].email.includes '@'
-            rr.supplements[sp].email = await @encrypt rr.supplements[sp].email
-          rr.email ?= rr.supplements[sp].email
-      if typeof rr.email is 'string' and rr.email.includes '@'
-        rr.email = await @encrypt rr.email
-      batch.push rr
-
-    if batch.length is 10000
+      if (ass.label ? '').toLowerCase().includes 'received'
+        from_crossref = true
+        break
+  from_pubmed = false
+  if not from_crossref
+    if pubmed = (if rec.PMID then await @src.pubmed(rec.PMID) else await @src.pubmed.doi rec.DOI)
+      from_pubmed = true if pubmed.dates?.PubMedPubDate_received?.date
+  if not from_crossref and not from_pubmed
+    fixes.push rec.DOI
+    console.log 'fix medline found', fixes.length, 'to fix'
+batch = []
+if fixes.length
+  for DOI in fixes
+    if rec = await @report.works DOI
+      delete rec.submitted_date
+      delete rec.accepted_date
+      batch.push rec
+    if batch.length is 5000
       await @report.works batch
-      console.log 'report orgs supplemented', loaded
       batch = []
-
   if batch.length
     await @report.works batch
-    batch = []
+console.log 'fix medline completed with', fixes.length, 'fixed'
+return fixes.length
+P.report.fixmedline._bg = true
+P.report.fixmedline._async = true
+P.report.fixmedline._auth = '@oa.works'`;
 
-  if not changed?
-    text = 'https://bg.' + (if @S.dev then 'beta' else 'api') + '.oa.works/report/works?q=supplements.orgs:*\n\n'
-    text += 'Sheets tried:\n\n'
-    text += st + '\n' for st in tried
-    text += 'None\n' if not tried.length
-    text += '\n\nSheets failed:\n\n'
-    text += sf + '\n' for sf in failed
-    text += 'None\n' if not failed.length
-    text += '\n\nSheet counts:\n\n'
-    for os of orgsheets
-      text += os + '\n'
-      for ss of orgsheets[os]
-        text += ss + ' ' + orgsheets[os][ss] + ' DOIs\n'
-    text += '\n\n' + doid + ' DOIs were found in the sheets\n\n'
-
-    @mail
-      to: ['mark@oa.works','joe@oa.works']
-      subject: 'OA report supplements loaded ' + loaded
-      text: text
-  
-  return loaded
-P.report.orgs.supplement._async = true`;
-`P.report.fixemails = () ->
-  fixed = 0
-  for await tr from @index._for (if @S.dev then 'paradigm_b_' else 'paradigm_') + 'report_works', 'email:* OR supplements.email:*', scroll: '30m'
-    changed = false
-    if typeof tr.email is 'string' and tr.email.includes '@'
-      tr.email = await @encrypt tr.email
-      changed = true
-    for sp of tr.supplements
-      if tr.supplements[sp].email?
-        tr.supplements[sp].email = tr.supplements[sp].email[0] if Array.isArray tr.supplements[sp].email
-        if typeof tr.supplements[sp].email is 'string' and tr.supplements[sp].email.includes '@'
-          tr.supplements[sp].email = await @encrypt tr.supplements[sp].email
-          changed = true
-    if changed
-      await @report.works tr
-      fixed += 1
-  return fixed
-P.report.fixemails._auth = '@oa.works'`;
-`P.report.fixtypes = () ->
+`P.report.fixtitle = ->
+  fixes = 0
   checked = 0
-  fixed = 0
-  titled = 0
-  for await tr from @index._for (if @S.dev then 'paradigm_b_' else 'paradigm_') + 'report_works', 'NOT title:*', scroll: '30m'
-    if tr.DOI.startsWith '10.'
-      titled += 1
-      cr = await @src.crossref.works tr.DOI
-      ol = await @src.openalex.works 'ids.doi.keyword:"https://doi.org/' + tr.DOI + '"', 1
-      fr = await @report.works._process cr, ol
-      await @report.works fr
-    console.log 'fixing report works types titles', titled
-  for await rr from @index._for (if @S.dev then 'paradigm_b_' else 'paradigm_') + 'report_works', '(NOT type.keyword:"journal-article" AND NOT type.keyword:"posted-content")', scroll: '30m'
-    checked += 1
-    if rr.DOI.startsWith '10.'
-      cr = await @src.crossref.works rr.DOI
-      if not cr?
-        ol = await @src.openalex.works 'ids.doi.keyword:"https://doi.org/' + rr.DOI + '"', 1
-      if (cr? or ol?) and (cr?.type isnt rr.type or ol?.type isnt rr.type)
-        fixed += 1
-        rr.type = cr?.type ? ol.type
-        await @report.works rr
-    console.log 'fixing report works types', checked, fixed
-  @mail
-    to: ['mark@oa.works']
-    subject: 'OA report works types fixed ' + fixed
-    text: checked + ' checked and fixed ' + fixed + ' and reprocessed ' + titled
-  return fixed
-P.report.fixtypes._async = true
-P.report.fixtypes._bg = true
-P.report.fixtypes._auth = 'root'`;
-`_tags = ['<a>', '<abbr>', '<acronym>', '<address>', '<applet>', '<area>', '<article>', '<aside>',
-'<audio>', '<b>', '<base>', '<basefont>', '<bdi>', '<bdo>', '<big>', '<blockquote>',
-'<body>', '<bold>', '<br>', '<button>', '<canvas>', '<caption>', '<center>', '<cite>',
-'<code>', '<col>', '<colgroup>', '<data>', '<datalist>', '<dd>', '<del>', '<details>',
-'<dfn>', '<dialog>', '<dir>', '<div>', '<dl>', '<dt>', '<em>', '<embed>',
-'<fieldset>', '<fig>', '<figcaption>', '<figure>', '<font>', '<footer>', '<form>', '<frame>', '<frameset>',
-'graphic', '<h1>', '<h2>', '<h3>', '<h4>', '<h5>', '<h6>', '<head>', '<header>',
-'<hr>', '<html>', '<i>', '<iframe>', '<img>', '<input>', '<ins>', '<italic>',
-'<kbd>', '<label>', '<legend>', '<li>', '<link>', '<main>', '<map>',
-'<mark>', '<meta>', '<meter>', '<nav>', '<noframes>', '<noscript>', '<object>', '<ol>',
-'<optgroup>', '<option>', '<output>', '<p>', '<param>', '<picture>', '<pre>', '<progress>',
-'<q>', '<rp>', '<rt>', '<ruby>', '<s>', '<samp>', '<script>', '<sec>', '<section>',
-'<select>', '<small>', '<source>', '<span>', '<strike>', '<strong>', '<style>', '<sub>',
-'<summary>', '<sup>', '<svg>', '<table>', '<tbody>', '<td>', '<template>', '<textarea>',
-'<tfoot>', '<th>', '<thead>', '<time>', '<title>', '<tr>', '<track>', '<tt>',
-'<u>', '<ul>', '<underline>', '<var>', '<video>', '<wbr>', '<xref>']`;
-`P.report.supplements = _index: true, _prefix: false, _key: 'DOI'
-P.report.check = (ror, reload) ->
-  reload ?= @params.check ? @params.reload ? @params.sheet
-  
-  started = await @epoch()
-  ts = await @datetime(false).replace /[-T\: ]/g, '_'
-  console.log 'OA check running', ts, reload
-
-  if not reload
-    await @report.supplements ''
-
-  _from_crossref = (cr) =>
-    cr.published = await @src.crossref.works.published cr
-    try cr.year = cr.published.split('-')[0]
-    try cr.year = parseInt cr.year
-    try
-      crf = DOI: cr.DOI.toLowerCase(), title: cr.title?[0], journal: cr['container-title']?[0], ISSN: cr.ISSN, publisher: cr.publisher, crossref_published: cr.published, crossref_year: cr.year, citations: cr['reference-count'], crossref_is_oa: cr.is_oa, crossref_subject: cr.subject
-      try crf.title = crf.title.replace(/\n/g, '').replace(/\s\s+/g, ' ')
-      crf.funder_grant_ids = []
-      crf.funder_name = []
-      for f in cr.funder ? []
-        if f.DOI is '10.13039/100000865' or (f.name and f.name.toLowerCase().includes 'gates')
-          f.name = 'Bill and Melinda Gates Foundation' if f.name.toLowerCase() is 'bank of canada'
-          crf.funder_name.push(f.name) if f.name not in crf.funder_name
-          for fid in f.award ? []
-            for fidc in fid.split ','
-              fidc = fidc.trim()
-              crf.funder_grant_ids.push(fidc) if fidc not in crf.funder_grant_ids
-      crf.author_names = []
-      crf.author_affiliation = []
-      for a in cr.author ? []
-        an = a.name ? (if a.given then a.given + ' ' else '') + (a.family ? '')
-        crf.author_names.push(an) if an
-        for aff in a.affiliation ? []
-          if aff.name and aff.name.toLowerCase().includes('gates') and aff.name not in crf.author_affiliation
-            crf.author_affiliation.push aff.name
-      try
-        for lc in cr.license
-          if lc['content-version'] in ['am', 'vor', 'tdm', 'unspecified']
-            crf['crossref_license_url_' + lc['content-version']] ?= []
-            crf['crossref_license_url_' + lc['content-version']].push lc.URL
-      crf.crossref = cr
-      delete crf.crossref[x] for x in ['assertion', 'reference', 'relation']
-      return crf
-    catch
-      console.log 'from crossref parse error', JSON.stringify cr
-      return
-
-  recs = {}
-
-  if not reload
-    out = '/home/cloo/static/report/OAreport_' + ts  + '.csv'
-
-    q = 'funder.award:OPP* OR funder.award:INV*' # query and matchers should be read from a config somewhere depending on ror
-    q = 'type:"journal-article" AND (' + q + ')' if not q.includes 'journal-article'
-    matchers = [
-      /Melinda\sGates\sFoundation/g, # about 100
-      /BMGF/g,
-      /Gates\sCambridge\sTrust/g, # about 20
-      #/investment\s?id\s?\d{5}/gi, # didn't match anything
-      /IID\s?\d{5}/gi,
-      /OPPG[HD]\s?\d{4}/g, # about 20
-      /OPP\s?1\s?\d{6}/g, # matches the most at about ~1100
-      /OPP\s?[45]\s?\d{4}/g, # about 30
-      /INV\‐\d{6}/g # 1
-    ]
-  
-    for await rec from @index._for 'src_crossref_works', q
-      rec.DOI = rec.DOI.toLowerCase()
-      ex = await @extract content: JSON.stringify(rec), matchers: matchers
-      if ex.matched
-        recs[rec.DOI] = await _from_crossref rec
-        recs[rec.DOI].matches = []
-        for mt in ex.matches
-          recs[rec.DOI].matches.push({matcher: mt.matched, matched: mt.result.join(',')}) if mt.matched or mt.result
-  
-    # NOTE funders in crossref can be assigned a "DOI" as an ID, so get the crossref funders data too and use that to search for them as well. 
-    # There ARE examples of funders in works listed with or without DOI, or listed with DOI and no funder.name. There are even some with funder.DOI
-    # and a WRONG funder.name, but evidence of being correct such as a Gates one having Gates DOI but wrong name but a Gates-formatted grant ID e.g 10.1002/uog.18811
-    fq = '"10.13039/100000865" OR "gates foundation" OR "gates cambridge trust"'
-    fields = ['funder.DOI', 'funder.name', 'author.affiliation.name']
-    # the RORs for gates and gates cambridge trust are 0456r8d26 and 033sn5p83 but neither appear anywhere in crossref
-    for await rec from @index._for 'src_crossref_works', fq, {fields: fields}
-      if rec.type is 'journal-article'
-        matches = []
-        js = JSON.stringify rec
-        matches.push({field: 'funder.DOI', matched: '10.13039/100000865'}) if js.includes '10.13039/100000865'
-        matches.push({field: 'funder.name', matched: 'gates foundation'}) if js.includes 'gates foundation'
-        matches.push({field: 'funder.name', matched: 'gates cambridge trust'}) if js.includes 'gates cambridge trust'
-        rec.DOI = rec.DOI.toLowerCase()
-        if recs[rec.DOI]
-          recs[rec.DOI].matches.push(mf) for mf in matches
-          recs[rec.DOI].duplicate ?= 0
-          recs[rec.DOI].duplicate += 1
-        else
-          recs[rec.DOI] = await _from_crossref rec
-          recs[rec.DOI].matches = matches
-
-  sheets = # https://docs.google.com/spreadsheets/d/.../edit
-    finance: '1nhykkqxYQ4DNPAj-WnXHcYnSd4dmt_Hf0xEVDZxaPLY'
-    oasupport: '180562eXtmMANfIlioclUrQDaUSWkTOz7igOymfnv2pg'
-    staff: '1EZI0iNAXnJ-qbIJFGmtplHWP03NVT7hhf0ICazI0YXw'
-    grants: '1lDNHAwH-8x89fgLK-JLs9bBv2cdHsJRnb1Pj86QYWZI'
-    names: '1ZowZub-nwOHJrzP7IbhbdoydOAmBRxLysejw38Xt32Y'
-    emails: '1U3YXF1DLhGvP4PgqxNQuHOSR99RWuwVeMmdTAmSM45U'
-    lens: '1XulUi2Bk3QNsJLekx0PpNb6REhrwQi6Q9M1x_KIUH_0'
-    chronos: '1SxIFu4SoROqinOXAZMepOE0d1oxAZgC8LR_nTRi4vpU'
-    oacheck: '1hRZGE-LfHdloHOEVVbt_ULjvwU76gECfa8MrthF9EV8'
-    asap: '14Cs80bpyKym6R1kKqIrI1R5MMELms7ArPQzF67YOOgM'
-    gates_funded_pmc: '1tE6it4EcW83-ZUCotdFMnj6LsyKfQCPdkBcrr36PkVM'
-    oaworks_das: '1GoZ2s0x6VEqsiTnL4BOhVFEz1wKjGn7n-_dDVZWbvMI'
-
-  if reload
-    if sr = sheets[reload]
-      sheets = {}
-      sheets[reload] = sr
-    else
-      for sr of sheets
-        if sheets[sr] is reload
-          sheets = {}
-          sheets[sr] = reload
-          break
-  for s of sheets
-    rows = await @src.google.sheets sheetid: sheets[s], sheet: 'Export', headers: false # just get rows because headers are in different places, and want to simplify them as well
-    #if s is 'finance'
-    #  rows.shift()
-    #  rows.shift() # get rid of junk rows at top
-    headers = []
-    if rows? # catch google lookup fails
-      headers.push(header.toLowerCase().trim().replace(/ /g, '_').replace('?', '')) for header in rows.shift() # get headers
-    else
-      rows = []
-    for row in rows
-      rec = {}
-      for h of headers
-        rec[headers[h].toLowerCase()] = if not row[h] then undefined else if row[h].trim().toLowerCase() in ['true', 'yes'] then true else if row[h].trim().toLowerCase() in ['false', 'no'] then false else if headers[h].toLowerCase() in ['grant_id', 'ror'] then row[h].replace(/\//g, ',').replace(/ /g, '').split(',') else row[h]
-      if rec.doi and typeof rec.doi is 'string'
-        rd = rec.doi.split(',')[0].toLowerCase().replace(/\.$/, '').replace(/\s/, '').split(' ')[0].split('?')[0].trim() # some appeared to be lists of DOIs which is no use e.g. 10.1128/msphere.01330-20, 10.1128/msphere.00490-21
-        if rd.startsWith('10.') and rd.includes('/') and rd.length > 6
-          if reload
-            recs[rd] = await @report.supplements rd
-            if not recs[rd]?
-              recs[rd] ?= await @src.crossref.works rd
-              recs[rd] ?= await @src.crossref.works.doi rd
-              if recs[rd]?
-                recs[rd] = await _from_crossref recs[rd]
-              else
-                recs[rd] = {}
-            recs[rd][k] = rec[k] for k of rec
-          else if recs[rd]?
-            recs[rd].duplicate ?= 0
-            recs[rd].duplicate += 1
-          else if cr = await @src.crossref.works rd
-            recs[rd] = await _from_crossref cr
-          else if cr = await @src.crossref.works.doi rd
-            recs[rd] = await _from_crossref cr
-          else
-            recs[rd] = DOI: rd, in_crossref: false
-            #recs[rd].doi_resolves = false if not await @fetch 'https://doi.org/' + rd
-          try
-            recs[rd].sheets ?= []
-            recs[rd].sheets.push(s) if s not in recs[rd].sheets
-            recs[rd].ror ?= []
-            for rr in rec.ror ? ['0456r8d26']
-              recs[rd].ror.push(rr) if rr not in recs[rd].ror
-            for r of rec
-              if r is 'apc_cost'
-                try
-                  ra = parseInt rec[r]
-                catch
-                  ra = 0
-                recs[rd][r] ?= 0
-                recs[rd][r] += ra
-              else if recs[rd][r]?
-                if recs[rd][r]
-                  recs[rd][r] = [recs[rd][r]] if not Array.isArray recs[rd][r]
-                else
-                  recs[rd][r] = [] # catch blanks
-                recs[rd][r].push(rec[r]) if rec[r]? and (typeof rec[r] isnt 'string' or rec[r].trim().length) and rec[r] not in recs[rd][r]
-              else if rec[r]? and rec[r] isnt ''
-                recs[rd][r] = rec[r]
-          catch # just skip ones that error out, such as bad DOIs
-            console.log 'sheet fields merge error', rd
-        else
-          console.log 'bad doi', rd
-
-  dois = await @keys(recs).length
-  console.log dois
-
-  if not reload
-    alternates = # {}
-      title: 'Paper title'
-      journal: 'Journal Title'
-      publisher: 'Publisher name'
-      published: 'Published date'
-      year: 'Published year'
-    keys = if @params.keys then @params.keys.split(',') else [
-      "DOI", "PMCID", "in_oadoi", "in_crossref", "doi_resolves", "compliant", "can_archive", "journal_oa_type", "crossref_is_oa", "oadoi_is_oa", "is_oa", 
-      "oadoi_oa_status", "best_oa_location_url", "best_oa_location_url_for_pdf", "has_repository_copy", "repository_license", 
-      "repository_url_for_pdf", "repository_url", "repository_url_in_pmc", "repository_version", "publisher_license", "publisher_url_for_pdf", "publisher_version", 
-      "has_oa_locations_embargoed", "epmc_licence", "epmc_licence_source", "pmc_has_data_availability_statement",
-      "title", "journal", "ISSN", "publisher", "published", "crossref_published", "oadoi_published", "year", "crossref_year", "oadoi_year", "author_affiliation", "funder_name", "funder_grant_ids", 
-      "crossref_license_url_am", "crossref_license_url_vor", "crossref_license_url_tdm", "crossref_license_url_unspecified", "crossref_subject",
-      # keys examples from OAreport Gates live: https://docs.google.com/spreadsheets/d/1Ufh_xs3NQjzbPRgwlFnHxK5nY2cjn4SsnCqvVnY4Nk8/edit#gid=1145124691
-      "grant_id", "invoice_date", "invoice_number",
-      # and others suggested by Joe, to be sourced from sheets inputs if not already known:
-      "mturk_has_data_availability_statement", "mturk_data_availability_statement",
-      "tdm_is_oa", "mturk_is_oa", "staff_is_oa",
-      "apc_cost", "oawork_finance_internal_id", "type", "to", "status", "sent", "last_contact", "last_heard_from",
-      "completed", "follow_up_due", "follow_ups_sent", "clicked", "author_name", "email",
-      "author_email_name", "citations", "sheets", "matches_targets", "matches_found"]
-    for key in keys
-      await fs.appendFile out, (if key isnt 'DOI' then ',"' else '"') + (alternates[key] ? key) + '"'
-
   batch = []
-  counter = 0
-  max = @params.max ? 0
-  for d of recs
-    break if max and counter > max
-    counter += 1
-    res = recs[d]
-    if not res? # check cos there was one from chronos that ended up with no record e.g. 10.1016/j.vaccine.2017.05.087pmcid:
-      console.log d
-    else
-      if oadoi = await @src.oadoi res.DOI
-        res.oadoi = oadoi
-        res.journal_oa_type = await @permissions.journals.oa.type undefined, undefined, oadoi, res.crossref
-
-        for loc in oadoi.oa_locations ? []
-          if loc.host_type is 'publisher'
-            res.publisher_license ?= loc.license
-            res.publisher_url_for_pdf ?= loc.url_for_pdf
-            res.publisher_version ?= loc.version
-          if loc.host_type is 'repository'
-            if loc.url and loc.url.toLowerCase().includes 'pmc'
-              if not res.PMCID and not res.pmcid
-                try
-                  pp = loc.url.toLowerCase().split('pmc')[1].split('/')[0].split('?')[0].split('#')[0]
-                  if pp.length and pp.replace(/[^0-9]/g, '').length is pp.length and not isNaN parseInt pp
-                    res.PMCID = 'PMC' + pp
-              if loc.license and not res.epmc_licence
-                res.epmc_licence = loc.license
-                res.epmc_licence_source = 'oadoi EPMC repository oa_location'
-            if not res.repository_url or not res.repository_url.includes 'pmc'
-              for ok in ['license', 'url_for_pdf', 'url', 'version']
-                res['repository_' + ok] = loc[ok] if loc[ok]
-        res.repository_url_in_pmc = true if res.repository_url and res.repository_url.toLowerCase().includes 'pmc'
-        res.best_oa_location_url = oadoi.best_oa_location?.url
-        res.best_oa_location_url_for_pdf = oadoi.best_oa_location?.url_for_pdf
-        res.oadoi_is_oa = oadoi.is_oa
-        res.is_oa = res.oadoi_is_oa or res.crossref_is_oa
-        res.oadoi_oa_status = oadoi.oa_status
-        res.has_repository_copy = oadoi.has_repository_copy
-        res.has_oa_locations_embargoed = if oadoi.oa_locations_embargoed? and oadoi.oa_locations_embargoed.length then true else false
-  
-        res.title ?= oadoi.title
-        res.journal ?= oadoi.journal_name
-        res.ISSN ?= oadoi.journal_issns.split(',') if oadoi.journal_issns
-        res.publisher ?= oadoi.publisher
-        res.oadoi_published = oadoi.published_date
-        res.oadoi_year = oadoi.year
-  
-      else
-        res.in_oadoi = false
-
-      res.year ?= res.oadoi_year ? res.crossref_year
-      res.published ?= res.oadoi_published ? res.crossref_published
-
-      if (oadoi?.best_oa_location?.license ? '').includes('cc') or oadoi?.journal_is_in_doaj
-        res.can_archive = true
-      else
-        rcc = @copy (res.crossref ? {})
-        rcc.doi = rcc.DOI
-        res.permissions = await @permissions rcc, undefined, undefined, oadoi, (if JSON.stringify(rcc) is '{}' then undefined else rcc)
-        res.can_archive = res.permissions?.best_permission?.can_archive
-
-      res.compliant = await @report.compliant res
-      
-      epmc = undefined
-      pubmed = undefined
-      if not res.PMCID
-        if res.pmcid and (not Array.isArray(res.pmcid) or res.pmcid.length) # may be present from sheets?
-          res.PMCID = 'PMC' + res.pmcid.toString().toLowerCase().replace('pmc', '')
-          res.PMCID = res.PMCID[0] if Array.isArray res.PMCID
-        else
-          pubmed = await @src.pubmed.doi res.DOI # pubmed is faster to lookup but can't rely on it being right if no PMC found in it, e.g. 10.1111/nyas.14608
-          if pubmed?.identifier?.pmc
-            res.PMCID = pubmed.identifier.pmc
-            res.PMCID = 'PMC' + res.PMCID.toLowerCase().replace('pmc', '')
-          if (not res.PMCID or res.repository_url_in_pmc) and epmc = await @src.epmc.doi res.DOI
-            res.PMCID = epmc.pmcid
-      if res.PMCID and res.repository_url_in_pmc and not res.epmc_licence
-        lic = await @src.epmc.licence res.PMCID, epmc
-        res.epmc_licence = lic?.licence
-        res.epmc_licence_source = lic?.source
-      res.pmc_has_data_availability_statement = res.PMCID and await @src.pubmed.availability res.PMCID
-  
-      if res.author_names and res.email
-        if res.author_names.length is 1
-          res.author_email_name = 'Dr. ' + res.author_names[0].split(' ').pop()
-        else
-          ren = (if typeof res.email is 'string' then res.email else res.email[0]).split('@')[0].toLowerCase().replace(/[^a-z]/g, '')
-          best_initial = ''
-          best_name = ''
-          best_score = 1000000
-          for ran in res.author_names
-            lvs = await @levenshtein ren, ran.toLowerCase().replace(/[^a-z]/g, '')
-            score = lvs.distance / ran.length
-            if score < best_score
-              best_score = score
-              best_name = ran
-            if best_score > .2 and (ren.endsWith(ran.split(' ').pop().toLowerCase()) or (ran.split(' ')[0].length > 4 and ren.includes ran.split(' ')[0].toLowerCase()))
-              best_score = .1
-              best_name = ran
-            if not best_initial and ren.startsWith (ran.split(' ')[0].slice(0,1) + ran.split(' ').pop().slice(0,1)).toLowerCase()
-              best_initial = ran
-          if best_score < .7
-            res.author_email_name = 'Dr. ' + best_name.split(' ').pop()
-          if not res.author_email_name and best_initial
-            res.author_email_name = 'Dr. ' + best_initial
-
-      batch.push res
-      if not reload
-        await fs.appendFile out, '\n'
-        for k in keys
-          val = if not res[k]? then '' else if Array.isArray(res[k]) then res[k].join(',') else if typeof res[k] is 'object' then JSON.stringify(res[k]) else res[k]
-          if k is 'matches_targets'
-            for m in res.matches ? []
-              val += (if val then ',' else '') + (m.field ? m.matcher) if m.field or m.matcher 
-          else if k is 'matches_found'
-            val += (if val then ',' else '') + m.matched for m in res.matches ? []
-          await fs.appendFile out, (if k isnt 'DOI' then ',"' else '"') + val.toString().replace(/"/g, '').replace(/\n/g, '').replace(/\s\s+/g, ' ') + '"'
-  
-      console.log('Gates OA checking', counter, dois) if counter % 100 is 0
-      if batch.length is 5000
-        await @report.supplements batch
-        batch = []
-  
+  for alpha in 'abcdefghijklmnopqrstuvwxyz'.split ''
+    for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'title.keyword:"' + alpha + '" OR title.keyword:"' + alpha.toUpperCase() + '"', scroll: '30m'
+      checked += 1
+      console.log('fix title checked', alpha, checked, fixes) if checked % 1000 is 0
+      if rec.title.length is 1
+        if oadoi = await @src.oadoi rec.DOI
+          rec.title = oadoi.title if oadoi.title
+        if rec.title.length is 1 and openalex = await @src.openalex.works rec.DOI
+          rec.title = openalex.title if openalex.title
+        if rec.title.length is 1 and cr = await @src.crossref.works rec.DOI
+          rec.title = cr.title if cr.title
+          rec.title = rec.title[0] if typeof rec.title isnt 'string'
+        if rec.title.length isnt 1
+          fixes += 1
+          batch.push rec
+        if batch.length is 20000
+          await @report.works batch
+          batch = []
   if batch.length
-    await @report.supplements batch
-    batch = []
+    await @report.works batch
+  console.log 'fix title completed with', checked, fixes
+  return fixes
+P.report.fixtitle._bg = true
+P.report.fixtitle._async = true
+P.report.fixtitle._auth = '@oa.works'`;
 
-  took = Math.ceil ((await @epoch()) - started)/60000
-  console.log 'OA check done after ' + took + ' minutes', reload
-  if not reload
-    @mail
-      to: ['joe@oa.works', 'sarah@oa.works']
-      subject: 'Gates OA check done ' + counter + ' in ' + took + ' minutes'
-      text: 'https://static.oa.works/report/' + (out ? '').split('/report/').pop()
-  return counter
-P.report.check._bg = true
-P.report.check._async = true
-P.report.check._notify = false
+P.report.fixcroa = async function() {
+  var batch, checked, cr, fixes, rec, ref;
+  fixes = 0;
+  checked = 0;
+  batch = [];
+  ref = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', 'crossref_is_oa:true', {
+    scroll: '30m'
+  });
+  for await (rec of ref) {
+    checked += 1;
+    if (checked % 100 === 0) {
+      console.log('fix crossref is OA checked', checked, fixes);
+    }
+    if (cr = (await this.src.crossref.works(rec.DOI))) {
+      if (cr.is_oa !== true) {
+        fixes += 1;
+        rec.crossref_is_oa = false;
+        batch.push(rec);
+      }
+    }
+    if (batch.length === 20000) {
+      await this.report.works(batch);
+      batch = [];
+    }
+  }
+  if (batch.length) {
+    await this.report.works(batch);
+  }
+  console.log('fix crossref is OA completed with', checked, fixes);
+  return fixes;
+};
 
-P.report.compliant = (rec, ror) ->
-  # compare with https://docs.google.com/spreadsheets/d/1oanKC96Jbel7S8Hhy0muMHzRvOIUzer1dZu7FlXhqaE/edit#gid=1000508628
-  # and https://docs.google.com/spreadsheets/d/1-7bVmmpVfaa8biZO2GdVsjOJTPGEpjL4h9oAXjJonVw/edit#gid=1048310661
-  # source for TJs from JCT sheet is https://docs.google.com/spreadsheets/d/e/2PACX-1vT2SPOjVU4CKhP7FHOgaf0aRsjSOt-ApwLOy44swojTDFsWlZAIZViC0gdbmxJaEWxdJSnUmNoAnoo9/pub?gid=0&single=true&output=csv
-  # there are 2281. But it's not clear how we used that data for anything other than display in the sheet
-  robl = (rec.oadoi?.best_oa_location?.license ? '').toLowerCase().replace(/-/g, '')
-  if rec.publisher in ['Cold Spring Harbor Laboratory', 'Research Square'] or rec.journal in ['Data in Brief'] or rec.DOI.startsWith('10.2139/ssrn') or rec.DOI.startsWith('10.21203/rs') or rec.DOI.startsWith('10.31234/osf.io/')
-    return 'n/a' # not peer reviewed, so compliant is not applicable
-  else if rec.journal_oa_type and rec.journal_oa_type not in ['closed', 'green'] and (robl.includes('ccby') or robl.includes('cc0') or robl.includes('pd') or (robl.includes('public') and robl.includes('domain')))
-    if not rec.repository_url_in_pmc # what repos count as approved?
-      return 'expected'
-    else
-      return 'yes'
-  else if not rec.journal_oa_type? or not robl or not rec.oadoi?.best_oa_location?.url
-    return 'unknown'
-  else
-    return 'no'`;
-`P.report.compliance = (ror) ->
-  ror ?= @params.report ? @params.compliance ? @params.ror
-  papers = await @report.supplements.count()
-  compliant = await @report.supplements.count 'compliant:yes'
-  pc = Math.ceil((compliant/papers) * 1000)/10
-  return if pc > 100 then 100 else pc
+P.report.fixcroa._bg = true;
 
-P.report.rating = (ror) ->
-  ror ?= @params.report ? @params.rating ? @params.ror
-  if ror
-    ror = await @src.ror(ror) if typeof ror isnt 'object'
-    filter = 'type:"journal-article" AND ("' + ror.name + '" OR "' + ror._id + '")'
-    papers = await @src.crossref.works.count filter
-    opens = await @src.crossref.works.count filter + ' AND is_oa:true'
-  else
-    papers = await @report.supplements.count()
-    opens = await @report.supplements.count 'is_oa:true'
-  pc = Math.ceil((opens/papers) * 1000)/10
-  return if pc > 100 then 100 else pc
+P.report.fixcroa._async = true;
 
-P.report.citations = (filter) ->
-  counts = papers: 0, citations: 0, oa: {papers: 0, citations: 0}, closed: {papers: 0, citations: 0}
-  filter = filter._id if typeof filter is 'object'
-  ror = @params.report ? @params.citations
-  ror = filter if typeof filter is 'string' and filter.length < 10 and not filter.includes ' '
-  if ror
-    filter = 'type:"journal-article"' + if ror then ' AND ("' + ror.name + '" OR "' + ror._id + '")' else ''
+P.report.fixcroa._auth = '@oa.works';
 
-  if ror is '0456r8d26'
-    for await rec from @index._for 'svc_oaworks_report_supplements', 'citations:*', {include: ['citations', 'is_oa']}
-      counts.papers += 1
-      counts.citations += rec.citations
-      counts[if rec.is_oa then 'oa' else 'closed'].papers += 1
-      counts[if rec.is_oa then 'oa' else 'closed'].citations += rec.citations
-  else if filter
-    for await rec from @index._for 'src_crossref_works', filter + ' AND reference-count:*', {include: ['reference-count', 'is_oa']}
-      counts.papers += 1
-      counts.citations += rec['reference-count']
-      counts[if rec.is_oa then 'oa' else 'closed'].papers += 1
-      counts[if rec.is_oa then 'oa' else 'closed'].citations += rec['reference-count']
+P.report.fixtype = async function() {
+  var batch, checked, fixed, fixes, fixols, nol, nool, ol, rec, ref;
+  fixes = 0;
+  fixols = 0;
+  nool = 0;
+  checked = 0;
+  batch = [];
+  ref = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', 'NOT type:*', {
+    scroll: '30m'
+  });
+  for await (rec of ref) {
+    checked += 1;
+    if (checked % 100 === 0) {
+      console.log('fix type checked', checked, fixes, fixols, nool, batch.length);
+    }
+    fixed = false;
+    if (ol = (await this.src.openalex.works(rec.DOI))) {
+      if (ol.type) {
+        fixed = true;
+        fixes += 1;
+        rec.type = ol.type;
+        batch.push(rec);
+      }
+    } else {
+      nool += 1;
+    }
+    if (!fixed && (nol = (await this.src.openalex.works.doi(rec.DOI, true)))) {
+      console.log('report fixtype updated openalex', rec.DOI);
+      fixes += 1;
+      fixols += 1;
+      rec.type = nol.type;
+      batch.push(rec);
+    }
+    if (batch.length === 5000) {
+      await this.report.works(batch);
+      batch = [];
+    }
+  }
+  if (batch.length) {
+    await this.report.works(batch);
+  }
+  console.log('fix type completed with', checked, fixes, fixols, nool);
+  return fixes;
+};
 
-  counts.oa.average = Math.ceil counts.oa.citations / counts.oa.papers
-  counts.closed.average = Math.ceil counts.closed.citations / counts.closed.papers
-  if counts.oa.average > counts.closed.average
-    counts.oa_extra_percent = Math.ceil ((counts.oa.average - counts.closed.average) / counts.closed.average) * 100 
-  return counts
+P.report.fixtype._bg = true;
 
-P.report.estimate = () ->
-  orgs = 0
-  dups = 0
-  articles = 0
-  articledups = 0
-  zeros = 0
-  seen = []
-  dois = []
-  qrys = []
-  for await rec from @index._for 'src_ror', 'types:(nonprofit OR education OR government)', include: ['acronyms', 'name', 'aliases', 'id', 'external_ids']
-    skip = false
-    rec.name = rec.name.trim().replace /"/g, ''
-    qry = '"' + rec.id.split('/').pop() + '" OR funder.name.keyword:"' + rec.name + '" OR author.affiliation.name.keyword:"' + rec.name + '"'
-    if rec.name.length > 4
-      if rec.name in seen
-        skip = true
-      else
-        seen.push rec.name
-    for k in ['acronyms', 'aliases']
-      for c in (rec[k] ? [])
-        c = c.trim().replace /"/g, ''
-        if c.length > 4
-          qry += ' OR funder.name.keyword:"' + c + '" OR author.affiliation.name.keyword:"' + c + '"'
-          if c in seen
-            skip = true
-          else
-            seen.push c
-    if rec.external_ids?.GRID?.preferred? or rec.external_ids?.GRID?.all?
-      grid = rec.external_ids.GRID.preferred ? (if Array.isArray(rec.external_ids.GRID.all) then rec.external_ids.GRID.all[0] else rec.external_ids.GRID.all.split(',')[0])
-      if grid.length > 5
-        qry += ' OR "' + grid + '"'
-        if grid in seen
-          skip = true
-        else
-          seen.push grid
-    if not skip and qry.length > 4
-      qry = '(' + qry + ') AND (type.keyword:"journal-article" OR type.keyword:"posted-content") AND (year.keyword:"2022")'
-      qrys.push qry
-    else
-      dups += 1
+P.report.fixtype._async = true;
 
-  ql = qrys.length
-  console.log 'running ' + ql + ' queries'
-  counter = 0
-  while q = qrys.pop()
-    counter += 1
-    console.log counter + ' of ' + ql
-    orgs += 1
-    #oars = await @index.count 'src_crossref_works', qry
-    oars = 0
-    for await cr from @index._for 'src_crossref_works', q, include: ['DOI']
-      dl = cr.DOI.toLowerCase()
-      if dl not in dois
-        #dois.push dl
-        oars += 1
-      else
-        articledups += 1
-    zeros += 1 if oars is 0
-    articles += oars
-    console.log q, oars, orgs, dups, articles, articledups, zeros
+P.report.fixtype._auth = '@oa.works';
 
-  await @mail to: 'mark@oa.works', text: 'orgs: ' + orgs + ', duplicates: ' + dups + ', articles: ' + articles + ', articledups: ' + articledups + ', zeros: ' + zeros
-  return true
-P.report.estimate._async = true`;
-
-
-`P.report.articles = _index: true, _prefix: false
-P.report.articles.process = (cr, openalex, refresh, everything, replaced) ->
-  started = await @epoch()
-  cr ?= @params.process
-  refresh ?= @refresh
-  everything ?= @params.everything # if so then runs epmc and permissions, which otherwise only run for records with orgs providing supplements
- 
-  if typeof openalex is 'string'
-    openalex = openalex.split(if openalex.includes('doi.org') then 'doi.org/' else '/').pop()
-    openalex = openalex.replace /\/$/, ''
-    if openalex.startsWith '10.'
-      openalex = openalex.toLowerCase()
-      cr ?= openalex
-    if openalex.startsWith('W') or openalex.startsWith '10.'
-      if openalex.startsWith('10.') and refresh isnt true
-        exists = await @report.articles _id: openalex
-        exists = undefined if not exists?.updated or (refresh and exists and exists.updated < refresh)
-      if openalex.startsWith('W') or not exists?.openalex
-        ox = await @src.openalex.works _id: openalex
-        openalex = ox if ox?.id
-  openalex = undefined if typeof openalex is 'string' and not (openalex.startsWith('W') or openalex.startsWith('10.'))
-
-  cr = openalex.ids.doi if not cr? and typeof openalex is 'object' and openalex?.ids?.doi
-  cr = cr.split('doi.org/').pop() if typeof cr is 'string' and cr.includes 'doi.org/'
-  cr = undefined if typeof cr is 'string' and not cr.startsWith '10.'
-  cr = cr.toLowerCase() if typeof cr is 'string'
-  cr = xref if not exists? and typeof cr is 'string' and xref = await @src.crossref.works _id: cr
-  cr = undefined if typeof cr is 'object' and not cr.DOI
-
-  if cr? and refresh isnt true
-    exists ?= await @report.articles(if typeof cr is 'string' then cr else cr.DOI)
-    exists = undefined if not exists?.updated or (refresh and exists and exists.updated < refresh)
-
-  if cr? and not exists?.openalex
-    openalex ?= await @src.openalex.works _id: if typeof cr is 'object' then cr.DOI else cr
-  openalex = undefined if typeof openalex is 'string' or not openalex?.id
-
-  if typeof cr is 'object' and cr.DOI
-    rec = DOI: cr.DOI.toLowerCase(), subject: cr.subject, subtitle: cr.subtitle, volume: cr.volume, published_year: cr.year, issue: cr.issue, publisher: cr.publisher, published_date: cr.published, funder: cr.funder, issn: cr.ISSN, subtype: cr.subtype
-    for ass in (cr.assertion ? [])
-      assl = (ass.label ? '').toLowerCase()
-      if assl.includes('accepted') and assl.split(' ').length < 3
-        ad = await @dateparts ass.value
-        rec.accepted_date ?= ad.date if ad?.date
-      if assl.includes 'received'
-        sd = await @dateparts ass.value
-        rec.submitted_date ?= sd.date if sd?.date
-    delete f['doi-asserted-by'] for f in rec.funder ? []
-    rec.title = cr.title[0] if cr.title and cr.title.length
-    rec.journal = cr['container-title'][0] if cr['container-title'] and cr['container-title'].length
-    rec['reference-count'] = cr['reference-count'] if cr['reference-count']?
-    for lc in cr.license ? []
-      rec['crossref_license_url_' + lc['content-version']] = lc.URL if lc['content-version'] in ['am', 'vor', 'tdm', 'unspecified']
-    rec.crossref_is_oa = if not cr.is_oa? then false else cr.is_oa
-
-    brd = []
-    newer = false
-    _rsup = (sup, ud) =>
-      sup.DOI = cr.DOI
-      sup.replaced = ud
-      await @report.orgs.supplements sup.osdid, ''
-      sup._id = sup.osdid = sup.osdid.split('_10.') + '_' + sup.DOI.replace(/[\u{0080}-\u{FFFF}]/gu, '').toLowerCase().replace(/\//g, '_').replace(/ /g, '_')
-      brd.push sup
-    for ud in (cr['update-to'] ? [])
-      if ud.DOI isnt cr.DOI and ud.type.toLowerCase() not in ['erratum', 'correction'] # some new version statements are for the same DOI, so no point changing anything
-        rec.replaces = []
-        rec.replaces.push DOI: ud.DOI, type: ud.type, updated: ud.updated?.timestamp
-        await @report.articles(ud.DOI, '') if ude = await @report.articles ud.DOI
-        _rsup(sup, ud.DOI) for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'DOI.keyword:"' + ud.DOI + '"'
-    for rr in (cr.relation?['is-same-as'] ? [])
-      if rr['id-type'] is 'doi' and rr.id isnt cr.DOI and newer = await @src.crossref.works rr.id
-        _rsup(sup, rr.id) for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'DOI.keyword:"' + cr.DOI + '"'
-    await @report.orgs.supplements(brd) if brd.length
-    if newer isnt false
-      return @report.articles.process newer, openalex, refresh, everything, cr.DOI
-    if replaced # if this was passed in by a secondary call to process
-      rec.replaces ?= []
-      rec.replaces.push DOI: replaced, type: 'relation.is-same-as'
-
-  if openalex?
-    rec ?= {}
-    rec.openalex = openalex.id.split('/').pop() if openalex.id
-    rec.DOI = openalex.ids.doi.split('doi.org/').pop().toLowerCase() if not rec.DOI and openalex.ids?.doi?
-    rec.PMID = openalex.ids.pmid.split('/').pop() if openalex.ids?.pmid
-    rec.PMCID = 'PMC' + openalex.ids.pmcid.split('/').pop().toLowerCase().replace('pmc', '') if not rec.PMCID and openalex.ids?.pmcid
-    rec.title = openalex.title if openalex.title
-    rec[ok] = openalex[ok] for ok in ['authorships', 'concepts', 'cited_by_count', 'type', 'is_paratext', 'is_retracted']
-    rec.published_date = openalex.publication_date if openalex.publication_date
-    rec.published_year = openalex.publication_year if openalex.publication_year
-    rec.issn = openalex.host_venue.issn if openalex.host_venue?.issn and openalex.host_venue.issn.length
-    rec.biblio = openalex.biblio if openalex.biblio
-    rec['referenced_works'] = openalex['referenced_works'].length if openalex['referenced_works']
-    for c in rec.concepts ? []
-      delete c.wikidata
-      try c.score = Math.floor(c.score * 100)
-    for a in rec.authorships ? []
-      delete i.type for i in a.institutions ? []
-
-  rec ?= {}
-  rec.DOI = cr.toLowerCase() if not rec.DOI and typeof cr is 'string'
-
-  return if rec.is_paratext or rec.is_retracted
-
-  delete rec.is_paratext
-  delete rec.is_retracted
-
-  if not exists?.oadoi and rec.DOI
-    rec.oadoi = true
-    oadoi = await @src.oadoi rec.DOI
-    for loc in oadoi?.oa_locations ? []
-      if loc.host_type is 'publisher'
-        rec.publisher_license ?= loc.license
-        rec.publisher_url_for_pdf ?= loc.url_for_pdf
-        rec.publisher_version ?= loc.version
-      if loc.host_type is 'repository'
-        if loc.url and loc.url.toLowerCase().includes 'pmc'
-          if not rec.PMCID
-            pp = loc.url.toLowerCase().split('pmc')[1].split('/')[0].split('?')[0].split('#')[0]
-            rec.PMCID = 'PMC' + pp if pp.length and pp.replace(/[^0-9]/g, '').length is pp.length and not isNaN parseInt pp
-          if loc.license and not rec.epmc_licence
-            rec.epmc_licence = loc.license
-        if not rec.repository_url or not rec.repository_url.includes 'pmc'
-          for ok in ['license', 'url_for_pdf', 'url', 'version']
-            rec['repository_' + ok] = loc[ok] if loc[ok]
-    if rec.repository_url and rec.repository_url.toLowerCase().includes 'pmc'
-      rec.PMCID ?= 'PMC' + rec.repository_url.toLowerCase().split('pmc').pop().split('/')[0].split('#')[0].split('?')[0]
-      rec.repository_url_in_pmc = true
-    if oadoi?
-      rec.best_oa_location_url = oadoi.best_oa_location?.url
-      rec.best_oa_location_url_for_pdf = oadoi.best_oa_location?.url_for_pdf
-      rec.oa_status = oadoi.oa_status
-      rec.has_repository_copy = oadoi.has_repository_copy
-      rec.has_oa_locations_embargoed = if oadoi.oa_locations_embargoed? and oadoi.oa_locations_embargoed.length then true else false
-      rec.title = oadoi.title
-      rec.issn = oadoi.journal_issns.split(',') if not rec.issn and typeof oadoi.journal_issns is 'string' and oadoi.journal_issns.length
-      rec.journal ?= oadoi.journal_name
-      rec.publisher ?= oadoi.publisher
-      rec.published_date = oadoi.published_date if oadoi.published_date
-      rec.published_year = oadoi.year if oadoi.year
-      rec.oadoi_is_oa = oadoi.is_oa if oadoi.is_oa?
-
-  rec.supplements = []
-  rec.orgs = []
-  if rec.DOI
-    for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'DOI.keyword:"' + rec.DOI + '"', sort: 'osdid.keyword': 'asc'
-      rec.orgs.push(sup.org) if sup.org not in rec.orgs
-      rec.paid = true if sup.paid
-      rec.email = sup.email if not rec.email and sup.email
-      rec.supplements.push sup
-
-  if exists?
-    rec.author_email_name = exists.author_email_name if exists.author_email_name and exists.email and rec.email and rec.email.toLowerCase() is exists.email.toLowerCase()
-    rec[k] ?= exists[k] for k of exists
-
-  if rec.authorships? and rec.email and not rec.author_email_name and (not exists?.authorships? or not exists?.email)
-    email = if rec.email.includes('@') then rec.email else await @decrypt rec.email
-    if rec.authorships.length is 1
-      rec.author_email_name = 'Dr. ' + rec.authorships[0].author?.display_name
-    else
-      ren = email.split('@')[0].toLowerCase().replace /[^a-z]/g, ''
-      best_initial = ''
-      best_name = ''
-      best_score = 1000000
-      for rn in rec.authorships
-        if ran = rn.author?.display_name
-          lvs = await @levenshtein ren, ran.toLowerCase().replace /[^a-z]/g, ''
-          score = lvs.distance / ran.length
-          if score < best_score
-            best_score = score
-            best_name = ran
-          if best_score > .2 and (ren.endsWith(ran.split(' ').pop().toLowerCase()) or (ran.split(' ')[0].length > 4 and ren.includes ran.split(' ')[0].toLowerCase()))
-            best_score = .1
-            best_name = ran
-          if not best_initial and ren.startsWith (ran.split(' ')[0].slice(0,1) + ran.split(' ').pop().slice(0,1)).toLowerCase()
-            best_initial = ran
-      if best_name and best_score < .7
-        rec.author_email_name = 'Dr. ' + best_name.split(' ').pop()
-      if not rec.author_email_name and best_initial
-        rec.author_email_name = 'Dr. ' + best_initial
-
-  rec.email = await @encrypt(rec.email) if typeof rec.email is 'string' and rec.email.includes '@'
-  
-  everything = true if rec.orgs.length and (exists?.orgs ? []).length isnt rec.orgs.length # control whether to run time-expensive things on less important records
-
-  #if (not exists? and rec.orgs.length) or (exists?.orgs ? []).length isnt rec.orgs.length or (rec.paid and rec.paid isnt exists?.paid) #or not exists.journal_oa_type
-  if rec.DOI
-    if not rec.PMCID or not rec.PMID
-      if pubmed = (if rec.PMID then await @src.pubmed(rec.PMID) else await @src.pubmed.doi rec.DOI) # pubmed is faster to lookup but can't rely on it being right if no PMC found in it, e.g. 10.1111/nyas.14608
-        rec.PMCID = 'PMC' + pubmed.identifier.pmc.toLowerCase().replace('pmc', '') if not rec.PMCID and pubmed?.identifier?.pmc
-        rec.PMID = pubmed.identifier.pubmed if not rec.PMID and pubmed?.identifier?.pubmed
-        rec.pubtype = pubmed.type # this is a list
-
-    if not rec.journal_oa_type # restrict permissions only to records with orgs supplements? for now no
-      permissions = await @permissions (await @copy rec), undefined, undefined, oadoi, cr, started - 1209600000 # (if refresh then undefined else started - 1209600000) # use cached best permissions up to two weeks old
-      rec.can_archive = permissions?.best_permission?.can_archive
-      rec.can_archive = true if not rec.can_archive? and ((oadoi?.best_oa_location?.license ? '').includes('cc') or oadoi?.journal_is_in_doaj)
-      rec.version = permissions?.best_permission?.version
-      rec.journal_oa_type = await @permissions.journals.oa.type rec.issn, undefined, oadoi, cr # calculate journal oa type separately because it can be different for a journal in general than for what permissions calculates in more specificity
-      rec.journal_oa_type ?= 'unsuccessful'
-
-    if everything
-      if not rec.PMCID # only thing restricted to orgs supplements for now is remote epmc lookup and epmc licence calculation below
-        if epmc = await @src.epmc.doi rec.DOI
-          rec.PMCID = epmc.pmcid if epmc.pmcid
-          for pt in (epmc.pubTypeList ? [])
-            rec.pubtype = if Array.isArray(rec.pubtype) then rec.pubtype else if rec.pubtype then [rec.pubtype] else []
-            rec.pubtype.push(pt.pubType) if pt.pubType not in rec.pubtype
-
-  if everything
-    if rec.PMCID and rec.repository_url_in_pmc and not rec.epmc_licence
-      lic = await @src.epmc.licence rec.PMCID, epmc
-      rec.epmc_licence = lic?.licence
-    rec.pmc_has_data_availability_statement ?= rec.PMCID and await @src.pubmed.availability rec.PMCID
-    if not rec.data_availability_statement and rec.PMCID #rec.pmc_has_data_availability_statement
-      rec.data_availability_statement = await @src.epmc.statement rec.PMCID, epmc
-
-  rec.is_oa = rec.oadoi_is_oa or rec.crossref_is_oa or rec.journal_oa_type in ['gold']
-  rec._id ?= if rec.DOI then rec.DOI.toLowerCase().replace(/\//g, '_') else rec.openalex # and if no openalex it will get a default ID
-  rec.supplemented = await @epoch()
-  rec.updated ?= rec.supplemented
-  rec.took = rec.supplemented - started
-  if rec.DOI and @params.process is rec.DOI
-    await @report.articles rec
-  #console.log 'report articles processed', rec.DOI, rec.took
-  return rec
-
-
-P.report.articles.load = (timestamp, orgname, dois, year, refresh, supplements, everything) ->
-  started = await @epoch()
-  year ?= @params.load ? (await @date()).split('-')[0] # load could be supplements or everything but in that case year is not used anyway
-  orgname ?= @params.org
-  dois ?= @params.load
-  dois = [dois] if typeof dois is 'string'
-  refresh ?= @refresh
-  everything ?= @params.load is 'everything'
-
-  await @report.articles('') if refresh
-
-  batch = []
-  batchsize = 2000
-  bt = 0
+`P.exports = ->
+for idx in ['paradigm_svc_rscvd']
   total = 0
-  crcount = 0
-  olxcount = 0
-
-  _batch = (cr, ol) =>
-    bt += 1
-    if typeof cr is 'string' and cr.startsWith('W') and not ol
-      ol = cr
-      cr = undefined
-    prc = await @report.articles.process cr, ol, (timestamp ? refresh), everything
-    if prc?
-      batch.push prc
+  fdn = @S.directory + '/report/export_' + idx + '.jsonl'
+  try
+    out = await fs.createWriteStream fdn #, 'utf-8'
+    for await o from @index._for idx, undefined, undefined, false
+      await out.write (if total then '\n' else '') + JSON.stringify o
       total += 1
-    console.log('report load building batch', batch.length) if batch.length % 200 is 0
-    if batch.length is batchsize
-      await @report.articles batch
-      batch = []
-      console.log 'report articles load', total, bt, (if dois then dois.length else undefined), await @epoch() - started
+      console.log('exporting', total) if total % 1000 is 0
+  catch err
+    console.log 'exports error', JSON.stringify err
+  console.log idx, 'export done', total
+return true
+P.exports._bg = true
+P.exports._async = true
+P.exports._log = false`;
 
-  if @params.load is 'supplements'
-    dois ?= []
-    for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', (if timestamp then 'updated:<' + timestamp else undefined), scroll: '5m', include: ['DOI']
-      dois.push(sup.DOI) if sup.DOI not in dois
-    console.log 'report articles supplements to load', dois.length
-  else if everything
-    dois ?= []
-    for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_articles', 'NOT pmc_has_data_availability_statement:*', scroll: '5m', include: ['DOI', 'openalex']
-      sd = sup.DOI ? sup.openalex
-      dois.push(sd) if sd not in dois
-    console.log 'report articles supplements to load everything for records that do not yet have everything', dois.length
+`P.reloads = ->
+for idx in ['paradigm_b_users', 'paradigm_b_report_orgs_orgkeys', 'paradigm_users', 'paradigm_report_orgs_orgkeys', 'paradigm_deposits', 'paradigm_ills', 'paradigm_svc_rscvd']
+  total = 0
+  batch = []
+  pre = ''
+  for await line from readline.createInterface input: fs.createReadStream @S.directory + '/import/export_' + idx + '.jsonl'
+    if line.endsWith '}'
+      batch.push JSON.parse pre + line
+      pre = ''
+      total += 1
+    else
+      pre += line
+  await @index._bulk(idx, batch, undefined, undefined, false) if batch.length
+  console.log idx, 'reloaded', total
+return true
+P.reloads._bg = true
+P.reloads._async = true`;
 
-  if Array.isArray dois
-    await _batch(d) for d in dois
-  else
-    _crossref = (qry) =>
-      qry ?= '(funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year
-      qry = '(' + qry + ') AND srcday:>' + timestamp if timestamp
-      console.log 'report works load crossref by query', qry
-      cc = []
-      cc.push(cr.DOI) for await cr from @index._for 'src_crossref_works', qry, include: ['DOI'] #, scroll: '30m', include: ['DOI', 'subject', 'title', 'subtitle', 'volume', 'issue', 'year', 'publisher', 'published', 'funder', 'license', 'is_oa', 'ISSN', 'update-to', 'reference-count']
-      crcount += cc.length
-      console.log 'report works load crossref by query counted', cc.length
-      await _batch(d) for d in cc
-
-    _openalex = (qry) =>
-      qry ?= 'authorships.institutions.display_name:* AND publication_year:' + year # NOT ids.doi:* AND 
-      qry = '(' + qry + ') AND updated_date:>' + timestamp if timestamp
-      console.log 'report works load openalex by query', qry
-      oo = []
-      oo.push(ol.id.split('/').pop()) for await ol from @index._for 'src_openalex_works', qry, include: ['id'] #, scroll: '30m'
-      olxcount += oo
-      console.log 'report works load openalex by query counted', oo.length
-      await _batch(undefined, o) for o in oo
-    
-    await Promise.all [_crossref(), _openalex()]
-
-    for await org from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs', (if orgname then 'name:"' + orgname + '"' else 'paid:true'), scroll: '10m'
-      # if an org has no known records in report/works yet, could default it here to a timestamp of start of current year, or older, to pull in all records first time round
-      await _crossref(org.source.crossref) if org.source?.crossref
-      await _openalex(org.source.openalex) if org.source?.openalex
-
-    if timestamp
-      for await crt from @index._for 'report_articles', 'orgs:* AND updated:<' + timestamp, scroll: '10m'
-        await _batch(crt) if updated = await @src.crossref.works 'DOI:"' + crt.DOI + '" AND srcday:>' + timestamp
-    
-
-  await @report.articles(batch) if batch.length
-  #@report.articles.load(undefined, undefined, undefined, undefined, undefined, undefined, true) if not dois
-
-  took = await @epoch() - started
-  text = 'Report articles loaded ' + total + '\n'
-  text += 'All old articles were removed before loading began\n' if refresh
-  text += dois.length + ' DOIs were provided to process\n' if dois and dois.length
-  text += 'These were derived by searching for all articles that already have supplements attached\n' if @params.load is 'supplements'
-  text += 'These were derived by searching for all articles that have not yet had everything fully processed\n' if everything
-  text += 'These were provided by an orgs supplements refresh which took ' + Math.ceil(((await @epoch()) - supplements)/1000/60) + 'm\n' if supplements
-  text += 'The load process was limited to ' + orgname + '\n' if orgname
-  text += 'The load process was run for changes since ' + (await @datetime timestamp) + '\n' if timestamp
-  text += 'The load process was run for year ' + year + '\n' if year and not (dois ? []).length
-  text += 'Crossref queries counted ' + crcount + ' articles\n' if crcount
-  text += 'Openalex queries counted ' + olxcount + ' articles\n' if olxcount
-  text += 'Load processing took ' + Math.ceil(took/1000/60) + 'm\n'
-  console.log 'Report articles loaded', total, took
-  @mail to: ['mark@oa.works'], subject: 'OA report articles works loaded ' + total, text: text
-  return total
-P.report.articles.load._async = true
-P.report.articles.load._auth = '@oa.works'`;
-
+`P.report.test = _index: true, _alias: 'altest2'
+P.report.test.add = ->
+  toalias = @params.toalias
+  toalias += '' if typeof toalias is 'number'
+  l = await @dot P, 'report.test._alias'
+  await @report.test hello: 'world', alias: l ? 'none'
+  await @sleep 2000
+  res = count: await @report.test.count(), ford: 0, records: []
+  t = 'report_test'
+  batch = [{hello: 'world', alias: l ? 'none', batch: 1}, {hello: 'world', alias: l ? 'none', batch: 2}]
+  await @index._bulk t, batch, undefined, undefined, undefined, toalias
+  await @sleep 2000
+  for await i from @index._for 'report_test', '*'
+    res.ford += 1
+    res.records.push i
+  return res`;
 
 var indexOf = [].indexOf;
 
@@ -8233,11 +7272,10 @@ if typeof doi is 'string'
     return @src.crossref.works._format res.message
 return`;
 
-//P.src.crossref.works._index = settings: number_of_shards: 9
 P.src.crossref.works = {
   _index: {
     settings: {
-      number_of_shards: 9
+      number_of_shards: 15
     }
   }
 };
@@ -8419,6 +7457,8 @@ P.src.crossref.works.published = async function(rec) {
     return pp;
   }
 };
+
+P.src.crossref.works.published._log = false;
 
 P.src.crossref.works.search = async function(qrystr, from, size, filter, start, end, sort, order) {
   var filtered, fp, k, ky, qry, ref, ref1, ref2, ref3, ref4, res, url;
@@ -8606,87 +7646,77 @@ P.src.crossref.journals.load._async = true;
 
 P.src.crossref.journals.load._auth = 'root';
 
-P.src.crossref.load = async function() {
-  var batch, batchsize, filenumber, files, howmany, infolder, j, lastfile, len, line, lines, rec, ref, ref1, ref2, total;
-  batchsize = 10000; // how many records to batch upload at a time - kept low because large crossref files were causing OOM
-  howmany = (ref = this.params.howmany) != null ? ref : -1; // max number of lines to process. set to -1 to keep going
-  
-  // https://www.crossref.org/blog/new-public-data-file-120-million-metadata-records/
-  // https://academictorrents.com/details/e4287cb7619999709f6e9db5c359dda17e93d515
-  // this requires getting the crossref data dump from a torrent, which is a hassle on some commercial cloud providers
-  // but once the file is on disk, extract it and this process will be able to go from there
-  // there are torrent libs for node that could be used here, but given the infrequency and size of what we want 
-  // to torrent, it's safer to do that step separately. Here's some simple instructions for the Jan 2021 crossref release:
-  // sudo apt-get install aria2
-  // aria2c https://academictorrents.com/download/e4287cb7619999709f6e9db5c359dda17e93d515.torrent
+`P.src.crossref.load = () ->
+batchsize = 10000 # how many records to batch upload at a time - kept low because large crossref files were causing OOM
+howmany = @params.howmany ? -1 # max number of lines to process. set to -1 to keep going
 
-  // redo with 2022 dump:
-  // https://www.crossref.org/blog/2022-public-data-file-of-more-than-134-million-metadata-records-now-available/
-  // https://academictorrents.com/details/4dcfdf804775f2d92b7a030305fa0350ebef6f3e
-  // https://academictorrents.com/download/4dcfdf804775f2d92b7a030305fa0350ebef6f3e.torrent
-  infolder = this.S.directory + '/crossref/data/';
-  lastfile = this.S.directory + '/crossref/last'; // where to record the ID of the last file processed
-  files = -1; // max number of files to process. set to -1 to keep going
-  filenumber = 0; // crossref files are named by number, from 0, e.g. 0.json.gz
-  try {
-    if (!this.refresh) {
-      filenumber = parseInt(((await fs.readFile(lastfile))).toString());
-    }
-  } catch (error) {}
-  //await @src.crossref.works('') if filenumber is 0 and @params.clear
-  total = 0;
-  batch = []; // batch of json records to upload
-  
-    // there were 40228 in the 2020 data dump,  but oddly 9999 was missing
-  // for 2022 there are 26810
-  while (filenumber >= 0 && filenumber !== files && filenumber < 26810) {
-    if (indexOf.call([], filenumber) < 0) {
-      if (total === howmany) {
-        break;
-      }
-      console.log('Crossref load starting file', filenumber);
-      lines = '';
-      ref1 = readline.createInterface({
-        input: fs.createReadStream(infolder + filenumber + '.json.gz').pipe(zlib.createGunzip())
-      });
-      for await (line of ref1) {
-        lines += line;
-      }
-      ref2 = JSON.parse(lines).items;
-      for (j = 0, len = ref2.length; j < len; j++) {
-        rec = ref2[j];
-        if (total === howmany) {
-          break;
-        }
-        total += 1;
-        rec = (await this.src.crossref.works._format(rec));
-        rec['srcfile'] = filenumber;
-        batch.push(rec);
-        if (batch.length === batchsize) {
-          console.log('Crossref load ' + filenumber, total);
-          await this.src.crossref.works(batch);
-          await fs.writeFile(lastfile, filenumber);
-          batch = [];
-        }
-      }
-    }
-    filenumber += 1;
-  }
-  if (batch.length) {
-    await this.src.crossref.works(batch);
-  }
-  console.log(total);
-  return total;
-};
+# https://www.crossref.org/blog/new-public-data-file-120-million-metadata-records/
+# https://academictorrents.com/details/e4287cb7619999709f6e9db5c359dda17e93d515
+# this requires getting the crossref data dump from a torrent, which is a hassle on some commercial cloud providers
+# but once the file is on disk, extract it and this process will be able to go from there
+# there are torrent libs for node that could be used here, but given the infrequency and size of what we want 
+# to torrent, it's safer to do that step separately. Here's some simple instructions for the Jan 2021 crossref release:
+# sudo apt-get install aria2
+# aria2c https://academictorrents.com/download/e4287cb7619999709f6e9db5c359dda17e93d515.torrent
 
-P.src.crossref.load._bg = true;
+# redo with 2022 dump:
+# https://www.crossref.org/blog/2022-public-data-file-of-more-than-134-million-metadata-records-now-available/
+# https://academictorrents.com/details/4dcfdf804775f2d92b7a030305fa0350ebef6f3e
+# https://academictorrents.com/download/4dcfdf804775f2d92b7a030305fa0350ebef6f3e.torrent
 
-P.src.crossref.load._async = true;
+# and 2023 update:
+# https://www.crossref.org/blog/2023-public-data-file-now-available-with-new-and-improved-retrieval-options/
+# https://academictorrents.com/details/d9e554f4f0c3047d9f49e448a7004f7aa1701b69
+# https://academictorrents.com/download/d9e554f4f0c3047d9f49e448a7004f7aa1701b69.torrent
 
-P.src.crossref.load._auth = 'root';
+infolder = @S.directory + '/crossref/data/'
+lastfile = @S.directory + '/crossref/last' # where to record the ID of the last file processed
+
+files = -1 # max number of files to process. set to -1 to keep going
+filenumber = 0 # crossref files are named by number, from 0, e.g. 0.json.gz
+try filenumber = parseInt((await fs.readFile lastfile).toString()) if not @refresh
+
+#await @src.crossref.works('') if filenumber is 0 and @params.clear
+
+total = 0
+batch = [] # batch of json records to upload
+
+# there were 40228 in the 2020 data dump,  but oddly 9999 was missing
+# for 2022 there are 26810
+# for 2023 there are 28701
+while filenumber >= 0 and filenumber isnt files and filenumber < 26810
+  if filenumber not in [] # should make this a file exists check probably (just added 9999 to this list when running 2020)
+    break if total is howmany
+    console.log 'Crossref load starting file', filenumber
+    lines = ''
+    for await line from readline.createInterface input: fs.createReadStream(infolder + filenumber + '.json.gz').pipe zlib.createGunzip()
+      lines += line
+    
+    for rec in JSON.parse(lines).items
+      break if total is howmany
+      total += 1
+      rec = await @src.crossref.works._format rec
+      rec['srcfile'] = filenumber
+      batch.push rec
+      
+      if batch.length is batchsize
+        console.log 'Crossref load ' + filenumber, total
+        await @src.crossref.works batch
+        await fs.writeFile lastfile, filenumber
+        batch = []
+  filenumber += 1
+
+await @src.crossref.works(batch) if batch.length
+
+console.log total
+return total
+
+P.src.crossref.load._bg = true
+P.src.crossref.load._async = true
+P.src.crossref.load._auth = 'root'`;
 
 P.src.crossref.changes = async function(startday, endday, created) {
-  var batch, batchsize, cursor, days, dn, fr, fromthisday, j, last, len, loaded, rec, ref, ref1, searchtype, thisdays, totalthisday;
+  var batch, batchsize, cursor, days, dn, fr, fromthisday, j, last, len, loaded, rec, ref, ref1, retries, searchtype, thisdays, totalthisday;
   if (startday == null) {
     startday = this.params.changes;
   }
@@ -8702,12 +7732,27 @@ P.src.crossref.changes = async function(startday, endday, created) {
         }
       }));
       startday = last.srcday;
+      console.log('Crossref changes start day set from latest record srcday', (await this.date(startday)));
+    } catch (error) {}
+  }
+  if (!startday) {
+    try {
+      last = (await this.src.crossref.works('indexed.timestamp:*', {
+        size: 1,
+        sort: {
+          'indexed.timestamp': 'desc'
+        }
+      }));
+      startday = last.indexed.timestamp;
+      console.log('Crossref changes start day set from latest record indexed timestamp', (await this.date(startday)));
     } catch (error) {}
   }
   if (startday == null) {
-    startday = 1607126400000; // the timestamp of when changes appeared to start after the last data dump, around 12/12/2020
+    startday = 1693526400000; // 1st September 2023
   }
+  // 1607126400000 # the timestamp of when changes appeared to start after the last data dump, around 12/12/2020
   // for the 2022 update 1649635200000 was used for 11th April 2022
+  startday = (await this.epoch((await this.date(startday))));
   if (endday == null) {
     endday = this.params.end;
   }
@@ -8722,11 +7767,13 @@ P.src.crossref.changes = async function(startday, endday, created) {
   searchtype = 'indexed'; //if created then 'created' else 'updated'
   batchsize = 10000;
   dn = endday != null ? endday : Date.now();
+  dn = (await this.epoch((await this.date(dn))));
   loaded = 0;
   days = 0;
   batch = [];
-  while (startday < dn) {
-    console.log('Crossref changes', (created ? 'for created' : void 0), startday, days);
+  retries = 0;
+  while (startday < dn && retries < 3) {
+    console.log('Crossref changes', startday, days);
     cursor = '*'; // set a new cursor on each index day query
     days += 1;
     totalthisday = false;
@@ -8737,6 +7784,7 @@ P.src.crossref.changes = async function(startday, endday, created) {
       if (!(thisdays != null ? thisdays.data : void 0)) {
         console.log('crossref error');
         await this.sleep(2000); // wait on crossref downtime
+        retries += 1;
       } else {
         ref = thisdays.data;
         for (j = 0, len = ref.length; j < len; j++) {
@@ -8747,7 +7795,7 @@ P.src.crossref.changes = async function(startday, endday, created) {
           loaded += 1;
         }
         if (batch.length >= batchsize) {
-          console.log('Crossref bulk load', (created ? 'for created' : void 0), startday, days, totalthisday, fromthisday, loaded);
+          console.log('Crossref bulk load', startday, days, totalthisday, fromthisday, loaded);
           await this.src.crossref.works(batch);
           batch = [];
         }
@@ -8764,8 +7812,7 @@ P.src.crossref.changes = async function(startday, endday, created) {
   if (batch.length) {
     await this.src.crossref.works(batch);
   }
-  console.log(loaded, days, (created ? 'for created' : void 0));
-  //@src.crossref.changes(startday, endday, true) if not created
+  console.log(loaded, days);
   return loaded;
 };
 
@@ -8773,9 +7820,211 @@ P.src.crossref.changes._bg = true;
 
 P.src.crossref.changes._async = true;
 
-P.src.crossref.changes._auth = 'root';
-
+//P.src.crossref.changes._auth = 'root'
 P.src.crossref.changes._notify = false;
+
+P.src.crossref.plus = {};
+
+P.src.crossref.plus.load = async function() {
+  var complete, ended, fn, hds, last, lines, map, prevline, resp, srcfile, started, stats, strm, total, wstr;
+  // we now have metadata plus: 
+  // https://www.crossref.org/documentation/metadata-plus/metadata-plus-snapshots/
+  // export CRTOKEN='<insert-your-token-here>'
+  // curl -o "all.json.tar.gz" --progress-bar -L -X GET  https://api.crossref.org/snapshots/monthly/latest/all.json.tar.gz -H "Crossref-Plus-API-Token: Bearer ${CRTOKEN}"
+  // and there may be issues downloading, at least FAQ seems to indicate some people may have. If so, redo above command to continue where failed with added -C - 
+  started = (await this.epoch());
+  last = 0;
+  if (this.params.clear) {
+    await this.src.crossref.works('');
+    map = {
+      properties: {} // add any specific field mappings necessary to avoid collisions e.g. assertion.value can be text or date or number etc, so force to text
+    };
+    map.properties.assertion = { // note whole object has to be provided otherwise updating mapping with extra values in the object (or saving a record with extra values) overwrites it
+      "properties": {
+        "URL": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256
+            }
+          }
+        },
+        "explanation": {
+          "properties": {
+            "URL": {
+              "type": "text",
+              "fields": {
+                "keyword": {
+                  "type": "keyword",
+                  "ignore_above": 256
+                }
+              }
+            }
+          }
+        },
+        "group": {
+          "properties": {
+            "label": {
+              "type": "text",
+              "fields": {
+                "keyword": {
+                  "type": "keyword",
+                  "ignore_above": 256
+                }
+              }
+            },
+            "name": {
+              "type": "text",
+              "fields": {
+                "keyword": {
+                  "type": "keyword",
+                  "ignore_above": 256
+                }
+              }
+            }
+          }
+        },
+        "label": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256
+            }
+          }
+        },
+        "name": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256
+            }
+          }
+        },
+        "order": {
+          "type": "long"
+        },
+        "value": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256
+            }
+          }
+        }
+      }
+    };
+    await this.src.crossref.works.mapping(map);
+  } else {
+    try {
+      last = ((await this.src.crossref.works('srcfile:*', {
+        size: 1,
+        sort: {
+          srcfile: 'desc'
+        }
+      }))).srcfile;
+    } catch (error) {}
+  }
+  fn = this.S.directory + '/import/crossref/all.json.tar.gz';
+  try {
+    stats = (await fs.stat(fn)); // check if file exists in async fs promises which does not have .exists
+  } catch (error) {
+    console.log('crossref downloading snapshot');
+    hds = {};
+    hds['Crossref-Plus-API-Token'] = 'Bearer ' + this.S.crossref;
+    resp = (await fetch('https://api.crossref.org/snapshots/monthly/latest/all.json.tar.gz', {
+      headers: hds
+    }));
+    wstr = fs.createWriteStream(fn);
+    await new Promise((resolve, reject) => {
+      resp.body.pipe(wstr);
+      resp.body.on('error', reject);
+      return wstr.on('finish', resolve);
+    });
+    console.log('snapshot downloaded');
+  }
+  total = 0;
+  srcfile = 0;
+  lines = '';
+  complete = false;
+  `for await line from readline.createInterface input: fs.createReadStream(fn).pipe zlib.createGunzip()
+  if not line.startsWith(' ') and line.endsWith('{') and line.includes('.json') and not isNaN (scf = parseInt line.split('.json')[0].replace(/[^0-9]/g, ''))
+    console.log total, srcfile, scf, lines.length
+    if lines.length
+      # on large file readline streams across multiple hours, definitely saw this issue. Not sure why pause/resume would help in this context, but trying it anyway
+      # https://github.com/nodejs/node/issues/42454
+      # https://stackoverflow.com/questions/71588045/javascript-async-sleep-function-somehow-leads-to-silent-exiting-of-program/71589103#71589103
+      # lr.pause() # did not make any difference
+      await _batch()
+      #lr.resume()
+    srcfile = scf
+    lines = '{'
+  else
+    lines += line
+await _batch(true) if lines.length or batch.length`;
+  strm = fs.createReadStream(fn).pipe(zlib.createGunzip());
+  prevline = '';
+  strm.on('data', async(chunk) => {
+    var j, len, line, lp, lps, rec, recs, ref, rp, scf;
+    line = chunk.toString('utf8');
+    lines += line;
+    if ((prevline + line).includes('\n  "items" : [')) { // just a shorter space to check than all of lines, and use prevline just in case the inclusion criteria straddled a chunk
+      while (lines.includes('\n  "items" : [')) {
+        [lp, lines] = lines.replace('\n  "items" : [', 'X0X0X0X0X0X0X0X0X0X0X0').split('X0X0X0X0X0X0X0X0X0X0X0'); // cheap split on first occurrence
+        if (lp.includes('\n  } ]')) {
+          lps = lp.split('\n  } ]');
+          scf = parseInt(lps.pop().split('.json')[0].replace(/[^0-9]/g, ''));
+          if (srcfile < last) {
+            console.log('crossref plus load waiting for file', srcfile, last);
+          } else {
+            recs = [];
+            ref = rp = JSON.parse('[' + lps.join(']') + '}]');
+            for (j = 0, len = ref.length; j < len; j++) {
+              rec = ref[j];
+              rec = (await this.src.crossref.works._format(rec));
+              if (rec != null ? rec.DOI : void 0) {
+                rec.srcfile = srcfile;
+                recs.push(rec);
+              }
+            }
+            console.log('crossref plus load', rp.length, recs.length);
+            total += recs.length;
+            if (recs.length) {
+              await this.src.crossref.works(recs);
+            }
+          }
+          srcfile = scf;
+        }
+      }
+    }
+    return prevline = line;
+  });
+  strm.on('error', (err) => {
+    return console.log('crossref plus load file stream error', JSON.stringify(err));
+  });
+  strm.on('end', () => {
+    console.log('stream complete for crossref plus load');
+    return complete = true;
+  });
+  while (!complete) {
+    console.log('crossref plus load streaming file', lines.length, srcfile, total, Math.floor((Date.now() - started) / 1000 / 60) + 'm');
+    await this.sleep(30000);
+  }
+  ended = Date.now();
+  console.log('crossref plus load complete', srcfile, total, started, ended, Math.floor((ended - started) / 1000 / 60) + 'm');
+  return total;
+};
+
+P.src.crossref.plus.load._log = false;
+
+P.src.crossref.plus.load._bg = true;
+
+P.src.crossref.plus.load._async = true;
+
+//P.src.crossref.plus.load._auth = 'root'
 
 var base;
 
@@ -8882,6 +8131,8 @@ P.src.doaj.title = (title) ->
 // can also use HAS_PDF:y to get back ones where we should expect to be able to get a pdf, but it is not clear if those are OA and available via eupmc
 // can ensure a DOI is available using HAS_DOI
 // can search publication date via FIRST_PDATE:1995-02-01 or FIRST_PDATE:[2000-10-14 TO 2010-11-15] to get range
+var indexOf = [].indexOf;
+
 P.src.epmc = {
   _index: true,
   _prefix: false,
@@ -9174,65 +8425,6 @@ P.src.epmc.fulltext = async function(pmcid) { // check fulltext exists in epmc e
   }
 };
 
-P.src.epmc.statement = async function(pmcid, rec) {
-  var i, len, ps, psl, ref, ref1, ref2, ref3, ref4, statement, strs, xml;
-  if (pmcid == null) {
-    pmcid = (ref = (ref1 = (ref2 = (ref3 = this.params.statement) != null ? ref3 : this.params.pmc) != null ? ref2 : this.params.pmcid) != null ? ref1 : this.params.PMC) != null ? ref : this.params.PMCID;
-  }
-  if (pmcid) {
-    pmcid = 'PMC' + (pmcid + '').toLowerCase().replace('pmc', '');
-    if (xml = (await this.src.epmc.xml(pmcid, rec))) {
-      // because of xml parsing issues with embedded html in pmc xml, just regex it out if present
-      // pubmed data does not hold corresponding statements to pmc, but the pmc records from ncbi do contain them as they are the same as fulltext records from epmc
-      // see <notes notes-type="data-availability"> in
-      // https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=PMC9206389
-      // or <custom-meta id="data-availability"> in 
-      // https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=PMC9009769
-      // which also has it in "notes" but with no type and no other content <notes> but a <title> of Data Availability
-      // catches most of https://www.ncbi.nlm.nih.gov/books/NBK541158/
-      statement = '';
-      strs = [];
-      if (xml.includes('type="data-availability">')) {
-        statement = xml.split('type="data-availability">')[1].split('</sec>')[0].split('</notes>')[0];
-        if (statement.includes('<title>')) {
-          statement = statement.split('<title>').pop().split('</title')[0];
-        }
-      } else if (xml.includes('id="data-availability"')) {
-        statement = xml.split('id="data-availability"')[1];
-        if (statement.includes('meta-value')) {
-          statement = statement.split('meta-value>')[1].split(',')[0];
-        }
-      }
-      if (!statement && xml.includes('<notes>')) {
-        ref4 = xml.split('<notes>');
-        for (i = 0, len = ref4.length; i < len; i++) {
-          ps = ref4[i];
-          psl = ps.toLowerCase();
-          if (psl.includes('data availability') || psl.includes('data accessibility') || psl.includes('supporting data')) {
-            if (ps.includes('</title>')) {
-              statement = ps.split('</title>')[1];
-            }
-            statement = statement.split('</notes>')[0];
-            break;
-          }
-        }
-      }
-      // if still no statement could look in other fields, but they mostly appear in notes and are of more certain quality when they do
-      //statement = '' if statement.includes '<def-item' # seem to be more junk in these
-      if (statement) {
-        if (statement.includes('<list-item')) {
-          statement = statement.split('<list-item').pop().split('>').pop();
-        }
-        // most examples so far are a statement paragraph with zero or one url...
-        statement = statement.replace(/<[ap].*?>/gi, '').replace(/<\/[ap]>/gi, '').replace(/<xref.*?>/gi, '').replace(/<\/xref>/gi, '').replace(/<ext.*?>/gi, '').replace(/<\/ext.*?>/gi, '').replace(/<br>/gi, '').replace(/\n/g, '').split('</')[0].trim();
-        if (statement.length > 10) { // hard to be a good statement if shorter than this
-          return statement;
-        }
-      }
-    }
-  }
-};
-
 P.src.epmc.aam = async function(pmcid, rec, fulltext) {
   var pg, ref, ref1, s1, s2, s3, s4, url;
   if (pmcid == null) {
@@ -9302,6 +8494,310 @@ P.src.epmc.aam = async function(pmcid, rec, fulltext) {
     aam: false,
     info: ''
   };
+};
+
+P.src.epmc.statement = async function(pmcid, rec) {
+  var i, len, ps, psl, ref, ref1, ref2, ref3, ref4, statement, strs, xml;
+  if (pmcid == null) {
+    pmcid = (ref = (ref1 = (ref2 = (ref3 = this.params.statement) != null ? ref3 : this.params.pmc) != null ? ref2 : this.params.pmcid) != null ? ref1 : this.params.PMC) != null ? ref : this.params.PMCID;
+  }
+  if (pmcid) {
+    pmcid = 'PMC' + (pmcid + '').toLowerCase().replace('pmc', '');
+    if (xml = (await this.src.epmc.xml(pmcid, rec))) {
+      // because of xml parsing issues with embedded html in pmc xml, just regex it out if present
+      // pubmed data does not hold corresponding statements to pmc, but the pmc records from ncbi do contain them as they are the same as fulltext records from epmc
+      // see <notes notes-type="data-availability"> in
+      // https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=PMC9206389
+      // or <custom-meta id="data-availability"> in 
+      // https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=PMC9009769
+      // which also has it in "notes" but with no type and no other content <notes> but a <title> of Data Availability
+      // catches most of https://www.ncbi.nlm.nih.gov/books/NBK541158/
+      statement = '';
+      strs = [];
+      if (xml.includes('type="data-availability">')) {
+        statement = xml.split('type="data-availability">')[1].split('</sec>')[0].split('</notes>')[0];
+        if (statement.includes('<title>')) {
+          statement = statement.split('<title>').pop().split('</title')[0];
+        }
+      } else if (xml.includes('id="data-availability"')) {
+        statement = xml.split('id="data-availability"')[1];
+        if (statement.includes('meta-value')) {
+          statement = statement.split('meta-value>')[1].split(',')[0];
+        }
+      }
+      if (!statement && xml.includes('<notes>')) {
+        ref4 = xml.split('<notes>');
+        for (i = 0, len = ref4.length; i < len; i++) {
+          ps = ref4[i];
+          psl = ps.toLowerCase();
+          if (psl.includes('data availability') || psl.includes('data accessibility') || psl.includes('supporting data')) {
+            if (ps.includes('</title>')) {
+              statement = ps.split('</title>')[1];
+            }
+            statement = statement.split('</notes>')[0];
+            break;
+          }
+        }
+      }
+      // if still no statement could look in other fields, but they mostly appear in notes and are of more certain quality when they do
+      //statement = '' if statement.includes '<def-item' # seem to be more junk in these
+      if (statement) {
+        if (statement.includes('<list-item')) {
+          statement = statement.split('<list-item').pop().split('>').pop();
+        }
+        // most examples so far are a statement paragraph with zero or one url...
+        statement = statement.replace(/<[ap].*?>/gi, '').replace(/<\/[ap]>/gi, '').replace(/<xref.*?>/gi, '').replace(/<\/xref>/gi, '').replace(/<ext.*?>/gi, '').replace(/<\/ext.*?>/gi, '').replace(/<br>/gi, '').replace(/\n/g, '').split('</')[0].trim();
+        if (statement.length > 10) { // hard to be a good statement if shorter than this
+          return statement;
+        }
+      }
+    }
+  }
+};
+
+P.src.epmc.dass = async function() {
+  var daclose, dasclose, ex, fl, ft, ftl, had, matches, max, post, pre, prep, ps, rec, ref, ref1, res, saysavail, saysdata, saysstate;
+  // what about code availability statements without data availability e.g. PMC6198754
+  max = (ref = this.params.dass) != null ? ref : 1;
+  res = [];
+  had = 0;
+  fl = 0;
+  prep = 0;
+  saysdata = 0;
+  saysavail = 0;
+  saysstate = 0;
+  daclose = 0;
+  dasclose = 0;
+  ref1 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', 'PMCID:PMC9722710 AND orgs:Melinda', {
+    include: ['PMCID']
+  });
+  //, sort: 'PMCID': 'asc'
+  for await (rec of ref1) {
+    if (res.length === max) {
+      break;
+    }
+    try {
+      ft = ((await fs.readFile('/home/cloo/static/epmc/fulltext/' + rec.PMCID + '.xml'))).toString();
+    } catch (error) {}
+    if (ft) {
+      fl += 1;
+      ex = {
+        pmcid: rec.PMCID // catch multiple relevant statements like in PMC8012878, or PMC9722710 where there are sec within sec all part of the statement (and after an earlier false data match)
+      };
+      ftl = ft.toLowerCase();
+      if (ftl.includes('>data') || ftl.includes('"data') || ftl.includes(' data')) {
+        saysdata += 1;
+        if (ftl.includes('availab')) {
+          saysavail += 1;
+          matches = ftl.match(/.{100}[>" ](data|availab).{1,50}(availab|data).{200}/g);
+          if ((matches != null) && matches.length && matches[0].includes('data') && matches[0].includes('availab')) {
+            daclose += 1;
+            ex.close = matches[0];
+            ex.index = matches.index;
+          }
+          if (ftl.includes('statement')) {
+            saysstate += 1;
+            matches = ftl.match(/.{100}[>" ](data|availab|statement).{1,50}(availab|data|statement).{1,50}(availab|data|statement).{200}/g);
+            if ((matches != null) && matches.length && smatches[0].includes('data') && matches[0].includes('availab') && matches[0].includes('statement')) {
+              dasclose += 1;
+              ex.closer = matches[0];
+              ex.index = matches.index;
+            }
+          }
+        }
+      }
+      if (ft.includes('"data')) {
+        [pre, post] = ft.split('"data');
+        ex.pre = pre.slice(-100);
+        ex.post = post.slice(0, 1000);
+        ex.tag = pre.split('<').pop().split('>')[0].split(' ')[0];
+        post = post.split('</' + ex.tag)[0];
+        post = post.split(/\>(.*)/s)[1];
+        if (post.split('</').length > 2) {
+          post = post.replace('</', ': </').replace('::', ':').replace('.:', ':');
+        }
+        post = post.replace(/\n/g, ' ').replace(/\s+/g, ' ').replace(/(<([^>]+)>)/ig, '');
+        if (post.length > 20 && post.length < 1000 && (ex.pre + post).toLowerCase().includes('availab') && (ex.pre + post).toLowerCase().includes('data')) {
+          ex.das = ((await this.decode(post.trim()))).replace(/"/g, '').replace(/\s+/g, ' ');
+        }
+      }
+      if (!ex.das && (ft.includes('>Data') || ft.includes('>Availab') || ft.includes('>data'))) {
+        [pre, post] = ft.split(ft.includes('>Data') ? '>Data' : ft.includes('>Availab') ? '>Availab' : '>data');
+        ex.pre = pre.slice(-100);
+        ex.post = post.slice(0, 1000);
+        post = (post.startsWith('il') || post.startsWith('l') ? 'Availab' : 'Data ') + post;
+        ex.tag = pre.split('<').pop().split(' ')[0];
+        if (post.indexOf('</' + ex.tag) < 40) {
+          post = post.replace('</' + ex.tag + '>', ': ').replace('::', ':').replace('.:', ':');
+          ps = pre.split('<');
+          ex.tag = ps[ps.length - 2].split(' ')[0];
+        }
+        post = post.split('</' + ex.tag)[0];
+        post = post.replace(/\n/g, ' ').replace(/\s+/g, ' ').replace(/(<([^>]+)>)/ig, '');
+        if (post.length > 20 && post.length < 1000 && (ex.pre + post).toLowerCase().includes('availab') && (ex.pre + post).toLowerCase().includes('data')) {
+          ex.das = ((await this.decode(post.trim()))).replace(/"/g, '').replace(/\s+/g, ' ');
+        }
+      }
+      res.push(ex); //pmcid: ex.pmcid, das: ex.das) #if ex.das
+      if (ex.das) {
+        had += 1;
+      }
+      if (ex.pre && ex.post) {
+        prep += 1;
+      }
+    }
+  }
+  return {
+    total: res.length,
+    files: fl,
+    data: saysdata,
+    available: saysavail,
+    statement: saysstate,
+    close: daclose,
+    closer: dasclose,
+    index: -1,
+    prep: prep,
+    das: had,
+    records: res
+  };
+};
+
+P.src.epmc.das = async function(pmcid, verbose) { // restrict to report/works records if pmcid is directly provided?
+  var clean, ex, ft, ftl, i, len, matches, max, nt, part, post, pre, ps, rec, ref, ref1, ref2, res, split, splits, splitter, tag;
+  max = (ref = pmcid != null ? pmcid : this.params.das) != null ? ref : 100; // ['PMC9722710', 'PMC8012878', 'PMC6198754'] # multiples PMC8012878. code? PMC6198754. Another example for something? was PMC9682356
+  if (typeof max === 'string') {
+    max = max.split(',');
+  }
+  if (verbose == null) {
+    verbose = this.params.verbose;
+  }
+  res = {
+    total: 0,
+    files: 0,
+    data: 0,
+    available: 0,
+    statement: 0,
+    close: 0,
+    closer: 0,
+    prep: 0,
+    das: 0,
+    records: []
+  };
+  ref1 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', '(PMCID:' + (typeof max === 'number' ? '*' : max.join(' OR PMCID:')) + ') AND orgs:Melinda', {
+    include: ['PMCID'],
+    sort: {
+      'PMCID.keyword': 'asc'
+    }
+  });
+  for await (rec of ref1) {
+    if (typeof max === 'number' && res.records.length === max) {
+      break;
+    }
+    try {
+      ft = ((await fs.readFile('/home/cloo/static/epmc/fulltext/' + rec.PMCID + '.xml'))).toString();
+    } catch (error) {}
+    if (ft) {
+      res.files += 1;
+      ex = {
+        pmcid: rec.PMCID,
+        file: 'https://static.oa.works/epmc/fulltext/' + rec.PMCID + '.xml',
+        splits: [],
+        tag: [],
+        pre: [],
+        post: [],
+        das: []
+      };
+      ftl = ft.toLowerCase();
+      if (ftl.includes('>data') || ftl.includes('"data') || ftl.includes(' data')) {
+        res.data += 1;
+        if (ftl.includes('availab')) {
+          res.available += 1;
+          matches = ftl.match(/.{100}[>" ](data|availab).{1,50}(availab|data).{200}/g);
+          if ((matches != null) && matches.length && matches[0].includes('data') && matches[0].includes('availab')) {
+            res.close += 1;
+            ex.close = matches;
+          }
+          if (ftl.includes('statement')) {
+            res.statement += 1;
+            matches = ftl.match(/.{100}[>" ](data|availab|statement).{1,50}(availab|data|statement).{1,50}(availab|data|statement).{200}/g);
+            if ((matches != null) && matches.length && matches[0].includes('data') && matches[0].includes('availab') && matches[0].includes('statement')) {
+              res.closer += 1;
+              ex.closer = matches;
+            }
+          }
+        }
+      }
+      ref2 = ['"data', '>Data', '>Availab', '>data'];
+      for (i = 0, len = ref2.length; i < len; i++) {
+        split = ref2[i];
+        if (ft.includes(split)) {
+          ex.splits.push(split);
+          pre = '';
+          splits = ft.split(split);
+          while (part = splits.shift()) {
+            if (!pre) {
+              pre = part;
+            } else {
+              ex.pre.push(pre.slice(-1000));
+              tag = pre.split('<').pop().split('>')[0].split(' ')[0];
+              post = split.startsWith('"') ? part.split(/\>(.*)/s)[1] : (part.startsWith('il') || part.startsWith('l') ? 'Availab' : 'Data') + part;
+              ex.post.push(post.slice(0, 1000));
+              if (post.includes('</' + tag) && post.indexOf('</' + tag) < 40) {
+                ps = pre.split('<');
+                nt = ps[ps.length - 2].split('>')[0].split(' ')[0];
+                if (!nt.startsWith('/')) {
+                  //post = post.replace('</' + tag + '>', ': ').replace('::', ':').replace('.:', ':')
+                  tag = nt;
+                }
+              }
+              ex.tag.push(tag);
+              splitter = '\n' + pre.split('<' + tag)[0].split('\n').pop().split('<')[0] + '</' + tag;
+              if (post.split('</' + tag)[0].includes('\n')) {
+                while (!post.includes(splitter) && splits[0]) {
+                  post += (split.startsWith('>') ? '>' : '') + (splits[0].startsWith('il') || splits[0].startsWith('l') ? 'Availab' : 'Data') + splits.shift();
+                }
+              }
+              post = post.split(splitter)[0];
+              //post = post.split(/\>(.*)/s)[1]
+              //post = post.replace('</', ': </').replace('::', ':').replace('.:', ':') if post.split('</').length > 2
+              post = post.replace(/\n/g, ' ').replace(/\s+/g, ' ').replace(/(<([^>]+)>)/ig, '');
+              if (post.length > 20 && post.length < 3000 && (pre + post).toLowerCase().includes('availab') && (pre + post).toLowerCase().includes('data')) {
+                clean = ((await this.decode(post.trim()))).replace(/"/g, '').replace(/\s+/g, ' ');
+                if (indexOf.call(ex.das, clean) < 0) {
+                  ex.das.push(clean);
+                }
+                delete ex.close;
+                delete ex.closer;
+              }
+              pre = '';
+            }
+          }
+        }
+      }
+      res.records.push(verbose === false ? {
+        file: ex.file,
+        das: ex.das
+      } : ex);
+      if (ex.das.length) {
+        res.das += 1;
+      }
+      if (ex.pre && ex.post) {
+        res.prep += 1;
+      }
+    }
+  }
+  res.total = res.records.length;
+  if (verbose === false) {
+    res = {
+      total: res.total,
+      das: res.das,
+      records: res.records
+    };
+  }
+  if (verbose === false && res.total === 1) {
+    res = (res.records.length && res.records[0].das.length ? res.records[0].das[0] : false);
+  }
+  return res;
 };
 
 var base;
@@ -9434,8 +8930,7 @@ P.src.google.sheets = async function(opts) {
 
 P.src.google.sheets._bg = true;
 
-var base,
-  indexOf = [].indexOf;
+var base;
 
 if ((base = S.src).microsoft == null) {
   base.microsoft = {};
@@ -9497,386 +8992,239 @@ P.src.microsoft.bing = async function(q, key, market, count, cache) {
 
 P.src.microsoft.bing._auth = '@oa.works';
 
-P.src.microsoft.graph = {
-  _prefix: false,
-  _index: {
-    settings: {
-      number_of_shards: 9
-    }
-  }
-};
+`P.src.microsoft.graph = _prefix: false, _index: settings: number_of_shards: 9
+P.src.microsoft.graph.journal = _prefix: false, _index: true
+P.src.microsoft.graph.author = _prefix: false, _index: settings: number_of_shards: 9
+P.src.microsoft.graph.affiliation = _prefix: false, _index: true
+P.src.microsoft.graph.urls = _prefix: false, _index: settings: number_of_shards: 6
+P.src.microsoft.graph.abstract = _prefix: false, _index: settings: number_of_shards: 6
+P.src.microsoft.graph.relation = _prefix: false, _index: settings: number_of_shards: 12
 
-P.src.microsoft.graph.journal = {
-  _prefix: false,
-  _index: true
-};
-
-P.src.microsoft.graph.author = {
-  _prefix: false,
-  _index: {
-    settings: {
-      number_of_shards: 9
-    }
-  }
-};
-
-P.src.microsoft.graph.affiliation = {
-  _prefix: false,
-  _index: true
-};
-
-P.src.microsoft.graph.urls = {
-  _prefix: false,
-  _index: {
-    settings: {
-      number_of_shards: 6
-    }
-  }
-};
-
-P.src.microsoft.graph.abstract = {
-  _prefix: false,
-  _index: {
-    settings: {
-      number_of_shards: 6
-    }
-  }
-};
-
-P.src.microsoft.graph.relation = {
-  _prefix: false,
-  _index: {
-    settings: {
-      number_of_shards: 12
-    }
-  }
-};
-
-P.src.microsoft.graph.paper = async function(q) { // can be a search or a record to get urls and relations for
-  var base1, base2, i, j, l, len, len1, len2, puo, r, ref, ref1, ref2, ref3, ref4, ref5, ref6, res, rr, rres, ur, url_source_types, urlres;
-  url_source_types = { // defined by MAG
-    '1': 'html',
-    '2': 'text',
-    '3': 'pdf',
-    '4': 'doc',
-    '5': 'ppt',
-    '6': 'xls',
-    '8': 'rtf',
-    '12': 'xml',
-    '13': 'rss',
-    '20': 'swf',
-    '27': 'ics',
-    '31': 'pub',
-    '33': 'ods',
-    '34': 'odp',
-    '35': 'odt',
-    '36': 'zip',
+P.src.microsoft.graph.paper = (q) -> # can be a search or a record to get urls and relations for
+  url_source_types = # defined by MAG
+    '1': 'html'
+    '2': 'text'
+    '3': 'pdf'
+    '4': 'doc'
+    '5': 'ppt'
+    '6': 'xls'
+    '8': 'rtf'
+    '12': 'xml'
+    '13': 'rss'
+    '20': 'swf'
+    '27': 'ics'
+    '31': 'pub'
+    '33': 'ods'
+    '34': 'odp'
+    '35': 'odt'
+    '36': 'zip'
     '40': 'mp3'
-  };
-  if (this.params.title && !q) {
-    return this.src.microsoft.graph.paper.title();
-  }
-  q = (ref = (ref1 = this.params.q) != null ? ref1 : this.params.paper) != null ? ref : this.params;
-  res = typeof q === 'object' && q.PaperId && q.Rank ? q : (await this.src.microsoft.graph(q));
-  ref4 = (ref2 = res != null ? (ref3 = res.hits) != null ? ref3.hits : void 0 : void 0) != null ? ref2 : (res ? [res] : []);
-  for (i = 0, len = ref4.length; i < len; i++) {
-    r = ref4[i];
-    try {
-      //if ma = await @src.microsoft.graph.abstract r._source.PaperId, 1
-      //  r._source.abstract = ma
-      urlres = (await this.src.microsoft.graph.urls('PaperId:"' + r._source.PaperId + '"')); // don't bother for-looping these because result size should be low, and saves on creating and deleting a scrol context for every one
-      ref5 = urlres.hits.hits;
-      for (j = 0, len1 = ref5.length; j < len1; j++) {
-        ur = ref5[j];
-        if ((base1 = r._source).url == null) {
-          base1.url = [];
-        }
-        puo = {
-          url: ur._source.SourceUrl,
-          language: ur._source.LanguageCode
-        };
-        try {
-          puo.type = url_source_types[ur._source.SourceType.toString()];
-        } catch (error) {}
-        r._source.url.push(puo);
-      }
-    } catch (error) {}
-    try {
-      rres = (await this.src.microsoft.graph.relation('PaperId:"' + r._source.PaperId + '"', 100)); // 100 authors should be enough...
-      ref6 = rres.hits.hits;
-      for (l = 0, len2 = ref6.length; l < len2; l++) {
-        rr = ref6[l];
-        if (rr._source.AuthorId) { // which it seems they all do, along with OriginalAuthor and OriginalAffiliation
-          if ((base2 = r._source).author == null) {
-            base2.author = [];
-          }
-          r._source.author.push({
-            name: rr._source.OriginalAuthor,
-            sequence: rr._source.AuthorSequenceNumber,
-            id: rr._source.AuthorId,
-            affiliation: {
-              name: rr._source.OriginalAffiliation,
-              id: rr._source.AffiliationId
-            }
-          });
-        }
-      }
-    } catch (error) {}
-  }
-  return res;
-};
 
-P.src.microsoft.graph.title = async function(q) {
-  var longest, lvs, ref, ref1, ref2, res, rt, title;
-  if (q == null) {
-    q = (ref = this.params.title) != null ? ref : this.params.q;
-  }
-  if (typeof q === 'string') {
-    title = q.toLowerCase().replace(/['".,\/\^&\*;:!\?#\$%{}=\-\+_`~()]/g, ' ').replace(/\s{2,}/g, ' ').trim(); // MAG PaperTitle is lowercased. OriginalTitle isnt
-    res = (await this.src.microsoft.graph('PaperTitle:"' + title + '"', 1));
-    if (res != null ? (ref1 = res.hits) != null ? ref1.hits : void 0 : void 0) {
-      res = (ref2 = res.hits.hits[0]) != null ? ref2._source : void 0;
-    }
-    if (res != null ? res.PaperTitle : void 0) {
-      rt = res.PaperTitle.replace(/['".,\/\^&\*;:!\?#\$%{}=\-\+_`~()]/g, ' ').replace(/\s{2,}/g, ' ').trim();
-      lvs = (await this.levenshtein(title, rt, false));
-      longest = lvs.length.a > lvs.length.b ? lvs.length.a : lvs.length.b;
-      if (lvs.distance < 2 || longest / lvs.distance > 10) {
-        return this.src.microsoft.graph.paper(res);
-      }
-    }
-  }
-};
+  if @params.title and not q
+    return @src.microsoft.graph.paper.title()
 
-// https://docs.microsoft.com/en-us/academic-services/graph/reference-data-schema
-// We used to get files via MS Azure dump and run an import script. Have to manually go to 
-// Azure, use storage explorer to find the most recent blob container, select the file(s)
-// to download, right click and select shared access signature, create it, copy it, and download that.
-// THEN DELETE THE BLOB BECAUSE THEY CHARGE US FOR EVERY CREATION, EVERY DOWNLOAD, AND STORAGE TIME FOR AS LONG AS IT EXISTS
-// but now the service has been discontinued. Maybe there will be a replacement in future
-P.src.microsoft.load = async function(kinds) {
-  var _loadkind, blanks, d, done, ds, howmany, i, infolder, k, keys, lastfile, len, paper_journal_count, paper_journal_lookups, ref, total, url_source_types;
-  howmany = (ref = this.params.howmany) != null ? ref : -1; // max number of lines to process. set to -1 to keep going...
-  keys = {
-    //journal: ['JournalId', 'Rank', 'NormalizedName', 'DisplayName', 'Issn', 'Publisher', 'Webpage', 'PaperCount', 'PaperFamilyCount', 'CitationCount', 'CreatedDate']
-    //affiliation: ['AffiliationId', 'Rank', 'NormalizedName', 'DisplayName', 'GridId', 'OfficialPage', 'Wikipage', 'PaperCount', 'PaperFamilyCount', 'CitationCount', 'Iso3166Code', 'Latitude', 'Longitude', 'CreatedDate']
-    //author: ['AuthorId', 'Rank', 'NormalizedName', 'DisplayName', 'LastKnownAffiliationId', 'PaperCount', 'PaperFamilyCount', 'CitationCount', 'CreatedDate']
-    //relation: ['PaperId', 'AuthorId', 'AffiliationId', 'AuthorSequenceNumber', 'OriginalAuthor', 'OriginalAffiliation']
-    //abstract: ['PaperId', 'Abstract']
-    //urls: ['PaperId', 'SourceType', 'SourceUrl', 'LanguageCode']
+  q = @params.q ? @params.paper ? @params
+  res = if typeof q is 'object' and q.PaperId and q.Rank then q else await @src.microsoft.graph q
+  for r in (res?.hits?.hits ? (if res then [res] else []))
+    #if ma = await @src.microsoft.graph.abstract r._source.PaperId, 1
+    #  r._source.abstract = ma
+    try
+      urlres = await @src.microsoft.graph.urls 'PaperId:"' + r._source.PaperId + '"' # don't bother for-looping these because result size should be low, and saves on creating and deleting a scrol context for every one
+      for ur in urlres.hits.hits
+        r._source.url ?= []
+        puo = url: ur._source.SourceUrl, language: ur._source.LanguageCode
+        try puo.type = url_source_types[ur._source.SourceType.toString()]
+        r._source.url.push puo
+    try
+      rres = await @src.microsoft.graph.relation 'PaperId:"' + r._source.PaperId + '"', 100 # 100 authors should be enough...
+      for rr in rres.hits.hits
+        if rr._source.AuthorId # which it seems they all do, along with OriginalAuthor and OriginalAffiliation
+          r._source.author ?= []
+          r._source.author.push name: rr._source.OriginalAuthor, sequence: rr._source.AuthorSequenceNumber, id: rr._source.AuthorId, affiliation: {name: rr._source.OriginalAffiliation, id: rr._source.AffiliationId}
+    
+  return res
+  
+
+P.src.microsoft.graph.title = (q) ->
+  q ?= @params.title ? @params.q
+  if typeof q is 'string'
+    title = q.toLowerCase().replace(/['".,\/\^&\*;:!\?#\$%{}=\-\+_\`~()]/g,' ').replace(/\s{2,}/g,' ').trim() # MAG PaperTitle is lowercased. OriginalTitle isnt
+    res = await @src.microsoft.graph 'PaperTitle:"' + title + '"', 1
+    res = res.hits.hits[0]?._source if res?.hits?.hits
+    if res?.PaperTitle
+      rt = res.PaperTitle.replace(/['".,\/\^&\*;:!\?#\$%{}=\-\+_\`~()]/g,' ').replace(/\s{2,}/g,' ').trim()
+      lvs = await @levenshtein title, rt, false
+      longest = if lvs.length.a > lvs.length.b then lvs.length.a else lvs.length.b
+      if lvs.distance < 2 or longest/lvs.distance > 10
+        return @src.microsoft.graph.paper res
+  return
+
+
+
+
+# https://docs.microsoft.com/en-us/academic-services/graph/reference-data-schema
+# We used to get files via MS Azure dump and run an import script. Have to manually go to 
+# Azure, use storage explorer to find the most recent blob container, select the file(s)
+# to download, right click and select shared access signature, create it, copy it, and download that.
+# THEN DELETE THE BLOB BECAUSE THEY CHARGE US FOR EVERY CREATION, EVERY DOWNLOAD, AND STORAGE TIME FOR AS LONG AS IT EXISTS
+# but now the service has been discontinued. Maybe there will be a replacement in future
+
+P.src.microsoft.load = (kinds) ->
+  howmany = @params.howmany ? -1 # max number of lines to process. set to -1 to keep going...
+
+  keys =
+    #journal: ['JournalId', 'Rank', 'NormalizedName', 'DisplayName', 'Issn', 'Publisher', 'Webpage', 'PaperCount', 'PaperFamilyCount', 'CitationCount', 'CreatedDate']
+    #affiliation: ['AffiliationId', 'Rank', 'NormalizedName', 'DisplayName', 'GridId', 'OfficialPage', 'Wikipage', 'PaperCount', 'PaperFamilyCount', 'CitationCount', 'Iso3166Code', 'Latitude', 'Longitude', 'CreatedDate']
+    #author: ['AuthorId', 'Rank', 'NormalizedName', 'DisplayName', 'LastKnownAffiliationId', 'PaperCount', 'PaperFamilyCount', 'CitationCount', 'CreatedDate']
+    #relation: ['PaperId', 'AuthorId', 'AffiliationId', 'AuthorSequenceNumber', 'OriginalAuthor', 'OriginalAffiliation']
+    #abstract: ['PaperId', 'Abstract']
+    #urls: ['PaperId', 'SourceType', 'SourceUrl', 'LanguageCode']
     paper: ['PaperId', 'Rank', 'Doi', 'DocType', 'PaperTitle', 'OriginalTitle', 'BookTitle', 'Year', 'Date', 'OnlineDate', 'Publisher', 'JournalId', 'ConferenceSeriesId', 'ConferenceInstanceId', 'Volume', 'Issue', 'FirstPage', 'LastPage', 'ReferenceCount', 'CitationCount', 'EstimatedCitation', 'OriginalVenue', 'FamilyId', 'FamilyRank', 'CreatedDate']
-  };
-  if (kinds == null) {
-    kinds = this.params.load ? this.params.load.split(',') : this.params.kinds ? this.params.kinds.split(',') : this.keys(keys);
-  }
-  // totals: 49027 journals, 26997 affiliations, 269880467 authors, 699632917 relations, 429637001 urls, 145551658 abstracts (in 2 files), 259102074 papers
-  // paper URLs PaperId is supposedly a Primary Key but there are clearly many more of them than Papers...
-  // of other files not listed here yet: 1726140322 paper references
-  // of about 49k journals about 9 are dups, 37k have ISSN. 32k were already known from other soruces. Of about 250m papers, about 99m have DOIs
-  infolder = this.S.directory + '/mag/2021-04-26/'; // where the lines should be read from
-  lastfile = this.S.directory + '/mag/last'; // prefix of where to record the ID of the last item read from the kind of file
-  total = 0;
-  blanks = 0;
-  done = !this.params.parallel;
-  ds = {};
-  paper_journal_count = 0;
-  paper_journal_lookups = {}; // store these in memory when loading papers as they're looked up because there aren't many and it will work out faster than searching every time
-  url_source_types = { // defined by MAG
-    '1': 'html',
-    '2': 'text',
-    '3': 'pdf',
-    '4': 'doc',
-    '5': 'ppt',
-    '6': 'xls',
-    '8': 'rtf',
-    '12': 'xml',
-    '13': 'rss',
-    '20': 'swf',
-    '27': 'ics',
-    '31': 'pub',
-    '33': 'ods',
-    '34': 'odp',
-    '35': 'odt',
-    '36': 'zip',
+
+  kinds ?= if @params.load then @params.load.split(',') else if @params.kinds then @params.kinds.split(',') else @keys keys
+
+  # totals: 49027 journals, 26997 affiliations, 269880467 authors, 699632917 relations, 429637001 urls, 145551658 abstracts (in 2 files), 259102074 papers
+  # paper URLs PaperId is supposedly a Primary Key but there are clearly many more of them than Papers...
+  # of other files not listed here yet: 1726140322 paper references
+  # of about 49k journals about 9 are dups, 37k have ISSN. 32k were already known from other soruces. Of about 250m papers, about 99m have DOIs
+  infolder = @S.directory + '/import/mag/2021-04-26/' # where the lines should be read from
+  lastfile = @S.directory + '/import/mag/last' # prefix of where to record the ID of the last item read from the kind of file
+  
+  total = 0
+  blanks = 0
+  done = not @params.parallel
+  ds = {}
+  
+  paper_journal_count = 0
+  paper_journal_lookups = {} # store these in memory when loading papers as they're looked up because there aren't many and it will work out faster than searching every time
+  url_source_types = # defined by MAG
+    '1': 'html'
+    '2': 'text'
+    '3': 'pdf'
+    '4': 'doc'
+    '5': 'ppt'
+    '6': 'xls'
+    '8': 'rtf'
+    '12': 'xml'
+    '13': 'rss'
+    '20': 'swf'
+    '27': 'ics'
+    '31': 'pub'
+    '33': 'ods'
+    '34': 'odp'
+    '35': 'odt'
+    '36': 'zip'
     '40': 'mp3'
-  };
-  _loadkind = async(kind) => {
-    var al, batch, batched, batchsize, i, ind, infile, j, jrnl, js, k, kc, key, kindlastfile, kindtotal, l, lastrecord, len, len1, len2, line, obj, p, psd, ref1, ref2, ref3, ref4, vals, vs;
-    console.log('MAG loading', kind);
-    batchsize = kind === 'abstract' ? 20000 : kind === 'relation' ? 75000 : kind === 'urls' ? 100000 : 50000; // how many records to batch upload at a time
-    batch = [];
-    kindlastfile = lastfile + '_' + kind;
-    kindtotal = 0;
-    try {
-      if (!this.refresh) {
-        lastrecord = parseInt(((await fs.readFile(kindlastfile))).toString().split(' ')[0]);
-      }
-    } catch (error) {}
-    if (lastrecord !== 'DONE') {
-      if (!lastrecord) {
-        if (kind === 'paper') {
-          await this.src.microsoft.graph('');
-        } else {
-          await this.src.microsoft.graph[kind]('');
-        }
-      }
-      infile = (kind === 'urls' ? infolder.replace('2021-04-26/', '') : infolder) + (kind === 'relation' ? 'PaperAuthorAffiliations.txt' : (kind === 'urls' ? 'Paper' : '') + kind.substr(0, 1).toUpperCase() + kind.substr(1) + (kind === 'urls' ? '' : 's') + '.txt');
-      ref1 = readline.createInterface({
-        input: fs.createReadStream(infile)
-      });
-      for await (line of ref1) {
-        kindtotal += 1;
-        if (total === howmany) {
-          break;
-        }
-        vals = line.split('\t');
-        try {
-          if (lastrecord && !(kindtotal / 100000).toString().includes('.')) {
-            console.log(kind, 'waiting', kindtotal, lastrecord);
-          }
-        } catch (error) {}
-        if (!lastrecord || kindtotal === lastrecord || parseInt(vals[0]) === lastrecord) {
-          lastrecord = void 0;
-          total += 1;
-          kc = 0;
-          obj = {};
-          if (kind !== 'relation' && kind !== 'urls') {
-            obj._id = vals[0];
-            try {
-              obj._id = obj._id.trim();
-            } catch (error) {}
-            if (!obj._id) { // there appear to be some blank lines so skip those
-              delete obj._id;
-            }
-          }
-          if (obj._id || (kind === 'relation' || kind === 'urls')) {
-            if (kind === 'abstract') {
-              try {
-                obj.PaperId = parseInt(vals[0]);
-                ind = JSON.parse(vals[1]);
-                al = [];
-                while (al.length < ind.IndexLength) {
-                  al.push('');
-                }
-                ref2 = ind.InvertedIndex;
-                for (i = 0, len = ref2.length; i < len; i++) {
-                  k = ref2[i];
-                  ref3 = ind.InvertedIndex[k];
-                  for (j = 0, len1 = ref3.length; j < len1; j++) {
-                    p = ref3[j];
-                    al[p] = k;
-                  }
-                }
-                obj.Abstract = al.join(' ').replace(/\n/g, ' ');
-              } catch (error) {}
-            } else {
-              ref4 = keys[kind];
-              for (l = 0, len2 = ref4.length; l < len2; l++) {
-                key = ref4[l];
-                vs = vals[kc];
-                try {
-                  vs.trim();
-                } catch (error) {}
-                if (vs && (key !== 'NormalizedName')) {
-                  obj[key] = vs;
-                }
-                if ((key === 'Rank' || key === 'AuthorSequenceNumber' || key === 'Year' || key === 'EstimatedCitation' || key === 'FamilyRank' || key === 'SourceType') || key.endsWith('Count') || key.endsWith('Id')) {
-                  try {
-                    psd = parseInt(obj[key]);
-                    if (!isNaN(psd)) {
-                      obj[key] = psd;
-                    }
-                  } catch (error) {}
-                }
-                kc += 1;
-              }
-            }
-            if (kind === 'paper') {
-              if (obj.JournalId) {
-                try {
-                  js = obj.JournalId.toString();
-                  if (jrnl = paper_journal_lookups[js]) {
-                    obj.journal = {
-                      title: jrnl.DisplayName,
-                      ISSN: jrnl.Issn.split(','),
-                      url: jrnl.Webpage,
-                      id: obj.JournalId
-                    };
-                  } else if (jrnl = (await this.src.microsoft.graph.journal(js))) {
-                    paper_journal_lookups[js] = jrnl;
-                    paper_journal_count += 1;
-                    console.log(paper_journal_count);
-                    obj.journal = {
-                      title: jrnl.DisplayName,
-                      ISSN: jrnl.Issn.split(','),
-                      url: jrnl.Webpage
-                    };
-                  }
-                } catch (error) {}
-              }
-            }
-          }
-          if (JSON.stringify(obj) !== '{}') { // readline MAG author dump somehow managed to cause blank rows even though they couldn't be found in the file, so skip empty records
-            batch.push(obj);
-          } else {
-            blanks += 1;
-          }
-        }
-        if (batch.length === batchsize) {
-          console.log(kind, total, kindtotal, blanks);
-          if (kind === 'paper') {
-            await this.src.microsoft.graph(batch);
-          } else {
-            batched = (await this.src.microsoft.graph[kind](batch));
-            console.log('batch returned', batched); // should be the count of how many were successfully saved
-          }
-          await fs.writeFile(kindlastfile, kindtotal + ' ' + vals[0]);
-          batch = [];
-        }
-      }
-      if (batch.length) {
-        if (kind === 'paper') {
-          await this.src.microsoft.graph(batch);
-        } else {
-          await this.src.microsoft.graph[kind](batch);
-        }
-      }
-      await fs.writeFile(kindlastfile, 'DONE');
-    }
-    return ds[k] = true;
-  };
-  for (i = 0, len = kinds.length; i < len; i++) {
-    k = kinds[i];
-    if (this.params.parallel) {
-      if (k !== 'paper') {
-        ds[k] = false;
-        _loadkind(k);
-      }
-    } else {
-      await _loadkind(k);
-    }
-  }
-  while (!done) {
-    done = true;
-    for (d in ds) {
-      if (ds[d] === false) {
-        done = false;
-      }
-    }
-    if (done && indexOf.call(kinds, 'paper') >= 0) {
-      await _loadkind('paper');
-    }
-    await this.sleep(1000);
-  }
-  console.log(total, blanks);
-  return total;
-};
 
-P.src.microsoft.load._bg = true;
+  _loadkind = (kind) =>
+    console.log 'MAG loading', kind
+    batchsize = if kind in ['abstract'] then 20000 else if kind in ['relation'] then 75000 else if kind in ['urls'] then 100000 else 50000 # how many records to batch upload at a time
+    batch = []
+    kindlastfile = lastfile + '_' + kind
+    kindtotal = 0
+    try lastrecord = parseInt((await fs.readFile kindlastfile).toString().split(' ')[0]) if not @refresh
 
-P.src.microsoft.load._async = true;
+    if lastrecord isnt 'DONE'
+      if not lastrecord
+        if kind is 'paper'
+          await @src.microsoft.graph ''
+        else
+          await @src.microsoft.graph[kind] ''
+      
+      infile = (if kind in ['urls'] then infolder.replace('2021-04-26/', '') else infolder) + (if kind is 'relation' then 'PaperAuthorAffiliations.txt' else (if kind in ['urls'] then 'Paper' else '') + kind.substr(0,1).toUpperCase() + kind.substr(1) + (if kind in ['urls'] then '' else 's') + '.txt')
 
-P.src.microsoft.load._auth = 'root';
+      for await line from readline.createInterface input: fs.createReadStream infile
+        kindtotal += 1
+        break if total is howmany
+        vals = line.split '\t'
+        try console.log(kind, 'waiting', kindtotal, lastrecord) if lastrecord and not (kindtotal/100000).toString().includes '.'
+        if not lastrecord or kindtotal is lastrecord or parseInt(vals[0]) is lastrecord
+          lastrecord = undefined
+          total += 1
+          kc = 0
+          obj = {}
+          if kind not in ['relation', 'urls']
+            obj._id = vals[0]
+            try obj._id = obj._id.trim()
+            delete obj._id if not obj._id # there appear to be some blank lines so skip those
+          if obj._id or kind in ['relation', 'urls']
+            if kind is 'abstract'
+              try
+                obj.PaperId = parseInt vals[0]
+                ind = JSON.parse vals[1]
+                al = []
+                al.push('') while al.length < ind.IndexLength
+                for k in ind.InvertedIndex
+                  for p in ind.InvertedIndex[k]
+                    al[p] = k
+                obj.Abstract = al.join(' ').replace /\n/g, ' '
+            else
+              for key in keys[kind]
+                vs = vals[kc]
+                try vs.trim()
+                obj[key] = vs if vs and key not in ['NormalizedName']
+                if key in ['Rank', 'AuthorSequenceNumber', 'Year', 'EstimatedCitation', 'FamilyRank', 'SourceType'] or key.endsWith('Count') or key.endsWith 'Id'
+                  try
+                    psd = parseInt obj[key]
+                    obj[key] = psd if not isNaN psd
+                kc += 1
+            if kind is 'paper'
+              if obj.JournalId
+                try
+                  js = obj.JournalId.toString()
+                  if jrnl = paper_journal_lookups[js]
+                    obj.journal = title: jrnl.DisplayName, ISSN: jrnl.Issn.split(','), url: jrnl.Webpage, id: obj.JournalId
+                  else if jrnl = await @src.microsoft.graph.journal js
+                    paper_journal_lookups[js] = jrnl
+                    paper_journal_count += 1
+                    console.log paper_journal_count
+                    obj.journal = title: jrnl.DisplayName, ISSN: jrnl.Issn.split(','), url: jrnl.Webpage
+
+          if JSON.stringify(obj) isnt '{}' # readline MAG author dump somehow managed to cause blank rows even though they couldn't be found in the file, so skip empty records
+            batch.push obj
+          else
+            blanks += 1
+  
+        if batch.length is batchsize
+          console.log kind, total, kindtotal, blanks
+          if kind is 'paper'
+            await @src.microsoft.graph batch
+          else
+            batched = await @src.microsoft.graph[kind] batch
+            console.log 'batch returned', batched # should be the count of how many were successfully saved
+          await fs.writeFile kindlastfile, kindtotal + ' ' + vals[0]
+          batch = []
+  
+      if batch.length
+        if kind is 'paper'
+          await @src.microsoft.graph batch 
+        else
+          await @src.microsoft.graph[kind] batch
+      await fs.writeFile kindlastfile, 'DONE'
+    ds[k] = true
+
+  for k in kinds
+    if @params.parallel
+      if k isnt 'paper'
+        ds[k] = false
+        _loadkind k
+    else
+      await _loadkind k
+
+  while not done
+    done = true
+    for d of ds
+      done = false if ds[d] is false
+    if done and 'paper' in kinds
+      await _loadkind 'paper'
+    await @sleep 1000
+
+  console.log total, blanks
+  return total
+
+P.src.microsoft.load._bg = true
+P.src.microsoft.load._async = true
+P.src.microsoft.load._auth = 'root'`;
 
 var base;
 
@@ -9897,12 +9245,10 @@ if typeof doi is 'string' and doi.startsWith '10.'
 else
   return`;
 
-
-//P.src.oadoi._index = settings: number_of_shards: 9
 P.src.oadoi = {
   _index: {
     settings: {
-      number_of_shards: 9
+      number_of_shards: 15
     }
   }
 };
@@ -9962,52 +9308,93 @@ P.src.oadoi.hybrid = async function(issns) {
 // https://support.unpaywall.org/support/solutions/articles/44001867302-unpaywall-change-notes
 // https://unpaywall.org/products/data-feed/changefiles
 P.src.oadoi.load = async function() {
-  var batch, batchsize, howmany, infile, lastfile, lastrecord, line, rec, ref, ref1, total;
-  batchsize = 30000; // how many records to batch upload at a time - 20k ran smooth, took about 6 hours.
-  howmany = (ref = this.params.howmany) != null ? ref : -1; // max number of lines to process. set to -1 to keep going
-  infile = this.S.directory + '/oadoi/snapshot.jsonl'; // where the lines should be read from
-  // could also be possible to stream this from oadoi source via api key, which always returns the snapshot from the previous day 0830
-  // http://api.unpaywall.org/feed/snapshot?api_key=
-  lastfile = this.S.directory + '/oadoi/last'; // where to record the ID of the last item read from the file
+  var batch, complete, ended, infile, lines, resp, started, stats, strm, total, wstr;
+  started = (await this.epoch());
+  //batchsize = 10000 # how many records to batch upload at a time - 20k ran smooth, took about 6 hours.
+  //howmany = @params.howmany ? -1 # max number of lines to process. set to -1 to keep going
+  infile = this.S.directory + '/import/oadoi/snapshot.jsonl'; // where the lines should be read from
   try {
-    if (!this.refresh) {
-      lastrecord = ((await fs.readFile(lastfile))).toString();
-    }
-  } catch (error) {}
-  if (!lastrecord) {
+    // could also be possible to stream this from oadoi source via api key, which always returns the snapshot from the previous day 0830
+    // streaming caused timeouts so download first if not present
+    // http://api.unpaywall.org/feed/snapshot?api_key=
+    stats = (await fs.stat(infile)); // check if file exists in async fs promises which does not have .exists
+  } catch (error) {
+    console.log('OADOI downloading snapshot');
+    resp = (await fetch('https://api.unpaywall.org/feed/snapshot?api_key=' + this.S.src.oadoi.apikey));
+    wstr = fs.createWriteStream(infile);
+    await new Promise((resolve, reject) => {
+      resp.body.pipe(wstr);
+      resp.body.on('error', reject);
+      return wstr.on('finish', resolve);
+    });
+    console.log('snapshot downloaded');
+  }
+  if (this.params.clear) { //if not lastrecord
+    //lastfile = @S.directory + '/import/oadoi/last' # where to record the ID of the last item read from the file
+    //try lastrecord = (await fs.readFile lastfile).toString() if not @refresh
     await this.src.oadoi('');
   }
   total = 0;
   batch = [];
-  ref1 = readline.createInterface({
-    input: fs.createReadStream(infile).pipe(zlib.createGunzip())
-  });
-  //, crlfDelay: Infinity
-  // it appears it IS gz compressed even if they provide it without the .gz file extension
-  for await (line of ref1) {
-    if (total === howmany) {
-      break;
+  lines = '';
+  complete = false;
+  `# it appears it IS gz compressed even if they provide it without the .gz file extension
+for await line from readline.createInterface input: fs.createReadStream(infile).pipe zlib.createGunzip() #, crlfDelay: Infinity
+  break if total is howmany
+  rec = JSON.parse line.trim().replace /\,$/, ''
+  if not lastrecord or lastrecord.toLowerCase() is rec.doi.toLowerCase()
+    lastrecord = undefined
+    total += 1
+    rec._id = rec.doi.replace /\//g, '_'
+    batch.push rec
+    if batch.length is batchsize
+      console.log 'OADOI bulk loading', batch.length, total
+      await @src.oadoi batch
+      batch = []
+      await fs.writeFile lastfile, rec.doi`;
+  strm = fs.createReadStream(infile).pipe(zlib.createGunzip());
+  strm.on('data', async(chunk) => {
+    var line, lp, rec;
+    line = chunk.toString('utf8');
+    if (typeof line === 'string' && line) {
+      lines += line;
     }
-    try {
-      rec = JSON.parse(line.trim().replace(/\,$/, ''));
-      if (!lastrecord || lastrecord === rec.doi) {
-        lastrecord = void 0;
-        total += 1;
-        rec._id = rec.doi.replace(/\//g, '_');
+    while (lines.includes('\n')) {
+      [lp, lines] = lines.replace('\n', 'X0X0X0X0X0X0X0X0X0X0X0').split('X0X0X0X0X0X0X0X0X0X0X0'); // cheap split on first occurrence
+      rec = {};
+      try {
+        rec = JSON.parse(lp); //.trim().replace /\,$/, ''
+      } catch (error) {}
+      if (rec != null ? rec.doi : void 0) {
         batch.push(rec);
-        if (batch.length === batchsize) {
-          console.log('OADOI bulk loading', batch.length, total);
-          await this.src.oadoi(batch);
-          batch = [];
-          await fs.writeFile(lastfile, rec.doi);
-        }
+      } else {
+        console.log('oadoi load failed to parse record from string', lp);
       }
-    } catch (error) {}
+      if (batch.length >= 10000) {
+        total += batch.length;
+        console.log('OADOI bulk loading', batch.length, total);
+        await this.src.oadoi(batch);
+        batch = [];
+      }
+    }
+    return lines != null ? lines : lines = '';
+  });
+  strm.on('error', (err) => {
+    return console.log('oadoi load file stream error', JSON.stringify(err));
+  });
+  strm.on('end', () => {
+    console.log('stream complete for oadoi load');
+    return complete = true;
+  });
+  while (!complete) {
+    console.log('oadoi load streaming file', lines.length, total, Math.floor((Date.now() - started) / 1000 / 60) + 'm');
+    await this.sleep(30000);
   }
   if (batch.length) {
     await this.src.oadoi(batch);
   }
-  console.log(total);
+  ended = Date.now();
+  console.log('oadoi load complete', total, started, ended, Math.floor((ended - started) / 1000 / 60) + 'm');
   return total;
 };
 
@@ -10015,16 +9402,17 @@ P.src.oadoi.load._bg = true;
 
 P.src.oadoi.load._async = true;
 
-P.src.oadoi.load._auth = 'root';
+P.src.oadoi.load._log = false;
 
+//P.src.oadoi.load._auth = 'root'
 P.src.oadoi.changes = async function(oldest) {
-  var batch, batchsize, changes, counter, days, errorfile, i, last, lc, len, lfl, line, lm, lr, rec, ref, ref1, resp, upto, uptofile, wstr;
+  var batch, batchsize, changes, counter, days, i, last, lc, len, lfl, line, lm, lr, rec, ref, ref1, resp, upto, uptofile, wstr;
   batchsize = 30000;
   // the 2021-08-19 file was very large, 139M compressed and over 1.2GB uncompressed, and trying to stream it kept resulting in zlib unexpected end of file error
   // suspect it can't all be streamed before timing out. So write file locally then import then delete, and write 
   // error file dates to a list file, and manually load them separately if necessary
-  uptofile = this.S.directory + '/oadoi/upto'; // where to record the ID of the most recent change day file that's been processed up to
-  errorfile = this.S.directory + '/oadoi/errors';
+  uptofile = this.S.directory + '/import/oadoi/upto'; // where to record the ID of the most recent change day file that's been processed up to
+  //errorfile = @S.directory + '/import/oadoi/errors'
   if (oldest == null) {
     oldest = this.params.changes;
   }
@@ -10069,7 +9457,7 @@ P.src.oadoi.changes = async function(oldest) {
       days += 1;
       batch = [];
       lc = 0;
-      lfl = this.S.directory + '/oadoi/' + lr.date + '.jsonl.gz';
+      lfl = this.S.directory + '/import/oadoi/' + lr.date + '.jsonl.gz';
       resp = (await fetch(lr.url));
       wstr = fs.createWriteStream(lfl);
       await new Promise((resolve, reject) => {
@@ -10082,13 +9470,9 @@ P.src.oadoi.changes = async function(oldest) {
       });
       //for await line from readline.createInterface input: (await fetch lr.url).body.pipe zlib.createGunzip().on('error', (err) -> fs.appendFile(errorfile, lr.date); console.log err)
       for await (line of ref1) {
-        upto = lm; //if upto is false
+        upto = lm; // if upto is false
         lc += 1;
         rec = JSON.parse(line.trim().replace(/\,$/, ''));
-        //if rec.doi in seen
-        //  dups += 1
-        //else
-        //seen.push rec.doi # work backwards so don't bother saving old copies of the same records
         rec._id = rec.doi.replace(/\//g, '_');
         batch.push(rec);
         counter += 1;
@@ -10109,7 +9493,7 @@ P.src.oadoi.changes = async function(oldest) {
       } catch (error) {}
     }
   }
-  console.log(days, counter); //, seen.length, dups
+  console.log('oadoi changes complete', days, counter); //, seen.length, dups
   return counter; //seen.length
 };
 
@@ -10120,38 +9504,6 @@ P.src.oadoi.changes._async = true;
 P.src.oadoi.changes._auth = 'root';
 
 P.src.oadoi.changes._notify = false;
-
-P.src.oadoi.local = async function() {
-  var batch, batchsize, counter, fn, line, rec, ref;
-  batchsize = 50000;
-  counter = 0;
-  if (this.params.local && this.params.local.length === 10 && this.params.local.split('-').length === 3 && !this.params.local.includes('/')) {
-    fn = this.S.directory + '/oadoi/' + this.params.local + '.jsonl';
-    batch = [];
-    ref = readline.createInterface({
-      input: fs.createReadStream(fn)
-    });
-    for await (line of ref) {
-      counter += 1;
-      rec = JSON.parse(line.trim().replace(/\,$/, ''));
-      rec._id = rec.doi.replace(/\//g, '_');
-      batch.push(rec);
-      if (batch.length >= batchsize) {
-        await this.src.oadoi(batch);
-        batch = [];
-      }
-    }
-    if (batch.length) {
-      await this.src.oadoi(batch);
-    }
-  }
-  console.log(counter);
-  return counter;
-};
-
-P.src.oadoi.local._bg = true;
-
-P.src.oadoi.local._auth = 'root';
 
 var base,
   indexOf = [].indexOf;
@@ -10167,7 +9519,13 @@ try {
 // https://docs.openalex.org/api
 // https://docs.openalex.org/download-snapshot/snapshot-data-format
 // https://docs.openalex.org/download-snapshot/download-to-your-machine
-// aws s3 sync 's3://openalex' 'openalex-snapshot' --no-sign-request
+
+// https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
+// curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+// unzip awscliv2.zip
+// sudo ./aws/install
+
+// aws s3 sync 's3://openalex' 'openalex' --no-sign-request
 
 // note for resizing storage volume:
 // sudo resize2fs /dev/sdv (or whatever the identity of the volume is)
@@ -10175,88 +9533,101 @@ P.src.openalex = function() {
   return true;
 };
 
-P.src.openalex.authors = {
-  _index: {
-    settings: {
-      number_of_shards: 9
-    }
-  },
-  _prefix: false
-};
-
 P.src.openalex.works = {
   _index: {
     settings: {
-      number_of_shards: 9
+      number_of_shards: 15
     }
   },
   _prefix: false
 };
 
-P.src.openalex.institutions = {
-  _index: true,
-  _prefix: false
+//P.src.openalex.authors = _index: {settings: {number_of_shards: 15}}, _prefix: false
+//P.src.openalex.institutions = _index: true, _prefix: false
+//P.src.openalex.concepts = _index: true, _prefix: false
+//P.src.openalex.venues = _index: true, _prefix: false
+P.src.openalex.works._format = function(rec) {
+  var abs, i, j, len, len1, n, ref, ref1, ref2, ref3, ref4, word, xc;
+  try {
+    ref = rec.concepts;
+    for (i = 0, len = ref.length; i < len; i++) {
+      xc = ref[i];
+      if (xc.score != null) {
+        xc.score = Math.floor(xc.score);
+      }
+    }
+  } catch (error) {}
+  try {
+    rec._id = (ref1 = (ref2 = rec.doi) != null ? ref2 : rec.DOI) != null ? ref1 : (ref3 = rec.ids) != null ? ref3.doi : void 0;
+    if (rec._id.includes('http') && rec._id.includes('/10.')) {
+      rec._id = '10.' + rec._id.split('/10.').pop();
+    }
+    if (!rec._id || !rec._id.startsWith('10.')) {
+      rec._id = rec.id.split('/').pop();
+    }
+  } catch (error) {
+    rec._id = rec.id.split('/').pop();
+  }
+  try {
+    abs = [];
+    for (word in rec.abstract_inverted_index) {
+      ref4 = rec.abstract_inverted_index[word];
+      for (j = 0, len1 = ref4.length; j < len1; j++) {
+        n = ref4[j];
+        abs[n] = word;
+      }
+    }
+    if (abs.length) {
+      rec.abstract = abs.join(' ');
+    }
+  } catch (error) {}
+  try {
+    delete rec.abstract_inverted_index;
+  } catch (error) {}
+  return rec;
 };
 
-P.src.openalex.concepts = {
-  _index: true,
-  _prefix: false
-};
-
-P.src.openalex.venues = {
-  _index: true,
-  _prefix: false
-};
-
-P.src.openalex.works.doi = async function(doi) {
-  var abs, found, i, len, n, ref, word;
+P.src.openalex.works.doi = async function(doi, refresh) {
+  var found, ref;
   if (doi == null) {
     doi = this.params.doi;
   }
-  if (!(found = (await this.src.openalex.works('ids.doi:"https://doi.org/' + doi + '"', 1)))) {
-    if (found = (await this.fetch('https://api.openalex.org/works/https://doi.org/' + doi))) { //+ '?api_key=' + @S.src.openalex.apikey
-      if (found.abstract_inverted_index != null) {
-        abs = [];
-        for (word in found.abstract_inverted_index) {
-          ref = found.abstract_inverted_index[word];
-          for (i = 0, len = ref.length; i < len; i++) {
-            n = ref[i];
-            abs[n] = word;
-          }
-        }
-        if (abs.length) {
-          found.abstract = abs.join(' ');
-        }
-        delete found.abstract_inverted_index;
+  if (refresh == null) {
+    refresh = this.params.refresh;
+  }
+  if (refresh || !(found = (await this.src.openalex.works('ids.doi:"https://doi.org/' + doi + '"', 1)))) {
+    if (found = (await this.fetch('https://api.openalex.org/works/https://doi.org/' + doi + (((ref = this.S.src.openalex) != null ? ref.apikey : void 0) ? '?api_key=' + this.S.src.openalex.apikey : '')))) {
+      if (found.id) {
+        found = (await this.src.openalex.works._format(found));
+        this.waitUntil(this.src.openalex.works(found));
       }
-      this.waitUntil(this.src.openalex.works(doi.toLowerCase(), found));
     }
   }
   return found;
 };
 
 P.src.openalex.load = async function(what, changes, clear, sync, last) {
-  var _dofile, change, de, entry, expectedfiles, hasnew, howmany, i, inf, infiles, j, k, keys, l, len, len1, len2, len3, manifest, maxbatchsize, maxrunners, processedfiles, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, running, stats, synced, total, updated;
+  var _dofile, change, de, entry, expectedfiles, hasnew, howmany, i, inf, infiles, j, k, l, len, len1, len2, len3, manifest, maxbatchsize, maxrunners, processedfiles, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, running, stats, synced, total, updated;
   if (what == null) {
-    what = (ref = this.params.load) != null ? ref : this.params.openalex;
+    what = (ref = (ref1 = this.params.load) != null ? ref1 : this.params.openalex) != null ? ref : 'works';
   }
-  if (what !== 'works' && what !== 'venues' && what !== 'authors' && what !== 'institutions' && what !== 'concepts') {
+  if (what !== 'works') { //, 'venues', 'authors', 'institutions', 'concepts']
     return false;
   }
   if (clear == null) {
-    clear = (ref1 = this.params.clear) != null ? ref1 : false;
+    clear = (ref2 = this.params.clear) != null ? ref2 : false;
   }
   if (sync == null) {
-    sync = (ref2 = this.params.sync) != null ? ref2 : false;
+    sync = (ref3 = this.params.sync) != null ? ref3 : false;
   }
   if (clear === true) {
     await this.src.openalex[what]('');
-    await this.sleep(300000);
+    await this.sleep(60000);
   }
-  howmany = (ref3 = this.params.howmany) != null ? ref3 : -1; // max number of lines to process. set to -1 to keep going
-  maxbatchsize = 30000; // how many records to batch upload at a time
+  howmany = (ref4 = this.params.howmany) != null ? ref4 : -1; // max number of lines to process. set to -1 to keep going
+  maxbatchsize = 10000; // how many records to batch upload at a time
   total = 0;
-  infiles = this.S.directory + '/openalex/openalex-snapshot/data/' + what;
+  infiles = this.S.directory + '/import/openalex/data/' + what;
   if (typeof changes === 'string') {
     changes = [changes];
   } else if (changes === true) {
@@ -10269,7 +9640,8 @@ P.src.openalex.load = async function(what, changes, clear, sync, last) {
       last = 0;
     }
     if (sync) {
-      synced = (await this._child('aws', ['s3', 'sync', 's3://openalex', this.S.directory + '/openalex/openalex-snapshot', '--no-sign-request']));
+      // can also just import certain types, like at s3://openalex/data/works
+      synced = (await this._child('aws', ['s3', 'sync', 's3://openalex', this.S.directory + '/import/openalex', '--no-sign-request']));
       console.log('Openalex sync returned', synced);
     } else {
       await fs.writeFile(infiles + '/manifest', (await this.fetch('https://openalex.s3.amazonaws.com/data/' + what + '/manifest', {
@@ -10279,9 +9651,9 @@ P.src.openalex.load = async function(what, changes, clear, sync, last) {
     }
     hasnew = false;
     manifest = JSON.parse(((await fs.readFile(infiles + '/manifest'))).toString());
-    ref4 = manifest.entries;
-    for (i = 0, len = ref4.length; i < len; i++) {
-      entry = ref4[i];
+    ref5 = manifest.entries;
+    for (i = 0, len = ref5.length; i < len; i++) {
+      entry = ref5[i];
       de = entry.url.split('=')[1].split('/')[0];
       if (!hasnew) {
         if (((await this.epoch(de))) > last) {
@@ -10295,6 +9667,10 @@ P.src.openalex.load = async function(what, changes, clear, sync, last) {
     if (changes.length) {
       console.log('Found changes', changes);
     }
+  } else if (sync === true) {
+    console.log('Openalex load syncing', what);
+    synced = (await this._child('aws', ['s3', 'sync', 's3://openalex/data/' + what, infiles, '--no-sign-request']));
+    console.log('Openalex sync returned', synced);
   }
   if (!sync && changes && changes.length) {
     for (j = 0, len1 = changes.length; j < len1; j++) {
@@ -10311,23 +9687,21 @@ P.src.openalex.load = async function(what, changes, clear, sync, last) {
   processedfiles = 0;
   running = 0;
   maxrunners = 3;
-  keys = [];
-  ref5 = (await fs.readdir(infiles));
+  ref6 = (await fs.readdir(infiles));
   // folder names are like updated_date=2022-04-30
-  for (k = 0, len2 = ref5.length; k < len2; k++) {
-    updated = ref5[k];
-    if (!updated.startsWith('manifest') && (!changes || changes.length === 0 || (ref6 = updated.split('=')[1], indexOf.call(changes, ref6) >= 0))) {
+  for (k = 0, len2 = ref6.length; k < len2; k++) {
+    updated = ref6[k];
+    if (!updated.startsWith('manifest') && (!changes || changes.length === 0 || (ref7 = updated.split('=')[1], indexOf.call(changes, ref7) >= 0))) {
       // if we find in future there is no need to download a whole copy of openalex, instead of s3 sync the whole lot it may be better 
       // to just use streams of the files in each change folder direct from s3, and never have to land them on disk
       _dofile = async(infile) => {
-        var abs, batch, deletes, fk, flattened, l, len3, len4, len5, line, m, n, o, prev, rec, ref10, ref11, ref12, ref13, ref7, ref8, ref9, word, xc;
+        var batch, l, len3, line, rec, ref8, ref9, xc;
         batch = [];
-        deletes = [];
-        ref7 = readline.createInterface({
+        ref8 = readline.createInterface({
           input: fs.createReadStream(infiles + '/' + updated + '/' + infile).pipe(zlib.createGunzip())
         });
         //, crlfDelay: Infinity
-        for await (line of ref7) {
+        for await (line of ref8) {
           if (total === howmany) {
             break;
           }
@@ -10336,65 +9710,17 @@ P.src.openalex.load = async function(what, changes, clear, sync, last) {
           if (what === 'venues' || what === 'institutions' || what === 'concepts' || what === 'authors') {
             rec._id = rec.id.split('/').pop();
             if (what === 'authors' && (rec.x_concepts != null)) {
-              ref8 = rec.x_concepts;
-              for (l = 0, len3 = ref8.length; l < len3; l++) {
-                xc = ref8[l];
+              ref9 = rec.x_concepts;
+              for (l = 0, len3 = ref9.length; l < len3; l++) {
+                xc = ref9[l];
                 if (xc.score != null) {
                   xc.score = Math.floor(xc.score);
                 }
               }
             }
           } else if (what === 'works') {
-            try {
-              ref9 = rec.concepts;
-              for (m = 0, len4 = ref9.length; m < len4; m++) {
-                xc = ref9[m];
-                if (xc.score != null) {
-                  xc.score = Math.floor(xc.score);
-                }
-              }
-            } catch (error) {}
-            try {
-              rec._id = (ref10 = (ref11 = rec.doi) != null ? ref11 : rec.DOI) != null ? ref10 : (ref12 = rec.ids) != null ? ref12.doi : void 0;
-              if (rec._id.includes('http') && rec._id.includes('/10.')) {
-                rec._id = '10.' + rec._id.split('/10.').pop();
-              }
-              if (!rec._id || !rec._id.startsWith('10.')) {
-                rec._id = rec.id.split('/').pop();
-              }
-            } catch (error) {
-              rec._id = rec.id.split('/').pop();
-            }
-            if (changes && rec.id && rec._id && rec._id.startsWith('10.') && rec._id !== rec.id && (prev = (await this.src.openalex.works({
-              _id: rec.id
-            }, 1)))) {
-              deletes.push(rec.id);
-            }
-            try {
-              abs = [];
-              for (word in rec.abstract_inverted_index) {
-                ref13 = rec.abstract_inverted_index[word];
-                for (o = 0, len5 = ref13.length; o < len5; o++) {
-                  n = ref13[o];
-                  abs[n] = word;
-                }
-              }
-              if (abs.length) {
-                rec.abstract = abs.join(' ');
-              }
-            } catch (error) {}
-            try {
-              delete rec.abstract_inverted_index;
-            } catch (error) {}
+            rec = (await this.src.openalex.works._format(rec));
           }
-          try {
-            for (fk in flattened = (await this.flatten(rec))) {
-              if (indexOf.call(keys, fk) < 0) {
-                keys.push(fk);
-                console.log('openalex seeing new key', keys.length, fk);
-              }
-            }
-          } catch (error) {}
           batch.push(rec);
           if (batch.length >= maxbatchsize) {
             console.log('Openalex ' + what + ' bulk loading', updated, infile, batch.length, total);
@@ -10402,10 +9728,8 @@ P.src.openalex.load = async function(what, changes, clear, sync, last) {
             batch = [];
           }
         }
-        if (deletes.length) {
-          await this.index._bulk('src_openalex_works', deletes, 'delete');
-        }
         if (batch.length) {
+          console.log('Openalex ' + what + ' bulk loading final set for', updated, infile, batch.length, expectedfiles, processedfiles, total);
           await this.src.openalex[what](batch);
         }
         console.log('removing', infiles + '/' + updated + '/' + infile);
@@ -10414,9 +9738,9 @@ P.src.openalex.load = async function(what, changes, clear, sync, last) {
         running -= 1;
         return true;
       };
-      ref7 = (await fs.readdir(infiles + '/' + updated));
-      for (l = 0, len3 = ref7.length; l < len3; l++) {
-        inf = ref7[l];
+      ref8 = (await fs.readdir(infiles + '/' + updated));
+      for (l = 0, len3 = ref8.length; l < len3; l++) {
+        inf = ref8[l];
         console.log('Openalex load running', running);
         expectedfiles += 1;
         while (running === maxrunners) {
@@ -10444,19 +9768,52 @@ P.src.openalex.load._bg = true;
 
 P.src.openalex.load._async = true;
 
+P.src.openalex.load._log = false;
+
 P.src.openalex.load._auth = 'root';
 
 P.src.openalex.changes = async function(what, last) {
-  var abs, batch, cursor, deletes, i, j, k, l, len, len1, len2, len3, n, prev, rec, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, res, total, url, w, whats, word, xc;
+  var batch, cursor, ended, filter, i, j, k, len, len1, len2, rec, ref, ref1, ref2, ref3, ref4, ref5, res, started, total, url, w, whats;
+  started = (await this.epoch());
   if (what == null) {
-    what = (ref = this.params.changes) != null ? ref : this.params.openalex;
+    what = (ref = (ref1 = this.params.changes) != null ? ref1 : this.params.openalex) != null ? ref : 'works';
+  }
+  if (typeof last !== 'object') {
+    last = {
+      updated: last
+    };
   }
   if (last == null) {
-    last = this.params.last; // can be a date like 2022-12-13 to match the last updated file date on openalex update files
+    last = {};
+  }
+  if (this.params.last) { // can be a date like 2022-12-13 to match the last updated file date on openalex update files
+    last.updated = this.params.last;
+    last.created = this.params.last;
   }
   // if no last, calculate it as previous day? or read last from index?
-  if (last == null) {
-    last = (await this.date((await this.epoch()) - 86400000));
+  if ((last.updated == null) || (last.created == null)) {
+    try {
+      last.updated = ((await this.src.openalex.works('updated_date:*', {
+        size: 1,
+        sort: {
+          updated_date: 'desc'
+        }
+      }))).updated_date;
+    } catch (error) {}
+    try {
+      last.created = ((await this.src.openalex.works('created_date:*', {
+        size: 1,
+        sort: {
+          created_date: 'desc'
+        }
+      }))).created_date;
+    } catch (error) {}
+  }
+  if (last.updated == null) {
+    last.updated = ((await this.datetime((await this.epoch()) - 86400000))).replace('Z', '000'); // datetime format for openalex (ISO) 2023-09-25T22:33:51.835860
+  }
+  if (last.created == null) {
+    last.created = ((await this.datetime((await this.epoch()) - 86400000))).replace('Z', '000');
   }
   // doing this only for works now, as it does not appear the other types get updated in the same way any more
   whats = ['works']; //, 'venues', 'authors', 'institutions', 'concepts']
@@ -10468,85 +9825,66 @@ P.src.openalex.changes = async function(what, last) {
     what = whats;
   }
   // https://docs.openalex.org/how-to-use-the-api/get-lists-of-entities/paging
+  console.log('Openalex changes checking from', last);
   total = 0;
-  ref1 = (Array.isArray(what) ? what : [what]);
-  for (i = 0, len = ref1.length; i < len; i++) {
-    w = ref1[i];
-    try {
-      batch = [];
-      deletes = [];
-      cursor = '*';
-      // does created count as an updated, or do we also need to to from_created_date? Created appear to be included already, so all good
-      url = 'https://api.openalex.org/' + w + '?filter=from_updated_date:' + last + '&api_key=' + this.S.src.openalex.apikey + '&per-page=200&cursor=';
-      res = (await this.fetch(url + cursor));
-      while ((res != null) && typeof res === 'object' && Array.isArray(res.results) && res.results.length) {
-        ref2 = res.results;
-        for (j = 0, len1 = ref2.length; j < len1; j++) {
-          rec = ref2[j];
-          try {
-            ref3 = rec.concepts;
-            for (k = 0, len2 = ref3.length; k < len2; k++) {
-              xc = ref3[k];
-              if (xc.score != null) {
-                xc.score = Math.floor(xc.score);
+  ref2 = (Array.isArray(what) ? what : [what]);
+  for (i = 0, len = ref2.length; i < len; i++) {
+    w = ref2[i];
+    ref3 = ['updated'];
+    //, 'created'] # apparently, now, (2/10/2023) all records do have an updated_date... 
+    for (j = 0, len1 = ref3.length; j < len1; j++) {
+      filter = ref3[j];
+      if (((await this.epoch(last.updated))) < started - 3600000) { // if it has been at least an hour since something was updated...
+        batch = [];
+        cursor = '*';
+        // doing created and updated separately because although we initially thought updated would include created, there is suggestions it does not, in missing records
+        // https://github.com/ourresearch/openalex-api-tutorials/blob/main/notebooks/getting-started/premium.ipynb
+        url = 'https://api.openalex.org/' + w + '?filter=from_' + filter + '_date:' + last[filter] + '&api_key=' + this.S.src.openalex.apikey + '&per-page=200&cursor=';
+        try {
+          res = (await this.fetch(url + cursor));
+          while ((res != null) && typeof res === 'object' && Array.isArray(res.results) && res.results.length) {
+            ref4 = res.results;
+            for (k = 0, len2 = ref4.length; k < len2; k++) {
+              rec = ref4[k];
+              if (w === 'works') {
+                rec = (await this.src.openalex.works._format(rec));
+                `if rec._id.startsWith('10.') and rec.authorships? and rec.publication_year in ['2023', '2022'] #, '2021', '2020']
+doq = false
+for a in rec.authorships
+  break if doq
+  for i in (a.institutions ? [])
+    break if doq
+    doq = rec._id if i.display_name?
+try await @report.queue(doq) if doq`; // but may need to push this to the right worker process?
               }
+              batch.push(rec);
             }
-          } catch (error) {}
-          try {
-            rec._id = (ref4 = (ref5 = rec.doi) != null ? ref5 : rec.DOI) != null ? ref4 : (ref6 = rec.ids) != null ? ref6.doi : void 0;
-            if (rec._id.includes('http') && rec._id.includes('/10.')) {
-              rec._id = '10.' + rec._id.split('/10.').pop();
+            if (batch.length >= 10000) {
+              console.log('Openalex ' + what + ' ' + filter + ' bulk loading changes', batch.length, total);
+              total += batch.length;
+              await this.src.openalex[what](batch);
+              batch = [];
             }
-            if (!rec._id || !rec._id.startsWith('10.')) {
-              rec._id = rec.id.split('/').pop();
+            if ((ref5 = res.meta) != null ? ref5.next_cursor : void 0) {
+              cursor = res.meta.next_cursor;
+              res = (await this.fetch(url + encodeURIComponent(cursor)));
             }
-          } catch (error) {
-            rec._id = rec.id.split('/').pop();
           }
-          if (rec.id && rec._id && rec._id.startsWith('10.') && rec._id !== rec.id && (prev = (await this.src.openalex.works({
-            _id: rec.id
-          }, 1)))) {
-            deletes.push(rec.id);
-          }
-          try {
-            abs = [];
-            for (word in rec.abstract_inverted_index) {
-              ref7 = rec.abstract_inverted_index[word];
-              for (l = 0, len3 = ref7.length; l < len3; l++) {
-                n = ref7[l];
-                abs[n] = word;
-              }
-            }
-            if (abs.length) {
-              rec.abstract = abs.join(' ');
-            }
-          } catch (error) {}
-          try {
-            delete rec.abstract_inverted_index;
-          } catch (error) {}
-          batch.push(rec);
-        }
-        if (batch.length >= 30000) {
-          console.log('Openalex ' + what + ' bulk loading changes', batch.length, total);
+        } catch (error) {}
+        if (batch.length) {
           total += batch.length;
           await this.src.openalex[what](batch);
           batch = [];
         }
-        if ((ref8 = res.meta) != null ? ref8.next_cursor : void 0) {
-          cursor = res.meta.next_cursor;
-          res = (await this.fetch(url + encodeURIComponent(cursor)));
-        }
       }
-      if (batch.length) {
-        total += batch.length;
-        await this.src.openalex[what](batch);
-        batch = [];
-      }
-      if (deletes.length) {
-        await this.index._bulk('src_openalex_works', deletes, 'delete');
-      }
-    } catch (error) {}
+    }
   }
+  ended = (await this.epoch()); // schedule this to loop, and run at most every hour
+  if (this.fn !== 'src.openalex.changes' && ended - started < 3600000) {
+    console.log('Openalex changes waiting to loop');
+    await this.sleep(3600000 - (ended - started));
+  }
+  console.log('Openalex changes changed', total);
   return total;
 };
 
@@ -10554,104 +9892,7 @@ P.src.openalex.changes._bg = true;
 
 P.src.openalex.changes._async = true;
 
-P.src.openalex.changes._auth = 'root';
-
-P.src.openalex.fixids = async function() {
-  var count, deletes, expected, rec, ref, total;
-  total = 0;
-  deletes = [];
-  expected = (await this.src.openalex.works.count('NOT DOI:* AND NOT doi:* AND NOT ids.doi:*'));
-  console.log('openalex fix IDs expecting to process', expected);
-  ref = this.index._for('src_openalex_works', 'NOT DOI:* AND NOT doi:* AND NOT ids.doi:*', {
-    scroll: '30m',
-    include: ['_id', 'id']
-  });
-  for await (rec of ref) {
-    if (total % 100 === 0) {
-      console.log(total, deletes.length);
-    }
-    total += 1;
-    if (count = (await this.src.openalex.works.count('id.keyword:"' + rec.id + '" AND (DOI:* OR doi:* OR ids.doi:*)'))) {
-      deletes.push(rec.id);
-    }
-    if (deletes.length === 30000) {
-      await this.index._bulk('src_openalex_works', deletes, 'delete');
-      deletes = [];
-      console.log('deleting obsoletes from openalex works', total, expected);
-    }
-  }
-  if (deletes.length) {
-    await this.index._bulk('src_openalex_works', deletes, 'delete');
-  }
-  console.log('deleting obsoletes from openalex works finished having done', total, expected);
-  return total;
-};
-
-P.src.openalex.fixids._bg = true;
-
-P.src.openalex.fixids._async = true;
-
-P.src.openalex.fixids._auth = 'root';
-
-`P.src.openalex.loadchanges = (what, last) ->
-what ?= @params.changes ? @params.openalex
-last ?= @params.last # can be a date like 2022-12-13 to match the last updated file date on openalex update files
-whats = ['works', 'venues', 'authors', 'institutions', 'concepts']
-if what
-  return false if what not in whats
-else
-  what = whats
-
-total = 0
-for w in (if Array.isArray(what) then what else [what])
-  total += await @src.openalex.load w, true, undefined, undefined, last
-  
-return total
-
-P.src.openalex.loadchanges._bg = true
-P.src.openalex.loadchanges._async = true
-P.src.openalex.loadchanges._auth = 'root'`;
-
-P.src.openalex.latest = async function(what) {
-  var de, entry, hasnew, i, infiles, last, len, ref, ref1, res, whats;
-  if (what == null) {
-    what = (ref = this.params.latest) != null ? ref : this.params.openalex;
-  }
-  whats = ['works', 'venues', 'authors', 'institutions', 'concepts'];
-  if (indexOf.call(whats, what) < 0) {
-    return false;
-  }
-  infiles = this.S.directory + '/openalex/openalex-snapshot/data/' + what;
-  res = {
-    last: void 0,
-    changes: [],
-    count: 0,
-    manifest: {
-      previous: JSON.parse(((await fs.readFile(infiles + '/manifest'))).toString()),
-      latest: (await this.fetch('https://openalex.s3.amazonaws.com/data/' + what + '/manifest'))
-    }
-  };
-  res.last = res.manifest.previous.entries[res.manifest.previous.entries.length - 1].url.split('=')[1].split('/')[0];
-  last = (await this.epoch(res.last));
-  hasnew = false;
-  ref1 = res.manifest.latest.entries;
-  for (i = 0, len = ref1.length; i < len; i++) {
-    entry = ref1[i];
-    de = entry.url.split('=')[1].split('/')[0];
-    if (!hasnew) {
-      if (((await this.epoch(de))) > last) {
-        hasnew = true;
-      }
-    }
-    if (hasnew) {
-      if (indexOf.call(res.changes, de) < 0) {
-        res.changes.push(de);
-      }
-      res.count += entry.meta.record_count;
-    }
-  }
-  return res;
-};
+//P.src.openalex.changes._auth = 'root'
 
 // there are pubmed data loaders on the server side, they build an index that can 
 // be queried directly. However some of the below functions may still be useful 
@@ -10920,7 +10161,7 @@ P.src.pubmed.load = async function(changes) {
     changes = true;
   }
   batchsize = -1; // how many records to batch upload at a time
-  streamers = (ref = this.params.streamers) != null ? ref : 2; // how many files to stream at a time
+  streamers = (ref = this.params.streamers) != null ? ref : 3; // how many files to stream at a time
   howmany = (ref1 = this.params.howmany) != null ? ref1 : -1; // max number of lines to process. set to -1 to keep going...
   if (this.refresh && !changes) {
     await this.src.pubmed('');
@@ -11247,7 +10488,7 @@ P.src.pubmed.load = async function(changes) {
     if (running < streamers) {
       running += 1;
       nf = fls.shift();
-      await _loop(nf);
+      _loop(nf);
     }
   }
   console.log(total, fls.length);
@@ -11262,8 +10503,7 @@ P.src.pubmed.load._bg = true;
 
 P.src.pubmed.load._async = true;
 
-P.src.pubmed.load._auth = 'root';
-
+//P.src.pubmed.load._auth = 'root'
 P.src.pubmed.changes = function() {
   return this.src.pubmed.load(true);
 };
@@ -11272,7 +10512,7 @@ P.src.pubmed.changes._bg = true;
 
 P.src.pubmed.changes._async = true;
 
-P.src.pubmed.changes._auth = 'root';
+P; //.src.pubmed.changes._auth = 'root'
 
 P.src.pubmed.changes._notify = false;
 
@@ -12545,7 +11785,7 @@ P.convert.xml2json = async function(x) {
 };
 
 P.dateparts = async function(d) {
-  var o, p, part, parts, ref, ref1, ref2, ref3, ref4;
+  var o, p, part, parts, ref, ref1, ref2, ref3, ref4, ref5, ref6;
   o = {};
   if (d == null) {
     d = (ref = this.params.dateparts) != null ? ref : o.date;
@@ -12609,6 +11849,12 @@ P.dateparts = async function(d) {
     o.year = o.year.toString();
     if (o.year.length === 2) {
       o.year = (parseInt(o.year) < 30 ? '20' : '19' + o.year);
+    }
+    if (o.day === '31' && ((ref5 = o.month) === '04' || ref5 === '06' || ref5 === '09' || ref5 === '11')) { // for example pubmed xml was seen to have dates of 31st April, etc
+      o.day = '30';
+    }
+    if (o.month === '02' && (((ref6 = o.day) === '30' || ref6 === '31') || (o.day === '29' && parseInt(o.year) % 4))) {
+      o.day = '28';
     }
     o.date = o.year + '-' + o.month + '-' + o.day; // allow for formatting option to be passed in?
     try {
@@ -13993,14 +13239,37 @@ P.index.average = function(route, key, qry) {
   return this.index.min(route, key, qry, 'average');
 };
 
-P.index.mapping = async function(route) {
-  var ret, rtm;
+// can be used to put new fields into a mapping such as:
+`{
+"properties": {
+  "assertion": {
+    "properties": {
+      "label": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        }
+      }
+    }
+  }
+}
+}`;
+
+P.index.mapping = async function(route, map) {
+  var mapped, ret, rtm;
   route = route.replace(/^\//, ''); // remove any leading /
   if (route.indexOf('/') === -1) {
     route = route + '/';
   }
   if (route.indexOf('_mapping') === -1) {
     route = route.replace('/', '/_mapping');
+  }
+  if (map != null) {
+    mapped = (await this.index._send(route, map, 'PUT'));
+    console.log(route, 'mapped', mapped);
   }
   ret = (await this.index._send(route));
   rtm = ((await this.keys(ret)))[0];
@@ -14139,7 +13408,7 @@ P.index._each = async function(route, q, opts, fn, prefix, alias) {
 };
 
 P.index._bulk = async function(route, data, action = 'index', bulk = 50000, prefix, alias) {
-  var counter, dtp, errorcount, errors, it, j, len, meta, pkg, r, ref1, ref10, ref11, ref12, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rid, row, rows, rs, rso;
+  var counter, dtp, errorcount, errors, it, j, len, meta, pkg, r, ref1, ref10, ref11, ref12, ref13, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rid, row, rows, rs, rso;
   if (action === true) {
     action = 'index';
   }
@@ -14153,16 +13422,23 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000, pref
       alias = '_' + alias;
     }
     alias = alias.replace(/\//g, '_');
-    rso = route.split('/')[0];
     if (!rso.endsWith(alias)) {
       route = route.replace(rso, rso + alias);
     }
   }
-  if (prefix == null) {
-    prefix = dtp != null ? dtp._prefix : void 0;
+  if (prefix === true) {
+    prefix = this.S.index.name;
   }
-  if (prefix !== false) {
-    route = (typeof prefix === 'string' ? prefix : this.S.index.name) + '_' + route;
+  if (prefix == null) {
+    prefix = (ref4 = dtp != null ? dtp._prefix : void 0) != null ? ref4 : this.S.index.name;
+  }
+  if (typeof prefix === 'string') {
+    if (prefix.length && !prefix.endsWith('_')) {
+      prefix += '_';
+    }
+    if (!route.startsWith(prefix)) {
+      route = prefix + route;
+    }
   }
   if (this.index == null) {
     this.index = P.index;
@@ -14177,7 +13453,7 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000, pref
     }, void 0, prefix, alias); // new ES 7.x requires this rather than text/plain
     return true;
   } else {
-    rows = typeof data === 'object' && !Array.isArray(data) && ((data != null ? (ref4 = data.hits) != null ? ref4.hits : void 0 : void 0) != null) ? data.hits.hits : data;
+    rows = typeof data === 'object' && !Array.isArray(data) && ((data != null ? (ref5 = data.hits) != null ? ref5.hits : void 0 : void 0) != null) ? data.hits.hits : data;
     if (!Array.isArray(rows)) {
       rows = [rows];
     }
@@ -14188,7 +13464,7 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000, pref
       row = rows[r];
       counter += 1;
       if (typeof row === 'object') {
-        rid = (ref5 = (ref6 = row._id) != null ? ref6 : (ref7 = row._source) != null ? ref7._id : void 0) != null ? ref5 : (await this.uid());
+        rid = (ref6 = (ref7 = row._id) != null ? ref7 : (ref8 = row._source) != null ? ref8._id : void 0) != null ? ref6 : (await this.uid());
         if (typeof rid === 'string') {
           rid = rid.replace(/\//g, '_');
         }
@@ -14201,7 +13477,7 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000, pref
       meta[action] = {
         "_index": route
       };
-      meta[action]._id = action === 'delete' && ((ref8 = typeof row) === 'string' || ref8 === 'number') ? row : rid; // what if action is delete but can't set an ID?
+      meta[action]._id = action === 'delete' && ((ref9 = typeof row) === 'string' || ref9 === 'number') ? row : rid; // what if action is delete but can't set an ID?
       pkg += JSON.stringify(meta) + '\n';
       if (action === 'create' || action === 'index') {
         pkg += JSON.stringify(row) + '\n';
@@ -14218,13 +13494,13 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000, pref
             'Content-Type': 'application/x-ndjson'
           }
         }, void 0, prefix, alias));
-        if ((this != null ? (ref9 = this.S) != null ? ref9.dev : void 0 : void 0) && (this != null ? (ref10 = this.S) != null ? ref10.bg : void 0 : void 0) === true && (rs != null ? rs.errors : void 0)) {
+        if ((this != null ? (ref10 = this.S) != null ? ref10.dev : void 0 : void 0) && (this != null ? (ref11 = this.S) != null ? ref11.bg : void 0 : void 0) === true && (rs != null ? rs.errors : void 0)) {
           errors = [];
-          ref11 = rs.items;
-          for (j = 0, len = ref11.length; j < len; j++) {
-            it = ref11[j];
+          ref12 = rs.items;
+          for (j = 0, len = ref12.length; j < len; j++) {
+            it = ref12[j];
             try {
-              if ((ref12 = it[action].status) !== 200 && ref12 !== 201) {
+              if ((ref13 = it[action].status) !== 200 && ref13 !== 201) {
                 errors.push(it[action]);
                 errorcount += 1;
               }
@@ -14625,7 +13901,7 @@ P.index.translate._auth = false;
 // calling this should be given a correct URL route for ES7.x, domain part of the URL is optional though.
 // call the above to have the route constructed. method is optional and will be inferred if possible (may be removed)
 P.index._send = async function(route, data, method, prefix, alias) {
-  var dtp, opts, provided_scroll_id, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, res, rqp, rso, url;
+  var dtp, opts, provided_scroll_id, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, rqp, rso, url;
   if (route.includes('?')) {
     [route, rqp] = route.split('?');
     rqp = '?' + rqp;
@@ -14647,31 +13923,37 @@ P.index._send = async function(route, data, method, prefix, alias) {
     return false;
   }
   if (!route.startsWith('http')) { // which it probably doesn't
-    rso = route.split('/')[0];
-    dtp = (await this.dot(P, rso.replace(/_/g, '.')));
-    if (alias == null) {
-      alias = (ref2 = (ref3 = this.params._alias) != null ? ref3 : (ref4 = this.S.alias) != null ? ref4[rso.startsWith(this.S.index.name + '_') ? rso.replace(this.S.index.name + '_', '') : rso] : void 0) != null ? ref2 : dtp != null ? dtp._alias : void 0;
-    }
-    if (typeof alias === 'string' && !route.startsWith('_')) {
-      if (!alias.startsWith('_')) {
-        alias = '_' + alias;
+    if (!route.startsWith('_')) {
+      rso = route.split('/')[0];
+      dtp = (await this.dot(P, rso.replace(/_/g, '.')));
+      if (alias == null) {
+        alias = (ref2 = (ref3 = this.params._alias) != null ? ref3 : (ref4 = this.S.alias) != null ? ref4[rso.startsWith(this.S.index.name + '_') ? rso.replace(this.S.index.name + '_', '') : rso] : void 0) != null ? ref2 : dtp != null ? dtp._alias : void 0;
       }
-      alias = alias.replace(/\//g, '_');
-      if (!rso.endsWith(alias)) {
-        route = route.replace(rso, rso + alias);
+      if (typeof alias === 'string') {
+        if (!alias.startsWith('_')) {
+          alias = '_' + alias;
+        }
+        alias = alias.replace(/\//g, '_');
+        if (!rso.endsWith(alias)) {
+          route = route.replace(rso, rso + alias);
+        }
       }
-    }
-    if (this.S.index.name && !route.startsWith(this.S.index.name) && !route.startsWith('_')) {
-      //prefix ?= await @dot P, (route.split('/')[0]).replace(/_/g, '.') + '._prefix'
       if (prefix == null) {
-        prefix = dtp != null ? dtp._prefix : void 0;
+        prefix = (ref5 = dtp != null ? dtp._prefix : void 0) != null ? ref5 : this.S.index.name;
       }
-      // TODO could allow prefix to be a list of names, and if index name is in the list, alias the index into those namespaces, to share indexes between specific instances rather than just one or global
-      if (prefix !== false) {
-        route = (typeof prefix === 'string' ? prefix : this.S.index.name) + '_' + route;
+      if (prefix === true) {
+        prefix = this.S.index.name;
+      }
+      if (typeof prefix === 'string') {
+        if (prefix.length && !prefix.endsWith('_')) {
+          prefix += '_';
+        }
+        if (!route.startsWith(prefix)) { // TODO could allow prefix to be a list of names, and if index name is in the list, alias the index into those namespaces, to share indexes between specific instances rather than just one or global
+          route = prefix + route;
+        }
       }
     }
-    url = (this != null ? (ref5 = this.S) != null ? (ref6 = ref5.index) != null ? ref6.url : void 0 : void 0 : void 0) ? this.S.index.url : (ref7 = S.index) != null ? ref7.url : void 0;
+    url = (this != null ? (ref6 = this.S) != null ? (ref7 = ref6.index) != null ? ref7.url : void 0 : void 0 : void 0) ? this.S.index.url : (ref8 = S.index) != null ? ref8.url : void 0;
     if (Array.isArray(url)) {
       url = url[Math.floor(Math.random() * url.length)];
     }
@@ -14692,7 +13974,7 @@ P.index._send = async function(route, data, method, prefix, alias) {
     if (typeof data.scroll === 'number' || (typeof data.scroll === 'string' && !data.scroll.endsWith('m'))) {
       data.scroll += 'm';
     }
-    route += (route.indexOf('?') === -1 ? '?' : '&') + 'scroll=' + ((ref8 = data.scroll) != null ? ref8 : '2m');
+    route += (route.indexOf('?') === -1 ? '?' : '&') + 'scroll=' + ((ref9 = data.scroll) != null ? ref9 : '2m');
     if (data.scroll_id) {
       provided_scroll_id = data.scroll_id;
       route = route.split('://')[0] + '://' + route.split('://')[1].split('/')[0] + '/_search/scroll' + (route.includes('?') ? '?' + route.split('?')[1] : '');
@@ -15113,6 +14395,9 @@ P.log = function(msg, store) {
   if (this.S.log !== false && this.nolog !== true) {
     if (store !== true) { // an empty call to log stores everything in the _logs list
       store = msg == null;
+    }
+    if (store !== true && (this._logs.length > 30000 || _bg_log_batch.length > 30000)) {
+      store = true;
     }
     if (typeof msg === 'string') {
       if (msg.indexOf('/') !== -1 && msg.indexOf(' ') === -1) {
@@ -16070,9 +15355,13 @@ P.decode = async function(content) {
     };
     return content.replace(translator, (function(match, entity) {
       return translate[entity];
-    })).replace(/&#(\d+);/gi, (function(match, numStr) {
+    })).replace(/&#(x?[0-9A-Fa-f]+);/gi, (function(match, numStr) {
       var num;
-      num = parseInt(numStr, 10);
+      if (numStr.startsWith('x')) {
+        num = parseInt(numStr.replace('x', ''), 16);
+      } else {
+        num = parseInt(numStr, 10);
+      }
       return String.fromCharCode(num);
     }));
   };
@@ -16113,17 +15402,21 @@ P.decode = async function(content) {
     re = new RegExp(c.bad, 'g');
     text = text.replace(re, c.good);
   }
-  if (text.indexOf('%2') !== -1) {
-    text = decodeURIComponent(text);
-  }
-  if (text.indexOf('%2') !== -1) { // some of the data we handle was double encoded, so like %2520, so need two decodes
-    text = decodeURIComponent(text);
-  }
+  try {
+    if (text.indexOf('%2') !== -1) {
+      text = decodeURIComponent(text);
+    }
+  } catch (error) {}
+  try {
+    if (text.indexOf('%2') !== -1) { // some of the data we handle was double encoded, so like %2520, so need two decodes
+      text = decodeURIComponent(text);
+    }
+  } catch (error) {}
   return text;
 };
 
 
-S.built = "Fri Aug 04 2023 10:04:03 GMT+0100";
+S.built = "Tue Oct 03 2023 04:09:51 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
