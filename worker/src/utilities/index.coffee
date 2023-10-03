@@ -340,10 +340,31 @@ P.index.range = (route, key, qry) -> return @index.min route, key, qry, 'range'
 P.index.sum = (route, key, qry) -> return @index.min route, key, qry, 'sum'
 P.index.average = (route, key, qry) -> return @index.min route, key, qry, 'average'
 
-P.index.mapping = (route) ->
+# can be used to put new fields into a mapping such as:
+'''{
+  "properties": {
+    "assertion": {
+      "properties": {
+        "label": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256
+            }
+          }
+        }
+      }
+    }
+  }
+}'''
+P.index.mapping = (route, map) ->
   route = route.replace /^\//, '' # remove any leading /
   route = route + '/' if route.indexOf('/') is -1
   route = route.replace('/','/_mapping') if route.indexOf('_mapping') is -1
+  if map?
+    mapped = await @index._send route, map, 'PUT'
+    console.log route, 'mapped', mapped
   ret = await @index._send route
   rtm = (await @keys ret)[0] #route.replace('/_mapping', '').replace(/\//g, '_').replace(/^_/, '')
   return ret[rtm].mappings.properties

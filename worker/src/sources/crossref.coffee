@@ -21,8 +21,7 @@ P.src.crossref = () ->
       return @src.crossref.works._format res.message
   return'''
 
-#P.src.crossref.works._index = settings: number_of_shards: 9
-P.src.crossref.works = _index: settings: number_of_shards: 9
+P.src.crossref.works = _index: settings: number_of_shards: 15
 P.src.crossref.works._key = 'DOI'
 P.src.crossref.works._prefix = false
 
@@ -118,6 +117,7 @@ P.src.crossref.works.published = (rec) ->
           ppe = await @epoch pp
     return pp        
   return
+P.src.crossref.works.published._log = false
   
 P.src.crossref.works.search = (qrystr, from, size, filter, start, end, sort, order) ->
   qrystr ?= @params.q ? @params.search #? @params
@@ -215,7 +215,7 @@ P.src.crossref.journals.load._auth = 'root'
 
 
 
-P.src.crossref.load = () ->
+'''P.src.crossref.load = () ->
   batchsize = 10000 # how many records to batch upload at a time - kept low because large crossref files were causing OOM
   howmany = @params.howmany ? -1 # max number of lines to process. set to -1 to keep going
 
@@ -283,7 +283,7 @@ P.src.crossref.load = () ->
 P.src.crossref.load._bg = true
 P.src.crossref.load._async = true
 P.src.crossref.load._auth = 'root'
-
+'''
 
 
 P.src.crossref.changes = (startday, endday, created) ->
@@ -293,8 +293,16 @@ P.src.crossref.changes = (startday, endday, created) ->
     try
       last = await @src.crossref.works 'srcday:*', size: 1, sort: srcday: 'desc'
       startday = last.srcday
-  startday ?= 1607126400000 # the timestamp of when changes appeared to start after the last data dump, around 12/12/2020
+      console.log 'Crossref changes start day set from latest record srcday', await @date startday
+  if not startday
+    try
+      last = await @src.crossref.works 'indexed.timestamp:*', size: 1, sort: 'indexed.timestamp': 'desc'
+      startday = last.indexed.timestamp
+      console.log 'Crossref changes start day set from latest record indexed timestamp', await @date startday
+  startday ?= 1693526400000 # 1st September 2023
+  # 1607126400000 # the timestamp of when changes appeared to start after the last data dump, around 12/12/2020
   # for the 2022 update 1649635200000 was used for 11th April 2022
+  startday = await @epoch await @date startday
   endday ?= @params.end
   endday = await @epoch(endday) if typeof endday is 'string' and (endday.includes('/') or endday.includes('-'))
   created ?= @params.created
@@ -307,8 +315,9 @@ P.src.crossref.changes = (startday, endday, created) ->
   loaded = 0
   days = 0
   batch = []
-  while startday < dn
-    console.log 'Crossref changes', (if created then 'for created' else undefined), startday, days
+  retries = 0
+  while startday < dn and retries < 3
+    console.log 'Crossref changes', startday, days
     cursor = '*' # set a new cursor on each index day query
     days += 1
     totalthisday = false
@@ -319,6 +328,7 @@ P.src.crossref.changes = (startday, endday, created) ->
       if not thisdays?.data
         console.log 'crossref error'
         await @sleep 2000 # wait on crossref downtime
+        retries += 1
       else
         for rec in thisdays.data
           fr = await @src.crossref.works._format rec
@@ -326,7 +336,7 @@ P.src.crossref.changes = (startday, endday, created) ->
           batch.push fr
           loaded += 1
         if batch.length >= batchsize
-          console.log 'Crossref bulk load', (if created then 'for created' else undefined), startday, days, totalthisday, fromthisday, loaded
+          console.log 'Crossref bulk load', startday, days, totalthisday, fromthisday, loaded
           await @src.crossref.works batch
           batch = []
         if totalthisday is false
@@ -338,13 +348,12 @@ P.src.crossref.changes = (startday, endday, created) ->
 
   await @src.crossref.works(batch) if batch.length
   
-  console.log loaded, days, (if created then 'for created' else undefined)
-  #@src.crossref.changes(startday, endday, true) if not created
+  console.log loaded, days
   return loaded
 
 P.src.crossref.changes._bg = true
 P.src.crossref.changes._async = true
-P.src.crossref.changes._auth = 'root'
+#P.src.crossref.changes._auth = 'root'
 P.src.crossref.changes._notify = false
 
 
@@ -357,33 +366,169 @@ P.src.crossref.plus.load = ->
   # curl -o "all.json.tar.gz" --progress-bar -L -X GET  https://api.crossref.org/snapshots/monthly/latest/all.json.tar.gz -H "Crossref-Plus-API-Token: Bearer ${CRTOKEN}"
   # and there may be issues downloading, at least FAQ seems to indicate some people may have. If so, redo above command to continue where failed with added -C - 
 
-  #await @src.crossref.works('') if @params.clear
-  batchsize = 30000
-  fn = @S.directory + '/imports/crossref/all.json.tar.gz'
+  started = await @epoch()
+  last = 0
+
+  if @params.clear
+    await @src.crossref.works ''
+    map = {properties: {}} # add any specific field mappings necessary to avoid collisions e.g. assertion.value can be text or date or number etc, so force to text
+    map.properties.assertion = { # note whole object has to be provided otherwise updating mapping with extra values in the object (or saving a record with extra values) overwrites it
+      "properties": {
+        "URL": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256
+            }
+          }
+        },
+        "explanation": {
+          "properties": {
+            "URL": {
+              "type": "text",
+              "fields": {
+                "keyword": {
+                  "type": "keyword",
+                  "ignore_above": 256
+                }
+              }
+            }
+          }
+        },
+        "group": {
+          "properties": {
+            "label": {
+              "type": "text",
+              "fields": {
+                "keyword": {
+                  "type": "keyword",
+                  "ignore_above": 256
+                }
+              }
+            },
+            "name": {
+              "type": "text",
+              "fields": {
+                "keyword": {
+                  "type": "keyword",
+                  "ignore_above": 256
+                }
+              }
+            }
+          }
+        },
+        "label": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256
+            }
+          }
+        },
+        "name": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256
+            }
+          }
+        },
+        "order": {
+          "type": "long"
+        },
+        "value": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256
+            }
+          }
+        }
+      }
+    }
+    await @src.crossref.works.mapping map
+  else
+    try last = (await @src.crossref.works 'srcfile:*', size: 1, sort: srcfile: 'desc').srcfile
+
+  fn = @S.directory + '/import/crossref/all.json.tar.gz'
+  try
+    stats = await fs.stat fn # check if file exists in async fs promises which does not have .exists
+  catch
+    console.log 'crossref downloading snapshot'
+    hds = {}
+    hds['Crossref-Plus-API-Token'] = 'Bearer ' + @S.crossref
+    resp = await fetch 'https://api.crossref.org/snapshots/monthly/latest/all.json.tar.gz', headers: hds
+    wstr = fs.createWriteStream fn
+    await new Promise (resolve, reject) =>
+      resp.body.pipe wstr
+      resp.body.on 'error', reject
+      wstr.on 'finish', resolve
+    console.log 'snapshot downloaded'
+
   total = 0
-  batch = []
+  srcfile = 0
   lines = ''
-  for await line from readline.createInterface input: fs.createReadStream(fn).pipe zlib.createGunzip()
+  complete = false
+
+  '''for await line from readline.createInterface input: fs.createReadStream(fn).pipe zlib.createGunzip()
+    if not line.startsWith(' ') and line.endsWith('{') and line.includes('.json') and not isNaN (scf = parseInt line.split('.json')[0].replace(/[^0-9]/g, ''))
+      console.log total, srcfile, scf, lines.length
+      if lines.length
+        # on large file readline streams across multiple hours, definitely saw this issue. Not sure why pause/resume would help in this context, but trying it anyway
+        # https://github.com/nodejs/node/issues/42454
+        # https://stackoverflow.com/questions/71588045/javascript-async-sleep-function-somehow-leads-to-silent-exiting-of-program/71589103#71589103
+        # lr.pause() # did not make any difference
+        await _batch()
+        #lr.resume()
+      srcfile = scf
+      lines = '{'
+    else
+      lines += line
+  await _batch(true) if lines.length or batch.length'''
+
+  strm = fs.createReadStream(fn).pipe zlib.createGunzip()
+  prevline = ''
+  strm.on 'data', (chunk) =>
+    line = chunk.toString 'utf8'
     lines += line
-    console.log lines
-    if lines.endsWith('}\n')
-      rec = JSON.parse lines #(lines).items
-      total += 1
-      #rec = await @src.crossref.works._format rec
-      #rec.srcfile = filenumber
-      #batch.push rec
-      lines = ''
-      
-      if batch.length is batchsize
-        console.log 'Crossref plus load ' + total
-        await @src.crossref.works batch
-        batch = []
+    if (prevline + line).includes '\n  "items" : [' # just a shorter space to check than all of lines, and use prevline just in case the inclusion criteria straddled a chunk
+      while lines.includes '\n  "items" : ['
+        [lp, lines] = lines.replace('\n  "items" : [', 'X0X0X0X0X0X0X0X0X0X0X0').split('X0X0X0X0X0X0X0X0X0X0X0') # cheap split on first occurrence
+        if lp.includes '\n  } ]'
+          lps = lp.split('\n  } ]')
+          scf = parseInt lps.pop().split('.json')[0].replace(/[^0-9]/g, '')
+          if srcfile < last
+            console.log 'crossref plus load waiting for file', srcfile, last
+          else
+            recs = []
+            for rec in rp = JSON.parse '[' + lps.join(']') + '}]'
+              rec = await @src.crossref.works._format rec
+              if rec?.DOI
+                rec.srcfile = srcfile
+                recs.push rec
+            console.log 'crossref plus load', rp.length, recs.length
+            total += recs.length
+            await @src.crossref.works(recs) if recs.length
 
-  await @src.crossref.works(batch) if batch.length
+          srcfile = scf
+    prevline = line
 
-  console.log total
+  strm.on 'error', (err) => console.log 'crossref plus load file stream error', JSON.stringify err
+  strm.on 'end', () =>
+    console.log 'stream complete for crossref plus load'
+    complete = true
+  while not complete
+    console.log 'crossref plus load streaming file', lines.length, srcfile, total, Math.floor((Date.now()-started)/1000/60) + 'm'
+    await @sleep 30000
+  ended = Date.now()
+  console.log 'crossref plus load complete', srcfile, total, started, ended, Math.floor((ended-started)/1000/60) + 'm'
   return total
 
+P.src.crossref.plus.load._log = false
 P.src.crossref.plus.load._bg = true
 P.src.crossref.plus.load._async = true
-P.src.crossref.plus.load._auth = 'root'
+#P.src.crossref.plus.load._auth = 'root'

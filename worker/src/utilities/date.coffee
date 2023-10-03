@@ -43,6 +43,8 @@ P.dateparts = (d) ->
     o.month = '0' + o.month if o.month.length is 1
     o.year = o.year.toString()
     o.year = (if parseInt(o.year) < 30 then '20' else '19' + o.year) if o.year.length is 2
+    o.day = '30' if o.day is '31' and o.month in ['04', '06', '09', '11'] # for example pubmed xml was seen to have dates of 31st April, etc
+    o.day = '28' if o.month is '02' and (o.day in ['30', '31'] or (o.day is '29' and parseInt(o.year) % 4))
     o.date = o.year + '-' + o.month + '-' + o.day # allow for formatting option to be passed in?
     try o.timestamp = await @epoch o.date
   return o

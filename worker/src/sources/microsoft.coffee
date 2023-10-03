@@ -25,6 +25,7 @@ P.src.microsoft.bing = (q, key, market, count, cache) ->
 P.src.microsoft.bing._auth = '@oa.works'
 
 
+'''
 P.src.microsoft.graph = _prefix: false, _index: settings: number_of_shards: 9
 P.src.microsoft.graph.journal = _prefix: false, _index: true
 P.src.microsoft.graph.author = _prefix: false, _index: settings: number_of_shards: 9
@@ -120,8 +121,8 @@ P.src.microsoft.load = (kinds) ->
   # paper URLs PaperId is supposedly a Primary Key but there are clearly many more of them than Papers...
   # of other files not listed here yet: 1726140322 paper references
   # of about 49k journals about 9 are dups, 37k have ISSN. 32k were already known from other soruces. Of about 250m papers, about 99m have DOIs
-  infolder = @S.directory + '/mag/2021-04-26/' # where the lines should be read from
-  lastfile = @S.directory + '/mag/last' # prefix of where to record the ID of the last item read from the kind of file
+  infolder = @S.directory + '/import/mag/2021-04-26/' # where the lines should be read from
+  lastfile = @S.directory + '/import/mag/last' # prefix of where to record the ID of the last item read from the kind of file
   
   total = 0
   blanks = 0
@@ -258,4 +259,4 @@ P.src.microsoft.load = (kinds) ->
 P.src.microsoft.load._bg = true
 P.src.microsoft.load._async = true
 P.src.microsoft.load._auth = 'root'
-
+'''

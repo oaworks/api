@@ -92,14 +92,19 @@ server = http.createServer (req, res) ->
     res.writeHead 405, headers # where would these be in a Response object from P?
     res.end '405'
 
-S.port ?= if S.dev then 4000 else 3000
-pen = process.env.name
 pmid = process.env.pm_id
-S.port += if pen.endsWith('_async') then 1 else if pen.endsWith('_loop') then 2 else if pen.endsWith('_schedule') then 3 else 0
-for k, v of (S.async_runner ? {})
-  if pen.endsWith k.replace /\./g, '_'
-    S.port = parseInt v.replace('http://', '').replace('https://', '').split(':')[1]
-    break
+pmid = parseInt(pmid) if pmid? and typeof pmid isnt 'number'
+S.port = (if S.dev then 4000 else 3000) + 110 + pmid if not S.port? and pmid? and pmid isnt 0
+S.port ?= if S.dev then 4000 else 3000
+#try process.env[k] = v for k, v of JSON.parse (process.env.env ? {}) # note process env vars appear to always be strings, not numbers
+if process.env.port
+  S.port = if typeof process.env.port is 'number' then process.env.port else parseInt process.env.port
+else if pen = process.env.name
+  S.port += if pen.endsWith('_async') then 1 else if pen.endsWith('_loop') then 2 else if pen.endsWith('_schedule') then 3 else 0
+  for k, v of (S.async_runner ? {})
+    if pen.endsWith k.replace /\./g, '_'
+      S.port = parseInt v.replace('http://', '').replace('https://', '').split(':')[1]
+      break
 server.listen S.port, 'localhost'
 
 fetch 'http://localhost:' + S.port + '/status'

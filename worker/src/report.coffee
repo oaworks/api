@@ -13,9 +13,11 @@ _processed_batch = []
 _processed_batch_last = Date.now()
 
 P.report.queued = _index: true, _auth: '@oa.works'
-P.report.queue = (doi) ->
-  doi ?= @params.queue
-  _queue_batch.push(doi) if doi and typeof doi is 'string' and doi.startsWith('10.') and doi not in _queue_batch
+P.report.queue = (dois, ol, refresh, everything) ->
+  dois ?= @params.queue
+  for doi in (if not Array.isArray(dois) then [dois] else dois)
+    doi = doi.DOI if typeof doi is 'object'
+    _queue_batch.push(doi) if doi and typeof doi is 'string' and doi.startsWith('10.') and doi not in _queue_batch
   if _queue_batch.length > 2000 or Date.now() > (_queue_batch_last + 15000)
     batch = []
     batch.push(_id: d, DOI: d, createdAt: Date.now()) while d = _queue_batch.shift()
@@ -32,7 +34,7 @@ P.report.doqueue = (doi) ->
   doi ?= @params.doqueue
   if not doi?
     if not _do_batch.length
-      q = await @report.queued '*', size: 100, sort: createdAt: 'asc' # if running more than one queue processor, this will need a better approach
+      q = await @report.queued '*', size: 100, sort: createdAt: 'desc' # if running more than one queue processor, this will need a better approach
       await @sleep(1000) if not q?.hits?.total
       _do_batch.push(qd._source.DOI) for qd in (q?.hits?.hits ? [])
     doi = _do_batch.shift()
@@ -119,7 +121,7 @@ P.report.dev2live = (reverse) ->
   return counter
 P.report.dev2live._async = true
 P.report.dev2live._bg = true
-P.report.dev2live._auth = 'root'
+#P.report.dev2live._auth = 'root'
 
 P.report.live2dev = () ->
   return @report.dev2live true
@@ -469,15 +471,16 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced) ->
         rec.replaces.push DOI: ud.DOI, type: ud.type, updated: ud.updated?.timestamp
         await @report.works(ud.DOI, '') if ude = await @report.works ud.DOI
         _rsup(sup, ud.DOI) for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'DOI.keyword:"' + ud.DOI + '"'
-    for rr in (cr.relation?['is-same-as'] ? [])
-      if rr['id-type'] is 'doi' and rr.id isnt cr.DOI and rr.id isnt replaced and newer = await @src.crossref.works rr.id # crossref is capable of saying a DOI is the same as another DOI that does not exist in crossref
-        _rsup(sup, rr.id) for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'DOI.keyword:"' + cr.DOI + '"'
+    for rtype in ['is-same-as', 'is-version-of'] # has-version
+      for rr in (cr.relation?[rtype] ? [])
+        if rr['id-type'] is 'doi' and rr.id isnt cr.DOI and rr.id isnt replaced and newer = await @src.crossref.works rr.id # crossref is capable of saying a DOI is the same as another DOI that does not exist in crossref
+          _rsup(sup, rr.id) for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'DOI.keyword:"' + cr.DOI + '"'
     await @report.orgs.supplements(brd) if brd.length
     if newer?
       return @report.works.process newer, openalex, refresh, everything, cr.DOI
     if replaced # if this was passed in by a secondary call to process
       rec.replaces ?= []
-      rec.replaces.push DOI: replaced, type: 'relation.is-same-as'
+      rec.replaces.push DOI: replaced, type: 'relation'
 
   if openalex?
     rec ?= {}
@@ -651,8 +654,8 @@ P.report.works.load = (timestamp, org, dois, year, refresh, supplements, everyth
 
   await @report.works('') if refresh
 
-  batch = []
-  batchsize = 2000
+  #batch = []
+  #batchsize = 2000
   bt = 0
   total = 0
   cc = []
@@ -665,7 +668,9 @@ P.report.works.load = (timestamp, org, dois, year, refresh, supplements, everyth
       ol = cr
       cr = undefined
     if cr? or ol?
-      prc = await @report.works.process cr, ol, (timestamp ? refresh), everything
+      await @report.queue cr, ol, (timestamp ? refresh), everything # TODO update report.queue to handle params
+      total += 1
+      '''prc = await @report.works.process cr, ol, (timestamp ? refresh), everything
       if prc?._id?
         batch.push prc
         total += 1
@@ -675,7 +680,7 @@ P.report.works.load = (timestamp, org, dois, year, refresh, supplements, everyth
       if batch.length is batchsize
         await @report.works batch
         batch = []
-        console.log 'report works load', total, bt, (if dois then dois.length else undefined), await @epoch() - started
+        console.log 'report works load', total, bt, (if dois then dois.length else undefined), await @epoch() - started'''
 
   if @params.load is 'supplements'
     dois ?= []
@@ -733,7 +738,7 @@ P.report.works.load = (timestamp, org, dois, year, refresh, supplements, everyth
 
     if timestamp
       for await crt from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'orgs:* AND updated:<' + timestamp, scroll: '10m'
-        await _batch(crt) if updated = await @src.crossref.works 'DOI:"' + crt.DOI + '" AND srcday:>' + timestamp
+        await _batch(crt.DOI) if updated = await @src.crossref.works.count 'DOI:"' + crt.DOI + '" AND srcday:>' + timestamp
     
 
   await @report.works(batch) if batch.length
@@ -907,6 +912,25 @@ P.report.fixtitle._bg = true
 P.report.fixtitle._async = true
 P.report.fixtitle._auth = '@oa.works'
 
+
+
+'''P.reloads = ->
+  for idx in ['paradigm_b_users', 'paradigm_b_report_orgs_orgkeys', 'paradigm_users', 'paradigm_report_orgs_orgkeys', 'paradigm_deposits', 'paradigm_ills', 'paradigm_svc_rscvd']
+    total = 0
+    batch = []
+    pre = ''
+    for await line from readline.createInterface input: fs.createReadStream @S.directory + '/import/export_' + idx + '.jsonl'
+      if line.endsWith '}'
+        batch.push JSON.parse pre + line
+        pre = ''
+        total += 1
+      else
+        pre += line
+    await @index._bulk(idx, batch, undefined, undefined, false) if batch.length
+    console.log idx, 'reloaded', total
+  return true
+P.reloads._bg = true
+P.reloads._async = true'''
 
 
 '''

@@ -173,7 +173,7 @@ P.src.pubmed.load = (changes) ->
   # didn't seem much faster, so now set to do whole files as batches with two streamers at a time, see how that goes
   changes = true if not changes? and @params.load is 'changes'
   batchsize = -1 # how many records to batch upload at a time
-  streamers = @params.streamers ? 2 # how many files to stream at a time
+  streamers = @params.streamers ? 3 # how many files to stream at a time
   howmany = @params.howmany ? -1 # max number of lines to process. set to -1 to keep going...
 
   await @src.pubmed('') if @refresh and not changes
@@ -373,7 +373,7 @@ P.src.pubmed.load = (changes) ->
     if running < streamers
       running += 1
       nf = fls.shift()
-      await _loop nf
+      _loop nf
 
   console.log total, fls.length
 
@@ -381,7 +381,7 @@ P.src.pubmed.load = (changes) ->
 
 P.src.pubmed.load._bg = true
 P.src.pubmed.load._async = true
-P.src.pubmed.load._auth = 'root'
+#P.src.pubmed.load._auth = 'root'
 
 
 P.src.pubmed.changes = () ->
@@ -389,6 +389,6 @@ P.src.pubmed.changes = () ->
 
 P.src.pubmed.changes._bg = true
 P.src.pubmed.changes._async = true
-P.src.pubmed.changes._auth = 'root'
+P#.src.pubmed.changes._auth = 'root'
 P.src.pubmed.changes._notify = false
 

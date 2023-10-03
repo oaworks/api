@@ -16,9 +16,9 @@ S.version ?= '6.1.0' # the construct script will use this to overwrite any versi
 # S.pass can be set to false if there is a bg URL but worker errors should NOT pass through on exception to it (otherwise they will by default)
 S.pass = ['docs', 'client', '.well-known'] # if this is a list of strings, any route starting with these will throw error and pass back to bg (this would happen anyway with no function defined for them, but this avoids unnecessary processing)
 S.dev ?= true
-try S.async = true if process.env.name.endsWith '_async' # optional setting defining a URL to an async worker to pass requests to
-try S.async_loop = true if process.env.name.endsWith '_loop' # additional setting defining a URL to pass async looped scheduled requests to
-try S.async_schedule = true if process.env.name.endsWith '_schedule' # additional setting defining a URL to pass async scheduled requests to (including looped ones, if async_loop is not set)
+try S.async = true if process.env.name and process.env.name.endsWith '_async' # optional setting defining a URL to an async worker to pass requests to
+try S.async_loop = true if process.env.name and process.env.name.endsWith '_loop' # additional setting defining a URL to pass async looped scheduled requests to
+try S.async_schedule = true if process.env.name and process.env.name.endsWith '_schedule' # additional setting defining a URL to pass async scheduled requests to (including looped ones, if async_loop is not set)
 S.headers ?=
   'Access-Control-Allow-Methods': 'HEAD, GET, PUT, POST, DELETE, OPTIONS'
   'Access-Control-Allow-Origin': '*'
@@ -255,7 +255,7 @@ P = () ->
             return () =>
               fno = _schedule[fnm].fn
               aru = @S.async_runner?[fno._runner ? fnm]
-              if @S.dev isnt true and not @S.async and not @S.async_loop and not @S.async_schedule and process.env.pm_id not in [1, '1']
+              if @S.dev isnt true and not @S.async and not @S.async_loop and not @S.async_schedule and process.env.pm_id? and process.env.pm_id not in [1, '1']
                 console.log 'NOT running scheduled task because not on dev and process pid is not 1', fnm, @datetime()
               else if typeof aru isnt 'string' and not @S.async_schedule and typeof @S.async is 'string'
                 console.log 'NOT running scheduled task because not on the available async process', fnm, @datetime()
@@ -263,7 +263,7 @@ P = () ->
                 console.log 'NOT running scheduled task because not on the available async scheduled process', fnm, @datetime()
               else if typeof aru isnt 'string' and typeof @S.async_loop is 'string' and fno._schedule is 'loop'
                 console.log 'NOT running scheduled looped task because not on the available loop process', fnm, @datetime()
-              else if typeof aru is 'string' and not process.env.name.endsWith (fno._runner ? fnm).replace /\./g, '_'
+              else if typeof aru is 'string' and process.env.name and not process.env.name.endsWith (fno._runner ? fnm).replace /\./g, '_'
                 console.log 'NOT running scheduled task because not on the specified process runner', (fno._runner ? fnm), @datetime()
               else
                 console.log 'scheduled task', fnm, @datetime()
@@ -313,7 +313,7 @@ P = () ->
 
   if typeof fn in ['object', 'function'] and fn._bg and typeof @S.bg is 'string' and @S.bg.startsWith 'http'
     throw new Error()
-  else if typeof fn in ['object', 'function'] and fn._async and typeof @S.async is 'string' and (typeof @S.async_runner?[fn._runner ? @fn] isnt 'string' or not process.env.name.endsWith (fn._runner ? @fn).replace /\./g, '_' )
+  else if typeof fn in ['object', 'function'] and fn._async and typeof @S.async is 'string' and (typeof @S.async_runner?[fn._runner ? @fn] isnt 'string' or not process.env.name or not process.env.name.endsWith (fn._runner ? @fn).replace /\./g, '_' )
     asr = @S.async_runner?[fn._runner ? @fn] ? @S.async
     console.log 'Fetching from async process', asr, @request.url
     res = await @fetch asr + @request.url, method: @request.method, headers: @headers, body: @request.body
@@ -781,7 +781,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
         res = await _as rt, f, arguments
 
     # _log
-    if f._log isnt false
+    if f._log isnt false and not n.includes '._'
       lg.took = Date.now() - started
       @log lg
 
