@@ -43,16 +43,15 @@ P.src.openalex.works._format = (rec) ->
   try delete rec.abstract_inverted_index
   return rec
 
-P.src.openalex.works.doi = (doi) ->
+P.src.openalex.works.doi = (doi, refresh) ->
   doi ?= @params.doi
-  if not found = await @src.openalex.works 'ids.doi:"https://doi.org/' + doi + '"', 1
+  refresh ?= @params.refresh
+  if refresh or not found = await @src.openalex.works 'ids.doi:"https://doi.org/' + doi + '"', 1
     if found = await @fetch 'https://api.openalex.org/works/https://doi.org/' + doi + (if @S.src.openalex?.apikey then '?api_key=' + @S.src.openalex.apikey else '')
       if found.id
         found = await @src.openalex.works._format found
         @waitUntil @src.openalex.works found
   return found
-
-
 
 P.src.openalex.load = (what, changes, clear, sync, last) ->
   what ?= @params.load ? @params.openalex ? 'works'

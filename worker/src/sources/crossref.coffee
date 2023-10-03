@@ -312,6 +312,7 @@ P.src.crossref.changes = (startday, endday, created) ->
 
   batchsize = 10000
   dn = endday ? Date.now()
+  dn = await @epoch await @date dn
   loaded = 0
   days = 0
   batch = []

@@ -1043,7 +1043,7 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
                   await this.mail({
                     to: nfeml,
                     subject: 'Your export has started (ref: ' + flid + '.csv)',
-                    text: 'Your export has started. You can download the file any time, it will keep growing until it is complete, when you will get another notification.<br><br><a href="' + eurl + '">Download csv</a><br><br>Thanks'
+                    text: 'Your export has started. You can download the file any time, it will keep growing until it is complete, when you will get another notification.<br><br><a href="' + eurl + '">Download CSV</a><br><br>Thanks'
                   });
                 }
                 _makecsv = async(rt, qry, out, keys, notify, eurl, pfs, pok) => {
@@ -1191,7 +1191,7 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
                     return (await this.mail({
                       to: notify,
                       subject: 'Your export is complete (ref: ' + out.split('/').pop() + ')',
-                      text: 'Your export is complete. We recommend you download and store files elsewhere as soon as possible as we may delete this file at any time.<br><br><a href="' + eurl + '">Download csv</a>\n\nThanks'
+                      text: 'Your export is complete. We recommend you download and store files elsewhere as soon as possible as we may delete this file at any time.<br><br><a href="' + eurl + '">Download CSV</a><br><br>Thanks'
                     }));
                   }
                 };
@@ -6726,64 +6726,142 @@ P.report.fixmedline._bg = true
 P.report.fixmedline._async = true
 P.report.fixmedline._auth = '@oa.works'`;
 
-P.report.fixtitle = async function() {
-  var alpha, batch, checked, cr, fixes, j, len, oadoi, openalex, rec, ref, ref1;
+`P.report.fixtitle = ->
+  fixes = 0
+  checked = 0
+  batch = []
+  for alpha in 'abcdefghijklmnopqrstuvwxyz'.split ''
+    for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'title.keyword:"' + alpha + '" OR title.keyword:"' + alpha.toUpperCase() + '"', scroll: '30m'
+      checked += 1
+      console.log('fix title checked', alpha, checked, fixes) if checked % 1000 is 0
+      if rec.title.length is 1
+        if oadoi = await @src.oadoi rec.DOI
+          rec.title = oadoi.title if oadoi.title
+        if rec.title.length is 1 and openalex = await @src.openalex.works rec.DOI
+          rec.title = openalex.title if openalex.title
+        if rec.title.length is 1 and cr = await @src.crossref.works rec.DOI
+          rec.title = cr.title if cr.title
+          rec.title = rec.title[0] if typeof rec.title isnt 'string'
+        if rec.title.length isnt 1
+          fixes += 1
+          batch.push rec
+        if batch.length is 20000
+          await @report.works batch
+          batch = []
+  if batch.length
+    await @report.works batch
+  console.log 'fix title completed with', checked, fixes
+  return fixes
+P.report.fixtitle._bg = true
+P.report.fixtitle._async = true
+P.report.fixtitle._auth = '@oa.works'`;
+
+P.report.fixcroa = async function() {
+  var batch, checked, cr, fixes, rec, ref;
   fixes = 0;
   checked = 0;
   batch = [];
-  ref = 'abcdefghijklmnopqrstuvwxyz'.split('');
-  for (j = 0, len = ref.length; j < len; j++) {
-    alpha = ref[j];
-    ref1 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', 'title.keyword:"' + alpha + '" OR title.keyword:"' + alpha.toUpperCase() + '"', {
-      scroll: '30m'
-    });
-    for await (rec of ref1) {
-      checked += 1;
-      if (checked % 1000 === 0) {
-        console.log('fix title checked', alpha, checked, fixes);
+  ref = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', 'crossref_is_oa:true', {
+    scroll: '30m'
+  });
+  for await (rec of ref) {
+    checked += 1;
+    if (checked % 100 === 0) {
+      console.log('fix crossref is OA checked', checked, fixes);
+    }
+    if (cr = (await this.src.crossref.works(rec.DOI))) {
+      if (cr.is_oa !== true) {
+        fixes += 1;
+        rec.crossref_is_oa = false;
+        batch.push(rec);
       }
-      if (rec.title.length === 1) {
-        if (oadoi = (await this.src.oadoi(rec.DOI))) {
-          if (oadoi.title) {
-            rec.title = oadoi.title;
-          }
-        }
-        if (rec.title.length === 1 && (openalex = (await this.src.openalex.works(rec.DOI)))) {
-          if (openalex.title) {
-            rec.title = openalex.title;
-          }
-        }
-        if (rec.title.length === 1 && (cr = (await this.src.crossref.works(rec.DOI)))) {
-          if (cr.title) {
-            rec.title = cr.title;
-          }
-          if (typeof rec.title !== 'string') {
-            rec.title = rec.title[0];
-          }
-        }
-        if (rec.title.length !== 1) {
-          fixes += 1;
-          batch.push(rec);
-        }
-        if (batch.length === 20000) {
-          await this.report.works(batch);
-          batch = [];
-        }
-      }
+    }
+    if (batch.length === 20000) {
+      await this.report.works(batch);
+      batch = [];
     }
   }
   if (batch.length) {
     await this.report.works(batch);
   }
-  console.log('fix title completed with', checked, fixes);
+  console.log('fix crossref is OA completed with', checked, fixes);
   return fixes;
 };
 
-P.report.fixtitle._bg = true;
+P.report.fixcroa._bg = true;
 
-P.report.fixtitle._async = true;
+P.report.fixcroa._async = true;
 
-P.report.fixtitle._auth = '@oa.works';
+P.report.fixcroa._auth = '@oa.works';
+
+P.report.fixtype = async function() {
+  var batch, checked, fixed, fixes, fixols, nol, nool, ol, rec, ref;
+  fixes = 0;
+  fixols = 0;
+  nool = 0;
+  checked = 0;
+  batch = [];
+  ref = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', 'NOT type:*', {
+    scroll: '30m'
+  });
+  for await (rec of ref) {
+    checked += 1;
+    if (checked % 100 === 0) {
+      console.log('fix type checked', checked, fixes, fixols, nool, batch.length);
+    }
+    fixed = false;
+    if (ol = (await this.src.openalex.works(rec.DOI))) {
+      if (ol.type) {
+        fixed = true;
+        fixes += 1;
+        rec.type = ol.type;
+        batch.push(rec);
+      }
+    } else {
+      nool += 1;
+    }
+    if (!fixed && (nol = (await this.src.openalex.works.doi(rec.DOI, true)))) {
+      console.log('report fixtype updated openalex', rec.DOI);
+      fixes += 1;
+      fixols += 1;
+      rec.type = nol.type;
+      batch.push(rec);
+    }
+    if (batch.length === 5000) {
+      await this.report.works(batch);
+      batch = [];
+    }
+  }
+  if (batch.length) {
+    await this.report.works(batch);
+  }
+  console.log('fix type completed with', checked, fixes, fixols, nool);
+  return fixes;
+};
+
+P.report.fixtype._bg = true;
+
+P.report.fixtype._async = true;
+
+P.report.fixtype._auth = '@oa.works';
+
+`P.exports = ->
+for idx in ['paradigm_svc_rscvd']
+  total = 0
+  fdn = @S.directory + '/report/export_' + idx + '.jsonl'
+  try
+    out = await fs.createWriteStream fdn #, 'utf-8'
+    for await o from @index._for idx, undefined, undefined, false
+      await out.write (if total then '\n' else '') + JSON.stringify o
+      total += 1
+      console.log('exporting', total) if total % 1000 is 0
+  catch err
+    console.log 'exports error', JSON.stringify err
+  console.log idx, 'export done', total
+return true
+P.exports._bg = true
+P.exports._async = true
+P.exports._log = false`;
 
 `P.reloads = ->
 for idx in ['paradigm_b_users', 'paradigm_b_report_orgs_orgkeys', 'paradigm_users', 'paradigm_report_orgs_orgkeys', 'paradigm_deposits', 'paradigm_ills', 'paradigm_svc_rscvd']
@@ -7689,6 +7767,7 @@ P.src.crossref.changes = async function(startday, endday, created) {
   searchtype = 'indexed'; //if created then 'created' else 'updated'
   batchsize = 10000;
   dn = endday != null ? endday : Date.now();
+  dn = (await this.epoch((await this.date(dn))));
   loaded = 0;
   days = 0;
   batch = [];
@@ -9422,73 +9501,9 @@ P.src.oadoi.changes._bg = true;
 
 P.src.oadoi.changes._async = true;
 
-//P.src.oadoi.changes._auth = 'root'
+P.src.oadoi.changes._auth = 'root';
+
 P.src.oadoi.changes._notify = false;
-
-P.src.oadoi.reload = async function() {
-  var batch, fl, i, infolder, len, line, ref, ref1, total;
-  if (this.refresh) {
-    await this.src.oadoi('');
-    await this.sleep(10000);
-  }
-  infolder = this.S.directory + '/import/oadoi/';
-  total = 0;
-  batch = [];
-  ref = (await fs.readdir(infolder));
-  for (i = 0, len = ref.length; i < len; i++) {
-    fl = ref[i];
-    console.log('OADOI reload', fl);
-    if (fl.startsWith('year')) {
-      ref1 = readline.createInterface({
-        input: fs.createReadStream(infolder + '/' + fl)
-      });
-      //.pipe zlib.createGunzip()
-      for await (line of ref1) {
-        try {
-          batch.push(JSON.parse(line));
-        } catch (error) {}
-        total += 1;
-        if (batch.length >= 50000) {
-          console.log('OADOI reload', total, batch.length);
-          await this.src.oadoi(batch);
-          batch = [];
-        }
-      }
-    }
-  }
-  if (batch.length) {
-    await this.src.oadoi(batch);
-  }
-  console.log('OADOI reloaded', total);
-  return total;
-};
-
-P.src.oadoi.reload._bg = true;
-
-P.src.oadoi.reload._async = true;
-
-`P.src.oadoi.local = () ->
-batchsize = 50000
-counter = 0
-if @params.local and @params.local.length is 10 and @params.local.split('-').length is 3 and not @params.local.includes '/'
-  fn = @S.directory + '/import/oadoi/' + @params.local + '.jsonl'
-  batch = []
-  for await line from readline.createInterface input: fs.createReadStream fn
-    counter += 1
-    rec = JSON.parse line.trim().replace /\,$/, ''
-    rec._id = rec.doi.replace /\//g, '_'
-    batch.push rec
-    if batch.length >= batchsize
-      await @src.oadoi batch
-      batch = []
-
-  await @src.oadoi(batch) if batch.length
-
-console.log counter
-return counter
-
-P.src.oadoi.local._bg = true
-P.src.oadoi.local._auth = 'root'`;
 
 var base,
   indexOf = [].indexOf;
@@ -9572,12 +9587,15 @@ P.src.openalex.works._format = function(rec) {
   return rec;
 };
 
-P.src.openalex.works.doi = async function(doi) {
+P.src.openalex.works.doi = async function(doi, refresh) {
   var found, ref;
   if (doi == null) {
     doi = this.params.doi;
   }
-  if (!(found = (await this.src.openalex.works('ids.doi:"https://doi.org/' + doi + '"', 1)))) {
+  if (refresh == null) {
+    refresh = this.params.refresh;
+  }
+  if (refresh || !(found = (await this.src.openalex.works('ids.doi:"https://doi.org/' + doi + '"', 1)))) {
     if (found = (await this.fetch('https://api.openalex.org/works/https://doi.org/' + doi + (((ref = this.S.src.openalex) != null ? ref.apikey : void 0) ? '?api_key=' + this.S.src.openalex.apikey : '')))) {
       if (found.id) {
         found = (await this.src.openalex.works._format(found));
@@ -15398,7 +15416,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Mon Oct 02 2023 22:35:37 GMT+0100";
+S.built = "Tue Oct 03 2023 03:45:30 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor

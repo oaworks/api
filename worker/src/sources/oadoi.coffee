@@ -207,52 +207,6 @@ P.src.oadoi.changes = (oldest) ->
 
 P.src.oadoi.changes._bg = true
 P.src.oadoi.changes._async = true
-#P.src.oadoi.changes._auth = 'root'
+P.src.oadoi.changes._auth = 'root'
 P.src.oadoi.changes._notify = false
 
-P.src.oadoi.reload = ->
-  if @refresh
-    await @src.oadoi ''
-    await @sleep 10000
-  infolder = @S.directory + '/import/oadoi/'
-  total = 0
-  batch = []
-  for fl in await fs.readdir infolder
-    console.log 'OADOI reload', fl
-    if fl.startsWith 'year'
-      for await line from readline.createInterface input: fs.createReadStream(infolder + '/' + fl) #.pipe zlib.createGunzip()
-        try batch.push JSON.parse line
-        total += 1
-        if batch.length >= 50000
-          console.log 'OADOI reload', total, batch.length
-          await @src.oadoi batch
-          batch = []
-  await @src.oadoi(batch) if batch.length
-  console.log 'OADOI reloaded', total
-  return total
-P.src.oadoi.reload._bg = true
-P.src.oadoi.reload._async = true
-
-'''P.src.oadoi.local = () ->
-  batchsize = 50000
-  counter = 0
-  if @params.local and @params.local.length is 10 and @params.local.split('-').length is 3 and not @params.local.includes '/'
-    fn = @S.directory + '/import/oadoi/' + @params.local + '.jsonl'
-    batch = []
-    for await line from readline.createInterface input: fs.createReadStream fn
-      counter += 1
-      rec = JSON.parse line.trim().replace /\,$/, ''
-      rec._id = rec.doi.replace /\//g, '_'
-      batch.push rec
-      if batch.length >= batchsize
-        await @src.oadoi batch
-        batch = []
-  
-    await @src.oadoi(batch) if batch.length
-
-  console.log counter
-  return counter
-  
-P.src.oadoi.local._bg = true
-P.src.oadoi.local._auth = 'root'
-'''

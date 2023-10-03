@@ -882,6 +882,8 @@ P.report.fixmedline._async = true
 P.report.fixmedline._auth = '@oa.works'
 '''
 
+
+'''
 P.report.fixtitle = ->
   fixes = 0
   checked = 0
@@ -911,6 +913,84 @@ P.report.fixtitle = ->
 P.report.fixtitle._bg = true
 P.report.fixtitle._async = true
 P.report.fixtitle._auth = '@oa.works'
+'''
+
+P.report.fixcroa = ->
+  fixes = 0
+  checked = 0
+  batch = []
+  for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'crossref_is_oa:true', scroll: '30m'
+    checked += 1
+    console.log('fix crossref is OA checked', checked, fixes) if checked % 100 is 0
+    if cr = await @src.crossref.works rec.DOI
+      if cr.is_oa isnt true
+        fixes += 1
+        rec.crossref_is_oa = false
+        batch.push rec
+    if batch.length is 20000
+      await @report.works batch
+      batch = []
+  if batch.length
+    await @report.works batch
+  console.log 'fix crossref is OA completed with', checked, fixes
+  return fixes
+P.report.fixcroa._bg = true
+P.report.fixcroa._async = true
+P.report.fixcroa._auth = '@oa.works'
+
+P.report.fixtype = ->
+  fixes = 0
+  fixols = 0
+  nool = 0
+  checked = 0
+  batch = []
+  for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'NOT type:*', scroll: '30m'
+    checked += 1
+    console.log('fix type checked', checked, fixes, fixols, nool, batch.length) if checked % 100 is 0
+    fixed = false
+    if ol = await @src.openalex.works rec.DOI
+      if ol.type
+        fixed = true
+        fixes += 1
+        rec.type = ol.type
+        batch.push rec
+    else
+      nool += 1
+    if not fixed and nol = await @src.openalex.works.doi rec.DOI, true
+      console.log 'report fixtype updated openalex', rec.DOI
+      fixes += 1
+      fixols += 1
+      rec.type = nol.type
+      batch.push rec
+    if batch.length is 5000
+      await @report.works batch
+      batch = []
+  if batch.length
+    await @report.works batch
+  console.log 'fix type completed with', checked, fixes, fixols, nool
+  return fixes
+P.report.fixtype._bg = true
+P.report.fixtype._async = true
+P.report.fixtype._auth = '@oa.works'
+
+
+'''P.exports = ->
+  for idx in ['paradigm_svc_rscvd']
+    total = 0
+    fdn = @S.directory + '/report/export_' + idx + '.jsonl'
+    try
+      out = await fs.createWriteStream fdn #, 'utf-8'
+      for await o from @index._for idx, undefined, undefined, false
+        await out.write (if total then '\n' else '') + JSON.stringify o
+        total += 1
+        console.log('exporting', total) if total % 1000 is 0
+    catch err
+      console.log 'exports error', JSON.stringify err
+    console.log idx, 'export done', total
+  return true
+P.exports._bg = true
+P.exports._async = true
+P.exports._log = false'''
 
 
 
