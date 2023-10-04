@@ -207,6 +207,7 @@ P.src.oadoi.changes = (oldest) ->
 
 P.src.oadoi.changes._bg = true
 P.src.oadoi.changes._async = true
+P.src.oadoi.changes._log = false
 P.src.oadoi.changes._auth = 'root'
 P.src.oadoi.changes._notify = false
 

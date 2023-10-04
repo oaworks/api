@@ -81,4 +81,5 @@ P.src.google.sheets = (opts) ->
     return values
 
 P.src.google.sheets._bg = true
+P.src.google.sheets._log = false
 
