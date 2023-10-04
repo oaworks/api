@@ -169,7 +169,7 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref, best) -> # oadoi and cross
       indoaj = rec if not indoaj
       issns.push(rec.bibjson.pissn) if rec.bibjson.pissn not in issns
       issns.push(rec.bibjson.eissn) if rec.bibjson.eissn not in issns
-    if not indoaj?
+    if false #not indoaj?
       nisns = []
       for await rec from @index._for 'src_openalex_venues', 'issn:"' + issns.join('" OR issn:"') + '"'
         for en in rec.issn
