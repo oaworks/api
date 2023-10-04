@@ -202,14 +202,14 @@ P.src.openalex.changes = (what, last) ->
               if w is 'works'
                 rec = await @src.openalex.works._format rec
 
-                '''if rec._id.startsWith('10.') and rec.authorships? and rec.publication_year in ['2023', '2022'] #, '2021', '2020']
+                if rec._id.startsWith('10.') and rec.authorships? and rec.publication_year in ['2023', '2022', 2023, 2022]
                   doq = false
                   for a in rec.authorships
                     break if doq
                     for i in (a.institutions ? [])
                       break if doq
                       doq = rec._id if i.display_name?
-                  try await @report.queue(doq) if doq''' # but may need to push this to the right worker process?
+                  try await @report.queue(doq) if doq
 
               batch.push rec
             
@@ -235,6 +235,7 @@ P.src.openalex.changes = (what, last) ->
   console.log 'Openalex changes changed', total
   return total
 
+P.src.openalex.changes._log = false
 P.src.openalex.changes._bg = true
 P.src.openalex.changes._async = true
 #P.src.openalex.changes._auth = 'root'

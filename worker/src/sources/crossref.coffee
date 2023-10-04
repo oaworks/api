@@ -292,7 +292,7 @@ P.src.crossref.changes = (startday, endday, created) ->
   if not startday
     try
       last = await @src.crossref.works 'srcday:*', size: 1, sort: srcday: 'desc'
-      startday = last.srcday
+      startday = last.srcday + 86400000
       console.log 'Crossref changes start day set from latest record srcday', await @date startday
   if not startday
     try
@@ -316,14 +316,14 @@ P.src.crossref.changes = (startday, endday, created) ->
   loaded = 0
   days = 0
   batch = []
-  retries = 0
-  while startday < dn and retries < 3
+  while startday < dn
     console.log 'Crossref changes', startday, days
     cursor = '*' # set a new cursor on each index day query
     days += 1
     totalthisday = false
     fromthisday = 0
-    while totalthisday is false or fromthisday < totalthisday
+    retries = 0
+    while retries < 3 and (totalthisday is false or fromthisday < totalthisday)
       await @sleep 500
       thisdays = await @src.crossref.works.search undefined, cursor, 1000, searchtype, startday, startday # using same day for crossref API gets that whole day
       if not thisdays?.data
@@ -336,6 +336,20 @@ P.src.crossref.changes = (startday, endday, created) ->
           fr.srcday = startday
           batch.push fr
           loaded += 1
+
+          if (rec.funder? or rec.author?) and rec.year in ['2023', '2022', 2023, 2022]
+            doq = false
+            for f in (rec.funder ? [])
+              break if doq
+              doq = rec.DOI if f.name?
+            if not doq
+              for a in (rec.author ? [])
+                break if doq
+                for af in (a.affiliation ? [])
+                  break if doq
+                  doq = rec.DOI if af.name?
+            try await @report.queue(doq) if doq
+
         if batch.length >= batchsize
           console.log 'Crossref bulk load', startday, days, totalthisday, fromthisday, loaded
           await @src.crossref.works batch
@@ -354,7 +368,8 @@ P.src.crossref.changes = (startday, endday, created) ->
 
 P.src.crossref.changes._bg = true
 P.src.crossref.changes._async = true
-#P.src.crossref.changes._auth = 'root'
+P.src.crossref.changes._log = false
+P.src.crossref.changes._auth = 'root'
 P.src.crossref.changes._notify = false
 
 

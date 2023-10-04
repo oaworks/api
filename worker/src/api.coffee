@@ -763,7 +763,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
           @waitUntil(@index(rt + id, r)) if f._index
         if f._limit is true
           await @kv 'limit/' + nn, '' # where limit is true only delay until function completes, then delete limit record
-        if f._async
+        if f._async and f._schedule isnt 'loop'
           @kv 'async/' + @rid, (if id? and not Array.isArray(r) then rt + id else if Array.isArray(r) then r.length else r), 172800 # lasts 48 hours
           if @fn is nn and f._notify isnt false
             txt = @fn + ' done at ' + (await @datetime undefined, false) + '\n\n' + JSON.stringify(r) + '\n\n' + @base + '/' + rt + '?_async=' + @rid
@@ -781,7 +781,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
         res = await _as rt, f, arguments
 
     # _log
-    if f._log isnt false and not n.includes '._'
+    if f._log isnt false and not f._index and not lg.qry? and not n.includes '._'
       lg.took = Date.now() - started
       @log lg
 
