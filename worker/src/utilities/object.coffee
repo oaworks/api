@@ -18,6 +18,7 @@ P.copy = (obj) ->
     return res
   catch
     return'''
+P.copy._log = false
 
 P.dot = (o, k, v, d, ae) -> # ae will attempt to recurse into the last object element of an array rather than return undefined for failing to match a key on the list element
   if typeof k is 'string'
@@ -53,7 +54,7 @@ P.dot = (o, k, v, d, ae) -> # ae will attempt to recurse into the last object el
         return P.dot o[o.length-1][k[0]], k.slice(1), v, d, ae
       else
         return P.dot o[k[0]], k.slice(1), v, d, ae
-      
+P.dot._log = false
 
 P.flatten = (obj, arrayed) ->
   arrayed ?= @params.arrayed ? false # arrayed puts objects in arrays at keys like author.0.name Whereas not arrayed shoves them all in one author.name (which means some that don't have the value could cause position mismatch in lists)

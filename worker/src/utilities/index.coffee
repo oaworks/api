@@ -760,6 +760,9 @@ P.index._send = (route, data, method, prefix, alias) ->
     # see hits.total https://www.elastic.co/guide/en/elasticsearch/reference/current/breaking-changes-7.0.html
     route += (if route.indexOf('?') is -1 then '?' else '&') + 'rest_total_hits_as_int=true'
 
+  if route.includes('/_doc/') and route.split('/_doc/')[1].includes('%') # fix for messy DOIs as IDs like '10.1002_(sici)1097-4644(19960601)61%3A3%253c452%3A%3Aaid-jcb12%253e3.0.co%3B2-l'
+    route = route.split('/_doc/')[0] + '/_doc/' + encodeURIComponent route.split('/_doc/')[1]
+
   #if @S.dev and @S.bg is true and not data?.query? and not route.includes('/_doc/') and (method is 'DELETE' or not route.includes '_search/scroll')
   #  console.log 'INDEX', method, route
     #console.log method(JSON.stringify(if Array.isArray(data) and data.length then data[0] else data).substr(0, 3000)) if data
