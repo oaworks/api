@@ -9,10 +9,11 @@ _queue_batch = []
 _queue_batch_last = Date.now()
 _do_batch = []
 _done_batch = []
+_processing_dois = []
 _processed_batch = []
 _processed_batch_last = Date.now()
 
-P.report.queued = _index: true, _auth: '@oa.works'
+P.report.queued = _index: true #, _auth: '@oa.works'
 P.report.queue = (dois, ol, refresh, everything) ->
   dois ?= @params.queue
   for doi in (if not Array.isArray(dois) then [dois] else dois)
@@ -25,8 +26,8 @@ P.report.queue = (dois, ol, refresh, everything) ->
     _queue_batch_last = Date.now()
   return
     queue: _queue_batch.length
-    queue_last: await @datetime _queue_batch_last
-    processed_last: await @datetime _processed_batch_last
+    #queue_last: await @datetime _queue_batch_last
+    #processed_last: await @datetime _processed_batch_last
     #queued: await @report.queued.count()
 P.report.queue._log = false
 P.report.queue._auth = '@oa.works'
@@ -35,16 +36,20 @@ P.report.doqueue = (doi) ->
   doi ?= @params.doqueue
   if not doi?
     if not _do_batch.length
-      q = await @report.queued '*', size: 100, sort: createdAt: 'asc' # if running more than one queue processor, this will need a better approach
-      await @sleep(1000) if not q?.hits?.total
+      q = await @report.queued '*', size: 2000, sort: createdAt: 'desc' # if running more than one queue processor, this will need a better approach
+      if not q?.hits?.total and not _queue_batch.length
+        console.log 'no queued records to process, waiting 5s...'
+        await @sleep 5000
       _do_batch.push(qd._source.DOI) for qd in (q?.hits?.hits ? [])
     doi = _do_batch.shift()
-  console.log 'report doqueue', doi
-  if typeof doi is 'string' and doi.startsWith '10.'
-    res = await @report.works.process doi
-    _done_batch.push doi
-    _processed_batch.push(res) if res?._id?
-  if _processed_batch.length > 2000 or Date.now() > (_processed_batch_last + 15000)
+  console.log 'report doqueue', doi, _done_batch.length, _processed_batch.length, _processing_dois, _processing_dois.length
+  if typeof doi is 'string' and doi.startsWith('10.') and doi not in _processing_dois and doi not in _done_batch
+    await @sleep 10
+    while _processing_dois.length >= 3
+      await @sleep 500
+    _processing_dois.push doi
+    @report.works.process doi, undefined, undefined, undefined, undefined, doi
+  if _processed_batch.length >= 2000 or Date.now() > (_processed_batch_last + 15000) or (_processing_dois.length is 0 and doi in _done_batch)
     console.log 'do queue saving batch', _processed_batch.length
     await @report.works _processed_batch
     _processed_batch = []
@@ -421,244 +426,254 @@ P.report.email._log = false
 
 
 P.report.works = _index: true
-P.report.works.process = (cr, openalex, refresh, everything, replaced) ->
-  started = await @epoch()
-  cr ?= @params.process
-  refresh ?= @refresh
-  everything ?= @params.everything # if so then runs epmc and permissions, which otherwise only run for records with orgs providing supplements
- 
-  if typeof openalex is 'string'
-    openalex = openalex.split(if openalex.includes('doi.org') then 'doi.org/' else '/').pop()
-    openalex = openalex.replace /\/$/, ''
-    if openalex.startsWith '10.'
-      openalex = openalex.toLowerCase()
-      cr ?= openalex
-    if openalex.startsWith('W') or openalex.startsWith '10.'
-      if openalex.startsWith('10.') and refresh isnt true
-        exists = await @report.works _id: openalex
-        exists = undefined if not exists?.updated or (refresh and exists and exists.updated < refresh)
-      if openalex.startsWith('W') or not exists?.openalex
-        ox = await @src.openalex.works 'id.keyword:"https://openalex.org/' + openalex + '"', 1
-        try ox = ox.hits.hits[0]._source if ox?.hits?.hits?.length
-        openalex = ox if ox?.id
-  openalex = undefined if typeof openalex is 'string' and not (openalex.startsWith('W') or openalex.startsWith('10.'))
+P.report.works.process = (cr, openalex, refresh, everything, replaced, queued) ->
+  try
+    started = await @epoch()
+    cr ?= @params.process
+    refresh ?= @refresh
+    everything ?= @params.everything # if so then runs epmc and permissions, which otherwise only run for records with orgs providing supplements
+  
+    if typeof openalex is 'string'
+      openalex = openalex.split(if openalex.includes('doi.org') then 'doi.org/' else '/').pop()
+      openalex = openalex.replace /\/$/, ''
+      if openalex.startsWith '10.'
+        openalex = openalex.toLowerCase()
+        cr ?= openalex
+      if openalex.startsWith('W') or openalex.startsWith '10.'
+        if openalex.startsWith('10.') and refresh isnt true
+          exists = await @report.works _id: openalex
+          exists = undefined if not exists?.updated or (refresh and exists and exists.updated < refresh)
+        if openalex.startsWith('W') or not exists?.openalex
+          ox = await @src.openalex.works 'id.keyword:"https://openalex.org/' + openalex + '"', 1
+          try ox = ox.hits.hits[0]._source if ox?.hits?.hits?.length
+          openalex = ox if ox?.id
+    openalex = undefined if typeof openalex is 'string' and not (openalex.startsWith('W') or openalex.startsWith('10.'))
 
-  cr = openalex.ids.doi if not cr? and typeof openalex is 'object' and openalex?.ids?.doi
-  cr = cr.split('doi.org/').pop() if typeof cr is 'string' and cr.includes 'doi.org/'
-  cr = undefined if typeof cr is 'string' and not cr.startsWith '10.'
-  cr = cr.toLowerCase() if typeof cr is 'string'
-  cr = xref if not exists? and typeof cr is 'string' and xref = await @src.crossref.works _id: cr
-  cr = undefined if typeof cr is 'object' and not cr.DOI
+    cr = openalex.ids.doi if not cr? and typeof openalex is 'object' and openalex?.ids?.doi
+    cr = cr.split('doi.org/').pop() if typeof cr is 'string' and cr.includes 'doi.org/'
+    cr = undefined if typeof cr is 'string' and not cr.startsWith '10.'
+    cr = cr.toLowerCase() if typeof cr is 'string'
+    cr = xref if not exists? and typeof cr is 'string' and xref = await @src.crossref.works cr
+    cr = undefined if typeof cr is 'object' and not cr.DOI
 
-  if cr? and refresh isnt true
-    exists ?= await @report.works(if typeof cr is 'string' then cr else cr.DOI)
-    exists = undefined if not exists?.updated or (refresh and exists and exists.updated < refresh)
+    if cr? and refresh isnt true
+      exists ?= await @report.works(if typeof cr is 'string' then cr else cr.DOI)
+      exists = undefined if not exists?.updated or (refresh and exists and exists.updated < refresh)
 
-  if cr? and not exists?.openalex
-    openalex ?= await @src.openalex.works _id: if typeof cr is 'object' then cr.DOI else cr
-  openalex = undefined if typeof openalex is 'string' or not openalex?.id
+    if cr? and not exists?.openalex
+      openalex ?= await @src.openalex.works _id: if typeof cr is 'object' then cr.DOI else cr
+    openalex = undefined if typeof openalex is 'string' or not openalex?.id
 
-  if typeof cr is 'object' and cr.DOI
-    rec = DOI: cr.DOI.toLowerCase(), subject: cr.subject, subtitle: cr.subtitle, volume: cr.volume, published_year: cr.year, issue: cr.issue, publisher: cr.publisher, published_date: cr.published, funder: cr.funder, issn: cr.ISSN, subtype: cr.subtype
-    for ass in (cr.assertion ? [])
-      assl = (ass.label ? '').toLowerCase()
-      if assl.includes('accepted') and assl.split(' ').length < 3
-        ad = await @dateparts ass.value
-        rec.accepted_date ?= ad.date if ad?.date
-      if assl.includes 'received'
-        sd = await @dateparts ass.value
-        rec.submitted_date ?= sd.date if sd?.date
-    delete f['doi-asserted-by'] for f in rec.funder ? []
-    rec.title = cr.title[0] if cr.title and typeof cr.title isnt 'string' and cr.title.length
-    rec.journal = cr['container-title'][0] if cr['container-title'] and cr['container-title'].length
-    rec['reference-count'] = cr['reference-count'] if cr['reference-count']?
-    for lc in cr.license ? []
-      rec['crossref_license_url_' + lc['content-version']] = lc.URL if lc['content-version'] in ['am', 'vor', 'tdm', 'unspecified']
-    rec.crossref_is_oa = if not cr.is_oa? then false else cr.is_oa
+    if typeof cr is 'object' and cr.DOI
+      rec = DOI: cr.DOI.toLowerCase(), subject: cr.subject, subtitle: cr.subtitle, volume: cr.volume, published_year: cr.year, issue: cr.issue, publisher: cr.publisher, published_date: cr.published, funder: cr.funder, issn: cr.ISSN, subtype: cr.subtype
+      for ass in (cr.assertion ? [])
+        assl = (ass.label ? '').toLowerCase()
+        if assl.includes('accepted') and assl.split(' ').length < 3
+          ad = await @dateparts ass.value
+          rec.accepted_date ?= ad.date if ad?.date
+        if assl.includes 'received'
+          sd = await @dateparts ass.value
+          rec.submitted_date ?= sd.date if sd?.date
+      delete f['doi-asserted-by'] for f in rec.funder ? []
+      rec.title = cr.title[0] if cr.title and typeof cr.title isnt 'string' and cr.title.length
+      rec.journal = cr['container-title'][0] if cr['container-title'] and cr['container-title'].length
+      rec['reference-count'] = cr['reference-count'] if cr['reference-count']?
+      for lc in cr.license ? []
+        rec['crossref_license_url_' + lc['content-version']] = lc.URL if lc['content-version'] in ['am', 'vor', 'tdm', 'unspecified']
+      rec.crossref_is_oa = if not cr.is_oa? then false else cr.is_oa
 
-    brd = []
-    _rsup = (sup, ud) =>
-      sup.DOI = cr.DOI
-      sup.replaced = ud
-      await @report.orgs.supplements sup.osdid, ''
-      sup._id = sup.osdid = sup.osdid.split('_10.')[0] + '_' + sup.DOI.replace(/[\u{0080}-\u{FFFF}]/gu, '').toLowerCase().replace(/\//g, '_').replace(/ /g, '_')
-      brd.push sup
-    for ud in (cr['update-to'] ? [])
-      if ud.DOI isnt cr.DOI and ud.type.toLowerCase() not in ['erratum', 'correction'] # some new version statements are for the same DOI, so no point changing anything
-        rec.replaces = []
-        rec.replaces.push DOI: ud.DOI, type: ud.type, updated: ud.updated?.timestamp
-        await @report.works(ud.DOI, '') if ude = await @report.works ud.DOI
-        _rsup(sup, ud.DOI) for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'DOI.keyword:"' + ud.DOI + '"'
-    for rtype in ['is-same-as', 'is-version-of'] # has-version
-      for rr in (cr.relation?[rtype] ? [])
-        if rr['id-type'] is 'doi' and rr.id isnt cr.DOI and rr.id isnt replaced and newer = await @src.crossref.works rr.id # crossref is capable of saying a DOI is the same as another DOI that does not exist in crossref
-          _rsup(sup, rr.id) for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'DOI.keyword:"' + cr.DOI + '"'
-    await @report.orgs.supplements(brd) if brd.length
-    if newer?
-      return @report.works.process newer, openalex, refresh, everything, cr.DOI
-    if replaced # if this was passed in by a secondary call to process
-      rec.replaces ?= []
-      rec.replaces.push DOI: replaced, type: 'relation'
+      brd = []
+      _rsup = (sup, ud) =>
+        sup.DOI = cr.DOI
+        sup.replaced = ud
+        await @report.orgs.supplements sup.osdid, ''
+        sup._id = sup.osdid = sup.osdid.split('_10.')[0] + '_' + sup.DOI.replace(/[\u{0080}-\u{FFFF}]/gu, '').toLowerCase().replace(/\//g, '_').replace(/ /g, '_')
+        brd.push sup
+      for ud in (cr['update-to'] ? [])
+        if ud.DOI isnt cr.DOI and ud.type.toLowerCase() not in ['erratum', 'correction'] # some new version statements are for the same DOI, so no point changing anything
+          rec.replaces = []
+          rec.replaces.push DOI: ud.DOI, type: ud.type, updated: ud.updated?.timestamp
+          await @report.works(ud.DOI, '') if ude = await @report.works ud.DOI
+          _rsup(sup, ud.DOI) for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'DOI.keyword:"' + ud.DOI + '"'
+      #vseens = []
+      #for rtype in ['is-same-as', 'is-version-of', 'has-version'] # NOTE that these can be reciprocal and more than dual, and not always fully related, so can cause recurring loops. e.g. see https://bg.beta.oa.works/src/crossref/works/10.26434/chemrxiv-2021-vfkqb-v3
+      #  for rr in (cr.relation?[rtype] ? []) # so we can't be sure which is the 'newest' or 'best' version, or that we will always know of all versions the first time round. So just note their relation to each other and default to whichever one got into the index first
+      #    if rr['id-type'] is 'doi' and rr.id not in vseens and rr.id isnt cr.DOI and rr.id isnt replaced and newer = await @report.works rr.id # crossref is also capable of saying a DOI is the same as another DOI that does not exist in crossref, but in that case it won't exist in report works yet either
+      #      _rsup(sup, rr.id) for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'DOI.keyword:"' + cr.DOI + '"'
+      #    vseens.push rr.id
+      #    break if newer?
+      #  break if newer?
+      await @report.orgs.supplements(brd) if brd.length
+      if newer?
+        return @report.works.process newer, openalex, refresh, everything, cr.DOI
+      if replaced # if this was passed in by a secondary call to process
+        rec.replaces ?= []
+        rec.replaces.push DOI: replaced, type: 'relation'
 
-  if openalex?
+    if openalex?
+      rec ?= {}
+      rec.openalex = openalex.id.split('/').pop() if openalex.id
+      rec.DOI = openalex.ids.doi.split('doi.org/').pop().toLowerCase() if not rec.DOI and openalex.ids?.doi?
+      rec.PMID = openalex.ids.pmid.split('/').pop() if openalex.ids?.pmid
+      rec.PMCID = 'PMC' + openalex.ids.pmcid.split('/').pop().toLowerCase().replace('pmc', '') if not rec.PMCID and openalex.ids?.pmcid
+      rec.title = openalex.title if openalex.title
+      rec[ok] = openalex[ok] for ok in ['authorships', 'concepts', 'cited_by_count', 'type', 'is_paratext', 'is_retracted']
+      rec.published_date = openalex.publication_date if openalex.publication_date
+      rec.published_year = openalex.publication_year if openalex.publication_year
+      rec.issn = openalex.host_venue.issn if openalex.host_venue?.issn and openalex.host_venue.issn.length
+      rec.biblio = openalex.biblio if openalex.biblio
+      rec['referenced_works'] = openalex['referenced_works'].length if openalex['referenced_works']
+      for c in rec.concepts ? []
+        delete c.wikidata
+        try c.score = Math.floor(c.score * 100)
+      for a in rec.authorships ? []
+        delete i.type for i in a.institutions ? []
+
     rec ?= {}
-    rec.openalex = openalex.id.split('/').pop() if openalex.id
-    rec.DOI = openalex.ids.doi.split('doi.org/').pop().toLowerCase() if not rec.DOI and openalex.ids?.doi?
-    rec.PMID = openalex.ids.pmid.split('/').pop() if openalex.ids?.pmid
-    rec.PMCID = 'PMC' + openalex.ids.pmcid.split('/').pop().toLowerCase().replace('pmc', '') if not rec.PMCID and openalex.ids?.pmcid
-    rec.title = openalex.title if openalex.title
-    rec[ok] = openalex[ok] for ok in ['authorships', 'concepts', 'cited_by_count', 'type', 'is_paratext', 'is_retracted']
-    rec.published_date = openalex.publication_date if openalex.publication_date
-    rec.published_year = openalex.publication_year if openalex.publication_year
-    rec.issn = openalex.host_venue.issn if openalex.host_venue?.issn and openalex.host_venue.issn.length
-    rec.biblio = openalex.biblio if openalex.biblio
-    rec['referenced_works'] = openalex['referenced_works'].length if openalex['referenced_works']
-    for c in rec.concepts ? []
-      delete c.wikidata
-      try c.score = Math.floor(c.score * 100)
-    for a in rec.authorships ? []
-      delete i.type for i in a.institutions ? []
+    rec.DOI = cr.toLowerCase() if not rec.DOI and typeof cr is 'string'
 
-  rec ?= {}
-  rec.DOI = cr.toLowerCase() if not rec.DOI and typeof cr is 'string'
+    if rec.is_paratext or rec.is_retracted
+      if queued
+        _done_batch.push queued
+        _processing_dois.splice _processing_dois.indexOf(queued), 1
+      return
+    delete rec.is_paratext
+    delete rec.is_retracted
 
-  if rec.is_paratext or rec.is_retracted
+    if not exists?.oadoi and rec.DOI
+      rec.oadoi = true
+      oadoi = await @src.oadoi rec.DOI
+      for loc in oadoi?.oa_locations ? []
+        if loc.host_type is 'publisher'
+          rec.publisher_license ?= loc.license
+          rec.publisher_url_for_pdf ?= loc.url_for_pdf
+          rec.publisher_version ?= loc.version
+        if loc.host_type is 'repository'
+          if loc.url and loc.url.toLowerCase().includes 'pmc'
+            if not rec.PMCID
+              pp = loc.url.toLowerCase().split('pmc')[1].split('/')[0].split('?')[0].split('#')[0]
+              rec.PMCID = 'PMC' + pp if pp.length and pp.replace(/[^0-9]/g, '').length is pp.length and not isNaN parseInt pp
+            if loc.license and not rec.epmc_licence
+              rec.epmc_licence = loc.license
+          if not rec.repository_url or not rec.repository_url.includes 'pmc'
+            for ok in ['license', 'url_for_pdf', 'url', 'version']
+              rec['repository_' + ok] = loc[ok] if loc[ok]
+      if rec.repository_url and rec.repository_url.toLowerCase().includes 'pmc'
+        rec.PMCID ?= 'PMC' + rec.repository_url.toLowerCase().split('pmc').pop().split('/')[0].split('#')[0].split('?')[0]
+        rec.repository_url_in_pmc = true
+      if oadoi?
+        rec.best_oa_location_url = oadoi.best_oa_location?.url
+        rec.best_oa_location_url_for_pdf = oadoi.best_oa_location?.url_for_pdf
+        rec.oa_status = oadoi.oa_status
+        rec.has_repository_copy = oadoi.has_repository_copy
+        rec.has_oa_locations_embargoed = if oadoi.oa_locations_embargoed? and oadoi.oa_locations_embargoed.length then true else false
+        rec.title = oadoi.title
+        rec.issn = oadoi.journal_issns.split(',') if not rec.issn and typeof oadoi.journal_issns is 'string' and oadoi.journal_issns.length
+        rec.journal ?= oadoi.journal_name
+        rec.publisher ?= oadoi.publisher
+        rec.published_date = oadoi.published_date if oadoi.published_date
+        rec.published_year = oadoi.year if oadoi.year
+        rec.oadoi_is_oa = oadoi.is_oa if oadoi.is_oa?
+
+    rec.supplements = []
+    rec.orgs = []
     if rec.DOI
-      try
-        pfn = (if rec.is_paratext then 'paratext' else 'retracted') + (if @S.dev then '_dev' else '')
-        prds = []
-        try prds = JSON.parse (await fs.readFile @S.static.folder + '/' + pfn + '.json').toString()
-        prds.push(rec.DOI) if rec.DOI not in prds
-        await fs.writeFile @S.static.folder + '/' + pfn + '.json', JSON.stringify prds, '', 2
-    return 
+      for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'DOI.keyword:"' + rec.DOI + '"', sort: 'osdid.keyword': 'asc'
+        rec.orgs.push(sup.org) if sup.org not in rec.orgs
+        rec.paid = true if sup.paid
+        rec.email = sup.email if not rec.email and sup.email
+        rec.author_email_name = sup.author_email_name_ic if sup.author_email_name_ic
+        rec.supplements.push sup
 
-  delete rec.is_paratext
-  delete rec.is_retracted
+    if exists?
+      rec.author_email_name = exists.author_email_name if not rec.author_email_name and exists.author_email_name and exists.email and rec.email and rec.email.toLowerCase() is exists.email.toLowerCase()
+      rec[k] ?= exists[k] for k of exists
 
-  if not exists?.oadoi and rec.DOI
-    rec.oadoi = true
-    oadoi = await @src.oadoi rec.DOI
-    for loc in oadoi?.oa_locations ? []
-      if loc.host_type is 'publisher'
-        rec.publisher_license ?= loc.license
-        rec.publisher_url_for_pdf ?= loc.url_for_pdf
-        rec.publisher_version ?= loc.version
-      if loc.host_type is 'repository'
-        if loc.url and loc.url.toLowerCase().includes 'pmc'
-          if not rec.PMCID
-            pp = loc.url.toLowerCase().split('pmc')[1].split('/')[0].split('?')[0].split('#')[0]
-            rec.PMCID = 'PMC' + pp if pp.length and pp.replace(/[^0-9]/g, '').length is pp.length and not isNaN parseInt pp
-          if loc.license and not rec.epmc_licence
-            rec.epmc_licence = loc.license
-        if not rec.repository_url or not rec.repository_url.includes 'pmc'
-          for ok in ['license', 'url_for_pdf', 'url', 'version']
-            rec['repository_' + ok] = loc[ok] if loc[ok]
-    if rec.repository_url and rec.repository_url.toLowerCase().includes 'pmc'
-      rec.PMCID ?= 'PMC' + rec.repository_url.toLowerCase().split('pmc').pop().split('/')[0].split('#')[0].split('?')[0]
-      rec.repository_url_in_pmc = true
-    if oadoi?
-      rec.best_oa_location_url = oadoi.best_oa_location?.url
-      rec.best_oa_location_url_for_pdf = oadoi.best_oa_location?.url_for_pdf
-      rec.oa_status = oadoi.oa_status
-      rec.has_repository_copy = oadoi.has_repository_copy
-      rec.has_oa_locations_embargoed = if oadoi.oa_locations_embargoed? and oadoi.oa_locations_embargoed.length then true else false
-      rec.title = oadoi.title
-      rec.issn = oadoi.journal_issns.split(',') if not rec.issn and typeof oadoi.journal_issns is 'string' and oadoi.journal_issns.length
-      rec.journal ?= oadoi.journal_name
-      rec.publisher ?= oadoi.publisher
-      rec.published_date = oadoi.published_date if oadoi.published_date
-      rec.published_year = oadoi.year if oadoi.year
-      rec.oadoi_is_oa = oadoi.is_oa if oadoi.is_oa?
+    if rec.authorships? and rec.email and not rec.author_email_name and (not exists?.authorships? or not exists?.email)
+      email = if rec.email.includes('@') then rec.email else await @decrypt rec.email
+      if rec.authorships.length is 1
+        rec.author_email_name = 'Dr. ' + rec.authorships[0].author?.display_name
+      else
+        ren = email.split('@')[0].toLowerCase().replace /[^a-z]/g, ''
+        best_initial = ''
+        best_name = ''
+        best_score = 1000000
+        for rn in rec.authorships
+          if ran = rn.author?.display_name
+            lvs = await @levenshtein ren, ran.toLowerCase().replace /[^a-z]/g, ''
+            score = lvs.distance / ran.length
+            if score < best_score
+              best_score = score
+              best_name = ran
+            if best_score > .2 and (ren.endsWith(ran.split(' ').pop().toLowerCase()) or (ran.split(' ')[0].length > 4 and ren.includes ran.split(' ')[0].toLowerCase()))
+              best_score = .1
+              best_name = ran
+            if not best_initial and ren.startsWith (ran.split(' ')[0].slice(0,1) + ran.split(' ').pop().slice(0,1)).toLowerCase()
+              best_initial = ran
+        if best_name and best_score < .7
+          rec.author_email_name = 'Dr. ' + best_name.split(' ').pop()
+        if not rec.author_email_name and best_initial
+          rec.author_email_name = 'Dr. ' + best_initial
 
-  rec.supplements = []
-  rec.orgs = []
-  if rec.DOI
-    for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'DOI.keyword:"' + rec.DOI + '"', sort: 'osdid.keyword': 'asc'
-      rec.orgs.push(sup.org) if sup.org not in rec.orgs
-      rec.paid = true if sup.paid
-      rec.email = sup.email if not rec.email and sup.email
-      rec.author_email_name = sup.author_email_name_ic if sup.author_email_name_ic
-      rec.supplements.push sup
+    rec.email = await @encrypt(rec.email) if typeof rec.email is 'string' and rec.email.includes '@'
 
-  if exists?
-    rec.author_email_name = exists.author_email_name if not rec.author_email_name and exists.author_email_name and exists.email and rec.email and rec.email.toLowerCase() is exists.email.toLowerCase()
-    rec[k] ?= exists[k] for k of exists
+    everything = true if rec.orgs.length and (exists?.orgs ? []).length isnt rec.orgs.length # control whether to run time-expensive things on less important records
 
-  if rec.authorships? and rec.email and not rec.author_email_name and (not exists?.authorships? or not exists?.email)
-    email = if rec.email.includes('@') then rec.email else await @decrypt rec.email
-    if rec.authorships.length is 1
-      rec.author_email_name = 'Dr. ' + rec.authorships[0].author?.display_name
-    else
-      ren = email.split('@')[0].toLowerCase().replace /[^a-z]/g, ''
-      best_initial = ''
-      best_name = ''
-      best_score = 1000000
-      for rn in rec.authorships
-        if ran = rn.author?.display_name
-          lvs = await @levenshtein ren, ran.toLowerCase().replace /[^a-z]/g, ''
-          score = lvs.distance / ran.length
-          if score < best_score
-            best_score = score
-            best_name = ran
-          if best_score > .2 and (ren.endsWith(ran.split(' ').pop().toLowerCase()) or (ran.split(' ')[0].length > 4 and ren.includes ran.split(' ')[0].toLowerCase()))
-            best_score = .1
-            best_name = ran
-          if not best_initial and ren.startsWith (ran.split(' ')[0].slice(0,1) + ran.split(' ').pop().slice(0,1)).toLowerCase()
-            best_initial = ran
-      if best_name and best_score < .7
-        rec.author_email_name = 'Dr. ' + best_name.split(' ').pop()
-      if not rec.author_email_name and best_initial
-        rec.author_email_name = 'Dr. ' + best_initial
+    #if (not exists? and rec.orgs.length) or (exists?.orgs ? []).length isnt rec.orgs.length or (rec.paid and rec.paid isnt exists?.paid) #or not exists.journal_oa_type
+    if rec.DOI
+      if not rec.PMCID or not rec.PMID or not rec.pubtype or not rec.submitted_date or not rec.accepted_date
+        if pubmed = (if rec.PMID then await @src.pubmed(rec.PMID) else await @src.pubmed.doi rec.DOI) # pubmed is faster to lookup but can't rely on it being right if no PMC found in it, e.g. 10.1111/nyas.14608
+          rec.PMCID = 'PMC' + pubmed.identifier.pmc.toLowerCase().replace('pmc', '') if not rec.PMCID and pubmed?.identifier?.pmc
+          rec.PMID = pubmed.identifier.pubmed if not rec.PMID and pubmed?.identifier?.pubmed
+          rec.pubtype = pubmed.type # this is a list
+          rec.submitted_date ?= pubmed.dates?.PubMedPubDate_received?.date
+          rec.accepted_date ?= pubmed.dates?.PubMedPubDate_accepted?.date
 
-  rec.email = await @encrypt(rec.email) if typeof rec.email is 'string' and rec.email.includes '@'
+      if not rec.journal_oa_type # restrict permissions only to records with orgs supplements? for now no
+        permissions = await @permissions (await @copy rec), undefined, undefined, oadoi, cr, started - 1209600000 # (if refresh then undefined else started - 1209600000) # use cached best permissions up to two weeks old
+        rec.can_archive = permissions?.best_permission?.can_archive
+        rec.can_archive = true if not rec.can_archive? and ((oadoi?.best_oa_location?.license ? '').includes('cc') or oadoi?.journal_is_in_doaj)
+        rec.version = permissions?.best_permission?.version
+        rec.journal_oa_type = await @permissions.journals.oa.type rec.issn, undefined, oadoi, cr # calculate journal oa type separately because it can be different for a journal in general than for what permissions calculates in more specificity
+        rec.journal_oa_type ?= 'unsuccessful'
 
-  everything = true if rec.orgs.length and (exists?.orgs ? []).length isnt rec.orgs.length # control whether to run time-expensive things on less important records
-
-  #if (not exists? and rec.orgs.length) or (exists?.orgs ? []).length isnt rec.orgs.length or (rec.paid and rec.paid isnt exists?.paid) #or not exists.journal_oa_type
-  if rec.DOI
-    if not rec.PMCID or not rec.PMID or not rec.pubtype or not rec.submitted_date or not rec.accepted_date
-      if pubmed = (if rec.PMID then await @src.pubmed(rec.PMID) else await @src.pubmed.doi rec.DOI) # pubmed is faster to lookup but can't rely on it being right if no PMC found in it, e.g. 10.1111/nyas.14608
-        rec.PMCID = 'PMC' + pubmed.identifier.pmc.toLowerCase().replace('pmc', '') if not rec.PMCID and pubmed?.identifier?.pmc
-        rec.PMID = pubmed.identifier.pubmed if not rec.PMID and pubmed?.identifier?.pubmed
-        rec.pubtype = pubmed.type # this is a list
-        rec.submitted_date ?= pubmed.dates?.PubMedPubDate_received?.date
-        rec.accepted_date ?= pubmed.dates?.PubMedPubDate_accepted?.date
-
-    if not rec.journal_oa_type # restrict permissions only to records with orgs supplements? for now no
-      permissions = await @permissions (await @copy rec), undefined, undefined, oadoi, cr, started - 1209600000 # (if refresh then undefined else started - 1209600000) # use cached best permissions up to two weeks old
-      rec.can_archive = permissions?.best_permission?.can_archive
-      rec.can_archive = true if not rec.can_archive? and ((oadoi?.best_oa_location?.license ? '').includes('cc') or oadoi?.journal_is_in_doaj)
-      rec.version = permissions?.best_permission?.version
-      rec.journal_oa_type = await @permissions.journals.oa.type rec.issn, undefined, oadoi, cr # calculate journal oa type separately because it can be different for a journal in general than for what permissions calculates in more specificity
-      rec.journal_oa_type ?= 'unsuccessful'
+      if everything
+        if not rec.PMCID or not rec.pubtype #or not rec.submitted_date or not rec.accepted_date # only thing restricted to orgs supplements for now is remote epmc lookup and epmc licence calculation below
+          if epmc = await @src.epmc.doi rec.DOI
+            rec.PMCID = epmc.pmcid if epmc.pmcid
+            #rec.submitted_date ?= epmc.firstIndexDate - removed as found to be not accurate enough https://github.com/oaworks/Gates/issues/559
+            #rec.accepted_date ?= epmc.firstPublicationDate
+            for pt in (epmc.pubTypeList ? [])
+              rec.pubtype = if Array.isArray(rec.pubtype) then rec.pubtype else if rec.pubtype then [rec.pubtype] else []
+              rec.pubtype.push(pt.pubType) if pt.pubType not in rec.pubtype
 
     if everything
-      if not rec.PMCID or not rec.pubtype #or not rec.submitted_date or not rec.accepted_date # only thing restricted to orgs supplements for now is remote epmc lookup and epmc licence calculation below
-        if epmc = await @src.epmc.doi rec.DOI
-          rec.PMCID = epmc.pmcid if epmc.pmcid
-          #rec.submitted_date ?= epmc.firstIndexDate - removed as found to be not accurate enough https://github.com/oaworks/Gates/issues/559
-          #rec.accepted_date ?= epmc.firstPublicationDate
-          for pt in (epmc.pubTypeList ? [])
-            rec.pubtype = if Array.isArray(rec.pubtype) then rec.pubtype else if rec.pubtype then [rec.pubtype] else []
-            rec.pubtype.push(pt.pubType) if pt.pubType not in rec.pubtype
+      if rec.PMCID and rec.repository_url_in_pmc and not rec.epmc_licence
+        lic = await @src.epmc.licence rec.PMCID, epmc
+        rec.epmc_licence = lic?.licence
+      rec.pmc_has_data_availability_statement ?= rec.PMCID and await @src.pubmed.availability rec.PMCID
+      if not rec.data_availability_statement and rec.PMCID #rec.pmc_has_data_availability_statement
+        rec.data_availability_statement = await @src.epmc.statement rec.PMCID, epmc
 
-  if everything
-    if rec.PMCID and rec.repository_url_in_pmc and not rec.epmc_licence
-      lic = await @src.epmc.licence rec.PMCID, epmc
-      rec.epmc_licence = lic?.licence
-    rec.pmc_has_data_availability_statement ?= rec.PMCID and await @src.pubmed.availability rec.PMCID
-    if not rec.data_availability_statement and rec.PMCID #rec.pmc_has_data_availability_statement
-      rec.data_availability_statement = await @src.epmc.statement rec.PMCID, epmc
-
-  rec.is_oa = rec.oadoi_is_oa or rec.crossref_is_oa or rec.journal_oa_type in ['gold']
-  rec._id ?= if rec.DOI then rec.DOI.toLowerCase().replace(/\//g, '_') else rec.openalex # and if no openalex it will get a default ID
-  rec.supplemented = await @epoch()
-  rec.updated = rec.supplemented
-  rec.took = rec.supplemented - started
-  if rec.DOI and @params.process is rec.DOI and @params.save isnt false
-    await @report.works rec
-  #console.log 'report works processed', rec.DOI, rec.took
-  return rec
+    rec.is_oa = rec.oadoi_is_oa or rec.crossref_is_oa or rec.journal_oa_type in ['gold']
+    rec._id ?= if rec.DOI then rec.DOI.toLowerCase().replace(/\//g, '_') else rec.openalex # and if no openalex it will get a default ID
+    rec.supplemented = await @epoch()
+    rec.updated = rec.supplemented
+    rec.took = rec.supplemented - started
+    if rec.DOI and @params.process is rec.DOI and @params.save isnt false
+      await @report.works rec
+    else if queued
+      _done_batch.push queued
+      _processed_batch.push(rec) if rec._id?
+      _processing_dois.splice _processing_dois.indexOf(queued), 1
+    #console.log 'report works processed', rec.DOI, rec.took
+    return rec
+  catch err
+    console.log 'report works process error', err, (if typeof cr is 'object' then cr.DOI else cr)
+    if queued
+      _done_batch.push queued
+      _processing_dois.splice _processing_dois.indexOf(queued), 1
+    return
 P.report.works.process._log = false
 
 
@@ -673,39 +688,13 @@ P.report.works.load = (timestamp, org, dois, year, refresh, supplements, everyth
 
   await @report.works('') if refresh
 
-  #batch = []
-  #batchsize = 2000
-  bt = 0
   total = 0
-  cc = []
-  oo = []
-
-  _batch = (cr, ol) =>
-    bt += 1
-    #console.log bt, cr, ol
-    if typeof cr is 'string' and cr.startsWith('W') and not ol
-      ol = cr
-      cr = undefined
-    if cr? or ol?
-      await @report.queue cr, ol, (timestamp ? refresh), everything # TODO update report.queue to handle params
-      total += 1
-      '''prc = await @report.works.process cr, ol, (timestamp ? refresh), everything
-      if prc?._id?
-        batch.push prc
-        total += 1
-      else
-        console.log 'report works load finding empty works', cr, ol, prc
-      console.log('report load building batch', batch.length) if batch.length % 200 is 0
-      if batch.length is batchsize
-        await @report.works batch
-        batch = []
-        console.log 'report works load', total, bt, (if dois then dois.length else undefined), await @epoch() - started'''
 
   if @params.load is 'supplements'
     dois ?= []
-    for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', (if timestamp then 'updated:<' + timestamp else undefined), scroll: '5m', include: ['DOI']
+    for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', (if timestamp then 'updated:<' + timestamp else if org then 'org:"' + org + '"' else undefined), scroll: '5m', include: ['DOI']
       dois.push(sup.DOI) if sup.DOI not in dois
-    console.log 'report works supplements to load', dois.length
+    console.log 'report works supplements to load', timestamp, org, dois.length
   else if everything
     dois ?= []
     for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'NOT pmc_has_data_availability_statement:*', scroll: '5m', include: ['DOI', 'openalex']
@@ -714,31 +703,33 @@ P.report.works.load = (timestamp, org, dois, year, refresh, supplements, everyth
     console.log 'report works supplements to load everything for records that do not yet have everything', dois.length
 
   if Array.isArray dois
-    await _batch(d) for d in dois
+    for d in dois
+      await @report.queue d, undefined, (timestamp ? refresh), everything
+      total += 1
   else
     _crossref = (cq) =>
-      processed = cc.length
       cq ?= '(funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year
       cq = '(' + cq + ') AND srcday:>' + timestamp if timestamp
-      console.log 'report works load crossref by query', cq
-      cc = []
-      cc.push(cr.DOI) for await cr from @index._for 'src_crossref_works', cq, include: ['DOI'], scroll: '30m'
-      console.log 'report works load crossref by query counted', cc.length
-      await _batch(d) for d in cc.slice processed
+      precount = await @src.crossref.works.count cq
+      console.log 'report works load crossref by query expects', cq, precount
+      for await cr from @index._for 'src_crossref_works', cq, include: ['DOI'], scroll: '30m'
+        await @report.queue cr.DOI, undefined, (timestamp ? refresh), everything # TODO update report.queue to handle params
+        total += 1
 
     await _crossref() if org isnt true and year is @params.load
 
     _openalex = (oq) =>
-      processed = oo.length
       oq ?= 'authorships.institutions.display_name:* AND publication_year:' + year
       oq = '(' + oq + ') AND updated_date:>' + timestamp if timestamp
-      console.log 'report works load openalex by query', oq
+      precount = await @src.openalex.works.count oq
+      console.log 'report works load openalex by query expects', oq, precount
       for await ol from @index._for 'src_openalex_works', oq, include: ['id', 'ids'], scroll: '30m'
         oodoi = if ol.ids?.doi then '10.' + ol.ids.doi.split('/10.')[1] else undefined
-        if ol.id and ol.id.includes('/') and (not oodoi or (oodoi not in oo and oodoi not in cc))
-          oo.push ol.id.split('/').pop()
-      console.log 'report works load openalex by query counted', oo.length
-      await _batch(undefined, o) for o in oo.slice processed
+        #if ol.id and ol.id.includes('/') and (not oodoi or (oodoi not in oo and oodoi not in cc))
+        #  await @report.queue undefined, (oodoi ? ol.id.split('/').pop()), (timestamp ? refresh), everything # TODO update report.queue to handle params
+        if oodoi
+          await @report.queue oodoi, undefined, (timestamp ? refresh), everything # TODO update report.queue to handle params
+          total += 1
     
     await _openalex() if org isnt true and year is @params.load
 
@@ -746,19 +737,19 @@ P.report.works.load = (timestamp, org, dois, year, refresh, supplements, everyth
       # if an org has no known records in report/works yet, could default it here to a timestamp of start of current year, or older, to pull in all records first time round
       if o.source?.crossref
         try o.source.crossref = decodeURIComponent(decodeURIComponent(o.source.crossref)) if o.source.crossref.includes '%'
+        console.log 'report works load crossref by org', o.name
         try await _crossref o.source.crossref
       if o.source?.openalex
         try o.source.openalex = decodeURIComponent(decodeURIComponent(o.source.openalex)) if o.source.openalex.includes '%'
+        console.log 'report works load openalex by org', o.name
         try await _openalex o.source.openalex
 
     if timestamp
       for await crt from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'orgs:* AND updated:<' + timestamp, scroll: '10m'
-        await _batch(crt.DOI) if updated = await @src.crossref.works.count 'DOI:"' + crt.DOI + '" AND srcday:>' + timestamp
+        await @report.queue(crt.DOI, undefined, (timestamp ? refresh), everything) if updated = await @src.crossref.works.count 'DOI.keyword:"' + crt.DOI + '" AND srcday:>' + timestamp
   
-  #await @report.works(batch) if batch.length
-
   took = await @epoch() - started
-  text = 'Report works loaded ' + total + (if @S.dev then ' (dev)' else '') + '\n'
+  text = 'Report works queued ' + total + (if @S.dev then ' (dev)' else '') + '\n'
   text += 'All old works were removed before loading began\n' if refresh
   text += dois.length + ' DOIs were provided to process\n' if dois and dois.length
   text += 'These were derived by searching for all works that already have supplements attached\n' if @params.load is 'supplements'
@@ -767,9 +758,6 @@ P.report.works.load = (timestamp, org, dois, year, refresh, supplements, everyth
   text += 'The load process was limited to ' + org + '\n' if typeof org is 'string'
   text += 'The load process was run for changes since ' + (await @datetime timestamp) + '\n' if timestamp
   text += 'The load process was run for year ' + year + '\n' if year and not (dois ? []).length
-  text += 'Crossref queries counted ' + cc.length + ' works\n' if cc.length
-  text += 'Openalex queries counted ' + oo.length + ' works\n' if oo.length
-  text += 'Load processing took ' + Math.ceil(took/1000/60) + 'm\n'
   text += '\n' + JSON.stringify(i) + '\n' for i in (info ? [])
   console.log 'Report works loaded', total, took
   await @mail to: ['mark@oa.works', 'joe@oa.works'], subject: 'OA report works loaded ' + total, text: text

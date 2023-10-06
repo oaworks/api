@@ -385,11 +385,10 @@ P.src.pubmed.load._log = false
 #P.src.pubmed.load._auth = 'root'
 
 
-P.src.pubmed.changes = () ->
-  return @src.pubmed.load true
-
+P.src.pubmed.changes = -> return @src.pubmed.load true
 P.src.pubmed.changes._bg = true
-P.src.pubmed.changes._async = true
+P.src.pubmed.changes._log = false
+#P.src.pubmed.changes._async = true
 P#.src.pubmed.changes._auth = 'root'
 P.src.pubmed.changes._notify = false
 

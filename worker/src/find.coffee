@@ -2,6 +2,7 @@
 P.metadata = (doi) ->
   res = await @find doi # may not be a DOI, but most likely thing
   return res?.metadata
+P.metadata._log = false
 
 
 P.find = (options, metadata={}, content) ->

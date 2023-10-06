@@ -884,7 +884,7 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
       //rec = if @request.method is 'PUT' or (lg.key and @request.method is 'POST') then @body else if @request.method is 'DELETE' or @params._delete then '' else undefined
       // and if there is @params._delete, delete by query?
       } else if (arguments.length) { // could be a key string and record or could be a query and options (and query could look like a key)
-        if (typeof arguments[0] === 'string' && arguments[0].length && !arguments[0].includes('\n') && arguments[0].length === arguments[0].replace(/[\s\*~\?=%"]/g, '').length) { // removed \: from regex to allow DOIs containing : as ID
+        if (typeof arguments[0] === 'string' && arguments[0].length && !arguments[0].includes('\n') && arguments[0].length === arguments[0].replace(/[\s\*~\?="]/g, '').length) { // removed \: and % from regex to allow DOIs containing : as ID
           // could be key or query string - if query string is ambiguous, make it definitive by sending an object with q: 'query string'
           lg.key = arguments[0].replace(/\//g, '_').trim();
         }
@@ -2715,6 +2715,8 @@ P.metadata = async function(doi) {
   return res != null ? res.metadata : void 0;
 };
 
+P.metadata._log = false;
+
 P.find = async function(options, metadata = {}, content) {
   var _ill, _metadata, _permissions, _searches, dd, dps, epmc, i, len, mag, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, res, uo;
   res = {};
@@ -4535,7 +4537,7 @@ P.permissions = async function(meta, ror, getmeta, oadoi, crossref, best) { // o
         issns.push(rec.bibjson.eissn);
       }
     }
-    if (indoaj == null) {
+    if (false) { //not indoaj?
       nisns = [];
       ref12 = this.index._for('src_openalex_venues', 'issn:"' + issns.join('" OR issn:"') + '"');
       for await (rec of ref12) {
@@ -4808,6 +4810,8 @@ P.permissions = async function(meta, ror, getmeta, oadoi, crossref, best) { // o
   }
 };
 
+P.permissions._log = false;
+
 P.permissions.best = {
   _index: true,
   _key: 'DOI' // save calculated best permissions for cases where that is good enough. TODO could update them every week
@@ -4931,6 +4935,8 @@ P.permissions.journals.example = async function(issn) {
   } catch (error) {}
 };
 
+P.permissions.journals.example._log = false;
+
 P.permissions.journals.transformative = {
   _index: true,
   _prefix: false
@@ -4995,6 +5001,8 @@ P.permissions.journals.oa = async function(issn, oadoi) {
   return ret;
 };
 
+P.permissions.journals.oa._log = false;
+
 P.permissions.journals.oa.type = async function(issns, doajrnl, oadoi, crossref) {
   var js, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8;
   if (issns == null) {
@@ -5039,6 +5047,8 @@ P.permissions.journals.oa.type = async function(issns, doajrnl, oadoi, crossref)
   return js;
 };
 
+P.permissions.journals.oa.type._log = false;
+
 P.permissions.publishers.oa = async function(publisher) {
   var fz, lvs, ref, ret;
   ret = {
@@ -5065,7 +5075,9 @@ P.permissions.publishers.oa = async function(publisher) {
   return ret;
 };
 
-var _do_batch, _done_batch, _processed_batch, _processed_batch_last, _queue_batch, _queue_batch_last,
+P.permissions.publishers.oa._log = false;
+
+var _do_batch, _done_batch, _processed_batch, _processed_batch_last, _processing_dois, _queue_batch, _queue_batch_last,
   indexOf = [].indexOf;
 
 try {
@@ -5088,13 +5100,14 @@ _do_batch = [];
 
 _done_batch = [];
 
+_processing_dois = [];
+
 _processed_batch = [];
 
 _processed_batch_last = Date.now();
 
 P.report.queued = {
-  _index: true,
-  _auth: '@oa.works'
+  _index: true //, _auth: '@oa.works'
 };
 
 P.report.queue = async function(dois, ol, refresh, everything) {
@@ -5127,32 +5140,33 @@ P.report.queue = async function(dois, ol, refresh, everything) {
     _queue_batch_last = Date.now();
   }
   return {
-    queue: _queue_batch.length,
-    queue_last: (await this.datetime(_queue_batch_last)),
-    processed_last: (await this.datetime(_processed_batch_last))
+    queue: _queue_batch.length
   };
 };
 
+//queue_last: await @datetime _queue_batch_last
+//processed_last: await @datetime _processed_batch_last
 //queued: await @report.queued.count()
 P.report.queue._log = false;
 
 P.report.queue._auth = '@oa.works';
 
 P.report.doqueue = async function(doi) {
-  var batch, d, ddd, j, len, q, qd, ref, ref1, ref2, ref3, res;
+  var batch, d, ddd, j, len, q, qd, ref, ref1, ref2, ref3;
   if (doi == null) {
     doi = this.params.doqueue;
   }
   if (doi == null) {
     if (!_do_batch.length) {
       q = (await this.report.queued('*', {
-        size: 100,
+        size: 2000,
         sort: {
-          createdAt: 'asc' // if running more than one queue processor, this will need a better approach
+          createdAt: 'desc' // if running more than one queue processor, this will need a better approach
         }
       }));
-      if (!(q != null ? (ref = q.hits) != null ? ref.total : void 0 : void 0)) {
-        await this.sleep(1000);
+      if (!(q != null ? (ref = q.hits) != null ? ref.total : void 0 : void 0) && !_queue_batch.length) {
+        console.log('no queued records to process, waiting 5s...');
+        await this.sleep(5000);
       }
       ref3 = (ref1 = q != null ? (ref2 = q.hits) != null ? ref2.hits : void 0 : void 0) != null ? ref1 : [];
       for (j = 0, len = ref3.length; j < len; j++) {
@@ -5162,15 +5176,16 @@ P.report.doqueue = async function(doi) {
     }
     doi = _do_batch.shift();
   }
-  console.log('report doqueue', doi);
-  if (typeof doi === 'string' && doi.startsWith('10.')) {
-    res = (await this.report.works.process(doi));
-    _done_batch.push(doi);
-    if ((res != null ? res._id : void 0) != null) {
-      _processed_batch.push(res);
+  console.log('report doqueue', doi, _done_batch.length, _processed_batch.length, _processing_dois, _processing_dois.length);
+  if (typeof doi === 'string' && doi.startsWith('10.') && indexOf.call(_processing_dois, doi) < 0 && indexOf.call(_done_batch, doi) < 0) {
+    await this.sleep(10);
+    while (_processing_dois.length >= 3) {
+      await this.sleep(500);
     }
+    _processing_dois.push(doi);
+    this.report.works.process(doi, void 0, void 0, void 0, void 0, doi);
   }
-  if (_processed_batch.length > 2000 || Date.now() > (_processed_batch_last + 15000)) {
+  if (_processed_batch.length >= 2000 || Date.now() > (_processed_batch_last + 15000) || (_processing_dois.length === 0 && indexOf.call(_done_batch, doi) >= 0)) {
     console.log('do queue saving batch', _processed_batch.length);
     await this.report.works(_processed_batch);
     _processed_batch = [];
@@ -5838,517 +5853,514 @@ P.report.works = {
   _index: true
 };
 
-P.report.works.process = async function(cr, openalex, refresh, everything, replaced) {
-  var _rsup, a, ad, ass, assl, best_initial, best_name, best_score, brd, c, email, epmc, exists, f, i, i1, j, j1, k, l, lc, len, len1, len10, len11, len12, len13, len2, len3, len4, len5, len6, len7, len8, len9, lic, loc, lvs, m, n, newer, oadoi, ok, ox, p, permissions, pfn, pp, prds, pt, pubmed, r, ran, rec, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref45, ref46, ref47, ref48, ref49, ref5, ref50, ref51, ref52, ref53, ref54, ref55, ref56, ref57, ref6, ref7, ref8, ref9, ren, rn, rr, rtype, score, sd, started, sup, u, ud, ude, v, w, x, xref, y, z;
-  started = (await this.epoch());
-  if (cr == null) {
-    cr = this.params.process;
-  }
-  if (refresh == null) {
-    refresh = this.refresh;
-  }
-  if (everything == null) {
-    everything = this.params.everything; // if so then runs epmc and permissions, which otherwise only run for records with orgs providing supplements
-  }
-  if (typeof openalex === 'string') {
-    openalex = openalex.split(openalex.includes('doi.org') ? 'doi.org/' : '/').pop();
-    openalex = openalex.replace(/\/$/, '');
-    if (openalex.startsWith('10.')) {
-      openalex = openalex.toLowerCase();
-      if (cr == null) {
-        cr = openalex;
+P.report.works.process = async function(cr, openalex, refresh, everything, replaced, queued) {
+  var _rsup, a, ad, ass, assl, best_initial, best_name, best_score, brd, c, email, epmc, err, exists, f, i, j, k, l, lc, len, len1, len10, len11, len2, len3, len4, len5, len6, len7, len8, len9, lic, loc, lvs, m, n, oadoi, ok, ox, p, permissions, pp, pt, pubmed, r, ran, rec, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref45, ref46, ref47, ref48, ref49, ref5, ref50, ref51, ref6, ref7, ref8, ref9, ren, rn, score, sd, started, sup, u, ud, ude, v, w, x, xref, y, z;
+  try {
+    started = (await this.epoch());
+    if (cr == null) {
+      cr = this.params.process;
+    }
+    if (refresh == null) {
+      refresh = this.refresh;
+    }
+    if (everything == null) {
+      everything = this.params.everything; // if so then runs epmc and permissions, which otherwise only run for records with orgs providing supplements
+    }
+    if (typeof openalex === 'string') {
+      openalex = openalex.split(openalex.includes('doi.org') ? 'doi.org/' : '/').pop();
+      openalex = openalex.replace(/\/$/, '');
+      if (openalex.startsWith('10.')) {
+        openalex = openalex.toLowerCase();
+        if (cr == null) {
+          cr = openalex;
+        }
+      }
+      if (openalex.startsWith('W') || openalex.startsWith('10.')) {
+        if (openalex.startsWith('10.') && refresh !== true) {
+          exists = (await this.report.works({
+            _id: openalex
+          }));
+          if (!(exists != null ? exists.updated : void 0) || (refresh && exists && exists.updated < refresh)) {
+            exists = void 0;
+          }
+        }
+        if (openalex.startsWith('W') || !(exists != null ? exists.openalex : void 0)) {
+          ox = (await this.src.openalex.works('id.keyword:"https://openalex.org/' + openalex + '"', 1));
+          try {
+            if (ox != null ? (ref = ox.hits) != null ? (ref1 = ref.hits) != null ? ref1.length : void 0 : void 0 : void 0) {
+              ox = ox.hits.hits[0]._source;
+            }
+          } catch (error) {}
+          if (ox != null ? ox.id : void 0) {
+            openalex = ox;
+          }
+        }
       }
     }
-    if (openalex.startsWith('W') || openalex.startsWith('10.')) {
-      if (openalex.startsWith('10.') && refresh !== true) {
-        exists = (await this.report.works({
-          _id: openalex
+    if (typeof openalex === 'string' && !(openalex.startsWith('W') || openalex.startsWith('10.'))) {
+      openalex = void 0;
+    }
+    if ((cr == null) && typeof openalex === 'object' && (openalex != null ? (ref2 = openalex.ids) != null ? ref2.doi : void 0 : void 0)) {
+      cr = openalex.ids.doi;
+    }
+    if (typeof cr === 'string' && cr.includes('doi.org/')) {
+      cr = cr.split('doi.org/').pop();
+    }
+    if (typeof cr === 'string' && !cr.startsWith('10.')) {
+      cr = void 0;
+    }
+    if (typeof cr === 'string') {
+      cr = cr.toLowerCase();
+    }
+    if ((exists == null) && typeof cr === 'string' && (xref = (await this.src.crossref.works(cr)))) {
+      cr = xref;
+    }
+    if (typeof cr === 'object' && !cr.DOI) {
+      cr = void 0;
+    }
+    if ((cr != null) && refresh !== true) {
+      if (exists == null) {
+        exists = (await this.report.works(typeof cr === 'string' ? cr : cr.DOI));
+      }
+      if (!(exists != null ? exists.updated : void 0) || (refresh && exists && exists.updated < refresh)) {
+        exists = void 0;
+      }
+    }
+    if ((cr != null) && !(exists != null ? exists.openalex : void 0)) {
+      if (openalex == null) {
+        openalex = (await this.src.openalex.works({
+          _id: typeof cr === 'object' ? cr.DOI : cr
         }));
-        if (!(exists != null ? exists.updated : void 0) || (refresh && exists && exists.updated < refresh)) {
-          exists = void 0;
-        }
       }
-      if (openalex.startsWith('W') || !(exists != null ? exists.openalex : void 0)) {
-        ox = (await this.src.openalex.works('id.keyword:"https://openalex.org/' + openalex + '"', 1));
-        try {
-          if (ox != null ? (ref = ox.hits) != null ? (ref1 = ref.hits) != null ? ref1.length : void 0 : void 0 : void 0) {
-            ox = ox.hits.hits[0]._source;
+    }
+    if (typeof openalex === 'string' || !(openalex != null ? openalex.id : void 0)) {
+      openalex = void 0;
+    }
+    if (typeof cr === 'object' && cr.DOI) {
+      rec = {
+        DOI: cr.DOI.toLowerCase(),
+        subject: cr.subject,
+        subtitle: cr.subtitle,
+        volume: cr.volume,
+        published_year: cr.year,
+        issue: cr.issue,
+        publisher: cr.publisher,
+        published_date: cr.published,
+        funder: cr.funder,
+        issn: cr.ISSN,
+        subtype: cr.subtype
+      };
+      ref4 = (ref3 = cr.assertion) != null ? ref3 : [];
+      for (j = 0, len = ref4.length; j < len; j++) {
+        ass = ref4[j];
+        assl = ((ref5 = ass.label) != null ? ref5 : '').toLowerCase();
+        if (assl.includes('accepted') && assl.split(' ').length < 3) {
+          ad = (await this.dateparts(ass.value));
+          if (ad != null ? ad.date : void 0) {
+            if (rec.accepted_date == null) {
+              rec.accepted_date = ad.date;
+            }
           }
-        } catch (error) {}
-        if (ox != null ? ox.id : void 0) {
-          openalex = ox;
         }
-      }
-    }
-  }
-  if (typeof openalex === 'string' && !(openalex.startsWith('W') || openalex.startsWith('10.'))) {
-    openalex = void 0;
-  }
-  if ((cr == null) && typeof openalex === 'object' && (openalex != null ? (ref2 = openalex.ids) != null ? ref2.doi : void 0 : void 0)) {
-    cr = openalex.ids.doi;
-  }
-  if (typeof cr === 'string' && cr.includes('doi.org/')) {
-    cr = cr.split('doi.org/').pop();
-  }
-  if (typeof cr === 'string' && !cr.startsWith('10.')) {
-    cr = void 0;
-  }
-  if (typeof cr === 'string') {
-    cr = cr.toLowerCase();
-  }
-  if ((exists == null) && typeof cr === 'string' && (xref = (await this.src.crossref.works({
-    _id: cr
-  })))) {
-    cr = xref;
-  }
-  if (typeof cr === 'object' && !cr.DOI) {
-    cr = void 0;
-  }
-  if ((cr != null) && refresh !== true) {
-    if (exists == null) {
-      exists = (await this.report.works(typeof cr === 'string' ? cr : cr.DOI));
-    }
-    if (!(exists != null ? exists.updated : void 0) || (refresh && exists && exists.updated < refresh)) {
-      exists = void 0;
-    }
-  }
-  if ((cr != null) && !(exists != null ? exists.openalex : void 0)) {
-    if (openalex == null) {
-      openalex = (await this.src.openalex.works({
-        _id: typeof cr === 'object' ? cr.DOI : cr
-      }));
-    }
-  }
-  if (typeof openalex === 'string' || !(openalex != null ? openalex.id : void 0)) {
-    openalex = void 0;
-  }
-  if (typeof cr === 'object' && cr.DOI) {
-    rec = {
-      DOI: cr.DOI.toLowerCase(),
-      subject: cr.subject,
-      subtitle: cr.subtitle,
-      volume: cr.volume,
-      published_year: cr.year,
-      issue: cr.issue,
-      publisher: cr.publisher,
-      published_date: cr.published,
-      funder: cr.funder,
-      issn: cr.ISSN,
-      subtype: cr.subtype
-    };
-    ref4 = (ref3 = cr.assertion) != null ? ref3 : [];
-    for (j = 0, len = ref4.length; j < len; j++) {
-      ass = ref4[j];
-      assl = ((ref5 = ass.label) != null ? ref5 : '').toLowerCase();
-      if (assl.includes('accepted') && assl.split(' ').length < 3) {
-        ad = (await this.dateparts(ass.value));
-        if (ad != null ? ad.date : void 0) {
-          if (rec.accepted_date == null) {
-            rec.accepted_date = ad.date;
+        if (assl.includes('received')) {
+          sd = (await this.dateparts(ass.value));
+          if (sd != null ? sd.date : void 0) {
+            if (rec.submitted_date == null) {
+              rec.submitted_date = sd.date;
+            }
           }
         }
       }
-      if (assl.includes('received')) {
-        sd = (await this.dateparts(ass.value));
-        if (sd != null ? sd.date : void 0) {
-          if (rec.submitted_date == null) {
-            rec.submitted_date = sd.date;
+      ref7 = (ref6 = rec.funder) != null ? ref6 : [];
+      for (l = 0, len1 = ref7.length; l < len1; l++) {
+        f = ref7[l];
+        delete f['doi-asserted-by'];
+      }
+      if (cr.title && typeof cr.title !== 'string' && cr.title.length) {
+        rec.title = cr.title[0];
+      }
+      if (cr['container-title'] && cr['container-title'].length) {
+        rec.journal = cr['container-title'][0];
+      }
+      if (cr['reference-count'] != null) {
+        rec['reference-count'] = cr['reference-count'];
+      }
+      ref9 = (ref8 = cr.license) != null ? ref8 : [];
+      for (m = 0, len2 = ref9.length; m < len2; m++) {
+        lc = ref9[m];
+        if ((ref10 = lc['content-version']) === 'am' || ref10 === 'vor' || ref10 === 'tdm' || ref10 === 'unspecified') {
+          rec['crossref_license_url_' + lc['content-version']] = lc.URL;
+        }
+      }
+      rec.crossref_is_oa = cr.is_oa == null ? false : cr.is_oa;
+      brd = [];
+      _rsup = async(sup, ud) => {
+        sup.DOI = cr.DOI;
+        sup.replaced = ud;
+        await this.report.orgs.supplements(sup.osdid, '');
+        sup._id = sup.osdid = sup.osdid.split('_10.')[0] + '_' + sup.DOI.replace(/[\u{0080}-\u{FFFF}]/gu, '').toLowerCase().replace(/\//g, '_').replace(/ /g, '_');
+        return brd.push(sup);
+      };
+      ref12 = (ref11 = cr['update-to']) != null ? ref11 : [];
+      for (n = 0, len3 = ref12.length; n < len3; n++) {
+        ud = ref12[n];
+        if (ud.DOI !== cr.DOI && ((ref13 = ud.type.toLowerCase()) !== 'erratum' && ref13 !== 'correction')) { // some new version statements are for the same DOI, so no point changing anything
+          rec.replaces = [];
+          rec.replaces.push({
+            DOI: ud.DOI,
+            type: ud.type,
+            updated: (ref14 = ud.updated) != null ? ref14.timestamp : void 0
+          });
+          if (ude = (await this.report.works(ud.DOI))) {
+            await this.report.works(ud.DOI, '');
+          }
+          ref15 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs_supplements', 'DOI.keyword:"' + ud.DOI + '"');
+          for await (sup of ref15) {
+            _rsup(sup, ud.DOI);
           }
         }
       }
-    }
-    ref7 = (ref6 = rec.funder) != null ? ref6 : [];
-    for (l = 0, len1 = ref7.length; l < len1; l++) {
-      f = ref7[l];
-      delete f['doi-asserted-by'];
-    }
-    if (cr.title && typeof cr.title !== 'string' && cr.title.length) {
-      rec.title = cr.title[0];
-    }
-    if (cr['container-title'] && cr['container-title'].length) {
-      rec.journal = cr['container-title'][0];
-    }
-    if (cr['reference-count'] != null) {
-      rec['reference-count'] = cr['reference-count'];
-    }
-    ref9 = (ref8 = cr.license) != null ? ref8 : [];
-    for (m = 0, len2 = ref9.length; m < len2; m++) {
-      lc = ref9[m];
-      if ((ref10 = lc['content-version']) === 'am' || ref10 === 'vor' || ref10 === 'tdm' || ref10 === 'unspecified') {
-        rec['crossref_license_url_' + lc['content-version']] = lc.URL;
+      if (brd.length) {
+        //vseens = []
+        //for rtype in ['is-same-as', 'is-version-of', 'has-version'] # NOTE that these can be reciprocal and more than dual, and not always fully related, so can cause recurring loops. e.g. see https://bg.beta.oa.works/src/crossref/works/10.26434/chemrxiv-2021-vfkqb-v3
+        //  for rr in (cr.relation?[rtype] ? []) # so we can't be sure which is the 'newest' or 'best' version, or that we will always know of all versions the first time round. So just note their relation to each other and default to whichever one got into the index first
+        //    if rr['id-type'] is 'doi' and rr.id not in vseens and rr.id isnt cr.DOI and rr.id isnt replaced and newer = await @report.works rr.id # crossref is also capable of saying a DOI is the same as another DOI that does not exist in crossref, but in that case it won't exist in report works yet either
+        //      _rsup(sup, rr.id) for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'DOI.keyword:"' + cr.DOI + '"'
+        //    vseens.push rr.id
+        //    break if newer?
+        //  break if newer?
+        await this.report.orgs.supplements(brd);
       }
-    }
-    rec.crossref_is_oa = cr.is_oa == null ? false : cr.is_oa;
-    brd = [];
-    _rsup = async(sup, ud) => {
-      sup.DOI = cr.DOI;
-      sup.replaced = ud;
-      await this.report.orgs.supplements(sup.osdid, '');
-      sup._id = sup.osdid = sup.osdid.split('_10.')[0] + '_' + sup.DOI.replace(/[\u{0080}-\u{FFFF}]/gu, '').toLowerCase().replace(/\//g, '_').replace(/ /g, '_');
-      return brd.push(sup);
-    };
-    ref12 = (ref11 = cr['update-to']) != null ? ref11 : [];
-    for (n = 0, len3 = ref12.length; n < len3; n++) {
-      ud = ref12[n];
-      if (ud.DOI !== cr.DOI && ((ref13 = ud.type.toLowerCase()) !== 'erratum' && ref13 !== 'correction')) { // some new version statements are for the same DOI, so no point changing anything
-        rec.replaces = [];
+      if (typeof newer !== "undefined" && newer !== null) {
+        return this.report.works.process(newer, openalex, refresh, everything, cr.DOI);
+      }
+      if (replaced) { // if this was passed in by a secondary call to process
+        if (rec.replaces == null) {
+          rec.replaces = [];
+        }
         rec.replaces.push({
-          DOI: ud.DOI,
-          type: ud.type,
-          updated: (ref14 = ud.updated) != null ? ref14.timestamp : void 0
+          DOI: replaced,
+          type: 'relation'
         });
-        if (ude = (await this.report.works(ud.DOI))) {
-          await this.report.works(ud.DOI, '');
-        }
-        ref15 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs_supplements', 'DOI.keyword:"' + ud.DOI + '"');
-        for await (sup of ref15) {
-          _rsup(sup, ud.DOI);
+      }
+    }
+    if (openalex != null) {
+      if (rec == null) {
+        rec = {};
+      }
+      if (openalex.id) {
+        rec.openalex = openalex.id.split('/').pop();
+      }
+      if (!rec.DOI && (((ref16 = openalex.ids) != null ? ref16.doi : void 0) != null)) {
+        rec.DOI = openalex.ids.doi.split('doi.org/').pop().toLowerCase();
+      }
+      if ((ref17 = openalex.ids) != null ? ref17.pmid : void 0) {
+        rec.PMID = openalex.ids.pmid.split('/').pop();
+      }
+      if (!rec.PMCID && ((ref18 = openalex.ids) != null ? ref18.pmcid : void 0)) {
+        rec.PMCID = 'PMC' + openalex.ids.pmcid.split('/').pop().toLowerCase().replace('pmc', '');
+      }
+      if (openalex.title) {
+        rec.title = openalex.title;
+      }
+      ref19 = ['authorships', 'concepts', 'cited_by_count', 'type', 'is_paratext', 'is_retracted'];
+      for (p = 0, len4 = ref19.length; p < len4; p++) {
+        ok = ref19[p];
+        rec[ok] = openalex[ok];
+      }
+      if (openalex.publication_date) {
+        rec.published_date = openalex.publication_date;
+      }
+      if (openalex.publication_year) {
+        rec.published_year = openalex.publication_year;
+      }
+      if (((ref20 = openalex.host_venue) != null ? ref20.issn : void 0) && openalex.host_venue.issn.length) {
+        rec.issn = openalex.host_venue.issn;
+      }
+      if (openalex.biblio) {
+        rec.biblio = openalex.biblio;
+      }
+      if (openalex['referenced_works']) {
+        rec['referenced_works'] = openalex['referenced_works'].length;
+      }
+      ref22 = (ref21 = rec.concepts) != null ? ref21 : [];
+      for (r = 0, len5 = ref22.length; r < len5; r++) {
+        c = ref22[r];
+        delete c.wikidata;
+        try {
+          c.score = Math.floor(c.score * 100);
+        } catch (error) {}
+      }
+      ref24 = (ref23 = rec.authorships) != null ? ref23 : [];
+      for (u = 0, len6 = ref24.length; u < len6; u++) {
+        a = ref24[u];
+        ref26 = (ref25 = a.institutions) != null ? ref25 : [];
+        for (v = 0, len7 = ref26.length; v < len7; v++) {
+          i = ref26[v];
+          delete i.type;
         }
       }
     }
-    ref16 = ['is-same-as', 'is-version-of'];
-    // has-version
-    for (p = 0, len4 = ref16.length; p < len4; p++) {
-      rtype = ref16[p];
-      ref19 = (ref17 = (ref18 = cr.relation) != null ? ref18[rtype] : void 0) != null ? ref17 : [];
-      for (r = 0, len5 = ref19.length; r < len5; r++) {
-        rr = ref19[r];
-        if (rr['id-type'] === 'doi' && rr.id !== cr.DOI && rr.id !== replaced && (newer = (await this.src.crossref.works(rr.id)))) { // crossref is capable of saying a DOI is the same as another DOI that does not exist in crossref
-          ref20 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs_supplements', 'DOI.keyword:"' + cr.DOI + '"');
-          for await (sup of ref20) {
-            _rsup(sup, rr.id);
-          }
-        }
-      }
-    }
-    if (brd.length) {
-      await this.report.orgs.supplements(brd);
-    }
-    if (newer != null) {
-      return this.report.works.process(newer, openalex, refresh, everything, cr.DOI);
-    }
-    if (replaced) { // if this was passed in by a secondary call to process
-      if (rec.replaces == null) {
-        rec.replaces = [];
-      }
-      rec.replaces.push({
-        DOI: replaced,
-        type: 'relation'
-      });
-    }
-  }
-  if (openalex != null) {
     if (rec == null) {
       rec = {};
     }
-    if (openalex.id) {
-      rec.openalex = openalex.id.split('/').pop();
+    if (!rec.DOI && typeof cr === 'string') {
+      rec.DOI = cr.toLowerCase();
     }
-    if (!rec.DOI && (((ref21 = openalex.ids) != null ? ref21.doi : void 0) != null)) {
-      rec.DOI = openalex.ids.doi.split('doi.org/').pop().toLowerCase();
+    if (rec.is_paratext || rec.is_retracted) {
+      if (queued) {
+        _done_batch.push(queued);
+        _processing_dois.splice(_processing_dois.indexOf(queued), 1);
+      }
+      return;
     }
-    if ((ref22 = openalex.ids) != null ? ref22.pmid : void 0) {
-      rec.PMID = openalex.ids.pmid.split('/').pop();
-    }
-    if (!rec.PMCID && ((ref23 = openalex.ids) != null ? ref23.pmcid : void 0)) {
-      rec.PMCID = 'PMC' + openalex.ids.pmcid.split('/').pop().toLowerCase().replace('pmc', '');
-    }
-    if (openalex.title) {
-      rec.title = openalex.title;
-    }
-    ref24 = ['authorships', 'concepts', 'cited_by_count', 'type', 'is_paratext', 'is_retracted'];
-    for (u = 0, len6 = ref24.length; u < len6; u++) {
-      ok = ref24[u];
-      rec[ok] = openalex[ok];
-    }
-    if (openalex.publication_date) {
-      rec.published_date = openalex.publication_date;
-    }
-    if (openalex.publication_year) {
-      rec.published_year = openalex.publication_year;
-    }
-    if (((ref25 = openalex.host_venue) != null ? ref25.issn : void 0) && openalex.host_venue.issn.length) {
-      rec.issn = openalex.host_venue.issn;
-    }
-    if (openalex.biblio) {
-      rec.biblio = openalex.biblio;
-    }
-    if (openalex['referenced_works']) {
-      rec['referenced_works'] = openalex['referenced_works'].length;
-    }
-    ref27 = (ref26 = rec.concepts) != null ? ref26 : [];
-    for (v = 0, len7 = ref27.length; v < len7; v++) {
-      c = ref27[v];
-      delete c.wikidata;
-      try {
-        c.score = Math.floor(c.score * 100);
-      } catch (error) {}
-    }
-    ref29 = (ref28 = rec.authorships) != null ? ref28 : [];
-    for (w = 0, len8 = ref29.length; w < len8; w++) {
-      a = ref29[w];
-      ref31 = (ref30 = a.institutions) != null ? ref30 : [];
-      for (x = 0, len9 = ref31.length; x < len9; x++) {
-        i = ref31[x];
-        delete i.type;
+    delete rec.is_paratext;
+    delete rec.is_retracted;
+    if (!(exists != null ? exists.oadoi : void 0) && rec.DOI) {
+      rec.oadoi = true;
+      oadoi = (await this.src.oadoi(rec.DOI));
+      ref28 = (ref27 = oadoi != null ? oadoi.oa_locations : void 0) != null ? ref27 : [];
+      for (w = 0, len8 = ref28.length; w < len8; w++) {
+        loc = ref28[w];
+        if (loc.host_type === 'publisher') {
+          if (rec.publisher_license == null) {
+            rec.publisher_license = loc.license;
+          }
+          if (rec.publisher_url_for_pdf == null) {
+            rec.publisher_url_for_pdf = loc.url_for_pdf;
+          }
+          if (rec.publisher_version == null) {
+            rec.publisher_version = loc.version;
+          }
+        }
+        if (loc.host_type === 'repository') {
+          if (loc.url && loc.url.toLowerCase().includes('pmc')) {
+            if (!rec.PMCID) {
+              pp = loc.url.toLowerCase().split('pmc')[1].split('/')[0].split('?')[0].split('#')[0];
+              if (pp.length && pp.replace(/[^0-9]/g, '').length === pp.length && !isNaN(parseInt(pp))) {
+                rec.PMCID = 'PMC' + pp;
+              }
+            }
+            if (loc.license && !rec.epmc_licence) {
+              rec.epmc_licence = loc.license;
+            }
+          }
+          if (!rec.repository_url || !rec.repository_url.includes('pmc')) {
+            ref29 = ['license', 'url_for_pdf', 'url', 'version'];
+            for (x = 0, len9 = ref29.length; x < len9; x++) {
+              ok = ref29[x];
+              if (loc[ok]) {
+                rec['repository_' + ok] = loc[ok];
+              }
+            }
+          }
+        }
+      }
+      if (rec.repository_url && rec.repository_url.toLowerCase().includes('pmc')) {
+        if (rec.PMCID == null) {
+          rec.PMCID = 'PMC' + rec.repository_url.toLowerCase().split('pmc').pop().split('/')[0].split('#')[0].split('?')[0];
+        }
+        rec.repository_url_in_pmc = true;
+      }
+      if (oadoi != null) {
+        rec.best_oa_location_url = (ref30 = oadoi.best_oa_location) != null ? ref30.url : void 0;
+        rec.best_oa_location_url_for_pdf = (ref31 = oadoi.best_oa_location) != null ? ref31.url_for_pdf : void 0;
+        rec.oa_status = oadoi.oa_status;
+        rec.has_repository_copy = oadoi.has_repository_copy;
+        rec.has_oa_locations_embargoed = (oadoi.oa_locations_embargoed != null) && oadoi.oa_locations_embargoed.length ? true : false;
+        rec.title = oadoi.title;
+        if (!rec.issn && typeof oadoi.journal_issns === 'string' && oadoi.journal_issns.length) {
+          rec.issn = oadoi.journal_issns.split(',');
+        }
+        if (rec.journal == null) {
+          rec.journal = oadoi.journal_name;
+        }
+        if (rec.publisher == null) {
+          rec.publisher = oadoi.publisher;
+        }
+        if (oadoi.published_date) {
+          rec.published_date = oadoi.published_date;
+        }
+        if (oadoi.year) {
+          rec.published_year = oadoi.year;
+        }
+        if (oadoi.is_oa != null) {
+          rec.oadoi_is_oa = oadoi.is_oa;
+        }
       }
     }
-  }
-  if (rec == null) {
-    rec = {};
-  }
-  if (!rec.DOI && typeof cr === 'string') {
-    rec.DOI = cr.toLowerCase();
-  }
-  if (rec.is_paratext || rec.is_retracted) {
+    rec.supplements = [];
+    rec.orgs = [];
     if (rec.DOI) {
-      try {
-        pfn = (rec.is_paratext ? 'paratext' : 'retracted') + (this.S.dev ? '_dev' : '');
-        prds = [];
-        try {
-          prds = JSON.parse(((await fs.readFile(this.S.static.folder + '/' + pfn + '.json'))).toString());
-        } catch (error) {}
-        if (ref32 = rec.DOI, indexOf.call(prds, ref32) < 0) {
-          prds.push(rec.DOI);
+      ref32 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs_supplements', 'DOI.keyword:"' + rec.DOI + '"', {
+        sort: {
+          'osdid.keyword': 'asc'
         }
-        await fs.writeFile(this.S.static.folder + '/' + pfn + '.json', JSON.stringify(prds, '', 2));
-      } catch (error) {}
+      });
+      for await (sup of ref32) {
+        if (ref33 = sup.org, indexOf.call(rec.orgs, ref33) < 0) {
+          rec.orgs.push(sup.org);
+        }
+        if (sup.paid) {
+          rec.paid = true;
+        }
+        if (!rec.email && sup.email) {
+          rec.email = sup.email;
+        }
+        if (sup.author_email_name_ic) {
+          rec.author_email_name = sup.author_email_name_ic;
+        }
+        rec.supplements.push(sup);
+      }
     }
-    return;
-  }
-  delete rec.is_paratext;
-  delete rec.is_retracted;
-  if (!(exists != null ? exists.oadoi : void 0) && rec.DOI) {
-    rec.oadoi = true;
-    oadoi = (await this.src.oadoi(rec.DOI));
-    ref34 = (ref33 = oadoi != null ? oadoi.oa_locations : void 0) != null ? ref33 : [];
-    for (y = 0, len10 = ref34.length; y < len10; y++) {
-      loc = ref34[y];
-      if (loc.host_type === 'publisher') {
-        if (rec.publisher_license == null) {
-          rec.publisher_license = loc.license;
-        }
-        if (rec.publisher_url_for_pdf == null) {
-          rec.publisher_url_for_pdf = loc.url_for_pdf;
-        }
-        if (rec.publisher_version == null) {
-          rec.publisher_version = loc.version;
+    if (exists != null) {
+      if (!rec.author_email_name && exists.author_email_name && exists.email && rec.email && rec.email.toLowerCase() === exists.email.toLowerCase()) {
+        rec.author_email_name = exists.author_email_name;
+      }
+      for (k in exists) {
+        if (rec[k] == null) {
+          rec[k] = exists[k];
         }
       }
-      if (loc.host_type === 'repository') {
-        if (loc.url && loc.url.toLowerCase().includes('pmc')) {
-          if (!rec.PMCID) {
-            pp = loc.url.toLowerCase().split('pmc')[1].split('/')[0].split('?')[0].split('#')[0];
-            if (pp.length && pp.replace(/[^0-9]/g, '').length === pp.length && !isNaN(parseInt(pp))) {
-              rec.PMCID = 'PMC' + pp;
+    }
+    if ((rec.authorships != null) && rec.email && !rec.author_email_name && (((exists != null ? exists.authorships : void 0) == null) || !(exists != null ? exists.email : void 0))) {
+      email = rec.email.includes('@') ? rec.email : (await this.decrypt(rec.email));
+      if (rec.authorships.length === 1) {
+        rec.author_email_name = 'Dr. ' + ((ref34 = rec.authorships[0].author) != null ? ref34.display_name : void 0);
+      } else {
+        ren = email.split('@')[0].toLowerCase().replace(/[^a-z]/g, '');
+        best_initial = '';
+        best_name = '';
+        best_score = 1000000;
+        ref35 = rec.authorships;
+        for (y = 0, len10 = ref35.length; y < len10; y++) {
+          rn = ref35[y];
+          if (ran = (ref36 = rn.author) != null ? ref36.display_name : void 0) {
+            lvs = (await this.levenshtein(ren, ran.toLowerCase().replace(/[^a-z]/g, '')));
+            score = lvs.distance / ran.length;
+            if (score < best_score) {
+              best_score = score;
+              best_name = ran;
+            }
+            if (best_score > .2 && (ren.endsWith(ran.split(' ').pop().toLowerCase()) || (ran.split(' ')[0].length > 4 && ren.includes(ran.split(' ')[0].toLowerCase())))) {
+              best_score = .1;
+              best_name = ran;
+            }
+            if (!best_initial && ren.startsWith((ran.split(' ')[0].slice(0, 1) + ran.split(' ').pop().slice(0, 1)).toLowerCase())) {
+              best_initial = ran;
             }
           }
-          if (loc.license && !rec.epmc_licence) {
-            rec.epmc_licence = loc.license;
+        }
+        if (best_name && best_score < .7) {
+          rec.author_email_name = 'Dr. ' + best_name.split(' ').pop();
+        }
+        if (!rec.author_email_name && best_initial) {
+          rec.author_email_name = 'Dr. ' + best_initial;
+        }
+      }
+    }
+    if (typeof rec.email === 'string' && rec.email.includes('@')) {
+      rec.email = (await this.encrypt(rec.email));
+    }
+    if (rec.orgs.length && ((ref37 = exists != null ? exists.orgs : void 0) != null ? ref37 : []).length !== rec.orgs.length) { // control whether to run time-expensive things on less important records
+      everything = true;
+    }
+    
+    //if (not exists? and rec.orgs.length) or (exists?.orgs ? []).length isnt rec.orgs.length or (rec.paid and rec.paid isnt exists?.paid) #or not exists.journal_oa_type
+    if (rec.DOI) {
+      if (!rec.PMCID || !rec.PMID || !rec.pubtype || !rec.submitted_date || !rec.accepted_date) {
+        if (pubmed = (rec.PMID ? (await this.src.pubmed(rec.PMID)) : (await this.src.pubmed.doi(rec.DOI)))) { // pubmed is faster to lookup but can't rely on it being right if no PMC found in it, e.g. 10.1111/nyas.14608
+          if (!rec.PMCID && (pubmed != null ? (ref38 = pubmed.identifier) != null ? ref38.pmc : void 0 : void 0)) {
+            rec.PMCID = 'PMC' + pubmed.identifier.pmc.toLowerCase().replace('pmc', '');
+          }
+          if (!rec.PMID && (pubmed != null ? (ref39 = pubmed.identifier) != null ? ref39.pubmed : void 0 : void 0)) {
+            rec.PMID = pubmed.identifier.pubmed;
+          }
+          rec.pubtype = pubmed.type; // this is a list
+          if (rec.submitted_date == null) {
+            rec.submitted_date = (ref40 = pubmed.dates) != null ? (ref41 = ref40.PubMedPubDate_received) != null ? ref41.date : void 0 : void 0;
+          }
+          if (rec.accepted_date == null) {
+            rec.accepted_date = (ref42 = pubmed.dates) != null ? (ref43 = ref42.PubMedPubDate_accepted) != null ? ref43.date : void 0 : void 0;
           }
         }
-        if (!rec.repository_url || !rec.repository_url.includes('pmc')) {
-          ref35 = ['license', 'url_for_pdf', 'url', 'version'];
-          for (z = 0, len11 = ref35.length; z < len11; z++) {
-            ok = ref35[z];
-            if (loc[ok]) {
-              rec['repository_' + ok] = loc[ok];
+      }
+      if (!rec.journal_oa_type) { // restrict permissions only to records with orgs supplements? for now no
+        permissions = (await this.permissions((await this.copy(rec)), void 0, void 0, oadoi, cr, started - 1209600000)); // (if refresh then undefined else started - 1209600000) # use cached best permissions up to two weeks old
+        rec.can_archive = permissions != null ? (ref44 = permissions.best_permission) != null ? ref44.can_archive : void 0 : void 0;
+        if ((rec.can_archive == null) && (((ref45 = oadoi != null ? (ref46 = oadoi.best_oa_location) != null ? ref46.license : void 0 : void 0) != null ? ref45 : '').includes('cc') || (oadoi != null ? oadoi.journal_is_in_doaj : void 0))) {
+          rec.can_archive = true;
+        }
+        rec.version = permissions != null ? (ref47 = permissions.best_permission) != null ? ref47.version : void 0 : void 0;
+        rec.journal_oa_type = (await this.permissions.journals.oa.type(rec.issn, void 0, oadoi, cr)); // calculate journal oa type separately because it can be different for a journal in general than for what permissions calculates in more specificity
+        if (rec.journal_oa_type == null) {
+          rec.journal_oa_type = 'unsuccessful';
+        }
+      }
+      if (everything) {
+        if (!rec.PMCID || !rec.pubtype) { //or not rec.submitted_date or not rec.accepted_date # only thing restricted to orgs supplements for now is remote epmc lookup and epmc licence calculation below
+          if (epmc = (await this.src.epmc.doi(rec.DOI))) {
+            if (epmc.pmcid) {
+              rec.PMCID = epmc.pmcid;
+            }
+            ref49 = (ref48 = epmc.pubTypeList) != null ? ref48 : [];
+            //rec.submitted_date ?= epmc.firstIndexDate - removed as found to be not accurate enough https://github.com/oaworks/Gates/issues/559
+            //rec.accepted_date ?= epmc.firstPublicationDate
+            for (z = 0, len11 = ref49.length; z < len11; z++) {
+              pt = ref49[z];
+              rec.pubtype = Array.isArray(rec.pubtype) ? rec.pubtype : rec.pubtype ? [rec.pubtype] : [];
+              if (ref50 = pt.pubType, indexOf.call(rec.pubtype, ref50) < 0) {
+                rec.pubtype.push(pt.pubType);
+              }
             }
           }
         }
-      }
-    }
-    if (rec.repository_url && rec.repository_url.toLowerCase().includes('pmc')) {
-      if (rec.PMCID == null) {
-        rec.PMCID = 'PMC' + rec.repository_url.toLowerCase().split('pmc').pop().split('/')[0].split('#')[0].split('?')[0];
-      }
-      rec.repository_url_in_pmc = true;
-    }
-    if (oadoi != null) {
-      rec.best_oa_location_url = (ref36 = oadoi.best_oa_location) != null ? ref36.url : void 0;
-      rec.best_oa_location_url_for_pdf = (ref37 = oadoi.best_oa_location) != null ? ref37.url_for_pdf : void 0;
-      rec.oa_status = oadoi.oa_status;
-      rec.has_repository_copy = oadoi.has_repository_copy;
-      rec.has_oa_locations_embargoed = (oadoi.oa_locations_embargoed != null) && oadoi.oa_locations_embargoed.length ? true : false;
-      rec.title = oadoi.title;
-      if (!rec.issn && typeof oadoi.journal_issns === 'string' && oadoi.journal_issns.length) {
-        rec.issn = oadoi.journal_issns.split(',');
-      }
-      if (rec.journal == null) {
-        rec.journal = oadoi.journal_name;
-      }
-      if (rec.publisher == null) {
-        rec.publisher = oadoi.publisher;
-      }
-      if (oadoi.published_date) {
-        rec.published_date = oadoi.published_date;
-      }
-      if (oadoi.year) {
-        rec.published_year = oadoi.year;
-      }
-      if (oadoi.is_oa != null) {
-        rec.oadoi_is_oa = oadoi.is_oa;
-      }
-    }
-  }
-  rec.supplements = [];
-  rec.orgs = [];
-  if (rec.DOI) {
-    ref38 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs_supplements', 'DOI.keyword:"' + rec.DOI + '"', {
-      sort: {
-        'osdid.keyword': 'asc'
-      }
-    });
-    for await (sup of ref38) {
-      if (ref39 = sup.org, indexOf.call(rec.orgs, ref39) < 0) {
-        rec.orgs.push(sup.org);
-      }
-      if (sup.paid) {
-        rec.paid = true;
-      }
-      if (!rec.email && sup.email) {
-        rec.email = sup.email;
-      }
-      if (sup.author_email_name_ic) {
-        rec.author_email_name = sup.author_email_name_ic;
-      }
-      rec.supplements.push(sup);
-    }
-  }
-  if (exists != null) {
-    if (!rec.author_email_name && exists.author_email_name && exists.email && rec.email && rec.email.toLowerCase() === exists.email.toLowerCase()) {
-      rec.author_email_name = exists.author_email_name;
-    }
-    for (k in exists) {
-      if (rec[k] == null) {
-        rec[k] = exists[k];
-      }
-    }
-  }
-  if ((rec.authorships != null) && rec.email && !rec.author_email_name && (((exists != null ? exists.authorships : void 0) == null) || !(exists != null ? exists.email : void 0))) {
-    email = rec.email.includes('@') ? rec.email : (await this.decrypt(rec.email));
-    if (rec.authorships.length === 1) {
-      rec.author_email_name = 'Dr. ' + ((ref40 = rec.authorships[0].author) != null ? ref40.display_name : void 0);
-    } else {
-      ren = email.split('@')[0].toLowerCase().replace(/[^a-z]/g, '');
-      best_initial = '';
-      best_name = '';
-      best_score = 1000000;
-      ref41 = rec.authorships;
-      for (i1 = 0, len12 = ref41.length; i1 < len12; i1++) {
-        rn = ref41[i1];
-        if (ran = (ref42 = rn.author) != null ? ref42.display_name : void 0) {
-          lvs = (await this.levenshtein(ren, ran.toLowerCase().replace(/[^a-z]/g, '')));
-          score = lvs.distance / ran.length;
-          if (score < best_score) {
-            best_score = score;
-            best_name = ran;
-          }
-          if (best_score > .2 && (ren.endsWith(ran.split(' ').pop().toLowerCase()) || (ran.split(' ')[0].length > 4 && ren.includes(ran.split(' ')[0].toLowerCase())))) {
-            best_score = .1;
-            best_name = ran;
-          }
-          if (!best_initial && ren.startsWith((ran.split(' ')[0].slice(0, 1) + ran.split(' ').pop().slice(0, 1)).toLowerCase())) {
-            best_initial = ran;
-          }
-        }
-      }
-      if (best_name && best_score < .7) {
-        rec.author_email_name = 'Dr. ' + best_name.split(' ').pop();
-      }
-      if (!rec.author_email_name && best_initial) {
-        rec.author_email_name = 'Dr. ' + best_initial;
-      }
-    }
-  }
-  if (typeof rec.email === 'string' && rec.email.includes('@')) {
-    rec.email = (await this.encrypt(rec.email));
-  }
-  if (rec.orgs.length && ((ref43 = exists != null ? exists.orgs : void 0) != null ? ref43 : []).length !== rec.orgs.length) { // control whether to run time-expensive things on less important records
-    everything = true;
-  }
-  
-  //if (not exists? and rec.orgs.length) or (exists?.orgs ? []).length isnt rec.orgs.length or (rec.paid and rec.paid isnt exists?.paid) #or not exists.journal_oa_type
-  if (rec.DOI) {
-    if (!rec.PMCID || !rec.PMID || !rec.pubtype || !rec.submitted_date || !rec.accepted_date) {
-      if (pubmed = (rec.PMID ? (await this.src.pubmed(rec.PMID)) : (await this.src.pubmed.doi(rec.DOI)))) { // pubmed is faster to lookup but can't rely on it being right if no PMC found in it, e.g. 10.1111/nyas.14608
-        if (!rec.PMCID && (pubmed != null ? (ref44 = pubmed.identifier) != null ? ref44.pmc : void 0 : void 0)) {
-          rec.PMCID = 'PMC' + pubmed.identifier.pmc.toLowerCase().replace('pmc', '');
-        }
-        if (!rec.PMID && (pubmed != null ? (ref45 = pubmed.identifier) != null ? ref45.pubmed : void 0 : void 0)) {
-          rec.PMID = pubmed.identifier.pubmed;
-        }
-        rec.pubtype = pubmed.type; // this is a list
-        if (rec.submitted_date == null) {
-          rec.submitted_date = (ref46 = pubmed.dates) != null ? (ref47 = ref46.PubMedPubDate_received) != null ? ref47.date : void 0 : void 0;
-        }
-        if (rec.accepted_date == null) {
-          rec.accepted_date = (ref48 = pubmed.dates) != null ? (ref49 = ref48.PubMedPubDate_accepted) != null ? ref49.date : void 0 : void 0;
-        }
-      }
-    }
-    if (!rec.journal_oa_type) { // restrict permissions only to records with orgs supplements? for now no
-      permissions = (await this.permissions((await this.copy(rec)), void 0, void 0, oadoi, cr, started - 1209600000)); // (if refresh then undefined else started - 1209600000) # use cached best permissions up to two weeks old
-      rec.can_archive = permissions != null ? (ref50 = permissions.best_permission) != null ? ref50.can_archive : void 0 : void 0;
-      if ((rec.can_archive == null) && (((ref51 = oadoi != null ? (ref52 = oadoi.best_oa_location) != null ? ref52.license : void 0 : void 0) != null ? ref51 : '').includes('cc') || (oadoi != null ? oadoi.journal_is_in_doaj : void 0))) {
-        rec.can_archive = true;
-      }
-      rec.version = permissions != null ? (ref53 = permissions.best_permission) != null ? ref53.version : void 0 : void 0;
-      rec.journal_oa_type = (await this.permissions.journals.oa.type(rec.issn, void 0, oadoi, cr)); // calculate journal oa type separately because it can be different for a journal in general than for what permissions calculates in more specificity
-      if (rec.journal_oa_type == null) {
-        rec.journal_oa_type = 'unsuccessful';
       }
     }
     if (everything) {
-      if (!rec.PMCID || !rec.pubtype) { //or not rec.submitted_date or not rec.accepted_date # only thing restricted to orgs supplements for now is remote epmc lookup and epmc licence calculation below
-        if (epmc = (await this.src.epmc.doi(rec.DOI))) {
-          if (epmc.pmcid) {
-            rec.PMCID = epmc.pmcid;
-          }
-          ref55 = (ref54 = epmc.pubTypeList) != null ? ref54 : [];
-          //rec.submitted_date ?= epmc.firstIndexDate - removed as found to be not accurate enough https://github.com/oaworks/Gates/issues/559
-          //rec.accepted_date ?= epmc.firstPublicationDate
-          for (j1 = 0, len13 = ref55.length; j1 < len13; j1++) {
-            pt = ref55[j1];
-            rec.pubtype = Array.isArray(rec.pubtype) ? rec.pubtype : rec.pubtype ? [rec.pubtype] : [];
-            if (ref56 = pt.pubType, indexOf.call(rec.pubtype, ref56) < 0) {
-              rec.pubtype.push(pt.pubType);
-            }
-          }
-        }
+      if (rec.PMCID && rec.repository_url_in_pmc && !rec.epmc_licence) {
+        lic = (await this.src.epmc.licence(rec.PMCID, epmc));
+        rec.epmc_licence = lic != null ? lic.licence : void 0;
+      }
+      if (rec.pmc_has_data_availability_statement == null) {
+        rec.pmc_has_data_availability_statement = rec.PMCID && (await this.src.pubmed.availability(rec.PMCID));
+      }
+      if (!rec.data_availability_statement && rec.PMCID) { //rec.pmc_has_data_availability_statement
+        rec.data_availability_statement = (await this.src.epmc.statement(rec.PMCID, epmc));
       }
     }
-  }
-  if (everything) {
-    if (rec.PMCID && rec.repository_url_in_pmc && !rec.epmc_licence) {
-      lic = (await this.src.epmc.licence(rec.PMCID, epmc));
-      rec.epmc_licence = lic != null ? lic.licence : void 0;
+    rec.is_oa = rec.oadoi_is_oa || rec.crossref_is_oa || ((ref51 = rec.journal_oa_type) === 'gold');
+    if (rec._id == null) {
+      rec._id = rec.DOI ? rec.DOI.toLowerCase().replace(/\//g, '_') : rec.openalex; // and if no openalex it will get a default ID
     }
-    if (rec.pmc_has_data_availability_statement == null) {
-      rec.pmc_has_data_availability_statement = rec.PMCID && (await this.src.pubmed.availability(rec.PMCID));
+    rec.supplemented = (await this.epoch());
+    rec.updated = rec.supplemented;
+    rec.took = rec.supplemented - started;
+    if (rec.DOI && this.params.process === rec.DOI && this.params.save !== false) {
+      await this.report.works(rec);
+    } else if (queued) {
+      _done_batch.push(queued);
+      if (rec._id != null) {
+        _processed_batch.push(rec);
+      }
+      _processing_dois.splice(_processing_dois.indexOf(queued), 1);
     }
-    if (!rec.data_availability_statement && rec.PMCID) { //rec.pmc_has_data_availability_statement
-      rec.data_availability_statement = (await this.src.epmc.statement(rec.PMCID, epmc));
+    //console.log 'report works processed', rec.DOI, rec.took
+    return rec;
+  } catch (error) {
+    err = error;
+    console.log('report works process error', err, (typeof cr === 'object' ? cr.DOI : cr));
+    if (queued) {
+      _done_batch.push(queued);
+      _processing_dois.splice(_processing_dois.indexOf(queued), 1);
     }
   }
-  rec.is_oa = rec.oadoi_is_oa || rec.crossref_is_oa || ((ref57 = rec.journal_oa_type) === 'gold');
-  if (rec._id == null) {
-    rec._id = rec.DOI ? rec.DOI.toLowerCase().replace(/\//g, '_') : rec.openalex; // and if no openalex it will get a default ID
-  }
-  rec.supplemented = (await this.epoch());
-  rec.updated = rec.supplemented;
-  rec.took = rec.supplemented - started;
-  if (rec.DOI && this.params.process === rec.DOI && this.params.save !== false) {
-    await this.report.works(rec);
-  }
-  //console.log 'report works processed', rec.DOI, rec.took
-  return rec;
 };
 
 P.report.works.process._log = false;
 
 P.report.works.load = async function(timestamp, org, dois, year, refresh, supplements, everything, info) {
-  var _batch, _crossref, _openalex, bt, cc, crt, d, i, j, l, len, len1, o, oo, ref, ref1, ref10, ref11, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, sd, started, sup, text, took, total, updated;
+  var _crossref, _openalex, crt, d, i, j, l, len, len1, o, ref, ref1, ref10, ref11, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, sd, started, sup, text, took, total, updated;
   started = (await this.epoch());
   if (year == null) {
     year = (ref = this.params.load) != null ? ref : ((await this.date())).split('-')[0];
@@ -6371,40 +6383,12 @@ P.report.works.load = async function(timestamp, org, dois, year, refresh, supple
   if (refresh) {
     await this.report.works('');
   }
-  //batch = []
-  //batchsize = 2000
-  bt = 0;
   total = 0;
-  cc = [];
-  oo = [];
-  _batch = async(cr, ol) => {
-    bt += 1;
-    //console.log bt, cr, ol
-    if (typeof cr === 'string' && cr.startsWith('W') && !ol) {
-      ol = cr;
-      cr = void 0;
-    }
-    if ((cr != null) || (ol != null)) {
-      await this.report.queue(cr, ol, timestamp != null ? timestamp : refresh, everything); // TODO update report.queue to handle params
-      total += 1;
-      return `prc = await @report.works.process cr, ol, (timestamp ? refresh), everything
-if prc?._id?
-  batch.push prc
-  total += 1
-else
-  console.log 'report works load finding empty works', cr, ol, prc
-console.log('report load building batch', batch.length) if batch.length % 200 is 0
-if batch.length is batchsize
-  await @report.works batch
-  batch = []
-  console.log 'report works load', total, bt, (if dois then dois.length else undefined), await @epoch() - started`;
-    }
-  };
   if (this.params.load === 'supplements') {
     if (dois == null) {
       dois = [];
     }
-    ref3 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs_supplements', (timestamp ? 'updated:<' + timestamp : void 0), {
+    ref3 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs_supplements', (timestamp ? 'updated:<' + timestamp : org ? 'org:"' + org + '"' : void 0), {
       scroll: '5m',
       include: ['DOI']
     });
@@ -6413,7 +6397,7 @@ if batch.length is batchsize
         dois.push(sup.DOI);
       }
     }
-    console.log('report works supplements to load', dois.length);
+    console.log('report works supplements to load', timestamp, org, dois.length);
   } else if (everything) {
     if (dois == null) {
       dois = [];
@@ -6433,33 +6417,28 @@ if batch.length is batchsize
   if (Array.isArray(dois)) {
     for (j = 0, len = dois.length; j < len; j++) {
       d = dois[j];
-      await _batch(d);
+      await this.report.queue(d, void 0, timestamp != null ? timestamp : refresh, everything);
+      total += 1;
     }
   } else {
     _crossref = async(cq) => {
-      var cr, l, len1, processed, ref7, ref8, results;
-      processed = cc.length;
+      var cr, precount, ref7, results;
       if (cq == null) {
         cq = '(funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year;
       }
       if (timestamp) {
         cq = '(' + cq + ') AND srcday:>' + timestamp;
       }
-      console.log('report works load crossref by query', cq);
-      cc = [];
+      precount = (await this.src.crossref.works.count(cq));
+      console.log('report works load crossref by query expects', cq, precount);
       ref7 = this.index._for('src_crossref_works', cq, {
         include: ['DOI'],
         scroll: '30m'
       });
-      for await (cr of ref7) {
-        cc.push(cr.DOI);
-      }
-      console.log('report works load crossref by query counted', cc.length);
-      ref8 = cc.slice(processed);
       results = [];
-      for (l = 0, len1 = ref8.length; l < len1; l++) {
-        d = ref8[l];
-        results.push((await _batch(d)));
+      for await (cr of ref7) {
+        await this.report.queue(cr.DOI, void 0, timestamp != null ? timestamp : refresh, everything); // TODO update report.queue to handle params
+        results.push(total += 1);
       }
       return results;
     };
@@ -6467,31 +6446,30 @@ if batch.length is batchsize
       await _crossref();
     }
     _openalex = async(oq) => {
-      var l, len1, o, ol, oodoi, processed, ref7, ref8, ref9, results;
-      processed = oo.length;
+      var ol, oodoi, precount, ref7, ref8, results;
       if (oq == null) {
         oq = 'authorships.institutions.display_name:* AND publication_year:' + year;
       }
       if (timestamp) {
         oq = '(' + oq + ') AND updated_date:>' + timestamp;
       }
-      console.log('report works load openalex by query', oq);
+      precount = (await this.src.openalex.works.count(oq));
+      console.log('report works load openalex by query expects', oq, precount);
       ref7 = this.index._for('src_openalex_works', oq, {
         include: ['id', 'ids'],
         scroll: '30m'
       });
+      results = [];
       for await (ol of ref7) {
         oodoi = ((ref8 = ol.ids) != null ? ref8.doi : void 0) ? '10.' + ol.ids.doi.split('/10.')[1] : void 0;
-        if (ol.id && ol.id.includes('/') && (!oodoi || (indexOf.call(oo, oodoi) < 0 && indexOf.call(cc, oodoi) < 0))) {
-          oo.push(ol.id.split('/').pop());
+        //if ol.id and ol.id.includes('/') and (not oodoi or (oodoi not in oo and oodoi not in cc))
+        //  await @report.queue undefined, (oodoi ? ol.id.split('/').pop()), (timestamp ? refresh), everything # TODO update report.queue to handle params
+        if (oodoi) {
+          await this.report.queue(oodoi, void 0, timestamp != null ? timestamp : refresh, everything); // TODO update report.queue to handle params
+          results.push(total += 1);
+        } else {
+          results.push(void 0);
         }
-      }
-      console.log('report works load openalex by query counted', oo.length);
-      ref9 = oo.slice(processed);
-      results = [];
-      for (l = 0, len1 = ref9.length; l < len1; l++) {
-        o = ref9[l];
-        results.push((await _batch(void 0, o)));
       }
       return results;
     };
@@ -6509,6 +6487,7 @@ if batch.length is batchsize
             o.source.crossref = decodeURIComponent(decodeURIComponent(o.source.crossref));
           }
         } catch (error) {}
+        console.log('report works load crossref by org', o.name);
         try {
           await _crossref(o.source.crossref);
         } catch (error) {}
@@ -6519,6 +6498,7 @@ if batch.length is batchsize
             o.source.openalex = decodeURIComponent(decodeURIComponent(o.source.openalex));
           }
         } catch (error) {}
+        console.log('report works load openalex by org', o.name);
         try {
           await _openalex(o.source.openalex);
         } catch (error) {}
@@ -6529,14 +6509,12 @@ if batch.length is batchsize
         scroll: '10m'
       });
       for await (crt of ref10) {
-        if (updated = (await this.src.crossref.works.count('DOI:"' + crt.DOI + '" AND srcday:>' + timestamp))) {
-          await _batch(crt.DOI);
+        if (updated = (await this.src.crossref.works.count('DOI.keyword:"' + crt.DOI + '" AND srcday:>' + timestamp))) {
+          await this.report.queue(crt.DOI, void 0, timestamp != null ? timestamp : refresh, everything);
         }
       }
     }
   }
-  
-  //await @report.works(batch) if batch.length
   took = (await this.epoch()) - started;
   text = 'Report works loaded ' + total + (this.S.dev ? ' (dev)' : '') + '\n';
   if (refresh) {
@@ -6562,12 +6540,6 @@ if batch.length is batchsize
   }
   if (year && !(dois != null ? dois : []).length) {
     text += 'The load process was run for year ' + year + '\n';
-  }
-  if (cc.length) {
-    text += 'Crossref queries counted ' + cc.length + ' works\n';
-  }
-  if (oo.length) {
-    text += 'Openalex queries counted ' + oo.length + ' works\n';
   }
   text += 'Load processing took ' + Math.ceil(took / 1000 / 60) + 'm\n';
   ref11 = info != null ? info : [];
@@ -10578,8 +10550,9 @@ P.src.pubmed.changes = function() {
 
 P.src.pubmed.changes._bg = true;
 
-P.src.pubmed.changes._async = true;
+P.src.pubmed.changes._log = false;
 
+//P.src.pubmed.changes._async = true
 P; //.src.pubmed.changes._auth = 'root'
 
 P.src.pubmed.changes._notify = false;
@@ -14062,6 +14035,9 @@ P.index._send = async function(route, data, method, prefix, alias) {
     // see hits.total https://www.elastic.co/guide/en/elasticsearch/reference/current/breaking-changes-7.0.html
     route += (route.indexOf('?') === -1 ? '?' : '&') + 'rest_total_hits_as_int=true';
   }
+  if (route.includes('/_doc/') && route.split('/_doc/')[1].includes('%')) { // fix for messy DOIs as IDs like '10.1002_(sici)1097-4644(19960601)61%3A3%253c452%3A%3Aaid-jcb12%253e3.0.co%3B2-l'
+    route = route.split('/_doc/')[0] + '/_doc/' + encodeURIComponent(route.split('/_doc/')[1]);
+  }
   //if @S.dev and @S.bg is true and not data?.query? and not route.includes('/_doc/') and (method is 'DELETE' or not route.includes '_search/scroll')
   //  console.log 'INDEX', method, route
   //console.log method(JSON.stringify(if Array.isArray(data) and data.length then data[0] else data).substr(0, 3000)) if data
@@ -14786,6 +14762,8 @@ try
 catch
   return`;
 
+P.copy._log = false;
+
 P.dot = function(o, k, v, d, ae) { // ae will attempt to recurse into the last object element of an array rather than return undefined for failing to match a key on the list element
   var base, name, oo;
   if (typeof k === 'string') {
@@ -14835,6 +14813,8 @@ P.dot = function(o, k, v, d, ae) { // ae will attempt to recurse into the last o
     }
   }
 };
+
+P.dot._log = false;
 
 P.flatten = async function(obj, arrayed) {
   var _flatten, d, i, len, ref, res, results;
@@ -15178,6 +15158,8 @@ P.sleep = function(ms) { // await this when calling it to actually wait
 
 P.sleep._auth = 'root';
 
+P.sleep._log = false;
+
 var indexOf = [].indexOf;
 
 P.template = async function(content, vars) {
@@ -15484,7 +15466,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Wed Oct 04 2023 07:36:53 GMT+0100";
+S.built = "Fri Oct 06 2023 02:28:57 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor

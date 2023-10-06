@@ -330,7 +330,7 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref, best) -> # oadoi and cross
       @waitUntil @permissions.best bp
     perms.metadata = meta if @params.metadata is true or getmeta is true
     return perms
-
+P.permissions._log = false
 
 
 P.permissions.best = _index: true, _key: 'DOI' # save calculated best permissions for cases where that is good enough. TODO could update them every week
@@ -404,6 +404,7 @@ P.permissions.journals.example = (issn) ->
     res = await @src.crossref.works 'ISSN:"' + issn.join('" OR ISSN:"') + '"', 1
     return res.DOI
   return
+P.permissions.journals.example._log = false
 
 P.permissions.journals.transformative = _index: true, _prefix: false
 P.permissions.journals.transformative.load = () ->
@@ -441,6 +442,7 @@ P.permissions.journals.oa = (issn, oadoi) ->
       else
         ret.oa = false
   return ret
+P.permissions.journals.oa._log = false
 
 P.permissions.journals.oa.type = (issns, doajrnl, oadoi, crossref) ->
   issns ?= oadoi?.journal_issns ? crossref?.ISSN ? @params.journals ? @params.journal ? @params.type ? @params.issn ? @params.issns
@@ -468,6 +470,7 @@ P.permissions.journals.oa.type = (issns, doajrnl, oadoi, crossref) ->
         # check if it really is closed because sometimes OADOI says it is for one particular DOI but really it isn't (or was at time of publication of that article, but isn't now)
         js = 'hybrid'
   return js
+P.permissions.journals.oa.type._log = false
 
 P.permissions.publishers.oa = (publisher) ->
   ret = publisher: (publisher ? @params.publisher ? @params.oa).replace /&/g, ''
@@ -483,4 +486,5 @@ P.permissions.publishers.oa = (publisher) ->
   ret.percent = if ret.journals then Math.ceil((ret.open / ret.journals) * 100) else if ret.open then 100 else 0
   ret.oa = (not ret.journals and ret.open) or (ret.journals and ret.journals is ret.open)
   return ret
+P.permissions.publishers.oa._log = false
 

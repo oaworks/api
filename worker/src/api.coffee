@@ -523,7 +523,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
          # and if there is @params._delete, delete by query?
       else if arguments.length # could be a key string and record or could be a query and options (and query could look like a key)
         # could be key or query string - if query string is ambiguous, make it definitive by sending an object with q: 'query string'
-        lg.key = arguments[0].replace(/\//g, '_').trim() if typeof arguments[0] is 'string' and arguments[0].length and not arguments[0].includes('\n') and arguments[0].length is arguments[0].replace(/[\s\*~\?=%"]/g, '').length # removed \: from regex to allow DOIs containing : as ID
+        lg.key = arguments[0].replace(/\//g, '_').trim() if typeof arguments[0] is 'string' and arguments[0].length and not arguments[0].includes('\n') and arguments[0].length is arguments[0].replace(/[\s\*~\?="]/g, '').length # removed \: and % from regex to allow DOIs containing : as ID
         lg.key = arguments[0].toString() if typeof arguments[0] is 'number' # some indexes could use a number as an ID
         qry = await @index.translate(arguments[0], arguments[1]) if f._index and not lg.key # check if it can be a query
         rec = if qry? then undefined else if lg.key then arguments[1] else if f._index then arguments[0] else undefined
