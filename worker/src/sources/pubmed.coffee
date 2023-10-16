@@ -72,6 +72,7 @@ P.src.pubmed.entrez.pmid = (pmid) ->
   # https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=PMC9206389
   url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/epost.fcgi?db=pubmed&id=' + pmid
   try
+    await @sleep 200
     res = await @fetch url
     result = await @convert.xml2json res
     return @src.pubmed.entrez.summary result.ePostResult.QueryKey, result.ePostResult.WebEnv
@@ -87,6 +88,7 @@ P.src.pubmed.search = (str, full, size=10, ids=false) ->
     if Array.isArray ids
       res = {total: ids.length, data: []}
     else
+      await @sleep 200
       res = await @fetch url
       result = await @convert.xml2json res
       res = {total: result.eSearchResult.Count[0], data: []}
@@ -120,6 +122,7 @@ P.src.pubmed.aheadofprint = (pmid) ->
   try
     # should switch this for an efetch
     # https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=35717313
+    await @sleep 100
     res = await @fetch 'https://www.ncbi.nlm.nih.gov/pubmed/' + pmid + '?report=xml'
     return res.includes 'PublicationStatus&gt;aheadofprint&lt;/PublicationStatus' # would these be url encoded or proper characters?
   catch

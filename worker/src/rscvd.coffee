@@ -130,7 +130,6 @@ P.svc.rscvd.status = () ->
 P.svc.rscvd.status._auth = true
 
 P.svc.rscvd.poll = (poll, which) ->
-  @nolog = true
   poll ?= @params.poll ? (Date.now() - 180000) # default to changes in last 3 mins
   which = @params.which ? ['new', 'verify', 'deny', 'cancel', 'status', 'overdue']
   which = which.split(',') if typeof which is 'string'
@@ -163,6 +162,7 @@ P.svc.rscvd.poll = (poll, which) ->
       st = s._source.parts.pop()
       res.status[s._source.parts.pop()] ?= st # only return the most recent status change for a given record ID
   return res
+P.svc.rscvd.poll._log = false
 
 P.svc.rscvd.overdue = () ->
   counter = 0

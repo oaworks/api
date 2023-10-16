@@ -141,6 +141,8 @@ P.src.epmc.licence = (pmcid, rec, fulltext, refresh) ->
 
   return
 
+_last_ncbi = Date.now()
+_ncbi_running = 0
 P.src.epmc.xml = (pmcid, rec) ->
   pmcid ?= @params.xml ? @params.pmcid ? @params.epmc
   pmcid = 'PMC' + pmcid.toLowerCase().replace('pmc','') if pmcid
@@ -151,10 +153,17 @@ P.src.epmc.xml = (pmcid, rec) ->
     catch
       rec ?= await @src.epmc.pmc pmcid
       if not rec?.no_ft
-        await @sleep 150 # without timeout threw rate limit error on ncbi and ebi - this does not guarantee it because other calls could be made, but is a quick fix
+        ncdl = Date.now() - _last_ncbi
+        while ncdl < 500 or _ncbi_running >= 2 # should be able to hit 3r/s although it's possible we call from other workers on same server. This will have to do for now
+          await @sleep(500 - ncdl)
+          ncdl = Date.now() - _last_ncbi
+        _last_ncbi = Date.now()
+        _ncbi_running += 1
+        # without sleep (and at 150, 300, 400) threw rate limit error on ncbi and ebi - this does not guarantee it because other calls could be made, but is a quick fix
         # try ncbi first as it is faster but it does not have everything in epmc - however when present the xml files are the same
         url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=' + pmcid
         ft = await @fetch url
+        _ncbi_running -= 1
         if (typeof ft isnt 'string' or not ft.length) and rec? # if it is in epmc, can try getting from there instead
           url = 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML'
           ft = await @fetch url

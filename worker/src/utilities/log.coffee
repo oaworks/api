@@ -8,9 +8,6 @@ _bg_last_log_batch = false
 P.log = (msg, store) ->
 
   _save_batch = () =>
-    # TODO may be worth generalising this into index functionality and having an option to bulk any index
-    # then index calls that are writing data should route to the bg /index functions instead of 
-    # direct to the index, so that they can be temporarily stored and handled in bulk (only suitable for when they can be lost too)
     clearTimeout(_bg_log_batch_timeout) if _bg_log_batch_timeout isnt false
     _bg_log_batch_timeout = setTimeout _save_batch, 30000
     _bg_last_log_batch = Date.now()
@@ -27,7 +24,7 @@ P.log = (msg, store) ->
     else if @S.bg is true
       console.log 'Checked log batch but none to save', _last
 
-  if @S.log isnt false and @nolog isnt true
+  if @S.log isnt false
     store = not msg? if store isnt true # an empty call to log stores everything in the _logs list
     store = true if store isnt true and (@_logs.length > 30000 or _bg_log_batch.length > 30000)
     

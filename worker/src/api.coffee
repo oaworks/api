@@ -194,10 +194,6 @@ P = () ->
     @system = true
 
   @_logs = [] # place for a running request to dump multiple logs, which will combine and save at the end of the overall request
-  @nolog = false # if any function sets nolog to true, the log will not be saved.
-  if @params._nolog # the request may also disable logging with a nolog param matching a unique key in settings (e.g. to not log test calls)
-    @nolog = @S.nolog and @params._nolog is @S.nolog
-    delete @params._nolog
 
   @route = @parts.join '/'
   @routes = []
@@ -357,7 +353,7 @@ P = () ->
       @cache undefined, resp, si
     else if @refresh
       @cache undefined, ''
-    @log() if typeof fn not in ['object', 'function'] or fn._log isnt false
+    @log() if typeof fn in ['object', 'function'] and fn._log isnt false
   if not @completed and not @cached and not @unauthorised and @S.pass isnt false and typeof @S.bg is 'string' and @request.method not in ['HEAD', 'OPTIONS']
     throw new Error() # TODO check for functions that often timeout and set them to _bg by default
   else
@@ -460,7 +456,7 @@ P._loadsheet = (f, rt) ->
 # wrapper settings declared on each P function specify which wrap actions to apply
 # _auth and _cache settings on a P function are handled by API BEFORE _wrapper is 
 # used, so _auth and _cache are not handled within the wrapper
-# the wrapepr logs the function call (whether it was the main API call or subsequent)
+# the wrapper logs the function call (whether it was the main API call or subsequent)
 P._wrapper = (f, n) -> # the function to wrap and the string name of the function
   return () ->
     started = Date.now() # not accurate in a workers environment, but close enough
@@ -623,7 +619,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                   for key in keys
                     await fs.appendFile out, (if not first then ',"' else '"') + key.replace('supplements.', '') + '"'
                     first = false
-                  for await blr from @index._for rt, qry, {scroll: '5m', max: if notify is 'joe@oa.works' then 100000 else 100000}
+                  for await blr from @index._for rt, qry, {scroll: '5m', max: if notify.includes('@oa.works') then 200000 else 100000}
                     await fs.appendFile out, '\n'
                     if pfs
                       names = ''
@@ -780,10 +776,10 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
       else
         res = await _as rt, f, arguments
 
-    # _log
-    if f._log isnt false and not f._index and not lg.qry? and not n.includes '._'
-      lg.took = Date.now() - started
-      @log lg
+    # _log - DISABLED all wrapped logging. Only requests onto the API routes get logged as of 11/10/2023
+    #if f._log isnt false and not f._index and not lg.qry? and not n.includes '._'
+    #  lg.took = Date.now() - started
+    #  @log lg
 
     return res
 
