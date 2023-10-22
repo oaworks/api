@@ -367,8 +367,7 @@ P.permissions.journals = _sheet: '1ZTcYJUzhNJYIuxsjKzdVFCbOhJsviVik-8K1DpU7-eE/M
             nid = nid.trim()
             if nr.issuer.type is 'journal' and nid.includes('-') and not nid.includes ' '
               nid = nid.toUpperCase()
-              if af = await @journal 'ISSN:"' + nid + '"', 1
-              #if af = await @src.openalex.venues 'issn:"' + nid + '"', 1
+              if af = await @src.openalex.sources 'issn:"' + nid + '"', 1
                 for an in af.issn
                   cids.push(an) if an not in cids
             cids.push(nid) if nid not in cids

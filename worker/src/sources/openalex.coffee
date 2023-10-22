@@ -187,6 +187,7 @@ P.src.openalex.changes = (what, last) ->
   # https://docs.openalex.org/how-to-use-the-api/get-lists-of-entities/paging
   console.log 'Openalex changes checking from', last
   total = 0
+  queued = 0
   for w in (if Array.isArray(what) then what else [what])
     for filter in ['updated'] #, 'created'] # apparently, now, (2/10/2023) all records do have an updated_date... 
       if (await @epoch(last.updated)) < started - 3600000 # if it has been at least an hour since something was updated...
@@ -195,8 +196,10 @@ P.src.openalex.changes = (what, last) ->
         # doing created and updated separately because although we initially thought updated would include created, there is suggestions it does not, in missing records
         # https://github.com/ourresearch/openalex-api-tutorials/blob/main/notebooks/getting-started/premium.ipynb
         url = 'https://api.openalex.org/' + w + '?filter=from_' + filter + '_date:' + last[filter] + '&api_key=' + @S.src.openalex.apikey + '&per-page=200&cursor='
+        console.log 'Openalex changes querying', url + cursor
         try
           res = await @fetch url + cursor
+          try console.log 'Openalex changes query retrieved', res.results.length
           while res? and typeof res is 'object' and Array.isArray(res.results) and res.results.length
             for rec in res.results
               if w is 'works'
@@ -209,12 +212,14 @@ P.src.openalex.changes = (what, last) ->
                     for i in (a.institutions ? [])
                       break if doq
                       doq = rec._id if i.display_name?
-                  try await @report.queue(doq) if doq
+                  if doq
+                    try await @report.queue doq, undefined, undefined, undefined, 'changes'
+                    queued += 1
 
               batch.push rec
             
             if batch.length >= 10000
-              console.log 'Openalex ' + what + ' ' + filter + ' bulk loading changes', batch.length, total
+              console.log 'Openalex ' + what + ' ' + filter + ' bulk loading changes', batch.length, total, queued
               total += batch.length
               await @src.openalex[what] batch
               batch = []
@@ -232,10 +237,36 @@ P.src.openalex.changes = (what, last) ->
   if @fn isnt 'src.openalex.changes' and ended - started < 3600000
     console.log 'Openalex changes waiting to loop'
     await @sleep 3600000 - (ended - started) 
-  console.log 'Openalex changes changed', total
+  console.log 'Openalex changes changed', total, queued
   return total
 
 P.src.openalex.changes._log = false
 P.src.openalex.changes._bg = true
 P.src.openalex.changes._async = true
 #P.src.openalex.changes._auth = 'root'
+
+
+# https://docs.openalex.org/api-entities/sources/get-lists-of-sources
+P.src.openalex.sources = _index: true, _prefix: false
+P.src.openalex.sources.load = ->
+  await @src.openalex.sources ''
+  total = 0
+  batch = []
+  url = 'https://api.openalex.org/sources?' + (if @S.src.openalex?.apikey then 'api_key=' + @S.src.openalex.apikey + '&' else '') + 'per-page=200&cursor='
+  res = await @fetch url + '*'
+  while res? and typeof res is 'object' and Array.isArray(res.results) and res.results.length
+    for rec in res.results
+      rec._id = rec.id.split('/').pop()
+      batch.push rec
+    if batch.length >= 20000
+      total += batch.length
+      await @src.openalex.sources batch
+      batch = []
+    else
+      await @sleep 200
+    if res.meta?.next_cursor
+      res = await @fetch url + encodeURIComponent res.meta.next_cursor
+  await @src.openalex.sources(batch) if batch.length
+  return total
+P.src.openalex.sources.load._async = true
+P.src.openalex.sources.load._bg = true
