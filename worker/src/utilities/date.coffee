@@ -21,18 +21,19 @@ P.dateparts = (d) ->
     if d.includes ' ' # assume some kind of 1 xxx... xxxx format
       for p of parts = d.split ' '
         part = parts[p]
-        if part.length >= 3 # month or full year
-          if isNaN parseInt part
-            o.month = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'].indexOf part.toLowerCase().substr 0, 3
-            o.month = if typeof o.month is 'number' and o.month >= 0 then o.month + 1 else ''
-          else
+        if not part.includes ':'
+          if part.length >= 3 # month or full year
+            if isNaN parseInt part
+              o.month = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'].indexOf part.toLowerCase().substr 0, 3
+              o.month = if typeof o.month is 'number' and o.month >= 0 then o.month + 1 else ''
+            else
+              o.year = part
+          else if parseInt(part) < 13 and (parts.length is 2 or (parts.length is 3 and p is '1'))
+            o.month = part
+          else if parts.length is 1
             o.year = part
-        else if parseInt(part) < 13 and (parts.length is 2 or (parts.length is 3 and p is '1'))
-          o.month = part
-        else if parts.length is 1
-          o.year = part
-        else
-          o.day = part
+          else
+            o.day = part
 
     o.day = (o.day ? '01').toString()
     o.day = '0' + o.day if o.day.length is 1

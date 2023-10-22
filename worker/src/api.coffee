@@ -619,7 +619,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                   for key in keys
                     await fs.appendFile out, (if not first then ',"' else '"') + key.replace('supplements.', '') + '"'
                     first = false
-                  for await blr from @index._for rt, qry, {scroll: '5m', max: if notify.includes('@oa.works') then 200000 else 100000}
+                  for await blr from @index._for rt, qry, {scroll: '5m', max: if notify and notify.includes('@oa.works') then 200000 else 100000}
                     await fs.appendFile out, '\n'
                     if pfs
                       names = ''

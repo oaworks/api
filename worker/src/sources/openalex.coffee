@@ -244,3 +244,29 @@ P.src.openalex.changes._log = false
 P.src.openalex.changes._bg = true
 P.src.openalex.changes._async = true
 #P.src.openalex.changes._auth = 'root'
+
+
+# https://docs.openalex.org/api-entities/sources/get-lists-of-sources
+P.src.openalex.sources = _index: true, _prefix: false
+P.src.openalex.sources.load = ->
+  await @src.openalex.sources ''
+  total = 0
+  batch = []
+  url = 'https://api.openalex.org/sources?' + (if @S.src.openalex?.apikey then 'api_key=' + @S.src.openalex.apikey + '&' else '') + 'per-page=200&cursor='
+  res = await @fetch url + '*'
+  while res? and typeof res is 'object' and Array.isArray(res.results) and res.results.length
+    for rec in res.results
+      rec._id = rec.id.split('/').pop()
+      batch.push rec
+    if batch.length >= 20000
+      total += batch.length
+      await @src.openalex.sources batch
+      batch = []
+    else
+      await @sleep 200
+    if res.meta?.next_cursor
+      res = await @fetch url + encodeURIComponent res.meta.next_cursor
+  await @src.openalex.sources(batch) if batch.length
+  return total
+P.src.openalex.sources.load._async = true
+P.src.openalex.sources.load._bg = true
