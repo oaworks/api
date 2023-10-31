@@ -187,7 +187,7 @@ P.src.openalex.changes = (what, last) ->
   # https://docs.openalex.org/how-to-use-the-api/get-lists-of-entities/paging
   console.log 'Openalex changes checking from', last
   total = 0
-  queued = 0
+  queued = []
   for w in (if Array.isArray(what) then what else [what])
     for filter in ['updated'] #, 'created'] # apparently, now, (2/10/2023) all records do have an updated_date... 
       if (await @epoch(last.updated)) < started - 3600000 # if it has been at least an hour since something was updated...
@@ -210,16 +210,15 @@ P.src.openalex.changes = (what, last) ->
                   for a in rec.authorships
                     break if doq
                     for i in (a.institutions ? [])
-                      break if doq
-                      doq = rec._id if i.display_name?
-                  if doq
-                    try await @report.queue doq, undefined, undefined, undefined, 'changes'
-                    queued += 1
+                      if i.display_name?
+                        queued.push rec._id
+                        doq = true
+                        break
 
               batch.push rec
             
             if batch.length >= 10000
-              console.log 'Openalex ' + what + ' ' + filter + ' bulk loading changes', batch.length, total, queued
+              console.log 'Openalex ' + what + ' ' + filter + ' bulk loading changes', batch.length, total, queued.length
               total += batch.length
               await @src.openalex[what] batch
               batch = []
@@ -233,11 +232,13 @@ P.src.openalex.changes = (what, last) ->
           await @src.openalex[what] batch
           batch = []
 
+  await @report.queue(queued, undefined, undefined, undefined, 'changes') if queued.length
+
   ended = await @epoch() # schedule this to loop, and run at most every hour
   if @fn isnt 'src.openalex.changes' and ended - started < 3600000
     console.log 'Openalex changes waiting to loop'
     await @sleep 3600000 - (ended - started) 
-  console.log 'Openalex changes changed', total, queued
+  console.log 'Openalex changes changed', total, queued.length
   return total
 
 P.src.openalex.changes._log = false

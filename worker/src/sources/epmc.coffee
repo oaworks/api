@@ -143,16 +143,17 @@ P.src.epmc.licence = (pmcid, rec, fulltext, refresh) ->
 
 _last_ncbi = Date.now()
 _ncbi_running = 0
-P.src.epmc.xml = (pmcid, rec) ->
+P.src.epmc.xml = (pmcid, rec, refresh) ->
   pmcid ?= @params.xml ? @params.pmcid ? @params.epmc
   pmcid = 'PMC' + pmcid.toLowerCase().replace('pmc','') if pmcid
+  refresh ?= @refresh
   if pmcid
     try
-      ft = await fs.readFile '/home/cloo/static/epmc/fulltext/' + pmcid + '.xml'
+      ft = await fs.readFile @S.directory + '/epmc/fulltext/' + pmcid + '.xml'
       return ft.toString()
     catch
       rec ?= await @src.epmc.pmc pmcid
-      if not rec?.no_ft
+      if refresh or not rec?.no_ft
         ncdl = Date.now() - _last_ncbi
         while ncdl < 500 or _ncbi_running >= 2 # should be able to hit 3r/s although it's possible we call from other workers on same server. This will have to do for now
           await @sleep(500 - ncdl)
@@ -168,7 +169,7 @@ P.src.epmc.xml = (pmcid, rec) ->
           url = 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML'
           ft = await @fetch url
         if typeof ft is 'string' and ft.length
-          try await fs.writeFile '/home/cloo/static/epmc/fulltext/' + pmcid + '.xml', ft
+          try await fs.writeFile @S.directory + '/epmc/fulltext/' + pmcid + '.xml', ft
           return ft
         else if rec?
           rec.no_ft = true
@@ -221,137 +222,112 @@ P.src.epmc.aam = (pmcid, rec, fulltext) ->
 
 
 
-
-P.src.epmc.statement = (pmcid, rec) ->
+P.src.epmc.statement = (pmcid, rec, refresh, verbose) ->
+  # because of xml parsing issues with embedded html in pmc xml, just regex it out if present
+  # pubmed data does not hold corresponding statements to pmc, but the pmc records from ncbi do contain them as they are the same as fulltext records from epmc
+  # see <notes notes-type="data-availability"> in
+  # https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=PMC9206389
+  # or <custom-meta id="data-availability"> in 
+  # https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=PMC9009769
+  # which also has it in "notes" but with no type and no other content <notes> but a <title> of Data Availability
+  # catches most of https://www.ncbi.nlm.nih.gov/books/NBK541158/
   pmcid ?= @params.statement ? @params.pmc ? @params.pmcid ? @params.PMC ? @params.PMCID
+  refresh ?= @refresh
+  verbose ?= @params.verbose
+  pres = []
+  posts = []
+  splits = []
+  tags = []
+  statements = []
   if pmcid
     pmcid = 'PMC' + (pmcid + '').toLowerCase().replace('pmc', '')
-    if xml = await @src.epmc.xml pmcid, rec
-      # because of xml parsing issues with embedded html in pmc xml, just regex it out if present
-      # pubmed data does not hold corresponding statements to pmc, but the pmc records from ncbi do contain them as they are the same as fulltext records from epmc
-      # see <notes notes-type="data-availability"> in
-      # https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=PMC9206389
-      # or <custom-meta id="data-availability"> in 
-      # https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=PMC9009769
-      # which also has it in "notes" but with no type and no other content <notes> but a <title> of Data Availability
-      # catches most of https://www.ncbi.nlm.nih.gov/books/NBK541158/
-      statement = ''
-      strs = []
-      if xml.includes 'type="data-availability">'
-        statement = xml.split('type="data-availability">')[1].split('</sec>')[0].split('</notes>')[0]
-        statement = statement.split('<title>').pop().split('</title')[0] if statement.includes '<title>'
-      else if xml.includes 'id="data-availability"'
-        statement = xml.split('id="data-availability"')[1]
-        statement = statement.split('meta-value>')[1].split(',')[0] if statement.includes 'meta-value'
-      if not statement and xml.includes '<notes>'
-        for ps in xml.split '<notes>'
-          psl = ps.toLowerCase()
-          if psl.includes('data availability') or psl.includes('data accessibility') or psl.includes 'supporting data'
-            statement = ps.split('</title>')[1] if ps.includes '</title>'
-            statement = statement.split('</notes>')[0]
-            break
-      # if still no statement could look in other fields, but they mostly appear in notes and are of more certain quality when they do
-      #statement = '' if statement.includes '<def-item' # seem to be more junk in these
-      if statement
-        statement = statement.split('<list-item').pop().split('>').pop() if statement.includes '<list-item'
-        # most examples so far are a statement paragraph with zero or one url...
-        statement = statement.replace(/<[ap].*?>/gi, '').replace(/<\/[ap]>/gi, '').replace(/<xref.*?>/gi, '').replace(/<\/xref>/gi, '').replace(/<ext.*?>/gi, '').replace(/<\/ext.*?>/gi, '').replace(/<br>/gi, '').replace(/\n/g, '').split('</')[0].trim()
-        return statement if statement.length > 10 # hard to be a good statement if shorter than this
-  return
+    if ft = await @src.epmc.xml pmcid, rec, refresh
+      sstr = ''
+      for split in ['"data', '>Data', '>Availab', '>data', '>Code', '>code']
+        try
+          if ft.includes split
+            splits.push split
+            pre = ''
+            splits = ft.split split
+            while part = splits.shift()
+              if not pre
+                pre = part
+              else
+                pres.push pre.slice -1000
+                tag = pre.split('<').pop().split('>')[0].split(' ')[0]
+                tags.push tag
+                post = (if split.startsWith('"') then part.split(/\>(.*)/s)[1] else if part.startsWith('il') or part.startsWith('l') then 'Availab' else 'Data') + part #  if part.substr(0,6).includes('ode') then 'Code' else
+                posts.push post.slice 0, 1000
+                if post.includes('</' + tag) and post.indexOf('</' + tag) < 40
+                  ps = pre.split '<'
+                  nt = ps[ps.length-2].split('>')[0].split(' ')[0]
+                  if not nt.startsWith '/'
+                    tag = nt
+                psls = pre.split('<' + tag)
+                splitter = '\n' + (psls.slice(0, psls.length-1)).pop().split('\n').pop() + '</' + tag
+                if post.split('</' + tag)[0].includes '\n'
+                  while not post.includes(splitter) and splits[0] #and splits[0].includes splitter
+                    post += (if split.startsWith('>') then '>' else '') + (if splits[0].startsWith('il') or splits[0].startsWith('l') then 'Availab' else 'Data') +  splits.shift()
+                post = post.split(splitter)[0]
+                post = post.replace('</title>', '|TTT|').replace(/\n/g, ' ').replace(/\s+/g, ' ').replace /(<([^>]+)>)/ig, ''
+                ppl = (pre+post).toLowerCase()
+                if post.length > 20 and post.length < 3000 and (ppl.includes('availab') or ppl.includes('accessib')) and ((pre+post).toLowerCase().includes('data') or (pre+post).toLowerCase().includes('code'))
+                  post = post.split('|TTT|')[1] if post.includes '|TTT|'
+                  clean = (await @decode post.trim()).replace(/"/g, '').replace(/\s+/g, ' ')
+                  clean = clean.replace('<title', '').replace('<p', '')
+                  clean = clean.trim()
+                  clo = clean.toLowerCase()
+                  if clean.length > 20 and (clo.includes('data') or clo.includes('code') or clo.includes('availab') or clo.includes('accessib')) and not sstr.includes clo
+                    sstr += clo
+                    statements.push clean
+                pre = ''
+  if verbose
+    return pmcid: pmcid, file: 'https://static.oa.works/epmc/fulltext/' + pmcid + '.xml', pres: pres, posts: posts, splits: splits, tags: tags, statements: statements, url: (if statements then await @src.epmc.statement.url(undefined, undefined, statements) else undefined)
+  else
+    return if statements.length then statements else undefined
 
-P.src.epmc.dass = ->
-  # what about code availability statements without data availability e.g. PMC6198754
-  max = @params.dass ? 1
+P.src.epmc.statement.url = (pmcid, rec, statements, refresh) ->
+  statements ?= await @src.epmc.statement pmcid, rec, refresh
   res = []
-  had = 0
-  fl = 0
-  prep = 0
-  saysdata = 0
-  saysavail = 0
-  saysstate = 0
-  daclose = 0
-  dasclose = 0
-  for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'PMCID:PMC9722710 AND orgs:Melinda', include: ['PMCID'] #, sort: 'PMCID': 'asc'
-    break if res.length is max
-    try ft = (await fs.readFile '/home/cloo/static/epmc/fulltext/' + rec.PMCID + '.xml').toString()
-    if ft
-      fl += 1
-      ex = pmcid: rec.PMCID # catch multiple relevant statements like in PMC8012878, or PMC9722710 where there are sec within sec all part of the statement (and after an earlier false data match)
-      ftl = ft.toLowerCase()
-      if ftl.includes('>data') or ftl.includes('"data') or ftl.includes ' data'
-        saysdata += 1
-        if ftl.includes 'availab'
-          saysavail += 1
-          matches = ftl.match /.{100}[>" ](data|availab).{1,50}(availab|data).{200}/g
-          if matches? and matches.length and matches[0].includes('data') and matches[0].includes('availab')
-            daclose += 1
-            ex.close = matches[0]
-            ex.index = matches.index
-          if ftl.includes 'statement'
-            saysstate += 1
-            matches = ftl.match /.{100}[>" ](data|availab|statement).{1,50}(availab|data|statement).{1,50}(availab|data|statement).{200}/g
-            if matches? and matches.length and smatches[0].includes('data') and matches[0].includes('availab') and matches[0].includes('statement')
-              dasclose += 1 
-              ex.closer = matches[0] 
-              ex.index = matches.index
-      if ft.includes '"data'
-        [pre, post] = ft.split '"data'
-        ex.pre = pre.slice -100
-        ex.post = post.slice 0, 1000
-        ex.tag = pre.split('<').pop().split('>')[0].split(' ')[0]
-        post = post.split('</' + ex.tag)[0]
-        post = post.split(/\>(.*)/s)[1]
-        post = post.replace('</', ': </').replace('::', ':').replace('.:', ':') if post.split('</').length > 2
-        post = post.replace(/\n/g, ' ').replace(/\s+/g, ' ').replace /(<([^>]+)>)/ig, ''
-        ex.das = (await @decode post.trim()).replace(/"/g, '').replace(/\s+/g, ' ') if post.length > 20 and post.length < 1000 and (ex.pre+post).toLowerCase().includes('availab') and (ex.pre+post).toLowerCase().includes('data')
-      if not ex.das and (ft.includes('>Data') or ft.includes('>Availab') or ft.includes('>data'))
-        [pre, post] = ft.split(if ft.includes('>Data') then '>Data' else if ft.includes('>Availab') then '>Availab' else '>data')
-        ex.pre = pre.slice -100
-        ex.post = post.slice 0, 1000
-        post = (if post.startsWith('il') or post.startsWith('l') then 'Availab' else 'Data ') + post
-        ex.tag = pre.split('<').pop().split(' ')[0]
-        if post.indexOf('</' + ex.tag) < 40
-          post = post.replace('</' + ex.tag + '>', ': ').replace('::', ':').replace('.:', ':')
-          ps = pre.split '<'
-          ex.tag = ps[ps.length-2].split(' ')[0]
-        post = post.split('</' + ex.tag)[0]
-        post = post.replace(/\n/g, ' ').replace(/\s+/g, ' ').replace /(<([^>]+)>)/ig, ''
-        ex.das = (await @decode post.trim()).replace(/"/g, '').replace(/\s+/g, ' ') if post.length > 20 and post.length < 1000 and (ex.pre+post).toLowerCase().includes('availab') and (ex.pre+post).toLowerCase().includes('data')
-      res.push(ex) #pmcid: ex.pmcid, das: ex.das) #if ex.das
-      had += 1 if ex.das
-      prep += 1 if ex.pre and ex.post
-  return total: res.length, files: fl, data: saysdata, available: saysavail, statement: saysstate, close: daclose, closer: dasclose, index: -1, prep: prep, das: had, records: res
+  for das in (statements ? [])
+    if das.includes('http') or das.includes '10.'
+      dau = if das.includes('http') then 'http' + das.split('http')[1].split(' ')[0] else '10.' + das.split('10.')[1].split(' ')[0]
+      if dau.length > 10 and dau.includes '/'
+        dau = dau.toLowerCase()
+        dau = dau.split(')')[0].replace('(', '') if dau.includes(')') and (das.includes('(h') or das.includes('(10'))
+        dau = dau.slice(0, -1) if dau.endsWith('.')
+        res.push(dau) if dau not in res
+  return if res.length then res else undefined
 
 
-
-P.src.epmc.das = (pmcid, verbose) -> # restrict to report/works records if pmcid is directly provided?
+'''P.src.epmc.das = (pmcid, verbose) -> # restrict to report/works records if pmcid is directly provided?
   max = pmcid ? @params.das ? 100 # ['PMC9722710', 'PMC8012878', 'PMC6198754'] # multiples PMC8012878. code? PMC6198754. Another example for something? was PMC9682356
   max = max.split(',') if typeof max is 'string'
   verbose ?= @params.verbose
   res = total: 0, files: 0, data: 0, available: 0, statement: 0, close: 0, closer: 0, prep: 0, das: 0, records: []
   for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', '(PMCID:' + (if typeof max is 'number' then '*' else max.join(' OR PMCID:')) + ') AND orgs:Melinda', include: ['PMCID'], sort: 'PMCID.keyword': 'asc'
     break if typeof max is 'number' and res.records.length is max
-    try ft = (await fs.readFile '/home/cloo/static/epmc/fulltext/' + rec.PMCID + '.xml').toString()
+    try ft = (await fs.readFile @S.directory + '/epmc/fulltext/' + rec.PMCID + '.xml').toString()
     if ft
       res.files += 1
       ex = pmcid: rec.PMCID, file: 'https://static.oa.works/epmc/fulltext/' + rec.PMCID + '.xml', splits: [], tag: [], pre: [], post: [], das: []
       ftl = ft.toLowerCase()
-      if ftl.includes('>data') or ftl.includes('"data') or ftl.includes ' data'
+      if ftl.includes('>data') or ftl.includes('"data') or ftl.includes(' data') or ftl.includes('>code') or ftl.includes ' code'
         res.data += 1
         if ftl.includes 'availab'
           res.available += 1
-          matches = ftl.match /.{100}[>" ](data|availab).{1,50}(availab|data).{200}/g
+          matches = ftl.match /.{100}[>" ](code|data|availab).{1,50}(availab|code|data).{200}/g
           if matches? and matches.length and matches[0].includes('data') and matches[0].includes('availab')
             res.close += 1
             ex.close = matches
           if ftl.includes 'statement'
             res.statement += 1
-            matches = ftl.match /.{100}[>" ](data|availab|statement).{1,50}(availab|data|statement).{1,50}(availab|data|statement).{200}/g
-            if matches? and matches.length and matches[0].includes('data') and matches[0].includes('availab') and matches[0].includes('statement')
+            matches = ftl.match /.{100}[>" ](code|data|availab|statement).{1,50}(availab|code|data|statement).{1,50}(availab|code|data|statement).{200}/g
+            if matches? and matches.length and (matches[0].includes('data') or matches[0].includes('code')) and matches[0].includes('availab') and matches[0].includes('statement')
               res.closer += 1 
               ex.closer = matches 
 
-      for split in ['"data', '>Data', '>Availab', '>data']
+      for split in ['"data', '>Data', '>Availab', '>data', '>Code', '>code']
         if ft.includes split
           ex.splits.push split
           pre = ''
@@ -362,7 +338,7 @@ P.src.epmc.das = (pmcid, verbose) -> # restrict to report/works records if pmcid
             else
               ex.pre.push pre.slice -1000
               tag = pre.split('<').pop().split('>')[0].split(' ')[0]
-              post = if split.startsWith('"') then part.split(/\>(.*)/s)[1] else (if part.startsWith('il') or part.startsWith('l') then 'Availab' else 'Data') + part
+              post = (if split.startsWith('"') then part.split(/\>(.*)/s)[1] else if part.startsWith('il') or part.startsWith('l') then 'Availab' else 'Data') + part #  if part.substr(0,6).includes('ode') then 'Code' else
               ex.post.push post.slice 0, 1000
               if post.includes('</' + tag) and post.indexOf('</' + tag) < 40
                 ps = pre.split '<'
@@ -371,15 +347,18 @@ P.src.epmc.das = (pmcid, verbose) -> # restrict to report/works records if pmcid
                   #post = post.replace('</' + tag + '>', ': ').replace('::', ':').replace('.:', ':')
                   tag = nt
               ex.tag.push tag
-              splitter = '\n' + pre.split('<' + tag)[0].split('\n').pop().split('<')[0] + '</' + tag
+              #splitter = '\n' + pre.split('<' + tag)[0].split('\n').pop().split('<')[0] + '</' + tag
+              psls = pre.split('<' + tag)
+              splitter = '\n' + (psls.slice(0, psls.length-1)).pop().split('\n').pop() + '</' + tag
               if post.split('</' + tag)[0].includes '\n'
                 while not post.includes(splitter) and splits[0] #and splits[0].includes splitter
                   post += (if split.startsWith('>') then '>' else '') + (if splits[0].startsWith('il') or splits[0].startsWith('l') then 'Availab' else 'Data') +  splits.shift()
               post = post.split(splitter)[0]
               #post = post.split(/\>(.*)/s)[1]
               #post = post.replace('</', ': </').replace('::', ':').replace('.:', ':') if post.split('</').length > 2
-              post = post.replace(/\n/g, ' ').replace(/\s+/g, ' ').replace /(<([^>]+)>)/ig, ''
-              if post.length > 20 and post.length < 3000 and (pre+post).toLowerCase().includes('availab') and (pre+post).toLowerCase().includes('data')
+              post = post.replace('</title>', '|TTT|').replace(/\n/g, ' ').replace(/\s+/g, ' ').replace /(<([^>]+)>)/ig, ''
+              if post.length > 20 and post.length < 3000 and (pre+post).toLowerCase().includes('availab') and ((pre+post).toLowerCase().includes('data') or (pre+post).toLowerCase().includes('code'))
+                post = post.split('|TTT|')[1] if post.includes '|TTT|'
                 clean = (await @decode post.trim()).replace(/"/g, '').replace(/\s+/g, ' ')
                 ex.das.push(clean) if clean not in ex.das
                 delete ex.close
@@ -394,5 +373,5 @@ P.src.epmc.das = (pmcid, verbose) -> # restrict to report/works records if pmcid
   res = {total: res.total, das: res.das, records: res.records} if verbose is false
   res = (if res.records.length and res.records[0].das.length then res.records[0].das[0] else false) if verbose is false and res.total is 1
   return res
-
+'''
 
