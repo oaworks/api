@@ -314,7 +314,7 @@ P.src.crossref.changes = (startday, endday, created) ->
   dn = endday ? Date.now()
   dn = await @epoch await @date dn
   loaded = 0
-  queued = 0
+  queued = []
   days = 0
   batch = []
   while startday < dn
@@ -349,12 +349,10 @@ P.src.crossref.changes = (startday, endday, created) ->
                 for af in (a.affiliation ? [])
                   break if doq
                   doq = rec.DOI if af.name?
-            if doq
-              try await @report.queue doq, undefined, undefined, undefined, 'changes'
-              queued += 1
+            queued.push(doq) if doq
 
         if batch.length >= batchsize
-          console.log 'Crossref bulk load', startday, days, totalthisday, fromthisday, loaded, queued
+          console.log 'Crossref bulk load', startday, days, totalthisday, fromthisday, loaded, queued.length
           await @src.crossref.works batch
           batch = []
         if totalthisday is false
@@ -365,8 +363,9 @@ P.src.crossref.changes = (startday, endday, created) ->
     startday += 86400000
 
   await @src.crossref.works(batch) if batch.length
-  
-  console.log 'crossref works changes completed', loaded, days, queued
+  await @report.queue(queued, undefined, undefined, undefined, 'changes') if queued.length
+
+  console.log 'crossref works changes completed', loaded, days, queued.length
   return loaded
 
 P.src.crossref.changes._bg = true

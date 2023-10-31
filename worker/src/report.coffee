@@ -10,47 +10,47 @@ _queued_batch = []
 _queue_batch_last = Date.now()
 _do_batch = []
 _done_batch = []
-_processing_dois = []
+_processing_idents = []
 _processed_batch = []
 _processed_batch_last = Date.now()
 
 P.report.queued = _index: true #, _auth: '@oa.works'
-P.report.queue = (dois, ol, refresh, everything, action = 'default') -> # dois could actually be openalex IDs now too
+P.report.queue = (idents, openalex, refresh, everything, action = 'default') -> # idents could be DOIs, openalex IDs or PMCIDs
   if @params.empty
     if typeof @params.empty is 'string'
       for await qp from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_queued', 'action.keyword:"' + @params.empty + '"'
         await @report.queued qp._id, ''
     else
       await @report.queued ''
-  dois ?= @params.queue ? @params.doi
-  ol ?= @params.ol
+  idents ?= @params.queue ? @params.doi ? @params.openalex ? @params.pmcid
   refresh ?= @refresh
   everything ?= @params.everything
-  if dois # can be list of DOI strings and/or openalex strings, or objects with DOI and/or openalex, plus optional refresh, everything, action
-    for doi in (if not Array.isArray(dois) then [dois] else dois)
-      theid = if typeof doi is 'object' then (doi.DOI ? doi.openalex) else doi
+  if idents # can be list of DOI strings and/or openalex strings, or objects with DOI and/or openalex, plus optional refresh, everything, action
+    for ident in (if not Array.isArray(idents) then [idents] else idents)
+      theid = if typeof ident is 'object' then (ident.ident ? ident.identifier ? ident.DOI ? ident.doi ? ident.openalex ? ident.pmcid) else ident
       theid = theid.replace('w', 'W') if theid.startsWith 'w'
-      theid = await @report.cleandoi(theid) if not theid.startsWith'W'
-      if theid and typeof theid is 'string' and (theid.startsWith('10.') or theid.startsWith('W')) and theid not in _queued_batch
+      theid = theid.replace('pmc', 'PMC') if theid.startsWith 'pmc'
+      theid = await @report.cleandoi(theid) if theid.includes '10.'
+      if theid and typeof theid is 'string' and (theid.startsWith('10.') or theid.startsWith('W') or theid.startsWith('PMC')) and theid not in _queued_batch
         _queued_batch.push theid
-        rf = if typeof doi is 'object' and doi.refresh? then doi.refresh else refresh
+        rf = if typeof ident is 'object' and ident.refresh? then ident.refresh else refresh
         rf = if rf is true then 0 else if rf is false then undefined else rf
-        _queue_batch.push doi: theid, ol: (if typeof doi is 'object' and doi.ol? then doi.ol else ol), refresh: rf, everything: (if typeof doi is 'object' and doi.everything? then doi.everything else everything), action: (if typeof doi is 'object' and doi.action? then doi.action else action)
+        _queue_batch.push ident: theid, refresh: rf, everything: (if typeof ident is 'object' and ident.everything? then ident.everything else everything), action: (if typeof ident is 'object' and ident.action? then ident.action else action)
   if _queue_batch.length > 2000 or Date.now() > (_queue_batch_last + 15000)
     batch = []
     while d = _queue_batch.shift()
       _queued_batch.shift()
-      batch.push _id: (d.doi ? d.ol).toLowerCase(), DOI: d.doi, ol: d.ol, refresh: d.refresh, everything: d.everything, action: d.action, createdAt: Date.now()
+      batch.push _id: d.ident.toLowerCase(), identifier: d.ident, refresh: d.refresh, everything: d.everything, action: d.action, createdAt: Date.now()
     await @report.queued(batch) if batch.length
     _queue_batch_last = Date.now()
   return queue: _queue_batch.length
 P.report.queue._log = false
 P.report.queue._auth = '@oa.works'
 
-P.report.runqueue = (doi, qry = 'action:"default"') ->
-  doi ?= @params.runqueue
-  if doi?
-    qry = 'for requested doi ' + doi
+P.report.runqueue = (ident, qry = 'action:"default"') ->
+  ident ?= @params.runqueue
+  if ident?
+    qry = 'for requested identifier ' + ident
   else
     if not _do_batch.length
       q = await @report.queued qry, size: 2000, sort: createdAt: 'desc'
@@ -65,15 +65,15 @@ P.report.runqueue = (doi, qry = 'action:"default"') ->
     else
       qry = ''
     opts = _do_batch.shift()
-    doi = opts?.DOI
-  console.log 'report run queue', qry, doi, opts, _done_batch.length, _processed_batch.length, _processing_dois, _processing_dois.length
-  if typeof doi is 'string' and (doi.startsWith('10.') or doi.startsWith('W')) and doi not in _processing_dois and doi not in _done_batch
+    ident = opts?.identifier
+  console.log 'report run queue', qry, ident, opts, _done_batch.length, _processed_batch.length, _processing_idents, _processing_idents.length
+  if typeof ident is 'string' and (ident.startsWith('10.') or ident.startsWith('W') or ident.startsWith('PMC')) and ident not in _processing_idents and ident not in _done_batch
     await @sleep 10
-    while _processing_dois.length >= 5
+    while _processing_idents.length >= 5
       await @sleep 500
-    _processing_dois.push doi
-    @report.works.process doi, opts?.ol, opts?.refresh, opts?.everything, undefined, doi
-  if _processed_batch.length >= 2000 or Date.now() > (_processed_batch_last + 15000) or (_processing_dois.length is 0 and doi in _done_batch)
+    _processing_idents.push ident
+    @report.works.process ident, undefined, opts?.refresh, opts?.everything, undefined, ident
+  if _processed_batch.length >= 2000 or Date.now() > (_processed_batch_last + 15000) or (_processing_idents.length is 0 and ident in _done_batch)
     console.log 'run queue saving batch', _processed_batch.length
     await @report.works _processed_batch # NOTE - if these are NOT run on separate worker processes (see below) there could be duplication here
     _processed_batch = [] # or a risk of deleting unsaved ones here
@@ -83,19 +83,19 @@ P.report.runqueue = (doi, qry = 'action:"default"') ->
     batch = []
     while d = _queue_batch.shift()
       _queued_batch.shift()
-      batch.push _id: d.doi.toLowerCase(), DOI: d.doi, ol: d.ol, refresh: d.refresh, everything: d.everything, createdAt: Date.now()
+      batch.push _id: d.ident.toLowerCase(), identifier: d.ident, refresh: d.refresh, everything: d.everything, createdAt: Date.now()
     console.log 'run queue saving queued batch', _queue_batch.length, batch.length
     await @report.queued(batch) if batch.length
     _queue_batch_last = Date.now()
   return true
 
 # for each of the below, add a loop schedule to have them running - run them on SEPARATE worker processes, via settings
-P.report.doqueue = (doi, qry) -> return @report.runqueue (doi ? @params.doqueue), (qry ? @params.q)
+P.report.doqueue = (ident, qry) -> return @report.runqueue (ident ? @params.doqueue), (qry ? @params.q)
 P.report.doqueue._log = false
 P.report.doqueue._auth = '@oa.works'
 P.report.doqueue._bg = true
 
-P.report.dochangesqueue = (doi, qry = 'action:"changes" OR action:"years"') -> return @report.runqueue (doi ? @params.dochangesqueue), (qry ? @params.q)
+P.report.dochangesqueue = (ident, qry = 'action:"changes" OR action:"years"') -> return @report.runqueue (ident ? @params.dochangesqueue), (qry ? @params.q)
 P.report.dochangesqueue._log = false
 P.report.dochangesqueue._auth = '@oa.works'
 P.report.dochangesqueue._bg = true
@@ -325,7 +325,10 @@ P.report.orgs.supplements.load = (orgname, sheetname, clear) ->
                 rr = org: org.name, sheets: s.name, ror: org.ror, paid: (if org.paid is true then org.paid else undefined) # check paid explicitly because some had an empty string instead of a bool
                 for hp of headers
                   h = headers[hp]
-                  if h in ['doi', 'DOI']
+                  if h.toLowerCase() is 'pmcid'
+                    rr[h] = row[hp]
+                    rr.pmcid = 'PMC' + row[hp].toLowerCase().replace('pmc', '')
+                  else if h in ['doi', 'DOI']
                     rr[h] = row[hp]
                   else
                     hpv = ''
@@ -347,15 +350,15 @@ P.report.orgs.supplements.load = (orgname, sheetname, clear) ->
                 try rr.DOI = rr.DOI.toLowerCase().replace('doi ', '') if rr.DOI.startsWith 'doi '
                 try rr.DOI = rr.DOI.toLowerCase().trim().split('\\')[0].replace(/\/\//g, '/').replace(/\/ /g, '/').replace(/^\//, '').split(' ')[0].split('?')[0].split('#')[0].split(' pmcid')[0].split('\n')[0].replace(/[\u{0080}-\u{FFFF}]/gu, '').trim()
                 try rr.DOI = rr.DOI.split(',http')[0] # due to dirty data
-                if (typeof rr.DOI is 'string' and rr.DOI.startsWith('10.') and not rr.DOI.includes '@') or rr.openalex
+                if (typeof rr.DOI is 'string' and rr.DOI.startsWith('10.') and not rr.DOI.includes '@') or rr.openalex or rr.pmcid
                   if not clear and rr.DOI and replacements[rr.DOI]?
                     rr.replaced = rr.DOI
                     rr.DOI = replacements[rr.DOI]
                   rr.email = await @encrypt(rr.email) if typeof rr.email is 'string' and rr.email.includes '@'
-                  rr.osdid = (org.name.replace(/[^a-zA-Z0-9-_ ]/g, '') + '_' + s.name + '_' + (rr.DOI ? rr.openalex)).replace(/[\u{0080}-\u{FFFF}]/gu, '').toLowerCase().replace(/\//g, '_').replace(/ /g, '_')
+                  rr.osdid = (org.name.replace(/[^a-zA-Z0-9-_ ]/g, '') + '_' + s.name + '_' + (rr.DOI ? rr.openalex ? rr.pmcid)).replace(/[\u{0080}-\u{FFFF}]/gu, '').toLowerCase().replace(/\//g, '_').replace(/ /g, '_')
                   rr._id = rr.osdid
                   osdids.push rr.osdid
-                  if (rr.DOI ? rr.openalex) not in idents
+                  if (rr.DOI ? rr.openalex ? rr.pmcid) not in idents
                     '''kc = false
                     if not clear
                       present = await @report.works 'supplements.osdid.keyword:"' + rr.osdid + '"', 1
@@ -371,17 +374,17 @@ P.report.orgs.supplements.load = (orgname, sheetname, clear) ->
                         for k of present
                           break if k not in ['updated'] and JSON.stringify(rr[k] ? '').toLowerCase() isnt JSON.stringify(present[k]).toLowerCase() # JSON string match on object isn't guaranteed but probably likely enough for the number of times we'll need it
                           delete kc[k]'''
-                    idents.push(rr.DOI ? rr.openalex) #if clear or JSON.stringify(kc) isnt '{}'
+                    idents.push(rr.DOI ? rr.openalex ? rr.pmcid) #if clear or JSON.stringify(kc) isnt '{}'
                   rr.updated = started
                   sups.push rr
                   total += 1
               console.log org.name, s.name, sups.length, idents.length
               await @report.orgs.supplements sups
             await @sleep 2000
-            for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'org.keyword:"' + org.name + '" AND sheets.keyword:"' + s.name + '"', scroll: '30m', include: ['osdid']
+            for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'org.keyword:"' + org.name + '" AND sheets.keyword:"' + s.name + '"', scroll: '30m', include: ['osdid', 'DOI', 'openalex', 'pmcid']
               if sup.osdid not in osdids
                 await @report.orgs.supplements sup.osdid, ''
-                idents.push(sup.DOI ? sup.openalex) if (sup.DOI ? sup.openalex) not in idents # need to rerun for ones where something has been deleted too so that deleted supplements get removed from the work
+                idents.push(sup.DOI ? sup.openalex ? sup.pmcid) if (sup.DOI ? sup.openalex ? sup.pmcid) not in idents # need to rerun for ones where something has been deleted too so that deleted supplements get removed from the work
           sheets.push org: org.name, sheet: s.name, rows: rc, update: update, supplements: sups.length
           sheetnames.push s.name
 
@@ -391,14 +394,14 @@ P.report.orgs.supplements.load = (orgname, sheetname, clear) ->
       if aps not in sheetnames
         for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'sheets.keyword:"' + aps + '"', scroll: '30m', include: ['osdid']
           await @report.orgs.supplements sup.osdid, ''
-        for await osw from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'supplements.sheets.keyword:"' + aps + '"', scroll: '30m', include: ['DOI', 'openalex']
-          idents.push(osw.DOI ? osw.openalex) if (osw.DOI and osw.DOI not in idents) or (not osw.DOI and osw.openalex and osw.openalex not in idents)
+        for await osw from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'supplements.sheets.keyword:"' + aps + '"', scroll: '30m', include: ['DOI', 'openalex', 'pmcid']
+          idents.push(osw.DOI ? osw.openalex ? osw.pmcid) if (osw.DOI and osw.DOI not in idents) or (not osw.DOI and osw.openalex and osw.openalex not in idents) or (not osw.DOI and not osw.openalex and osw.pmcid and osw.pmcid not in idents)
 
   if clear # need to check to run everything that had a supplement
-    for ptc in await @report.works 'orgs:* OR supplements.sheets:*', include: ['DOI', 'openalex']
-      idents.push(ptc.DOI ? ptc.openalex) if (ptc.DOI and ptc.DOI not in idents) or (not ptc.DOI and ptc.openalex and ptc.openalex not in idents)
+    for ptc in await @report.works 'orgs:* OR supplements.sheets:*', include: ['DOI', 'openalex', 'pmcid']
+      idents.push(ptc.DOI ? ptc.openalex) if (ptc.DOI and ptc.DOI not in idents) or (not ptc.DOI and ptc.openalex and ptc.openalex not in idents) or (not ptc.DOI and not ptc.openalex and ptc.pmcid and ptc.pmcid not in idents)
 
-  await @sleep 60000 # wait a while for the supplements index to finish building and then run the processing for DOIs
+  await @sleep 60000 # wait a while for the supplements index to finish building and then run the processing for identifiers
   console.log 'report orgs supplements load', total, idents.length, await @epoch() - started
   if idents.length
     console.log 'report orgs supplements load ready to call works load', idents.length
@@ -407,7 +410,7 @@ P.report.orgs.supplements.load = (orgname, sheetname, clear) ->
 P.report.orgs.supplements.load._bg = true
 P.report.orgs.supplements.load._async = true
 P.report.orgs.supplements.load._log = false
-P.report.orgs.supplements.load._auth = '@oa.works'
+#P.report.orgs.supplements.load._auth = '@oa.works'
 
 
 
@@ -436,15 +439,23 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced, queued) -
   try
     started = await @epoch()
     cr ?= @params.process
+    givenpmcid = false
     refresh = true if refresh is 0
     refresh ?= @refresh
     everything ?= @params.everything # if so then runs epmc and permissions, which otherwise only run for records with orgs providing supplements
+
+    if typeof cr is 'string' and cr.toLowerCase().startsWith 'pmc'
+      givenpmcid = cr.toLowerCase().replace('pmc', 'PMC')
+      cr = undefined
+      openalex ?= await @src.openalex.works 'ids.pmcid:"' + givenpmcid.toLowerCase().replace('pmc', '') + '"', 1 # openalex does not store them with the PMC prefix, they are in URL format without it
+      if not openalex? and epmc = await @src.epmc.pmc givenpmcid
+        cr = epmc.doi
 
     if not openalex and cr and (cr.includes('openalex.org/') or cr.startsWith('W'))
       cr = cr.split('openalex.org/')[1] if cr.includes 'openalex.org/'
       openalex = cr
       cr = undefined
-
+    
     if typeof openalex is 'string'
       openalex = openalex.split(if openalex.includes('doi.org') then 'doi.org/' else '/').pop()
       openalex = openalex.replace /\/$/, ''
@@ -472,8 +483,7 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced, queued) -
       exists ?= await @report.works(if typeof cr is 'string' then cr else cr.DOI)
       exists = undefined if not exists?.updated or (refresh and exists and exists.updated < refresh)
 
-    if cr? and not exists?.openalex
-      openalex ?= await @src.openalex.works if typeof cr is 'object' then cr.DOI else cr
+    openalex = await @src.openalex.works(if typeof cr is 'object' then cr.DOI else cr) if cr? and not openalex?
     openalex = undefined if typeof openalex is 'string' or not openalex?.id
 
     if typeof cr is 'object' and cr.DOI
@@ -532,7 +542,7 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced, queued) -
         rec.replaces.push DOI: replaced, type: 'relation'
 
     if openalex?
-      try exists = undefined if exists?.updated and openalex.updated_date and exists.updated < await @epoch openalex.updated_date
+      try exists = undefined if exists?.updated and not openalex.is_paratext and not openalex.is_retracted and openalex.updated_date and exists.updated < await @epoch openalex.updated_date
       rec ?= {}
       rec.openalex = openalex.id.split('/').pop() if openalex.id
       rec.DOI = openalex.ids.doi.split('doi.org/').pop().toLowerCase() if not rec.DOI and openalex.ids?.doi?
@@ -553,11 +563,13 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced, queued) -
 
     rec ?= {}
     rec.DOI = cr.toLowerCase() if not rec.DOI and typeof cr is 'string'
+    rec.PMCID = givenpmcid if givenpmcid and not rec.PMCID
 
     if rec.is_paratext or rec.is_retracted
+      await @report.works(rec.DOI, '') if rec.DOI and exists?
       if queued
         _done_batch.push queued
-        _processing_dois.splice _processing_dois.indexOf(queued), 1
+        _processing_idents.splice _processing_idents.indexOf(queued), 1
       return
     delete rec.is_paratext
     delete rec.is_retracted
@@ -599,12 +611,14 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced, queued) -
 
     rec.supplements = []
     rec.orgs = []
-    if rec.DOI or rec.openalex
+    if rec.DOI or rec.openalex or rec.PMCID
+      sqq = ''
       if rec.DOI
-        sqq = 'DOI.keyword:"' + rec.DOI + '"'
-        sqq += ' OR openalex.keyword:"' + rec.openalex + '"' if rec.openalex
-      else
-        sqq = 'openalex.keyword:"' + rec.openalex + '"'
+        sqq += 'DOI.keyword:"' + rec.DOI + '"'
+      if rec.openalex
+        sqq += (if sqq then ' OR ' else '') + 'openalex.keyword:"' + rec.openalex + '"'
+      if rec.PMCID
+        sqq += (if sqq then ' OR ' else '') + 'pmcid.keyword:"' + rec.PMCID + '"'
       for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', sqq, sort: 'osdid.keyword': 'asc'
         rec.orgs.push(sup.org) if sup.org not in rec.orgs
         rec.paid = true if sup.paid
@@ -612,9 +626,11 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced, queued) -
         rec.author_email_name = sup.author_email_name_ic if sup.author_email_name_ic
         rec.supplements.push sup
 
-    if exists? and refresh isnt true
-      rec.author_email_name = exists.author_email_name if not rec.author_email_name and exists.author_email_name and exists.email and rec.email and rec.email.toLowerCase() is exists.email.toLowerCase()
-      rec[k] ?= exists[k] for k of exists
+    if exists?
+      if not refresh?
+        rec.author_email_name = exists.author_email_name if not rec.author_email_name and exists.author_email_name and exists.email and rec.email and rec.email.toLowerCase() is exists.email.toLowerCase()
+        rec[k] ?= exists[k] for k of exists
+      rec.PMCID ?= exists.PMCID
 
     if rec.authorships? and rec.email and not rec.author_email_name and (not exists?.authorships? or not exists?.email)
       email = if rec.email.includes('@') then rec.email else await @decrypt rec.email
@@ -644,7 +660,6 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced, queued) -
 
     rec.email = await @encrypt(rec.email) if typeof rec.email is 'string' and rec.email.includes '@'
 
-
     #if (not exists? and rec.orgs.length) or (exists?.orgs ? []).length isnt rec.orgs.length or (rec.paid and rec.paid isnt exists?.paid) #or not exists.journal_oa_type
     if not rec.PMCID or not rec.PMID or not rec.pubtype or not rec.submitted_date or not rec.accepted_date
       if pubmed = (if rec.PMID then await @src.pubmed(rec.PMID) else if rec.DOI then await @src.pubmed.doi(rec.DOI) else undefined) # pubmed is faster to lookup but can't rely on it being right if no PMC found in it, e.g. 10.1111/nyas.14608
@@ -665,34 +680,35 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced, queued) -
 
     everything = true if rec.orgs.length #and (refresh or (exists?.orgs ? []).length isnt rec.orgs.length) # control whether to run time-expensive things on less important records
     if everything
-      if rec.DOI and (not rec.PMCID or not rec.pubtype) #or not rec.submitted_date or not rec.accepted_date # only thing restricted to orgs supplements for now is remote epmc lookup and epmc licence calculation below
-        if epmc = await @src.epmc.doi rec.DOI
-          rec.PMCID = epmc.pmcid if epmc.pmcid
+      if (rec.DOI or rec.PMCID) and (not rec.PMCID or not rec.pubtype) #or not rec.submitted_date or not rec.accepted_date # only thing restricted to orgs supplements for now is remote epmc lookup and epmc licence calculation below
+        if epmc = (if rec.PMCID then await @src.epmc.pmc(rec.PMCID) else await @src.epmc.doi rec.DOI)
+          rec.PMCID = epmc.pmcid if not rec.PMCID and epmc.pmcid
           #rec.submitted_date ?= epmc.firstIndexDate - removed as found to be not accurate enough https://github.com/oaworks/Gates/issues/559
           #rec.accepted_date ?= epmc.firstPublicationDate
           for pt in (epmc.pubTypeList ? [])
             rec.pubtype = if Array.isArray(rec.pubtype) then rec.pubtype else if rec.pubtype then [rec.pubtype] else []
             rec.pubtype.push(pt.pubType) if pt.pubType not in rec.pubtype
 
-      if rec.PMCID and not rec.epmc_licence and not rec.tried_epmc_licence #  and rec.repository_url_in_pmc
+      if rec.PMCID and not rec.epmc_licence and (refresh or not rec.tried_epmc_licence) #  and rec.repository_url_in_pmc
         rec.tried_epmc_licence = true
-        lic = await @src.epmc.licence rec.PMCID, epmc
+        lic = await @src.epmc.licence rec.PMCID, epmc, undefined, refresh
         rec.epmc_licence = lic?.licence
       rec.pmc_has_data_availability_statement ?= rec.PMCID and await @src.pubmed.availability rec.PMCID
-      if not rec.data_availability_statement and rec.PMCID #rec.pmc_has_data_availability_statement
-        rec.data_availability_statement = await @src.epmc.statement rec.PMCID, epmc
+      if rec.PMCID and (refresh or not rec.data_availability_statement)
+        rec.data_availability_statement = await @src.epmc.statement rec.PMCID, epmc, refresh
+        rec.data_availability_url = await @src.epmc.statement.url(rec.PMCID, epmc, rec.data_availability_statement, refresh) if rec.data_availability_statement
 
     rec.is_oa = rec.oadoi_is_oa or rec.crossref_is_oa or rec.journal_oa_type in ['gold']
-    rec._id ?= if rec.DOI then rec.DOI.toLowerCase().replace(/\//g, '_') else if rec.openalex then rec.openalex.toLowerCase() # and if no openalex it will get a default ID
+    rec._id ?= if rec.DOI then rec.DOI.toLowerCase().replace(/\//g, '_') else if rec.openalex then rec.openalex.toLowerCase() else if rec.PMCID then rec.PMCID.toLowerCase() else undefined # and if no openalex it will get a default ID
     rec.supplemented = await @epoch()
     rec.updated = rec.supplemented
     rec.took = rec.supplemented - started
-    if @params.process and @params.save isnt false and ((rec.DOI and rec.DOI.toLowerCase() is @params.process.toLowerCase()) or (rec.openalex and rec.openalex.toLowerCase() is @params.process.toLowerCase()))
+    if @params.process and @params.save isnt false and ((rec.DOI and rec.DOI.toLowerCase() is @params.process.toLowerCase()) or (rec.openalex and rec.openalex.toLowerCase() is @params.process.toLowerCase()) or (rec.PMCID and rec.PMCID.toLowerCase() is @params.process.toLowerCase()))
       await @report.works rec
     else if queued
       _done_batch.push queued
       _processed_batch.push(rec) if rec._id?
-      _processing_dois.splice _processing_dois.indexOf(queued), 1
+      _processing_idents.splice _processing_idents.indexOf(queued), 1
     #console.log 'report works processed', rec.DOI, rec.took
     return rec
   catch err
@@ -700,18 +716,18 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced, queued) -
     if queued
       await @sleep 3000
       #_done_batch.push queued
-      _processing_dois.splice _processing_dois.indexOf(queued), 1
+      _processing_idents.splice _processing_idents.indexOf(queued), 1
       @report.queue queued, undefined, refresh, everything
     return
 P.report.works.process._log = false
 
 
-P.report.works.load = (timestamp, org, dois, year, clear, supplements, everything, info) ->
+P.report.works.load = (timestamp, org, idents, year, clear, supplements, everything, info) ->
   started = await @epoch()
   year ?= @params.load ? (await @date()).split('-')[0] # load could be supplements or everything but in that case year is not used anyway
   org ?= @params.org ? @params.orgs ? @params.load is 'orgs'
-  dois = @params.load if not dois? and typeof @params.load is 'string' and @params.load.startsWith '10.'
-  dois = [dois] if typeof dois is 'string'
+  idents = @params.load if not idents? and typeof @params.load is 'string' and (@params.load.startsWith('10.') or @params.load.toLowerCase().startsWith('pmc') or @params.load.toLowerCase().startsWith('w'))
+  idents = [idents] if typeof idents is 'string'
   if @fn.startsWith 'report.works.load'
     clear ?= @params.clear
   refresh = @refresh
@@ -722,27 +738,28 @@ P.report.works.load = (timestamp, org, dois, year, clear, supplements, everythin
   total = 0
 
   if @params.q
-    dois ?= []
-    for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', @params.q, scroll: '5m', include: ['DOI', 'openalex']
-      sd = sup.DOI ? sup.openalex
-      dois.push(sd) if sd not in dois
+    idents ?= []
+    for await sw from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', @params.q, scroll: '5m', include: ['DOI', 'openalex', 'PMCID']
+      sd = sw.DOI ? sw.openalex ? sw.PMCID
+      idents.push(sd) if sd not in idents
     console.log 'report works supplements to load from query', @params.q
   else if @params.load is 'supplements'
-    dois ?= []
-    for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', (if timestamp then 'updated:<' + timestamp else if org then 'org:"' + org + '"' else undefined), scroll: '5m', include: ['DOI']
-      dois.push(sup.DOI) if sup.DOI not in dois
-    console.log 'report works supplements to load', timestamp, org, dois.length
+    idents ?= []
+    for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', (if timestamp then 'updated:<' + timestamp else if org then 'org:"' + org + '"' else undefined), scroll: '5m', include: ['DOI', 'openalex', 'pmcid']
+      sd = sup.DOI ? sup.openalex ? sup.pmcid
+      idents.push(sd) if sd not in idents
+    console.log 'report works supplements to load', timestamp, org, idents.length
   else if everything
-    dois ?= []
-    for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'NOT pmc_has_data_availability_statement:*', scroll: '5m', include: ['DOI', 'openalex']
-      sd = sup.DOI ? sup.openalex
-      dois.push(sd) if sd not in dois
-    console.log 'report works supplements to load everything for records that do not yet have everything', dois.length
+    idents ?= []
+    for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'NOT pmc_has_data_availability_statement:*', scroll: '5m', include: ['DOI', 'openalex', 'PMCID']
+      sd = sup.DOI ? sup.openalex ? sup.PMCID
+      idents.push(sd) if sd not in idents
+    console.log 'report works supplements to load everything for records that do not yet have everything', idents.length
 
-  if Array.isArray dois
-    console.log 'report works queueing dois batch', dois.length
-    await @report.queue dois, undefined, (timestamp ? refresh), everything
-    total += dois.length
+  if Array.isArray idents
+    console.log 'report works queueing identifiers batch', idents.length
+    await @report.queue idents, undefined, (timestamp ? refresh), everything
+    total += idents.length
   else
     _crossref = (cq, action) =>
       cq ?= '(funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year
@@ -764,7 +781,7 @@ P.report.works.load = (timestamp, org, dois, year, clear, supplements, everythin
       oq ?= 'authorships.institutions.display_name:* AND publication_year:' + year
       oq = '(' + oq + ') AND updated_date:>' + timestamp if timestamp
       precount = await @src.openalex.works.count oq
-      odois = []
+      odents = []
       console.log 'report works load openalex by query expects', oq, precount
       for await ol from @index._for 'src_openalex_works', oq, include: ['id', 'ids'], scroll: '30m'
         oodoi = if ol.ids?.doi then '10.' + ol.ids.doi.split('/10.')[1] else ol.id.split('openalex.org/').pop()
@@ -773,10 +790,10 @@ P.report.works.load = (timestamp, org, dois, year, clear, supplements, everythin
         if oodoi
           if org or year isnt @params.load or not oodoi.startsWith('10.') or not ae = await @report.works oodoi
             total += 1
-            odois.push oodoi
-      if odois.length
-        console.log 'report works load openalex loading', odois.length
-        await @report.queue odois, undefined, (timestamp ? refresh), everything, action
+            odents.push oodoi
+      if odents.length
+        console.log 'report works load openalex loading', odents.length
+        await @report.queue odents, undefined, (timestamp ? refresh), everything, action
       
     await _openalex(undefined, 'years') if org isnt true and year is @params.load
 
@@ -797,13 +814,14 @@ P.report.works.load = (timestamp, org, dois, year, clear, supplements, everythin
   
   took = await @epoch() - started
   text = 'Report works queued ' + total + (if @S.dev then ' (dev)' else '') + '\n'
-  text += dois.length + ' DOIs were provided to process\n' if dois and dois.length
+  text += idents.length + ' identifiers were provided to process\n' if idents and idents.length
+  text += 'These were derived by searching for provided query' + JSON.stringify(@params.q) + '\n' if @params.q
   text += 'These were derived by searching for all works that already have supplements attached\n' if @params.load is 'supplements'
   text += 'These were derived by searching for all works that have not yet had everything fully processed\n' if everything
   text += 'These were provided by an orgs supplements refresh which took ' + Math.ceil((started - supplements)/1000/60) + 'm\n' if supplements
   text += 'The load process was limited to ' + org + '\n' if typeof org is 'string'
   text += 'The load process was run for changes since ' + (await @datetime timestamp) + '\n' if timestamp
-  text += 'The load process was run for year ' + year + '\n' if year and (@params.load or not timestamp) and not (dois ? []).length
+  text += 'The load process was run for year ' + year + '\n' if year and (@params.load or not timestamp) and not (idents ? []).length
   text += '\n' + JSON.stringify(i) + '\n' for i in (info ? [])
   console.log 'Report works loaded', total, took
   await @mail to: ['mark@oa.works', 'joe@oa.works'], subject: 'OA report works loaded ' + total, text: text
