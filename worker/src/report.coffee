@@ -65,7 +65,7 @@ P.report.runqueue = (ident, qry = 'action:"default"') ->
     else
       qry = ''
     opts = _do_batch.shift()
-    ident = opts?.identifier
+    ident = opts?.identifier ? opts?.DOI
   console.log 'report run queue', qry, ident, opts, _done_batch.length, _processed_batch.length, _processing_idents, _processing_idents.length
   if typeof ident is 'string' and (ident.startsWith('10.') or ident.startsWith('W') or ident.startsWith('PMC')) and ident not in _processing_idents and ident not in _done_batch
     await @sleep 10
