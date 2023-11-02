@@ -41,7 +41,7 @@ P.src.epmc.doi = (ident, refresh) ->
   exists = await @src.epmc 'doi:"' + ident + '"'
   if exists?.hits?.total
     return exists.hits.hits[0]._source
-  else if not refresh and ne = await @src.epmc.notinepmc ident
+  else if not refresh and Date.now() - ((await @src.epmc.notinepmc ident)?.checkedAt ? 0) < 1000*60*60*24*3 # if we checked in the last three days, don't check again
     return
   else
     res = await @src.epmc.search 'DOI:' + ident
@@ -51,7 +51,7 @@ P.src.epmc.doi = (ident, refresh) ->
         @waitUntil @src.epmc res.data[0]
       return res.data[0]
     else
-      await @src.epmc.notinepmc id: ident.replace(/\//g, '_'), doi: ident
+      await @src.epmc.notinepmc id: ident.replace(/\//g, '_'), doi: ident, checkedAt: Date.now()
       return
 
 P.src.epmc.pmid = (ident, refresh) ->
@@ -60,14 +60,14 @@ P.src.epmc.pmid = (ident, refresh) ->
   exists = await @src.epmc 'pmid:"' + ident + '"'
   if exists?.hits?.total
     return exists.hits.hits[0]._source
-  else if not refresh and ne = await @src.epmc.notinepmc ident
+  else if not refresh and Date.now() - ((await @src.epmc.notinepmc ident)?.checkedAt ? 0) < 1000*60*60*24*3
     return
   else
     res = await @src.epmc.search 'EXT_ID:' + ident + ' AND SRC:MED'
     if res.total
       return res.data[0]
     else
-      await @src.epmc.notinepmc id: ident, pmid: ident
+      await @src.epmc.notinepmc id: ident, pmid: ident, checkedAt: Date.now()
       return
 
 P.src.epmc.pmc = (ident, refresh) ->
@@ -77,14 +77,14 @@ P.src.epmc.pmc = (ident, refresh) ->
   exists = await @src.epmc 'pmcid:"' + ident + '"'
   if exists?.hits?.total
     return exists.hits.hits[0]._source
-  else if not refresh and ne = await @src.epmc.notinepmc ident
+  else if not refresh and Date.now() - ((await @src.epmc.notinepmc ident).checkedAt ? 0) < 1000*60*60*24*3
     return
   else
     res = await @src.epmc.search 'PMCID:' + ident
     if res.total
       return res.data[0]
     else
-      await @src.epmc.notinepmc id: ident, pmcid: ident
+      await @src.epmc.notinepmc id: ident, pmcid: ident, checkedAt: Date.now()
       return
 
 P.src.epmc.title = (title) ->
@@ -102,7 +102,7 @@ P.src.epmc.licence = (pmcid, rec, fulltext, refresh) ->
   pmcid ?= @params.licence ? @params.pmcid ? @params.epmc
   pmcid = 'PMC' + pmcid.toLowerCase().replace('pmc','') if pmcid
   if pmcid and not rec?
-    rec = await @src.epmc.pmc pmcid
+    rec = await @src.epmc.pmc pmcid, refresh
   if rec or fulltext
     if rec?.calculated_licence? and not refresh
       return if rec.calculated_licence.licence is 'not found' then undefined else rec.calculated_licence
@@ -113,7 +113,7 @@ P.src.epmc.licence = (pmcid, rec, fulltext, refresh) ->
         lics.licence = lics.licence.replace(/ /g,'-') if lics.licence.startsWith 'cc'
       else
         if not fulltext and pmcid
-          fulltext = await @src.epmc.xml pmcid, rec
+          fulltext = await @src.epmc.xml pmcid, rec, refresh
         if @licence? and fulltext
           if typeof fulltext is 'string' and fulltext.startsWith '<'
             lics = await @licence undefined, fulltext, '<permissions>', '</permissions>'
@@ -152,7 +152,7 @@ P.src.epmc.xml = (pmcid, rec, refresh) ->
       ft = await fs.readFile @S.directory + '/epmc/fulltext/' + pmcid + '.xml'
       return ft.toString()
     catch
-      rec ?= await @src.epmc.pmc pmcid
+      rec ?= await @src.epmc.pmc pmcid, refresh
       if refresh or not rec?.no_ft
         ncdl = Date.now() - _last_ncbi
         while ncdl < 500 or _ncbi_running >= 2 # should be able to hit 3r/s although it's possible we call from other workers on same server. This will have to do for now
@@ -185,16 +185,16 @@ P.src.epmc.fulltext = (pmcid) -> # check fulltext exists in epmc explicitly
   else
     return
 
-P.src.epmc.aam = (pmcid, rec, fulltext) ->
+P.src.epmc.aam = (pmcid, rec, fulltext, refresh) ->
   pmcid ?= @params.aam ? @params.pmcid ? @params.epmc
   if typeof fulltext is 'string' and fulltext.includes('pub-id-type=\'manuscript\'') and fulltext.includes('pub-id-type="manuscript"')
     return aam: true, info: 'fulltext'
   else
     # if EPMC API authMan / epmcAuthMan / nihAuthMan become reliable we can use those instead
-    try rec = await @src.epmc.pmc(pmcid) if pmcid and not rec
+    try rec = await @src.epmc.pmc(pmcid, refresh) if pmcid and not rec
     pmcid ?= rec?.pmcid
     if pmcid
-      fulltext = await @src.epmc.xml pmcid, rec
+      fulltext = await @src.epmc.xml pmcid, rec, refresh
       if typeof fulltext is 'string' and fulltext.includes('pub-id-type=\'manuscript\'') and fulltext.includes('pub-id-type="manuscript"')
         return aam: true, info: 'fulltext'
       else
@@ -282,7 +282,7 @@ P.src.epmc.statement = (pmcid, rec, refresh, verbose) ->
                     statements.push clean
                 pre = ''
   if verbose
-    return pmcid: pmcid, file: 'https://static.oa.works/epmc/fulltext/' + pmcid + '.xml', pres: pres, posts: posts, splits: splits, tags: tags, statements: statements, url: (if statements then await @src.epmc.statement.url(undefined, undefined, statements) else undefined)
+    return pmcid: pmcid, file: 'https://static.oa.works/epmc/fulltext/' + pmcid + '.xml', pres: pres, posts: posts, splits: splits, tags: tags, statements: statements, url: (if statements then await @src.epmc.statement.url(undefined, undefined, statements, refresh) else undefined)
   else
     return if statements.length then statements else undefined
 
