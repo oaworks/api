@@ -8351,7 +8351,7 @@ P.src.epmc.pmid = async function(ident, refresh) {
 };
 
 P.src.epmc.pmc = async function(ident, refresh) {
-  var exists, ref, ref1, ref2, res;
+  var exists, ref, ref1, ref2, ref3, res;
   if (!ident) {
     if (refresh == null) {
       refresh = this.refresh;
@@ -8364,7 +8364,7 @@ P.src.epmc.pmc = async function(ident, refresh) {
   exists = (await this.src.epmc('pmcid:"' + ident + '"'));
   if (exists != null ? (ref1 = exists.hits) != null ? ref1.total : void 0 : void 0) {
     return exists.hits.hits[0]._source;
-  } else if (!refresh && Date.now() - ((ref2 = ((await this.src.epmc.notinepmc(ident))).checkedAt) != null ? ref2 : 0) < 1000 * 60 * 60 * 24 * 3) {
+  } else if (!refresh && Date.now() - ((ref2 = (ref3 = (await this.src.epmc.notinepmc(ident))) != null ? ref3.checkedAt : void 0) != null ? ref2 : 0) < 1000 * 60 * 60 * 24 * 3) {
 
   } else {
     res = (await this.src.epmc.search('PMCID:' + ident));
@@ -15547,7 +15547,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Thu Nov 02 2023 10:08:19 GMT+0000";
+S.built = "Thu Nov 02 2023 10:44:33 GMT+0000";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor

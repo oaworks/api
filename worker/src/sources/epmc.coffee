@@ -77,7 +77,7 @@ P.src.epmc.pmc = (ident, refresh) ->
   exists = await @src.epmc 'pmcid:"' + ident + '"'
   if exists?.hits?.total
     return exists.hits.hits[0]._source
-  else if not refresh and Date.now() - ((await @src.epmc.notinepmc ident).checkedAt ? 0) < 1000*60*60*24*3
+  else if not refresh and Date.now() - ((await @src.epmc.notinepmc ident)?.checkedAt ? 0) < 1000*60*60*24*3
     return
   else
     res = await @src.epmc.search 'PMCID:' + ident
