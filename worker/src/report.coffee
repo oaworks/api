@@ -41,7 +41,9 @@ P.report.queue = (idents, openalex, refresh, everything, action = 'default') -> 
     while d = _queue_batch.shift()
       _queued_batch.shift()
       batch.push _id: d.ident.toLowerCase(), identifier: d.ident, refresh: d.refresh, everything: d.everything, action: d.action, createdAt: Date.now()
-      await @report.queued(batch) if batch.length > 10000
+      if batch.length >= 10000
+        await @report.queued batch
+        batch = []
     await @report.queued(batch) if batch.length
     _queue_batch_last = Date.now()
   return queue: _queue_batch.length
@@ -85,7 +87,9 @@ P.report.runqueue = (ident, qry = 'action:"default"') ->
     while d = _queue_batch.shift()
       _queued_batch.shift()
       batch.push _id: d.ident.toLowerCase(), identifier: d.ident, refresh: d.refresh, everything: d.everything, createdAt: Date.now()
-      await @report.queued(batch) if batch.length > 10000
+      if batch.length >= 10000
+        await @report.queued batch
+        batch = []
     console.log 'run queue saving queued batch', _queue_batch.length, batch.length
     await @report.queued(batch) if batch.length
     _queue_batch_last = Date.now()
