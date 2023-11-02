@@ -5169,8 +5169,9 @@ P.report.queue = async function(idents, openalex, refresh, everything, action = 
         action: d.action,
         createdAt: Date.now()
       });
-      if (batch.length > 10000) {
+      if (batch.length >= 10000) {
         await this.report.queued(batch);
+        batch = [];
       }
     }
     if (batch.length) {
@@ -5256,8 +5257,9 @@ P.report.runqueue = async function(ident, qry = 'action:"default"') {
         everything: d.everything,
         createdAt: Date.now()
       });
-      if (batch.length > 10000) {
+      if (batch.length >= 10000) {
         await this.report.queued(batch);
+        batch = [];
       }
     }
     console.log('run queue saving queued batch', _queue_batch.length, batch.length);
@@ -15547,7 +15549,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Thu Nov 02 2023 11:35:06 GMT+0000";
+S.built = "Thu Nov 02 2023 13:31:27 GMT+0000";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
