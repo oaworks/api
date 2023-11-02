@@ -5169,6 +5169,9 @@ P.report.queue = async function(idents, openalex, refresh, everything, action = 
         action: d.action,
         createdAt: Date.now()
       });
+      if (batch.length > 10000) {
+        await this.report.queued(batch);
+      }
     }
     if (batch.length) {
       await this.report.queued(batch);
@@ -5185,7 +5188,7 @@ P.report.queue._log = false;
 P.report.queue._auth = '@oa.works';
 
 P.report.runqueue = async function(ident, qry = 'action:"default"') {
-  var batch, d, ddd, j, len, opts, q, qd, ref, ref1, ref2, ref3, ref4;
+  var batch, d, ddd, j, len, opts, q, qd, ref, ref1, ref2, ref3, ref4, ref5;
   if (ident == null) {
     ident = this.params.runqueue;
   }
@@ -5222,7 +5225,7 @@ P.report.runqueue = async function(ident, qry = 'action:"default"') {
       qry = '';
     }
     opts = _do_batch.shift();
-    ident = opts != null ? opts.identifier : void 0;
+    ident = (ref5 = opts != null ? opts.identifier : void 0) != null ? ref5 : opts != null ? opts.DOI : void 0;
   }
   console.log('report run queue', qry, ident, opts, _done_batch.length, _processed_batch.length, _processing_idents, _processing_idents.length);
   if (typeof ident === 'string' && (ident.startsWith('10.') || ident.startsWith('W') || ident.startsWith('PMC')) && indexOf.call(_processing_idents, ident) < 0 && indexOf.call(_done_batch, ident) < 0) {
@@ -5253,6 +5256,9 @@ P.report.runqueue = async function(ident, qry = 'action:"default"') {
         everything: d.everything,
         createdAt: Date.now()
       });
+      if (batch.length > 10000) {
+        await this.report.queued(batch);
+      }
     }
     console.log('run queue saving queued batch', _queue_batch.length, batch.length);
     if (batch.length) {
@@ -5614,7 +5620,7 @@ P.report.orgs.supplements.load = async function(orgname, sheetname, clear) {
                 ld = ld.split('/').reverse().join('-');
                 last = (await this.epoch(ld + 'T' + lt));
                 console.log(org.name, s.name, 'last updated', last);
-                if (typeof last === 'number' && last > 1672531200000) { // start of 2023, just in case of a bad date
+                if (typeof last === 'number' && last > 1577836800000) { // start of 2020, just in case of a bad date
                   if (!(latest = sheets_latest[s.name])) {
                     try {
                       latest = (await this.report.orgs.supplements('sheets.keyword:"' + s.name + '"', {
@@ -5925,7 +5931,7 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
       if (openalex == null) {
         openalex = (await this.src.openalex.works('ids.pmcid:"' + givenpmcid.toLowerCase().replace('pmc', '') + '"', 1)); // openalex does not store them with the PMC prefix, they are in URL format without it
       }
-      if ((openalex == null) && (epmc = (await this.src.epmc.pmc(givenpmcid)))) {
+      if ((openalex == null) && (epmc = (await this.src.epmc.pmc(givenpmcid, refresh)))) {
         cr = epmc.doi;
       }
     }
@@ -6402,7 +6408,7 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
     }
     if (everything) {
       if ((rec.DOI || rec.PMCID) && (!rec.PMCID || !rec.pubtype)) { //or not rec.submitted_date or not rec.accepted_date # only thing restricted to orgs supplements for now is remote epmc lookup and epmc licence calculation below
-        if (epmc = (rec.PMCID ? (await this.src.epmc.pmc(rec.PMCID)) : (await this.src.epmc.doi(rec.DOI)))) {
+        if (epmc = (rec.PMCID ? (await this.src.epmc.pmc(rec.PMCID, refresh)) : (await this.src.epmc.doi(rec.DOI, refresh)))) {
           if (!rec.PMCID && epmc.pmcid) {
             rec.PMCID = epmc.pmcid;
           }
@@ -8283,7 +8289,7 @@ P.src.epmc.search = async function(qrystr, from, size) {
 };
 
 P.src.epmc.doi = async function(ident, refresh) {
-  var exists, ne, ref, res;
+  var exists, ref, ref1, ref2, res;
   if (!ident) {
     if (refresh == null) {
       refresh = this.refresh;
@@ -8295,7 +8301,7 @@ P.src.epmc.doi = async function(ident, refresh) {
   exists = (await this.src.epmc('doi:"' + ident + '"'));
   if (exists != null ? (ref = exists.hits) != null ? ref.total : void 0 : void 0) {
     return exists.hits.hits[0]._source;
-  } else if (!refresh && (ne = (await this.src.epmc.notinepmc(ident)))) {
+  } else if (!refresh && Date.now() - ((ref1 = (ref2 = (await this.src.epmc.notinepmc(ident))) != null ? ref2.checkedAt : void 0) != null ? ref1 : 0) < 1000 * 60 * 60 * 24 * 3) { // if we checked in the last three days, don't check again
 
   } else {
     res = (await this.src.epmc.search('DOI:' + ident));
@@ -8308,14 +8314,15 @@ P.src.epmc.doi = async function(ident, refresh) {
     } else {
       await this.src.epmc.notinepmc({
         id: ident.replace(/\//g, '_'),
-        doi: ident
+        doi: ident,
+        checkedAt: Date.now()
       });
     }
   }
 };
 
 P.src.epmc.pmid = async function(ident, refresh) {
-  var exists, ne, ref, res;
+  var exists, ref, ref1, ref2, res;
   if (!ident) {
     if (refresh == null) {
       refresh = this.refresh;
@@ -8327,7 +8334,7 @@ P.src.epmc.pmid = async function(ident, refresh) {
   exists = (await this.src.epmc('pmid:"' + ident + '"'));
   if (exists != null ? (ref = exists.hits) != null ? ref.total : void 0 : void 0) {
     return exists.hits.hits[0]._source;
-  } else if (!refresh && (ne = (await this.src.epmc.notinepmc(ident)))) {
+  } else if (!refresh && Date.now() - ((ref1 = (ref2 = (await this.src.epmc.notinepmc(ident))) != null ? ref2.checkedAt : void 0) != null ? ref1 : 0) < 1000 * 60 * 60 * 24 * 3) {
 
   } else {
     res = (await this.src.epmc.search('EXT_ID:' + ident + ' AND SRC:MED'));
@@ -8336,14 +8343,15 @@ P.src.epmc.pmid = async function(ident, refresh) {
     } else {
       await this.src.epmc.notinepmc({
         id: ident,
-        pmid: ident
+        pmid: ident,
+        checkedAt: Date.now()
       });
     }
   }
 };
 
 P.src.epmc.pmc = async function(ident, refresh) {
-  var exists, ne, ref, ref1, res;
+  var exists, ref, ref1, ref2, res;
   if (!ident) {
     if (refresh == null) {
       refresh = this.refresh;
@@ -8356,7 +8364,7 @@ P.src.epmc.pmc = async function(ident, refresh) {
   exists = (await this.src.epmc('pmcid:"' + ident + '"'));
   if (exists != null ? (ref1 = exists.hits) != null ? ref1.total : void 0 : void 0) {
     return exists.hits.hits[0]._source;
-  } else if (!refresh && (ne = (await this.src.epmc.notinepmc(ident)))) {
+  } else if (!refresh && Date.now() - ((ref2 = ((await this.src.epmc.notinepmc(ident))).checkedAt) != null ? ref2 : 0) < 1000 * 60 * 60 * 24 * 3) {
 
   } else {
     res = (await this.src.epmc.search('PMCID:' + ident));
@@ -8365,7 +8373,8 @@ P.src.epmc.pmc = async function(ident, refresh) {
     } else {
       await this.src.epmc.notinepmc({
         id: ident,
-        pmcid: ident
+        pmcid: ident,
+        checkedAt: Date.now()
       });
     }
   }
@@ -8406,7 +8415,7 @@ P.src.epmc.licence = async function(pmcid, rec, fulltext, refresh) {
     pmcid = 'PMC' + pmcid.toLowerCase().replace('pmc', '');
   }
   if (pmcid && (rec == null)) {
-    rec = (await this.src.epmc.pmc(pmcid));
+    rec = (await this.src.epmc.pmc(pmcid, refresh));
   }
   if (rec || fulltext) {
     if (((rec != null ? rec.calculated_licence : void 0) != null) && !refresh) {
@@ -8429,7 +8438,7 @@ P.src.epmc.licence = async function(pmcid, rec, fulltext, refresh) {
         }
       } else {
         if (!fulltext && pmcid) {
-          fulltext = (await this.src.epmc.xml(pmcid, rec));
+          fulltext = (await this.src.epmc.xml(pmcid, rec, refresh));
         }
         if ((this.licence != null) && fulltext) {
           if (typeof fulltext === 'string' && fulltext.startsWith('<')) {
@@ -8494,7 +8503,7 @@ P.src.epmc.xml = async function(pmcid, rec, refresh) {
       return ft.toString();
     } catch (error) {
       if (rec == null) {
-        rec = (await this.src.epmc.pmc(pmcid));
+        rec = (await this.src.epmc.pmc(pmcid, refresh));
       }
       if (refresh || !(rec != null ? rec.no_ft : void 0)) {
         ncdl = Date.now() - _last_ncbi;
@@ -8543,7 +8552,7 @@ P.src.epmc.fulltext = async function(pmcid) { // check fulltext exists in epmc e
   }
 };
 
-P.src.epmc.aam = async function(pmcid, rec, fulltext) {
+P.src.epmc.aam = async function(pmcid, rec, fulltext, refresh) {
   var pg, ref, ref1, s1, s2, s3, s4, url;
   if (pmcid == null) {
     pmcid = (ref = (ref1 = this.params.aam) != null ? ref1 : this.params.pmcid) != null ? ref : this.params.epmc;
@@ -8557,14 +8566,14 @@ P.src.epmc.aam = async function(pmcid, rec, fulltext) {
     try {
       if (pmcid && !rec) {
         // if EPMC API authMan / epmcAuthMan / nihAuthMan become reliable we can use those instead
-        rec = (await this.src.epmc.pmc(pmcid));
+        rec = (await this.src.epmc.pmc(pmcid, refresh));
       }
     } catch (error) {}
     if (pmcid == null) {
       pmcid = rec != null ? rec.pmcid : void 0;
     }
     if (pmcid) {
-      fulltext = (await this.src.epmc.xml(pmcid, rec));
+      fulltext = (await this.src.epmc.xml(pmcid, rec, refresh));
       if (typeof fulltext === 'string' && fulltext.includes('pub-id-type=\'manuscript\'') && fulltext.includes('pub-id-type="manuscript"')) {
         return {
           aam: true,
@@ -8706,7 +8715,7 @@ P.src.epmc.statement = async function(pmcid, rec, refresh, verbose) {
       splits: splits,
       tags: tags,
       statements: statements,
-      url: (statements ? (await this.src.epmc.statement.url(void 0, void 0, statements)) : void 0)
+      url: (statements ? (await this.src.epmc.statement.url(void 0, void 0, statements, refresh)) : void 0)
     };
   } else {
     if (statements.length) {
@@ -15538,7 +15547,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Sun Oct 29 2023 04:10:14 GMT+0000";
+S.built = "Thu Nov 02 2023 10:08:19 GMT+0000";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor

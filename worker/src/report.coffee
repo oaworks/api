@@ -41,6 +41,7 @@ P.report.queue = (idents, openalex, refresh, everything, action = 'default') -> 
     while d = _queue_batch.shift()
       _queued_batch.shift()
       batch.push _id: d.ident.toLowerCase(), identifier: d.ident, refresh: d.refresh, everything: d.everything, action: d.action, createdAt: Date.now()
+      await @report.queued(batch) if batch.length > 10000
     await @report.queued(batch) if batch.length
     _queue_batch_last = Date.now()
   return queue: _queue_batch.length
@@ -84,6 +85,7 @@ P.report.runqueue = (ident, qry = 'action:"default"') ->
     while d = _queue_batch.shift()
       _queued_batch.shift()
       batch.push _id: d.ident.toLowerCase(), identifier: d.ident, refresh: d.refresh, everything: d.everything, createdAt: Date.now()
+      await @report.queued(batch) if batch.length > 10000
     console.log 'run queue saving queued batch', _queue_batch.length, batch.length
     await @report.queued(batch) if batch.length
     _queue_batch_last = Date.now()
@@ -294,7 +296,7 @@ P.report.orgs.supplements.load = (orgname, sheetname, clear) ->
                 ld = ld.split('/').reverse().join('-')
                 last = await @epoch ld + 'T' + lt
                 console.log org.name, s.name, 'last updated', last
-                if typeof last is 'number' and last > 1672531200000 # start of 2023, just in case of a bad date
+                if typeof last is 'number' and last > 1577836800000 # start of 2020, just in case of a bad date
                   if not latest = sheets_latest[s.name]
                     try latest = await @report.orgs.supplements 'sheets.keyword:"' + s.name + '"', size: 1, sort: updated: 'desc'
                     if latest?.hits?.hits?
@@ -448,7 +450,7 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced, queued) -
       givenpmcid = cr.toLowerCase().replace('pmc', 'PMC')
       cr = undefined
       openalex ?= await @src.openalex.works 'ids.pmcid:"' + givenpmcid.toLowerCase().replace('pmc', '') + '"', 1 # openalex does not store them with the PMC prefix, they are in URL format without it
-      if not openalex? and epmc = await @src.epmc.pmc givenpmcid
+      if not openalex? and epmc = await @src.epmc.pmc givenpmcid, refresh
         cr = epmc.doi
 
     if not openalex and cr and (cr.includes('openalex.org/') or cr.startsWith('W'))
@@ -681,7 +683,7 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced, queued) -
     everything = true if rec.orgs.length #and (refresh or (exists?.orgs ? []).length isnt rec.orgs.length) # control whether to run time-expensive things on less important records
     if everything
       if (rec.DOI or rec.PMCID) and (not rec.PMCID or not rec.pubtype) #or not rec.submitted_date or not rec.accepted_date # only thing restricted to orgs supplements for now is remote epmc lookup and epmc licence calculation below
-        if epmc = (if rec.PMCID then await @src.epmc.pmc(rec.PMCID) else await @src.epmc.doi rec.DOI)
+        if epmc = (if rec.PMCID then await @src.epmc.pmc(rec.PMCID, refresh) else await @src.epmc.doi rec.DOI, refresh)
           rec.PMCID = epmc.pmcid if not rec.PMCID and epmc.pmcid
           #rec.submitted_date ?= epmc.firstIndexDate - removed as found to be not accurate enough https://github.com/oaworks/Gates/issues/559
           #rec.accepted_date ?= epmc.firstPublicationDate
