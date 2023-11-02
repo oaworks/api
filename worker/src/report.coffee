@@ -48,16 +48,16 @@ P.report.queue = (idents, openalex, refresh, everything, action = 'default') -> 
 P.report.queue._log = false
 P.report.queue._auth = '@oa.works'
 
-P.report.runqueue = (ident, qry = 'action:"default" OR NOT action:*') ->
+P.report.runqueue = (ident, qry = 'action:"default"') ->
   ident ?= @params.runqueue
   if ident?
     qry = 'for requested identifier ' + ident
   else
     if not _do_batch.length
       q = await @report.queued qry, size: 2000, sort: createdAt: 'desc'
-      if not q?.hits?.total and qry is 'action:"default"' and (not @S.async_runner? or (await @keys(@S.async_runner)).length < 2) #isnt '*' # do anything if there are no specific ones to do
+      if not q?.hits?.total and qry is 'action:"default"' #and (not @S.async_runner? or (await @keys(@S.async_runner)).length < 2) #isnt '*' # do anything if there are no specific ones to do
         console.log 'no queued records found for specified qry', qry, 'checking for any other queued records...'
-        q = await @report.queued '*', size: 2000, sort: createdAt: 'desc'
+        q = await @report.queued 'NOT action:*', size: 2000, sort: createdAt: 'desc'
         qry = 'queried * as none for qry ' + qry
       if not q?.hits?.total and not _queue_batch.length
         console.log 'no queued records to process, waiting 5s...'
