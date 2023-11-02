@@ -5187,7 +5187,7 @@ P.report.queue._log = false;
 
 P.report.queue._auth = '@oa.works';
 
-P.report.runqueue = async function(ident, qry = 'action:"default" OR NOT action:*') {
+P.report.runqueue = async function(ident, qry = 'action:"default"') {
   var batch, d, ddd, j, len, opts, q, qd, ref, ref1, ref2, ref3, ref4, ref5;
   if (ident == null) {
     ident = this.params.runqueue;
@@ -5202,9 +5202,9 @@ P.report.runqueue = async function(ident, qry = 'action:"default" OR NOT action:
           createdAt: 'desc'
         }
       }));
-      if (!(q != null ? (ref = q.hits) != null ? ref.total : void 0 : void 0) && qry === 'action:"default"' && ((this.S.async_runner == null) || ((await this.keys(this.S.async_runner))).length < 2)) { //isnt '*' # do anything if there are no specific ones to do
+      if (!(q != null ? (ref = q.hits) != null ? ref.total : void 0 : void 0) && qry === 'action:"default"') { //and (not @S.async_runner? or (await @keys(@S.async_runner)).length < 2) #isnt '*' # do anything if there are no specific ones to do
         console.log('no queued records found for specified qry', qry, 'checking for any other queued records...');
-        q = (await this.report.queued('*', {
+        q = (await this.report.queued('NOT action:*', {
           size: 2000,
           sort: {
             createdAt: 'desc'
@@ -15547,7 +15547,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Thu Nov 02 2023 11:29:53 GMT+0000";
+S.built = "Thu Nov 02 2023 11:35:06 GMT+0000";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
