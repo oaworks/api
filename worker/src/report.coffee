@@ -48,7 +48,7 @@ P.report.queue = (idents, openalex, refresh, everything, action = 'default') -> 
 P.report.queue._log = false
 P.report.queue._auth = '@oa.works'
 
-P.report.runqueue = (ident, qry = 'action:"default"') ->
+P.report.runqueue = (ident, qry = 'action:"default" OR NOT action:*') ->
   ident ?= @params.runqueue
   if ident?
     qry = 'for requested identifier ' + ident
