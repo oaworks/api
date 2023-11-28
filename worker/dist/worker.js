@@ -466,7 +466,7 @@ P = async function() {
                 return console.log('NOT running scheduled task because not on the available async scheduled process', fnm, this.datetime());
               } else if (typeof aru !== 'string' && typeof this.S.async_loop === 'string' && fno._schedule === 'loop') {
                 return console.log('NOT running scheduled looped task because not on the available loop process', fnm, this.datetime());
-              } else if (typeof aru === 'string' && process.env.name && !process.env.name.endsWith(((ref19 = fno._runner) != null ? ref19 : fnm).replace(/\./g, '_'))) {
+              } else if (typeof aru === 'string' && process.env.name && !process.env.name.endsWith(((ref19 = fno._runner) != null ? ref19 : fnm).replace(/\./g, '_').replace('__', '_'))) {
                 return console.log('NOT running scheduled task because not on the specified process runner', (ref20 = fno._runner) != null ? ref20 : fnm, this.datetime());
               } else {
                 console.log('scheduled task', fnm, this.datetime());
@@ -518,7 +518,7 @@ P = async function() {
             this.routes.push(nd.replace(/\./g, '/')); // TODO this could check the auth method, and only show things the current user can access, and also search for description / comment? NOTE this is just about visibility, they're still accessible if given right auth (if any)
           }
         }
-        if (!Array.isArray(p[k]) && (!k.startsWith('_') || typeof a[k] === 'function')) {
+        if (!Array.isArray(p[k]) && (!k.startsWith('_') || typeof a[k] === 'function') && (k !== 'fn')) {
           results.push(_lp(p[k], a[k], nd, auths != null ? auths : p[k]._auths, caches != null ? caches : p[k]._caches));
         } else {
           results.push(void 0);
@@ -1042,7 +1042,7 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
                   });
                 }
                 _makecsv = async(rt, qry, out, keys, notify, eurl, pfs, pok) => {
-                  var author, awards, blfl, bljnd, blp, blr, bn, fi, first, funder, inst, institutions, key, len10, len11, len4, len5, len6, len7, len8, len9, names, nar, orgk, q, ref17, ref18, ref19, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, rol, rors, rou, rpke, s, st, u, v, val, w, x, y, z;
+                  var author, awards, blfl, bljnd, blp, blr, bn, dvs, fi, first, funder, i1, inst, institutions, key, len10, len11, len12, len4, len5, len6, len7, len8, len9, names, nar, orgk, q, ref17, ref18, ref19, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref30, rol, rors, rou, rpke, s, st, u, v, val, vtd, w, x, y, z;
                   first = true;
                   if (pok != null) {
                     rpke = (await this.encrypt(pok));
@@ -1151,6 +1151,9 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
                             for (y = 0, len10 = ref24.length; y < len10; y++) {
                               bn = ref24[y];
                               if (typeof bn === 'object') {
+                                if (k === 'sheets' && bn.url && ((typeof (orgk != null ? orgk.org : void 0) === 'string' && orgk.org.length && orgk.org === blr.name.toLowerCase()) || (typeof ((ref25 = this.user) != null ? ref25.email : void 0) === 'string' && this.user.email.endsWith('@oa.works')))) {
+                                  bn.url = (await this.decrypt(bn.url));
+                                }
                                 bn = JSON.stringify(bn);
                               }
                               if (!bljnd.includes(bn)) { // Joe doesn't want duplicates kept
@@ -1166,14 +1169,22 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
                         if (typeof val === 'string') {
                           val = val.replace(/"/g, '').replace(/\n/g, '').replace(/\s\s+/g, ' ');
                         }
-                        if ((k === 'email' || k === 'supplements.email') && !val.includes('@') && typeof (orgk != null ? orgk.org : void 0) === 'string' && orgk.org.length) {
+                        if ((k === 'sheets.url') && ((typeof (orgk != null ? orgk.org : void 0) === 'string' && orgk.org.length && orgk.org === blr.name.toLowerCase()) || (typeof ((ref26 = this.user) != null ? ref26.email : void 0) === 'string' && this.user.email.endsWith('@oa.works')))) {
+                          dvs = [];
+                          ref27 = (Array.isArray(val) ? val : val.split(','));
+                          for (z = 0, len11 = ref27.length; z < len11; z++) {
+                            vtd = ref27[z];
+                            dvs.push((await this.decrypt(vtd)));
+                          }
+                          val = JSON.stringify(dvs);
+                        } else if ((k === 'email' || k === 'supplements.email') && !val.includes('@') && typeof (orgk != null ? orgk.org : void 0) === 'string' && orgk.org.length) {
                           rol = [];
-                          ref26 = (ref25 = blr.orgs) != null ? ref25 : [];
-                          for (z = 0, len11 = ref26.length; z < len11; z++) {
-                            rou = ref26[z];
+                          ref29 = (ref28 = blr.orgs) != null ? ref28 : [];
+                          for (i1 = 0, len12 = ref29.length; i1 < len12; i1++) {
+                            rou = ref29[i1];
                             rol.push(rou.toLowerCase());
                           }
-                          if (ref27 = orgk.org.toLowerCase(), indexOf.call(rol, ref27) >= 0) {
+                          if (ref30 = orgk.org.toLowerCase(), indexOf.call(rol, ref30) >= 0) {
                             val = (await this.decrypt(val));
                           }
                         }
@@ -5089,6 +5100,33 @@ P.report = function() {
   return 'OA.Works report';
 };
 
+P.report.chat = async function(prompt, role, id, text) {
+  var pmcid, ref, ref1;
+  pmcid = this.params.pmcid;
+  if (pmcid) {
+    text = (await this.src.epmc.xml(pmcid));
+    if (this.params.xml !== true) {
+      text = text.split('<ref-list>')[0].replace(/\n/g, ' ').replace(/(<([^>]+)>)/ig, '');
+    }
+  }
+  if (prompt == null) {
+    prompt = (ref = this.params.prompt) != null ? ref : 'Please return the data availability statement';
+  }
+  if (text) {
+    prompt += ' of the following research article: ' + text;
+  }
+  if (role == null) {
+    role = (ref1 = this.params.role) != null ? ref1 : 'You are a terse text and data mining extraction tool in the scientific research publishing field';
+  }
+  if (text) {
+    return this.src.openai.chat(prompt, role, this.params.model, this.params.json);
+  } else {
+    return {};
+  }
+};
+
+P.report.chat._auth = '@oa.works';
+
 _queue_batch = [];
 
 _queued_batch = [];
@@ -5188,10 +5226,13 @@ P.report.queue._log = false;
 
 P.report.queue._auth = '@oa.works';
 
-P.report.runqueue = async function(ident, qry = 'action:"default"') {
+P.report._runqueue = async function(ident, qry, ord) {
   var batch, d, ddd, j, len, opts, q, qd, ref, ref1, ref2, ref3, ref4, ref5;
-  if (ident == null) {
-    ident = this.params.runqueue;
+  if (qry == null) {
+    qry = 'action:"default"';
+  }
+  if (ord == null) {
+    ord = 'desc';
   }
   if (ident != null) {
     qry = 'for requested identifier ' + ident;
@@ -5200,7 +5241,7 @@ P.report.runqueue = async function(ident, qry = 'action:"default"') {
       q = (await this.report.queued(qry, {
         size: 2000,
         sort: {
-          createdAt: 'desc'
+          createdAt: ord
         }
       }));
       if (!(q != null ? (ref = q.hits) != null ? ref.total : void 0 : void 0) && qry === 'action:"default"') { //and (not @S.async_runner? or (await @keys(@S.async_runner)).length < 2) #isnt '*' # do anything if there are no specific ones to do
@@ -5208,7 +5249,7 @@ P.report.runqueue = async function(ident, qry = 'action:"default"') {
         q = (await this.report.queued('NOT action:*', {
           size: 2000,
           sort: {
-            createdAt: 'desc'
+            createdAt: ord
           }
         }));
         qry = 'queried * as none for qry ' + qry;
@@ -5272,25 +5313,29 @@ P.report.runqueue = async function(ident, qry = 'action:"default"') {
 };
 
 // for each of the below, add a loop schedule to have them running - run them on SEPARATE worker processes, via settings
-P.report.doqueue = function(ident, qry) {
-  return this.report.runqueue(ident != null ? ident : this.params.doqueue, qry != null ? qry : this.params.q);
+P.report._doqueue = function() {
+  return this.report._runqueue();
 };
 
-P.report.doqueue._log = false;
+P.report._doqueue._log = false;
 
-P.report.doqueue._auth = '@oa.works';
+P.report._doqueue._bg = true;
 
-P.report.doqueue._bg = true;
-
-P.report.dochangesqueue = function(ident, qry = 'action:"changes" OR action:"years"') {
-  return this.report.runqueue(ident != null ? ident : this.params.dochangesqueue, qry != null ? qry : this.params.q);
+P.report._doreversequeue = function() {
+  return this.report._runqueue(void 0, void 0, 'asc');
 };
 
-P.report.dochangesqueue._log = false;
+P.report._doreversequeue._log = false;
 
-P.report.dochangesqueue._auth = '@oa.works';
+P.report._doreversequeue._bg = true;
 
-P.report.dochangesqueue._bg = true;
+P.report._dochangesqueue = function() {
+  return this.report._runqueue(void 0, 'action:"changes" OR action:"years"');
+};
+
+P.report._dochangesqueue._log = false;
+
+P.report._dochangesqueue._bg = true;
 
 P.report.dev2live = async function(reverse) {
   var batch, counter, f, ref, rm, t, toalias;
@@ -5310,14 +5355,14 @@ P.report.dev2live = async function(reverse) {
   }
   counter = 0;
   batch = [];
-  ref = this.index._for(f);
+  ref = this.index._for(f, void 0, {
+    scroll: '30m'
+  });
   // q, opts, prefix, alias
   for await (rm of ref) {
     counter += 1;
-    if (rm.DOI && !rm.DOI.includes(' pmcid:') && !rm.DOI.includes('\n') && !rm.DOI.includes('?ref')) {
-      batch.push(rm);
-    }
-    if (batch.length === 30000) {
+    batch.push(rm);
+    if (batch.length === 50000) {
       console.log('report works', (reverse ? 'live2dev' : 'dev2live'), f, t, toalias, counter);
       await this.index._bulk(t, batch, void 0, void 0, false, toalias);
       batch = [];
@@ -5327,6 +5372,7 @@ P.report.dev2live = async function(reverse) {
     await this.index._bulk(t, batch, void 0, void 0, false, toalias);
     batch = [];
   }
+  console.log(counter, 'report works', (reverse ? 'live2dev' : 'dev2live'), f, t, toalias, 'complete');
   return counter;
 };
 
@@ -5911,7 +5957,7 @@ P.report.works = {
 };
 
 P.report.works.process = async function(cr, openalex, refresh, everything, replaced, queued) {
-  var _rsup, a, ad, ass, assl, best_initial, best_name, best_score, brd, c, email, epmc, err, exists, f, givenpmcid, i, j, k, l, lc, len, len1, len10, len11, len2, len3, len4, len5, len6, len7, len8, len9, lic, loc, lvs, m, n, oadoi, ok, ox, p, permissions, pp, pt, pubmed, r, ran, rec, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref45, ref46, ref47, ref48, ref49, ref5, ref50, ref51, ref52, ref6, ref7, ref8, ref9, ren, rn, score, sd, sqq, started, sup, u, ud, ude, v, w, x, xref, y, z;
+  var _rsup, a, ad, ass, assl, best_initial, best_name, best_score, brd, c, dor, dord, email, epmc, err, exists, f, givenpmcid, i, i1, j, k, l, lc, len, len1, len10, len11, len12, len2, len3, len4, len5, len6, len7, len8, len9, lic, loc, lvs, m, n, oadoi, ok, ox, p, permissions, pp, pt, pubmed, r, ran, rec, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref45, ref46, ref47, ref48, ref49, ref5, ref50, ref51, ref52, ref6, ref7, ref8, ref9, ren, rn, score, sd, sqq, started, sup, u, ud, ude, urlordois, v, w, x, xref, y, z;
   try {
     started = (await this.epoch());
     if (cr == null) {
@@ -6139,6 +6185,7 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
       if (rec == null) {
         rec = {};
       }
+      rec.openalx = openalex;
       if (openalex.id) {
         rec.openalex = openalex.id.split('/').pop();
       }
@@ -6201,18 +6248,14 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
     if (givenpmcid && !rec.PMCID) {
       rec.PMCID = givenpmcid;
     }
-    if (rec.is_paratext || rec.is_retracted) {
-      if (rec.DOI && (exists != null)) {
-        await this.report.works(rec.DOI, '');
-      }
-      if (queued) {
-        _done_batch.push(queued);
-        _processing_idents.splice(_processing_idents.indexOf(queued), 1);
-      }
-      return;
-    }
-    delete rec.is_paratext;
-    delete rec.is_retracted;
+    //if rec.is_paratext or rec.is_retracted
+    //  await @report.works(rec.DOI, '') if rec.DOI and exists?
+    //  if queued
+    //    _done_batch.push queued
+    //    _processing_idents.splice _processing_idents.indexOf(queued), 1
+    //  return
+    //delete rec.is_paratext
+    //delete rec.is_retracted
     if (!(exists != null ? exists.oadoi : void 0) && rec.DOI) {
       rec.oadoi = true;
       oadoi = (await this.src.oadoi(rec.DOI));
@@ -6233,8 +6276,8 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
         if (loc.host_type === 'repository') {
           if (loc.url && loc.url.toLowerCase().includes('pmc')) {
             if (!rec.PMCID) {
-              pp = loc.url.toLowerCase().split('pmc')[1].split('/')[0].split('?')[0].split('#')[0];
-              if (pp.length && pp.replace(/[^0-9]/g, '').length === pp.length && !isNaN(parseInt(pp))) {
+              pp = loc.url.toLowerCase().split('pmc')[1].split('/')[0].split('?')[0].split('#')[0].split('.')[0].replace(/[^0-9]/g, '');
+              if (pp.length && !isNaN(parseInt(pp))) {
                 rec.PMCID = 'PMC' + pp;
               }
             }
@@ -6242,7 +6285,7 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
               rec.epmc_licence = loc.license;
             }
           }
-          if (!rec.repository_url || !rec.repository_url.includes('pmc')) {
+          if (!rec.repository_url || !rec.repository_url.includes('pmc') || (!rec.repository_url.includes('ncbi.') && loc.url.includes('ncbi.'))) {
             ref31 = ['license', 'url_for_pdf', 'url', 'version'];
             for (x = 0, len9 = ref31.length; x < len9; x++) {
               ok = ref31[x];
@@ -6253,9 +6296,9 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
           }
         }
       }
-      if (rec.repository_url && rec.repository_url.toLowerCase().includes('pmc')) {
+      if (rec.repository_url && (rec.repository_url.toLowerCase().includes('europepmc.') || rec.repository_url.toLowerCase().includes('ncbi.'))) {
         if (rec.PMCID == null) {
-          rec.PMCID = 'PMC' + rec.repository_url.toLowerCase().split('pmc').pop().split('/')[0].split('#')[0].split('?')[0];
+          rec.PMCID = 'PMC' + rec.repository_url.toLowerCase().split('pmc').pop().split('/')[0].split('#')[0].split('?')[0].split('.')[0].replace(/[^0-9]/g, '');
         }
         rec.repository_url_in_pmc = true;
       }
@@ -6375,7 +6418,7 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
       rec.email = (await this.encrypt(rec.email));
     }
     //if (not exists? and rec.orgs.length) or (exists?.orgs ? []).length isnt rec.orgs.length or (rec.paid and rec.paid isnt exists?.paid) #or not exists.journal_oa_type
-    if (!rec.PMCID || !rec.PMID || !rec.pubtype || !rec.submitted_date || !rec.accepted_date) {
+    if (!rec.PMCID || !rec.PMID || (rec.pubtype == null) || !rec.submitted_date || !rec.accepted_date) {
       if (pubmed = (rec.PMID ? (await this.src.pubmed(rec.PMID)) : rec.DOI ? (await this.src.pubmed.doi(rec.DOI)) : void 0)) { // pubmed is faster to lookup but can't rely on it being right if no PMC found in it, e.g. 10.1111/nyas.14608
         if (!rec.PMCID && (pubmed != null ? (ref39 = pubmed.identifier) != null ? ref39.pmc : void 0 : void 0)) {
           rec.PMCID = 'PMC' + pubmed.identifier.pmc.toLowerCase().replace('pmc', '');
@@ -6409,19 +6452,21 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
       everything = true;
     }
     if (everything) {
-      if ((rec.DOI || rec.PMCID) && (!rec.PMCID || !rec.pubtype)) { //or not rec.submitted_date or not rec.accepted_date # only thing restricted to orgs supplements for now is remote epmc lookup and epmc licence calculation below
-        if (epmc = (rec.PMCID ? (await this.src.epmc.pmc(rec.PMCID, refresh)) : (await this.src.epmc.doi(rec.DOI, refresh)))) {
+      if ((rec.DOI || rec.PMCID) && ((epmc != null) || !rec.PMCID || (rec.pubtype == null))) { //or not rec.submitted_date or not rec.accepted_date # only thing restricted to orgs supplements for now is remote epmc lookup and epmc licence calculation below
+        if (epmc != null ? epmc : epmc = (rec.PMCID ? (await this.src.epmc.pmc(rec.PMCID, refresh)) : (await this.src.epmc.doi(rec.DOI, refresh)))) {
           if (!rec.PMCID && epmc.pmcid) {
             rec.PMCID = epmc.pmcid;
           }
-          ref50 = (ref49 = epmc.pubTypeList) != null ? ref49 : [];
+          ref51 = (ref49 = (ref50 = epmc.pubTypeList) != null ? ref50.pubType : void 0) != null ? ref49 : [];
           //rec.submitted_date ?= epmc.firstIndexDate - removed as found to be not accurate enough https://github.com/oaworks/Gates/issues/559
           //rec.accepted_date ?= epmc.firstPublicationDate
-          for (z = 0, len11 = ref50.length; z < len11; z++) {
-            pt = ref50[z];
-            rec.pubtype = Array.isArray(rec.pubtype) ? rec.pubtype : rec.pubtype ? [rec.pubtype] : [];
-            if (ref51 = pt.pubType, indexOf.call(rec.pubtype, ref51) < 0) {
-              rec.pubtype.push(pt.pubType);
+          for (z = 0, len11 = ref51.length; z < len11; z++) {
+            pt = ref51[z];
+            if (rec.pubtype == null) {
+              rec.pubtype = [];
+            }
+            if (indexOf.call(rec.pubtype, pt) < 0) {
+              rec.pubtype.push(pt);
             }
           }
         }
@@ -6436,8 +6481,26 @@ P.report.works.process = async function(cr, openalex, refresh, everything, repla
       }
       if (rec.PMCID && (refresh || !rec.data_availability_statement)) {
         rec.data_availability_statement = (await this.src.epmc.statement(rec.PMCID, epmc, refresh));
-        if (rec.data_availability_statement) {
-          rec.data_availability_url = (await this.src.epmc.statement.url(rec.PMCID, epmc, rec.data_availability_statement, refresh));
+        if (rec.data_availability_statement && (urlordois = (await this.src.epmc.statement.url(rec.PMCID, epmc, rec.data_availability_statement, refresh)))) {
+          for (i1 = 0, len12 = urlordois.length; i1 < len12; i1++) {
+            dor = urlordois[i1];
+            if (dor.includes('doi.org/')) {
+              dord = dor.split('doi.org/')[1].toLowerCase();
+              if (rec.data_availability_doi == null) {
+                rec.data_availability_doi = [];
+              }
+              if (indexOf.call(rec.data_availability_doi, dord) < 0) {
+                rec.data_availability_doi.push(dord);
+              }
+            } else {
+              if (rec.data_availability_url == null) {
+                rec.data_availability_url = [];
+              }
+              if (indexOf.call(rec.data_availability_url, dor) < 0) {
+                rec.data_availability_url.push(dor);
+              }
+            }
+          }
         }
       }
     }
@@ -8729,28 +8792,38 @@ P.src.epmc.statement = async function(pmcid, rec, refresh, verbose) {
 };
 
 P.src.epmc.statement.url = async function(pmcid, rec, statements, refresh) {
-  var das, dau, i, len, ref, res;
+  var _splurl, d, i, len, ref, res;
   if (statements == null) {
     statements = (await this.src.epmc.statement(pmcid, rec, refresh));
   }
   res = [];
+  _splurl = (das, s) => {
+    var dau;
+    dau = s + das.split(s)[1].split(' ')[0];
+    if (dau.length > 10 && dau.includes('/')) {
+      dau = dau.toLowerCase();
+      if (dau.includes(')') && (das.includes('(h') || das.includes('(10'))) {
+        dau = dau.split(')')[0].replace('(', '');
+      }
+      if (dau.endsWith('.')) {
+        dau = dau.slice(0, -1);
+      }
+      if (dau.startsWith('10.')) {
+        dau = 'https://doi.org/' + dau;
+      }
+      if (indexOf.call(res, dau) < 0) {
+        return res.push(dau);
+      }
+    }
+  };
   ref = statements != null ? statements : [];
   for (i = 0, len = ref.length; i < len; i++) {
-    das = ref[i];
-    if (das.includes('http') || das.includes('10.')) {
-      dau = das.includes('http') ? 'http' + das.split('http')[1].split(' ')[0] : '10.' + das.split('10.')[1].split(' ')[0];
-      if (dau.length > 10 && dau.includes('/')) {
-        dau = dau.toLowerCase();
-        if (dau.includes(')') && (das.includes('(h') || das.includes('(10'))) {
-          dau = dau.split(')')[0].replace('(', '');
-        }
-        if (dau.endsWith('.')) {
-          dau = dau.slice(0, -1);
-        }
-        if (indexOf.call(res, dau) < 0) {
-          res.push(dau);
-        }
-      }
+    d = ref[i];
+    if (d.includes('http')) {
+      await _splurl(d, 'http');
+    }
+    if (d.includes('10.')) {
+      await _splurl(d, '10.');
     }
   }
   if (res.length) {
@@ -9542,6 +9615,70 @@ P.src.oadoi.changes._log = false;
 P.src.oadoi.changes._auth = 'root';
 
 P.src.oadoi.changes._notify = false;
+
+var base;
+
+if ((base = S.src).openai == null) {
+  base.openai = {};
+}
+
+try {
+  S.src.openai = JSON.parse(SECRETS_OPENAI);
+} catch (error) {}
+
+P.src.openai = {};
+
+// https://platform.openai.com/docs/api-reference/chat/create
+P.src.openai.chat = async function(prompt, role, model, json) {
+  var headers, msg, ref, ref1, ref2, ref3, ref4, ref5, res, system, url;
+  if (prompt == null) {
+    prompt = (ref = (ref1 = (ref2 = this.params.chat) != null ? ref2 : this.params.prompt) != null ? ref1 : this.params.q) != null ? ref : '';
+  }
+  if (role == null) {
+    role = (ref3 = this.params.role) != null ? ref3 : 'You are a helpful assistant';
+  }
+  if (model == null) {
+    model = (ref4 = this.params.model) != null ? ref4 : 'gpt-4-1106-preview';
+  }
+  if (json == null) {
+    json = this.params.json;
+  }
+  if (typeof prompt === 'string' && prompt.length && ((ref5 = this.S.src.openai) != null ? ref5.key : void 0)) {
+    url = 'https://api.openai.com/v1/chat/completions';
+    headers = {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer ' + this.S.src.openai.key
+    };
+    msg = {
+      model: model,
+      messages: []
+    };
+    if (json) {
+      msg.response_format = {
+        type: 'json_object'
+      };
+    }
+    system = {
+      role: 'system',
+      content: role
+    };
+    msg.messages.push(system);
+    prompt = {
+      role: 'user',
+      content: prompt
+    };
+    msg.messages.push(prompt);
+    res = (await this.fetch(url, {
+      headers: headers,
+      body: msg
+    }));
+    return res;
+  } else {
+    return res = {};
+  }
+};
+
+P.src.openai.chat._auth = '@oa.works';
 
 var base,
   indexOf = [].indexOf;
@@ -10622,21 +10759,10 @@ P; //.src.pubmed.changes._auth = 'root'
 P.src.pubmed.changes._notify = false;
 
 // https://ror.readme.io/docs/rest-api
-P.src.ror = async function(rid) {
-  if (rid == null) {
-    rid = this.params.ror;
-  }
-  if (typeof rid === 'string' && !rid.includes(' ')) {
-    rid = rid.split('/').pop(); // just in case it was the full ROR URL (which is their official ID)
-    if (rid.length < 11) { // are all RORs 9 long...?
-      return this.src.ror._format((await this.fetch('https://api.ror.org/organizations/' + rid)));
-    }
-  }
+P.src.ror = {
+  _index: true,
+  _prefix: false
 };
-
-P.src.ror._index = true;
-
-P.src.ror._prefix = false;
 
 P.src.ror.query = function(q) {
   var ref;
@@ -10645,6 +10771,36 @@ P.src.ror.query = function(q) {
   }
   if (typeof q === 'string') {
     return this.fetch('https://api.ror.org/organizations?query="' + q + '"');
+  }
+};
+
+P.src.ror.ror = async function(rid, refresh) {
+  var ref, res, rr;
+  if (refresh == null) {
+    refresh = this.refresh;
+  }
+  if (rid == null) {
+    rid = this.params.ror;
+  }
+  if (typeof rid === 'string' && !rid.includes(' ')) {
+    rid = rid.split('/').pop(); // just in case it was the full ROR URL (which is their official ID)
+    if (rid.length < 11) { // are all RORs 9 long...?
+      res = refresh ? void 0 : (await this.src.ror(rid));
+      if ((res != null ? res.id : void 0) || (res != null ? (ref = res.hits) != null ? ref.total : void 0 : void 0) === 1) {
+        if (res.id) {
+          return res;
+        } else {
+          return res.hits.hits[0]._source;
+        }
+      } else {
+        res = (await this.fetch('https://api.ror.org/organizations/' + rid));
+        if (res != null ? res.id : void 0) {
+          rr = (await this.src.ror._format(res));
+          this.waitUntil(this.src.ror(rr));
+          return rr;
+        }
+      }
+    }
   }
 };
 
@@ -10698,10 +10854,13 @@ P.src.ror.title = async function(title) {
   }
 };
 
-P.src.ror._format = function(rec) {
+P.src.ror._format = async function(rec, created) {
   try {
     rec._id = rec.id.split('/').pop();
   } catch (error) {}
+  if (rec.createdAt == null) {
+    rec.createdAt = created != null ? created : (await this.epoch());
+  }
   return rec;
 };
 
@@ -10718,36 +10877,54 @@ P.src.ror.dumps = function() {
   return this.fetch('https://zenodo.org/api/records/?communities=ror-data&sort=mostrecent');
 };
 
-P.src.ror.load = async function() {
-  var batch, created, endobj, files, fn, last, latest, line, lobj, rec, ref, startobj, total;
+P.src.ror.load = async function(refresh) {
+  var batch, created, dfn, endobj, files, fn, last, latest, line, lobj, rec, ref, resp, rfn, startobj, total, wstr;
+  if (refresh == null) {
+    refresh = this.refresh;
+  }
   total = 0;
   batch = [];
   try {
     files = (await this.src.ror.dumps());
-    latest = (await this.epoch(files.hits.hits[0].files[0].created));
+    if (refresh == null) {
+      latest = (await this.epoch(files.hits.hits[0].created.split('+')[0]));
+      last = (await this.src.ror('src:*', {
+        sort: {
+          'createdAt': 'desc'
+        },
+        size: 1
+      }));
+      if ((last != null ? last.hits : void 0) != null) {
+        last = last.hits.hits[0]._source;
+      }
+    }
   } catch (error) {}
-  last = (await this.src.ror('src:*', {
-    sort: {
-      'createdAt': 'desc'
-    },
-    size: 1
-  }));
-  if ((last != null ? last.hits : void 0) != null) {
-    last = last.hits.hits[0]._source;
-  }
   console.log(latest, last != null ? last.createdAt : void 0, last != null ? last.src : void 0);
-  if ((last != null) && last.createdAt < latest) {
+  if (refresh || (last == null) || (latest == null) || ((last != null) && (latest != null) && last.createdAt < latest)) {
     fn = files.hits.hits[0].files[0].links.self;
     console.log(fn);
     created = (await this.epoch());
     startobj = false;
     endobj = false;
     lobj = '';
+    dfn = fn.replace('/content', '').split('/').pop(); // this will be a .zip
+    rfn = this.S.directory + '/import/ror/' + dfn;
+    resp = (await fetch(fn));
+    wstr = fs.createWriteStream(rfn);
+    await new Promise((resolve, reject) => {
+      resp.body.pipe(wstr);
+      resp.body.on('error', reject);
+      return wstr.on('finish', resolve);
+    });
+    await this._child('unzip', [rfn, '-d', this.S.directory + '/import/ror/']);
+    console.log('ROR snapshot downloaded');
     await this.src.ror('');
     ref = readline.createInterface({
-      input: ((await fetch(fn))).body.pipe(zlib.createGunzip())
+      input: fs.createReadStream(rfn.replace('.zip', '.json'))
     });
+    //.pipe zlib.createGunzip() #, crlfDelay: Infinity 
     //for await line from readline.createInterface input: fs.createReadStream infile
+    //for await line from readline.createInterface input: (await fetch fn).body.pipe zlib.createGunzip() # headers: 'accept-encoding': 'gzip,deflate'
     for await (line of ref) {
       try {
         if (!startobj && line.length === 5 && line.replace(/\s\s\s\s/, '') === '{') {
@@ -10762,9 +10939,11 @@ P.src.ror.load = async function() {
         if (startobj === true && endobj === true) {
           startobj = false;
           endobj = false;
-          rec = (await this.src.ror._format(JSON.parse(lobj)));
+          rec = (await this.src.ror._format(JSON.parse(lobj), created));
           rec.src = fn;
-          rec.createdAt = created;
+          if (rec.createdAt == null) {
+            rec.createdAt = created;
+          }
           lobj = '';
           total += 1;
           batch.push(rec);
@@ -15549,7 +15728,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Thu Nov 02 2023 13:31:27 GMT+0000";
+S.built = "Tue Nov 28 2023 10:46:33 GMT+0000";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor

@@ -289,14 +289,17 @@ P.src.epmc.statement = (pmcid, rec, refresh, verbose) ->
 P.src.epmc.statement.url = (pmcid, rec, statements, refresh) ->
   statements ?= await @src.epmc.statement pmcid, rec, refresh
   res = []
-  for das in (statements ? [])
-    if das.includes('http') or das.includes '10.'
-      dau = if das.includes('http') then 'http' + das.split('http')[1].split(' ')[0] else '10.' + das.split('10.')[1].split(' ')[0]
-      if dau.length > 10 and dau.includes '/'
-        dau = dau.toLowerCase()
-        dau = dau.split(')')[0].replace('(', '') if dau.includes(')') and (das.includes('(h') or das.includes('(10'))
-        dau = dau.slice(0, -1) if dau.endsWith('.')
-        res.push(dau) if dau not in res
+  _splurl = (das, s) =>
+    dau = s + das.split(s)[1].split(' ')[0]
+    if dau.length > 10 and dau.includes '/'
+      dau = dau.toLowerCase()
+      dau = dau.split(')')[0].replace('(', '') if dau.includes(')') and (das.includes('(h') or das.includes('(10'))
+      dau = dau.slice(0, -1) if dau.endsWith('.')
+      dau = 'https://doi.org/' + dau if dau.startsWith '10.'
+      res.push(dau) if dau not in res
+  for d in (statements ? [])
+    await _splurl(d, 'http') if d.includes 'http'
+    await _splurl(d, '10.') if d.includes '10.'
   return if res.length then res else undefined
 
 

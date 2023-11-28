@@ -259,7 +259,7 @@ P = () ->
                 console.log 'NOT running scheduled task because not on the available async scheduled process', fnm, @datetime()
               else if typeof aru isnt 'string' and typeof @S.async_loop is 'string' and fno._schedule is 'loop'
                 console.log 'NOT running scheduled looped task because not on the available loop process', fnm, @datetime()
-              else if typeof aru is 'string' and process.env.name and not process.env.name.endsWith (fno._runner ? fnm).replace /\./g, '_'
+              else if typeof aru is 'string' and process.env.name and not process.env.name.endsWith (fno._runner ? fnm).replace(/\./g, '_').replace('__', '_')
                 console.log 'NOT running scheduled task because not on the specified process runner', (fno._runner ? fnm), @datetime()
               else
                 console.log 'scheduled task', fnm, @datetime()
@@ -294,7 +294,7 @@ P = () ->
             fn = a[k] if typeof a[k] is 'function' and not n.includes '._' # URL routes can't call _abc functions or ones under them
           if typeof a[k] is 'function' and nd.replace('svc.','').replace('src.','').split('.').length is 1 #and ((not nd.startsWith('svc') and not nd.startsWith('src')) or nd.split('.').length < 3)
             @routes.push nd.replace /\./g, '/' # TODO this could check the auth method, and only show things the current user can access, and also search for description / comment? NOTE this is just about visibility, they're still accessible if given right auth (if any)
-        _lp(p[k], a[k], nd, (auths ? p[k]._auths), (caches ? p[k]._caches)) if not Array.isArray(p[k]) and (not k.startsWith('_') or typeof a[k] is 'function')
+        _lp(p[k], a[k], nd, (auths ? p[k]._auths), (caches ? p[k]._caches)) if not Array.isArray(p[k]) and (not k.startsWith('_') or typeof a[k] is 'function') and k not in ['fn']
   _lp P, @, ''
   if pk and prs.length # catch any remaining url params beyond the max depth of P
     @params[pk] = if @params[pk] then @params[pk] + '/' + prs.join('/') else prs.join '/'
@@ -679,14 +679,21 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                           if Array.isArray blfl[k]
                             bljnd = ''
                             for bn in blfl[k]
-                              bn = JSON.stringify(bn) if typeof bn is 'object'
+                              if typeof bn is 'object'
+                                if k is 'sheets' and bn.url and ((typeof orgk?.org is 'string' and orgk.org.length and orgk.org is blr.name.toLowerCase()) or (typeof @user?.email is 'string' and @user.email.endsWith('@oa.works')))
+                                  bn.url = await @decrypt bn.url
+                                bn = JSON.stringify bn
                               bljnd += (if bljnd then ';' else '') + bn if not bljnd.includes bn # Joe doesn't want duplicates kept
                             blfl[k] = bljnd
                           val = JSON.stringify blfl[k]
                         else
                           val = blfl[k]
                         val = val.replace(/"/g, '').replace(/\n/g, '').replace(/\s\s+/g, ' ') if typeof val is 'string'
-                        if k in ['email', 'supplements.email'] and not val.includes('@') and typeof orgk?.org is 'string' and orgk.org.length
+                        if k in ['sheets.url'] and ((typeof orgk?.org is 'string' and orgk.org.length and orgk.org is blr.name.toLowerCase()) or (typeof @user?.email is 'string' and @user.email.endsWith('@oa.works')))
+                          dvs = []
+                          dvs.push(await @decrypt vtd) for vtd in (if Array.isArray(val) then val else val.split(','))
+                          val = JSON.stringify dvs
+                        else if k in ['email', 'supplements.email'] and not val.includes('@') and typeof orgk?.org is 'string' and orgk.org.length
                           rol = []
                           rol.push(rou.toLowerCase()) for rou in (blr.orgs ? [])
                           if orgk.org.toLowerCase() in rol
