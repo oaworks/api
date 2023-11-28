@@ -5,6 +5,23 @@ S.report ?= {}
 P.report = () -> return 'OA.Works report'
 
 
+P.report.chat = (prompt, role, id, text) ->
+  pmcid = @params.pmcid
+  if pmcid
+    text = await @src.epmc.xml pmcid
+    text = text.split('<ref-list>')[0].replace(/\n/g, ' ').replace(/(<([^>]+)>)/ig, '') if @params.xml isnt true
+  prompt ?= @params.prompt ? 'Please return the data availability statement'
+  prompt += ' of the following research article: ' + text if text
+  role ?= @params.role ? 'You are a terse text and data mining extraction tool in the scientific research publishing field'
+  if text
+    return @src.openai.chat prompt, role, @params.model, @params.json
+  else
+    return {}
+
+P.report.chat._auth = '@oa.works'
+
+
+
 _queue_batch = []
 _queued_batch = []
 _queue_batch_last = Date.now()
@@ -50,16 +67,17 @@ P.report.queue = (idents, openalex, refresh, everything, action = 'default') -> 
 P.report.queue._log = false
 P.report.queue._auth = '@oa.works'
 
-P.report.runqueue = (ident, qry = 'action:"default"') ->
-  ident ?= @params.runqueue
+P.report._runqueue = (ident, qry, ord) ->
+  qry ?= 'action:"default"'
+  ord ?= 'desc'
   if ident?
     qry = 'for requested identifier ' + ident
   else
     if not _do_batch.length
-      q = await @report.queued qry, size: 2000, sort: createdAt: 'desc'
+      q = await @report.queued qry, size: 2000, sort: createdAt: ord
       if not q?.hits?.total and qry is 'action:"default"' #and (not @S.async_runner? or (await @keys(@S.async_runner)).length < 2) #isnt '*' # do anything if there are no specific ones to do
         console.log 'no queued records found for specified qry', qry, 'checking for any other queued records...'
-        q = await @report.queued 'NOT action:*', size: 2000, sort: createdAt: 'desc'
+        q = await @report.queued 'NOT action:*', size: 2000, sort: createdAt: ord
         qry = 'queried * as none for qry ' + qry
       if not q?.hits?.total and not _queue_batch.length
         console.log 'no queued records to process, waiting 5s...'
@@ -96,16 +114,17 @@ P.report.runqueue = (ident, qry = 'action:"default"') ->
   return true
 
 # for each of the below, add a loop schedule to have them running - run them on SEPARATE worker processes, via settings
-P.report.doqueue = (ident, qry) -> return @report.runqueue (ident ? @params.doqueue), (qry ? @params.q)
-P.report.doqueue._log = false
-P.report.doqueue._auth = '@oa.works'
-P.report.doqueue._bg = true
+P.report._doqueue = -> return @report._runqueue()
+P.report._doqueue._log = false
+P.report._doqueue._bg = true
 
-P.report.dochangesqueue = (ident, qry = 'action:"changes" OR action:"years"') -> return @report.runqueue (ident ? @params.dochangesqueue), (qry ? @params.q)
-P.report.dochangesqueue._log = false
-P.report.dochangesqueue._auth = '@oa.works'
-P.report.dochangesqueue._bg = true
+P.report._doreversequeue = -> return @report._runqueue undefined, undefined, 'asc'
+P.report._doreversequeue._log = false
+P.report._doreversequeue._bg = true
 
+P.report._dochangesqueue = -> return @report._runqueue undefined, 'action:"changes" OR action:"years"'
+P.report._dochangesqueue._log = false
+P.report._dochangesqueue._bg = true
 
 
 P.report.dev2live = (reverse) ->
@@ -121,10 +140,10 @@ P.report.dev2live = (reverse) ->
     await @index._send t, '', undefined, false, toalias
   counter = 0
   batch = []
-  for await rm from @index._for f # q, opts, prefix, alias
+  for await rm from @index._for f, undefined, scroll: '30m' # q, opts, prefix, alias
     counter += 1
-    batch.push(rm) if rm.DOI and not rm.DOI.includes(' pmcid:') and not rm.DOI.includes('\n') and not rm.DOI.includes '?ref'
-    if batch.length is 30000
+    batch.push rm
+    if batch.length is 50000
       console.log 'report works', (if reverse then 'live2dev' else 'dev2live'), f, t, toalias, counter
       await @index._bulk t, batch, undefined, undefined, false, toalias
       batch = []
@@ -133,6 +152,7 @@ P.report.dev2live = (reverse) ->
     await @index._bulk t, batch, undefined, undefined, false, toalias
     batch = []
 
+  console.log counter, 'report works', (if reverse then 'live2dev' else 'dev2live'), f, t, toalias, 'complete'
   return counter
 P.report.dev2live._async = true
 P.report.dev2live._bg = true
@@ -550,6 +570,7 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced, queued) -
     if openalex?
       try exists = undefined if exists?.updated and not openalex.is_paratext and not openalex.is_retracted and openalex.updated_date and exists.updated < await @epoch openalex.updated_date
       rec ?= {}
+      rec.openalx = openalex
       rec.openalex = openalex.id.split('/').pop() if openalex.id
       rec.DOI = openalex.ids.doi.split('doi.org/').pop().toLowerCase() if not rec.DOI and openalex.ids?.doi?
       rec.PMID = openalex.ids.pmid.split('/').pop() if openalex.ids?.pmid
@@ -571,14 +592,14 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced, queued) -
     rec.DOI = cr.toLowerCase() if not rec.DOI and typeof cr is 'string'
     rec.PMCID = givenpmcid if givenpmcid and not rec.PMCID
 
-    if rec.is_paratext or rec.is_retracted
-      await @report.works(rec.DOI, '') if rec.DOI and exists?
-      if queued
-        _done_batch.push queued
-        _processing_idents.splice _processing_idents.indexOf(queued), 1
-      return
-    delete rec.is_paratext
-    delete rec.is_retracted
+    #if rec.is_paratext or rec.is_retracted
+    #  await @report.works(rec.DOI, '') if rec.DOI and exists?
+    #  if queued
+    #    _done_batch.push queued
+    #    _processing_idents.splice _processing_idents.indexOf(queued), 1
+    #  return
+    #delete rec.is_paratext
+    #delete rec.is_retracted
 
     if not exists?.oadoi and rec.DOI
       rec.oadoi = true
@@ -591,15 +612,15 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced, queued) -
         if loc.host_type is 'repository'
           if loc.url and loc.url.toLowerCase().includes 'pmc'
             if not rec.PMCID
-              pp = loc.url.toLowerCase().split('pmc')[1].split('/')[0].split('?')[0].split('#')[0]
-              rec.PMCID = 'PMC' + pp if pp.length and pp.replace(/[^0-9]/g, '').length is pp.length and not isNaN parseInt pp
+              pp = loc.url.toLowerCase().split('pmc')[1].split('/')[0].split('?')[0].split('#')[0].split('.')[0].replace(/[^0-9]/g, '')
+              rec.PMCID = 'PMC' + pp if pp.length and not isNaN parseInt pp
             if loc.license and not rec.epmc_licence
               rec.epmc_licence = loc.license
-          if not rec.repository_url or not rec.repository_url.includes 'pmc'
+          if not rec.repository_url or not rec.repository_url.includes('pmc') or (not rec.repository_url.includes('ncbi.') and loc.url.includes('ncbi.'))
             for ok in ['license', 'url_for_pdf', 'url', 'version']
               rec['repository_' + ok] = loc[ok] if loc[ok]
-      if rec.repository_url and rec.repository_url.toLowerCase().includes 'pmc'
-        rec.PMCID ?= 'PMC' + rec.repository_url.toLowerCase().split('pmc').pop().split('/')[0].split('#')[0].split('?')[0]
+      if rec.repository_url and (rec.repository_url.toLowerCase().includes('europepmc.') or rec.repository_url.toLowerCase().includes('ncbi.'))
+        rec.PMCID ?= 'PMC' + rec.repository_url.toLowerCase().split('pmc').pop().split('/')[0].split('#')[0].split('?')[0].split('.')[0].replace(/[^0-9]/g, '')
         rec.repository_url_in_pmc = true
       if oadoi?
         rec.best_oa_location_url = oadoi.best_oa_location?.url
@@ -667,7 +688,7 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced, queued) -
     rec.email = await @encrypt(rec.email) if typeof rec.email is 'string' and rec.email.includes '@'
 
     #if (not exists? and rec.orgs.length) or (exists?.orgs ? []).length isnt rec.orgs.length or (rec.paid and rec.paid isnt exists?.paid) #or not exists.journal_oa_type
-    if not rec.PMCID or not rec.PMID or not rec.pubtype or not rec.submitted_date or not rec.accepted_date
+    if not rec.PMCID or not rec.PMID or not rec.pubtype? or not rec.submitted_date or not rec.accepted_date
       if pubmed = (if rec.PMID then await @src.pubmed(rec.PMID) else if rec.DOI then await @src.pubmed.doi(rec.DOI) else undefined) # pubmed is faster to lookup but can't rely on it being right if no PMC found in it, e.g. 10.1111/nyas.14608
         rec.PMCID = 'PMC' + pubmed.identifier.pmc.toLowerCase().replace('pmc', '') if not rec.PMCID and pubmed?.identifier?.pmc
         rec.PMID = pubmed.identifier.pubmed if not rec.PMID and pubmed?.identifier?.pubmed
@@ -686,14 +707,14 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced, queued) -
 
     everything = true if rec.orgs.length #and (refresh or (exists?.orgs ? []).length isnt rec.orgs.length) # control whether to run time-expensive things on less important records
     if everything
-      if (rec.DOI or rec.PMCID) and (not rec.PMCID or not rec.pubtype) #or not rec.submitted_date or not rec.accepted_date # only thing restricted to orgs supplements for now is remote epmc lookup and epmc licence calculation below
-        if epmc = (if rec.PMCID then await @src.epmc.pmc(rec.PMCID, refresh) else await @src.epmc.doi rec.DOI, refresh)
+      if (rec.DOI or rec.PMCID) and (epmc? or not rec.PMCID or not rec.pubtype?) #or not rec.submitted_date or not rec.accepted_date # only thing restricted to orgs supplements for now is remote epmc lookup and epmc licence calculation below
+        if epmc ?= (if rec.PMCID then await @src.epmc.pmc(rec.PMCID, refresh) else await @src.epmc.doi rec.DOI, refresh)
           rec.PMCID = epmc.pmcid if not rec.PMCID and epmc.pmcid
           #rec.submitted_date ?= epmc.firstIndexDate - removed as found to be not accurate enough https://github.com/oaworks/Gates/issues/559
           #rec.accepted_date ?= epmc.firstPublicationDate
-          for pt in (epmc.pubTypeList ? [])
-            rec.pubtype = if Array.isArray(rec.pubtype) then rec.pubtype else if rec.pubtype then [rec.pubtype] else []
-            rec.pubtype.push(pt.pubType) if pt.pubType not in rec.pubtype
+          for pt in (epmc.pubTypeList?.pubType ? [])
+            rec.pubtype ?= []
+            rec.pubtype.push(pt) if pt not in rec.pubtype
 
       if rec.PMCID and not rec.epmc_licence and (refresh or not rec.tried_epmc_licence) #  and rec.repository_url_in_pmc
         rec.tried_epmc_licence = true
@@ -702,7 +723,15 @@ P.report.works.process = (cr, openalex, refresh, everything, replaced, queued) -
       rec.pmc_has_data_availability_statement ?= rec.PMCID and await @src.pubmed.availability rec.PMCID
       if rec.PMCID and (refresh or not rec.data_availability_statement)
         rec.data_availability_statement = await @src.epmc.statement rec.PMCID, epmc, refresh
-        rec.data_availability_url = await @src.epmc.statement.url(rec.PMCID, epmc, rec.data_availability_statement, refresh) if rec.data_availability_statement
+        if rec.data_availability_statement and urlordois = await @src.epmc.statement.url rec.PMCID, epmc, rec.data_availability_statement, refresh
+          for dor in urlordois
+            if dor.includes 'doi.org/'
+              dord = dor.split('doi.org/')[1].toLowerCase()
+              rec.data_availability_doi ?= []
+              rec.data_availability_doi.push(dord) if dord not in rec.data_availability_doi
+            else
+              rec.data_availability_url ?= []
+              rec.data_availability_url.push(dor) if dor not in rec.data_availability_url
 
     rec.is_oa = rec.oadoi_is_oa or rec.crossref_is_oa or rec.journal_oa_type in ['gold']
     rec._id ?= if rec.DOI then rec.DOI.toLowerCase().replace(/\//g, '_') else if rec.openalex then rec.openalex.toLowerCase() else if rec.PMCID then rec.PMCID.toLowerCase() else undefined # and if no openalex it will get a default ID
