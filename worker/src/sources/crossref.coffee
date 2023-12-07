@@ -25,19 +25,19 @@ P.src.crossref.works = _index: settings: number_of_shards: 15
 P.src.crossref.works._key = 'DOI'
 P.src.crossref.works._prefix = false
 
-P.src.crossref.works.doi = (doi, save) ->
+P.src.crossref.works.doi = (doi, refresh, save) ->
   doi ?= @params.doi
-  save ?= @params.save ? false
+  refresh ?= @refresh
+  save ?= @params.save ? true
   if typeof doi is 'string' and doi.startsWith '10.'
     doi = doi.split('//')[1] if doi.indexOf('http') is 0
     doi = '10.' + doi.split('/10.')[1] if doi.indexOf('10.') isnt 0 and doi.indexOf('/10.') isnt -1
-    res = await @fetch 'https://api.crossref.org/works/' + doi, {headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works'), 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
-    if res?.message?.DOI?
-      formatted = await @src.crossref.works._format res.message
-      if save
-        await @src.crossref.works formatted
-      return formatted
-  return
+    if refresh or not found = await @src.crossref.works doi
+      res = await @fetch 'https://api.crossref.org/works/' + doi, {headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works'), 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
+      if res?.message?.DOI?
+        found = await @src.crossref.works._format res.message
+        await @src.crossref.works(found) if save
+  return found
 
 P.src.crossref.works.title = (title) ->
   title ?= @params.title ? @params.q
@@ -356,7 +356,7 @@ P.src.crossref.changes = (startday, endday, created) ->
           await @src.crossref.works batch
           batch = []
         if totalthisday is false
-          totalthisday = thisdays.total ? 0
+          totalthisday = thisdays['total-results'] ? 0
           console.log startday, totalthisday
         fromthisday += 1000
         cursor = thisdays.cursor

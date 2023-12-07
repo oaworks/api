@@ -236,53 +236,52 @@ P.src.epmc.statement = (pmcid, rec, refresh, verbose) ->
   verbose ?= @params.verbose
   pres = []
   posts = []
-  splits = []
+  splitted = []
   tags = []
   statements = []
   if pmcid
     pmcid = 'PMC' + (pmcid + '').toLowerCase().replace('pmc', '')
     if ft = await @src.epmc.xml pmcid, rec, refresh
+      ft = ft.split('<ref-list')[0].replace(/\<p\>/g, '').replace(/\<\/p\>/g, '')
       sstr = ''
       for split in ['"data', '>Data', '>Availab', '>data', '>Code', '>code']
         try
           if ft.includes split
-            splits.push split
-            pre = ''
+            splitted.push split
             splits = ft.split split
-            while part = splits.shift()
-              if not pre
-                pre = part
-              else
-                pres.push pre.slice -1000
-                tag = pre.split('<').pop().split('>')[0].split(' ')[0]
-                tags.push tag
-                post = (if split.startsWith('"') then part.split(/\>(.*)/s)[1] else if part.startsWith('il') or part.startsWith('l') then 'Availab' else 'Data') + part #  if part.substr(0,6).includes('ode') then 'Code' else
-                posts.push post.slice 0, 1000
-                if post.includes('</' + tag) and post.indexOf('</' + tag) < 40
+            pre = splits.shift()
+            while pre and part = splits.shift()
+              pres.push pre.slice -1000
+              tag = pre.split('<').pop().split('>')[0].split(' ')[0].replace('/', '')
+              tag = pre.split('</' + tag + '>').pop().split('><' + tag)[0].split('<').pop().split('>')[0].split(' ')[0].replace('/', '') if not split.startsWith('"') and pre.endsWith '><' + tag
+              post = (if split.startsWith('"') then part.split(/\>(.*)/s)[1] else if part.startsWith('il') or part.startsWith('l') then 'Availab' else 'Data') + part #  if part.substr(0,6).includes('ode') then 'Code' else
+              posts.push post.slice 0, 1000
+              if post.includes('</' + tag + '>') and post.indexOf('</' + tag + '>') < 40
+                try
                   ps = pre.split '<'
                   nt = ps[ps.length-2].split('>')[0].split(' ')[0]
-                  if not nt.startsWith '/'
-                    tag = nt
-                psls = pre.split('<' + tag)
-                splitter = '\n' + (psls.slice(0, psls.length-1)).pop().split('\n').pop() + '</' + tag
-                if post.split('</' + tag)[0].includes '\n'
-                  while not post.includes(splitter) and splits[0] #and splits[0].includes splitter
-                    post += (if split.startsWith('>') then '>' else '') + (if splits[0].startsWith('il') or splits[0].startsWith('l') then 'Availab' else 'Data') +  splits.shift()
-                post = post.split(splitter)[0]
-                post = post.replace('</title>', '|TTT|').replace(/\n/g, ' ').replace(/\s+/g, ' ').replace /(<([^>]+)>)/ig, ''
-                ppl = (pre+post).toLowerCase()
-                if post.length > 20 and post.length < 3000 and (ppl.includes('availab') or ppl.includes('accessib')) and ((pre+post).toLowerCase().includes('data') or (pre+post).toLowerCase().includes('code'))
-                  post = post.split('|TTT|')[1] if post.includes '|TTT|'
-                  clean = (await @decode post.trim()).replace(/"/g, '').replace(/\s+/g, ' ')
-                  clean = clean.replace('<title', '').replace('<p', '')
-                  clean = clean.trim()
-                  clo = clean.toLowerCase()
-                  if clean.length > 20 and (clo.includes('data') or clo.includes('code') or clo.includes('availab') or clo.includes('accessib')) and not sstr.includes clo
-                    sstr += clo
-                    statements.push clean
-                pre = ''
+                  tag = nt if not nt.startsWith '/'
+              tags.push tag
+              psls = pre.split('<' + tag)
+              splitter = '\n' + (psls.slice(0, psls.length-1)).pop().split('\n').pop() + '</' + tag + '>'
+              if post.split('</' + tag + '>')[0].includes '\n'
+                while not post.includes(splitter) and splits.length #and splits[0].includes splitter
+                  post += (if split.startsWith('>') then '>' else '') + (if splits[0].startsWith('il') or splits[0].startsWith('l') then 'Availab' else 'Data') +  splits.shift()
+              post = post.split(splitter)[0]
+              post = post.replace('</title>', '|TTT|').replace(/\n/g, ' ').replace(/\s+/g, ' ').replace /(<([^>]+)>)/ig, ''
+              ppl = (pres[pres.length-1]+post).toLowerCase()
+              if post.length > 20 and post.length < 3000 and (ppl.includes('availab') or ppl.includes('accessib')) and (ppl.includes('data') or ppl.includes('code'))
+                post = post.split('|TTT|')[1] if post.includes '|TTT|'
+                clean = (await @decode post.trim()).replace(/"/g, '').replace(/\s+/g, ' ')
+                clean = clean.replace('<title', '').replace('<p', '')
+                clean = clean.trim()
+                clo = clean.toLowerCase()
+                if clean.length > 20 and (clo.includes('data') or clo.includes('code') or clo.includes('availab') or clo.includes('accessib')) and not sstr.includes clo
+                  sstr += clo
+                  statements.push clean
+              pre = part
   if verbose
-    return pmcid: pmcid, file: 'https://static.oa.works/epmc/fulltext/' + pmcid + '.xml', pres: pres, posts: posts, splits: splits, tags: tags, statements: statements, url: (if statements then await @src.epmc.statement.url(undefined, undefined, statements, refresh) else undefined)
+    return pmcid: pmcid, file: 'https://static.oa.works/epmc/fulltext/' + pmcid + '.xml', pres: pres, posts: posts, splits: splitted, tags: tags, statements: statements, url: (if statements then await @src.epmc.statement.url(undefined, undefined, statements, refresh) else undefined)
   else
     return if statements.length then statements else undefined
 
@@ -290,13 +289,16 @@ P.src.epmc.statement.url = (pmcid, rec, statements, refresh) ->
   statements ?= await @src.epmc.statement pmcid, rec, refresh
   res = []
   _splurl = (das, s) =>
-    dau = s + das.split(s)[1].split(' ')[0]
-    if dau.length > 10 and dau.includes '/'
-      dau = dau.toLowerCase()
-      dau = dau.split(')')[0].replace('(', '') if dau.includes(')') and (das.includes('(h') or das.includes('(10'))
-      dau = dau.slice(0, -1) if dau.endsWith('.')
-      dau = 'https://doi.org/' + dau if dau.startsWith '10.'
-      res.push(dau) if dau not in res
+    daus = das.split(s)
+    daus.shift()
+    for dau in daus
+      dau = s + dau.split(' ')[0]
+      if dau.length > 10 and dau.includes '/'
+        dau = dau.toLowerCase()
+        dau = dau.split(')')[0].replace('(', '') if dau.includes(')') and (das.includes('(h') or das.includes('(10'))
+        dau = dau.slice(0, -1) if dau.endsWith('.')
+        dau = 'https://doi.org/' + dau if dau.startsWith '10.'
+        res.push(dau) if dau not in res
   for d in (statements ? [])
     await _splurl(d, 'http') if d.includes 'http'
     await _splurl(d, '10.') if d.includes '10.'
