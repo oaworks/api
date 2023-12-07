@@ -544,7 +544,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                 throw new Error() # trip out to backend
               else
                 res = status: 404
-            nfeml = @params.email
+            nfeml = @params.email ? @params.notify ? @user?.email
             if @params.orgkey
               pok = @params.orgkey
               delete @params.orgkey
@@ -556,13 +556,13 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
             delete @params.size
             delete qry.size
             tot = await @index.count rt, qry
-            if tot > 200000 or not @S.static?.folder
+            if tot > 3000000 or not @S.static?.folder
               res = status: 401
             else
               flid = (if @fn then @fn.replace(/\./g, '_') else '') + '_' + @uid()
               eurl = @S.static.url + '/export/' + flid + '.csv'
               if tot > 100000
-                await @mail to: (@S.log?.notify ? 'mark@oa.works'), text: 'Someone is creating a large csv of size ' + tot + '\n\n' + eurl + (if nfeml is 'joe@oa.works' then '' else '\n\nbut they are not the user who is allowed, so it should get capped')
+                await @mail to: (@S.log?.notify ? 'mark@oa.works'), text: 'Someone is creating a large csv of size ' + tot + '\n\n' + eurl
               out = @S.static.folder + '/export'
               try
                 filecount = (await fs.readdir out).length
@@ -619,7 +619,10 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                   for key in keys
                     await fs.appendFile out, (if not first then ',"' else '"') + key.replace('supplements.', '') + '"'
                     first = false
-                  for await blr from @index._for rt, qry, {scroll: '5m', max: if notify and notify.includes('@oa.works') then 200000 else 100000}
+                  themax = 100000
+                  for ab in ['@oa.works', 'pcastromartin@', 'wbschmal@']
+                    themax = 3000000 if notify.includes ab
+                  for await blr from @index._for rt, qry, {scroll: '30m', max: themax}
                     await fs.appendFile out, '\n'
                     if pfs
                       names = ''
