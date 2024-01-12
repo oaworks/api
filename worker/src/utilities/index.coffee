@@ -224,7 +224,8 @@ P.index.terms = (route, key, qry, size=100, counts=true, order="count") ->
   # order: (default) count is highest count first, reverse_count is lowest first. term is ordered alphabetical by term, reverse_term is reverse alpha
   ords = count: {_count: 'desc'}, reverse_count: {_count: 'asc'}, term: {_key: 'asc'}, reverse_term: {_key: 'desc'} # convert for ES7.x
   order = ords[order] if typeof order is 'string' and ords[order]?
-  query.aggregations[key] = terms: field: key + (if key.endsWith('.keyword') then '' else '.keyword'), size: size, order: order
+  mapping = await @index.mapping(route) if not key.endsWith '.keyword'
+  query.aggregations[key] = terms: field: key + (if key.endsWith('.keyword') or (mapping[key] ? {}).type isnt 'text' then '' else '.keyword'), size: size, order: order
   ret = await @index._send '/' + route + '/_search', query, 'POST'
   res = []
   for p in ret?.aggregations?[key]?.buckets ? []
@@ -454,7 +455,7 @@ P.index._each = (route, q, opts, fn, prefix, alias) ->
   @index._bulk(route, updates, action, undefined, prefix, alias) if action and updates.length # catch any left over
   console.log('_each processed ' + processed) if @S.dev and @S.bg is true
 
-P.index._bulk = (route, data, action='index', bulk=50000, prefix, alias) ->
+P.index._bulk = (route, data, action='index', bulk=50000, prefix, alias, url) ->
   action = 'index' if action is true
   rso = route.split('/')[0]
   dtp = await @dot P, rso.replace /_/g, '.' # need to do this here as well as in _send so it can be set below in each object of the bulk
@@ -471,7 +472,7 @@ P.index._bulk = (route, data, action='index', bulk=50000, prefix, alias) ->
   this.index ?= P.index
   if typeof data is 'string' and data.indexOf('\n') isnt -1
     # TODO should this check through the string and make sure it only indexes to the specified route?
-    await @index._send '/_bulk', {body:data, headers: {'Content-Type': 'application/x-ndjson'}}, undefined, prefix, alias # new ES 7.x requires this rather than text/plain
+    await @index._send '/_bulk', {body:data, headers: {'Content-Type': 'application/x-ndjson'}}, undefined, prefix, alias, url # new ES 7.x requires this rather than text/plain
     return true
   else
     rows = if typeof data is 'object' and not Array.isArray(data) and data?.hits?.hits? then data.hits.hits else data
@@ -703,7 +704,7 @@ P.index.translate._auth = false
 
 # calling this should be given a correct URL route for ES7.x, domain part of the URL is optional though.
 # call the above to have the route constructed. method is optional and will be inferred if possible (may be removed)
-P.index._send = (route, data, method, prefix, alias) ->
+P.index._send = (route, data, method, prefix, alias, url) ->
   if route.includes '?'
     [route, rqp] = route.split '?'
     rqp = '?' + rqp
@@ -712,12 +713,13 @@ P.index._send = (route, data, method, prefix, alias) ->
   route = route.toLowerCase() # force lowercase on all IDs so that can deal with users giving incorrectly cased IDs for things like DOIs which are defined as case insensitive
   route = route.replace('/','') if route.startsWith '/' # gets added back in when combined with the url
   route = route.replace(/\/$/,'') if route.endsWith '/'
+  try route = route.replace(/#/g, '%23') if route.split('/').pop().includes '#'
   method ?= if data is '' then 'DELETE' else if data? and (route.indexOf('/') is -1 or route.indexOf('/_create') isnt -1 or (route.indexOf('/_doc') isnt -1 and not route.endsWith('/_doc'))) then 'PUT' else if data? or route.split('/').pop().split('?')[0] in ['_refresh', '_aliases'] then 'POST' else 'GET'
   # TODO if data is a query that also has a _delete key in it, remove that key and do a delete by query? and should that be bulked? is dbq still allowed in ES7.x?
   return false if method is 'DELETE' and route.indexOf('/_all') isnt -1 # nobody can delete all via the API
   if not route.startsWith 'http' # which it probably doesn't
+    rso = route.split('/')[0]
     if not route.startsWith '_'
-      rso = route.split('/')[0]
       dtp = await @dot P, rso.replace /_/g, '.'
       alias ?= @params._alias ? @S.alias?[if rso.startsWith(@S.index.name + '_') then rso.replace(@S.index.name + '_', '') else rso] ? dtp?._alias
       if typeof alias is 'string'
@@ -729,7 +731,7 @@ P.index._send = (route, data, method, prefix, alias) ->
       if typeof prefix is 'string'
         prefix += '_' if prefix.length and not prefix.endsWith '_'
         route = prefix + route if not route.startsWith prefix # TODO could allow prefix to be a list of names, and if index name is in the list, alias the index into those namespaces, to share indexes between specific instances rather than just one or global
-    url = if this?.S?.index?.url then @S.index.url else S.index?.url
+    url ?= @S.route?[if rso.startsWith(@S.index.name + '_') then rso.replace(@S.index.name + '_', '') else rso] ? dtp?._route ? (if this?.S?.index?.url then @S.index.url else S.index?.url)
     url = url[Math.floor(Math.random()*url.length)] if Array.isArray url
     if typeof url isnt 'string'
       return undefined

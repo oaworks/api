@@ -6,7 +6,7 @@
 # NOTE to receive files should send to background server
 # cloudflare will limit file upload size (100mb by default, and enterprise plans required for more)
 
-P.deposits = _index: true # store a record of all deposits. This used to filter to only those for the logged in user, that should be changed to deposited endpoint
+P.deposits = _index: true, _auth: '@oa.works' # store a record of all deposits. This used to filter to only those for the logged in user, that should be changed to deposited endpoint
 
 P.deposit = (params, file, dev) ->
   params ?= @copy @params
