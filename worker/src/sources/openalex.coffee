@@ -206,7 +206,7 @@ P.src.openalex.changes = (what, last) ->
               if w is 'works'
                 rec = await @src.openalex.works._format rec
 
-                if rec._id.startsWith('10.') and rec.authorships? and rec.publication_year in ['2023', '2022', 2023, 2022]
+                '''if rec._id.startsWith('10.') and rec.authorships? and rec.publication_year in ['2023', '2022', 2023, 2022]
                   doq = false
                   for a in rec.authorships
                     break if doq
@@ -214,7 +214,7 @@ P.src.openalex.changes = (what, last) ->
                       if i.display_name?
                         queued.push rec._id
                         doq = true
-                        break
+                        break'''
 
               batch.push rec
             

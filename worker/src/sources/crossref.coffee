@@ -338,7 +338,7 @@ P.src.crossref.changes = (startday, endday, created) ->
           batch.push fr
           loaded += 1
 
-          if (rec.funder? or rec.author?) and rec.year in ['2023', '2022', 2023, 2022]
+          '''if (rec.funder? or rec.author?) and rec.year in ['2023', '2022', 2023, 2022]
             doq = false
             for f in (rec.funder ? [])
               break if doq
@@ -349,7 +349,7 @@ P.src.crossref.changes = (startday, endday, created) ->
                 for af in (a.affiliation ? [])
                   break if doq
                   doq = rec.DOI if af.name?
-            queued.push(doq) if doq
+            queued.push(doq) if doq'''
 
         if batch.length >= batchsize
           console.log 'Crossref bulk load', startday, days, totalthisday, fromthisday, loaded, queued.length
