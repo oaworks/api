@@ -16,13 +16,28 @@ P.src.oadoi._key = 'doi'
 P.src.oadoi._prefix = false
 
 P.src.oadoi.search = (doi) ->
-  doi ?= @params?.oadoi ? @params?.doi ? @params?.search
+  doi ?= @params.oadoi ? @params.doi ? @params.search
   if typeof doi is 'string' and doi.startsWith '10.'
     await @sleep 900
     url = 'https://api.oadoi.org/v2/' + doi + '?email=' + S.mail.to
     return @fetch url
   else
     return
+
+P.src.oadoi.doi = (doi) ->
+  doi ?= @params.doi
+  if typeof doi is 'string' and doi.startsWith '10.'
+    if exists = await @src.oadoi doi
+      return exists
+    else
+      try
+        await @sleep 500
+        url = 'https://api.oadoi.org/v2/' + doi + '?email=' + S.mail.to
+        if res = await @fetch url
+          if res.doi
+            await @src.oadoi res
+            return res
+  return
 
 P.src.oadoi.hybrid = (issns) ->
   # there is a concern OADOI sometimes says a journal is closed on a particular 

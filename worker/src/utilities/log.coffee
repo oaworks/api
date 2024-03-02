@@ -21,8 +21,8 @@ P.log = (msg, store) ->
         await @index 'logs', {}
         await @index 'logs', _batch
       _batch = []
-    else if @S.bg is true
-      console.log 'Checked log batch but none to save', _last
+    #else if @S.bg is true
+    #  console.log 'Checked log batch but none to save', _last
 
   if @S.log isnt false
     store = not msg? if store isnt true # an empty call to log stores everything in the _logs list

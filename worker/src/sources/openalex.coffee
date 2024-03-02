@@ -272,3 +272,18 @@ P.src.openalex.sources.load = ->
   return total
 P.src.openalex.sources.load._async = true
 P.src.openalex.sources.load._bg = true
+
+
+
+P.src.openalex.hybrid = (issns) ->
+  issns ?= @params.hybrid ? @params.issn ? @params.issns
+  issns = issns.replace(/\s/g, '').split(',') if typeof issns is 'string'
+  if Array.isArray(issns) and issns.length
+    q = '(locations.source.issn.keyword:"' + issns.join('" OR locations.source.issn.keyword:"') + '" OR locations.source.issn_l.keyword:"' + issns.join('" OR locations.source.issn_l.keyword:"') + '")'
+    closed = await @src.openalex.works.count q + ' AND open_access.oa_status:"closed"'
+    hybrid = await @src.openalex.works.count q + ' AND open_access.oa_status:"hybrid"'
+    #other = await @src.openalex.works.count q + ' AND NOT open_access.oa_status:"closed" AND NOT open_access.oa_status:"hybrid"'
+    return closed and hybrid / closed > .001
+  else
+    return
+

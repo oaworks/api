@@ -238,7 +238,7 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref, best) -> # oadoi and cross
     perms.all_permissions.push altoa
 
   if meta.doi
-    oadoi ?= await @src.oadoi meta.doi
+    oadoi ?= await @src.oadoi.doi meta.doi
     if haddoi and oadoi?.best_oa_location?.license and oadoi.best_oa_location.license.includes 'cc' #  (haddoi or oadoi?.journal_is_oa)
       doa =
         can_archive: true
@@ -432,7 +432,7 @@ P.permissions.journals.oa = (issn, oadoi) ->
       ret.doaj = true
       ret.oa = true
     if ex = await @permissions.journals.example issn
-      oadoi ?= await @src.oadoi ex, 1
+      oadoi ?= await @src.oadoi.doi ex
       if oadoi?
         delete ret.oa
         ret.open = ret.articles
@@ -448,7 +448,7 @@ P.permissions.journals.oa.type = (issns, doajrnl, oadoi, crossref) ->
   if typeof issns is 'string'
     issns = issns.split('doi.org/')[1] if issns.includes 'doi.org/'
     if issns.startsWith '10.'
-      oadoi ?= await @src.oadoi issns
+      oadoi ?= await @src.oadoi.doi issns
       crossref ?= await @src.crossref.works issns
       issns = oadoi?.journal_issns ? crossref?.ISSN
   issns = issns.split(',') if typeof issns is 'string'
