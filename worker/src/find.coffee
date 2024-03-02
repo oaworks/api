@@ -105,7 +105,7 @@ P.find = (options, metadata={}, content) ->
 
     if metadata.doi
       _oad = () =>
-        oad = await @src.oadoi metadata.doi
+        oad = await @src.oadoi.doi metadata.doi
         res.doi_not_in_oadoi = metadata.doi if not oad?
         await _metadata(oad) if oad?.doi and metadata?.doi and oad.doi.toLowerCase() is metadata.doi.toLowerCase() # check again for doi in case removed by failed crossref lookup
         return true

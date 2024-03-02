@@ -221,6 +221,33 @@ P.src.epmc.aam = (pmcid, rec, fulltext, refresh) ->
 
 
 
+P.src.epmc.submitted = (pmcid, rec, refresh) ->
+  # some epmc xml appeared to use <date-type="received" ... and then a date value as an attribute, whereas others have <year> ... elements within
+  pmcid ?= @params.submitted ? @params.pmc ? @params.pmcid ? @params.PMC ? @params.PMCID
+  refresh ?= @refresh
+  if pmcid
+    pmcid = 'PMC' + (pmcid + '').toLowerCase().replace('pmc', '')
+    try
+      if ft = await @src.epmc.xml pmcid, rec, refresh
+        ft = ft.split('<article-meta')[1].split('/article-meta')[0].split('date-type="received"')[1].split('">')[0]
+        if ft.includes '<year>'
+          yt = ft.split('<year>')[1].split('</year>')[0]
+          try
+            yt += '-' + ft.split('<month>')[1].split('</month>')[0]
+          catch
+            yt += '-01'
+          try
+            yt += '-' + ft.split('<day>')[1].split('</day>')[0]
+          catch
+            yt += '-01'
+          ft = yt
+        else if ft.includes '<'
+          ft = ft.replace('>', '').split('<')[0]
+        else
+          ft = ft.split('"')[1]
+        return ft if ft and typeof ft is 'string'
+  return
+
 
 P.src.epmc.statement = (pmcid, rec, refresh, verbose) ->
   # because of xml parsing issues with embedded html in pmc xml, just regex it out if present

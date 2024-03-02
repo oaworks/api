@@ -549,8 +549,10 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
               pok = @params.orgkey
               delete @params.orgkey
             pfs = @params.funders ? @params.flatten
+            afs = @params.authorships ? @params.flatten
             delete qry.orgkey
             delete qry.funders
+            delete qry.authorships
             delete qry.flatten
             delete qry.email
             delete @params.size
@@ -609,27 +611,31 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                     qry._source.excludes = qry._source.excludes.splice(orgsidx, 1) if orgsidx isnt -1
                 if nfeml
                   await @mail to: nfeml, subject: 'Your export has started (ref: ' + flid + '.csv)', text: 'Your export has started. You can download the file any time, it will keep growing until it is complete, when you will get another notification.<br><br><a href="' + eurl + '">Download CSV</a><br><br>Thanks'
-                _makecsv = (rt, qry, out, keys, notify, eurl, pfs, pok) =>
+                _makecsv = (rt, qry, out, keys, notify, eurl, pfs, afs, pok) =>
                   first = true
                   if pok?
                     rpke = await @encrypt pok
                     orgk = await @report.orgs.orgkeys 'key.keyword:"' + rpke + '"', 1
-                  if pfs
-                    keys = ['DOI', 'funder.name', 'funder.award', 'authorships.institutions.display_name','authorships.institutions.ror']
+                  if pfs or afs
+                    keys = ['DOI']
+                    keys.push(e) for e in ['funder.name', 'funder.award'] if pfs
+                    keys.push(e) for e in ['authorships.institutions.display_name','authorships.institutions.ror', 'authorships.author.orcid', 'authorships.author.raw_affiliation_string'] if afs
                   for key in keys
                     await fs.appendFile out, (if not first then ',"' else '"') + key.replace('supplements.', '') + '"'
                     first = false
                   themax = 100000
                   for ab in ['@oa.works', 'pcastromartin@', 'wbschmal@']
-                    themax = 3000000 if notify.includes ab
+                    themax = 3000000 if notify and notify.includes ab
                   for await blr from @index._for rt, qry, {scroll: '30m', max: themax}
                     await fs.appendFile out, '\n'
-                    if pfs
+                    if pfs or afs
                       names = ''
                       awards = ''
                       institutions = ''
                       rors = ''
-                      if blr.funder?
+                      orcids = ''
+                      affiliations = ''
+                      if blr.funder? and pfs
                         first = true
                         for funder in blr.funder
                           names += (if first then '' else ';') + (funder.name ? '')
@@ -643,7 +649,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                           funder.award = funder.award.replace /;/g, ''
                           awards += (if first then '' else ';') + funder.award
                           first = false
-                      if blr.authorships?
+                      if blr.authorships? and afs
                         first = true
                         for author in blr.authorships
                           if not first
@@ -656,7 +662,9 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                               institutions += (if fi then '' else ',') + (inst.display_name ? '')
                               rors += (if fi then '' else ',') + (inst.ror ? '')
                               fi = false
-                      await fs.appendFile out, '"' + blr.DOI + '","' + names + '","' + awards + '","' + institutions + '","' + rors + '"'
+                          orcids += (if orcids then ',' else '') + author.author.orcid if author.author?.orcid
+                          affiliations += (if affiliations then ',' else '') + author.raw_affiliation_string if author.raw_affiliation_string
+                      await fs.appendFile out, '"' + blr.DOI + (if pfs then '","' + names + '","' + awards else '') + (if afs then '","' + institutions + '","' + rors + '","' + orcids + '","' + affiliations else '') + '"'
                     else
                       first = true
                       for k in keys
@@ -705,7 +713,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                         first = false
                   if notify
                     await @mail to: notify, subject: 'Your export is complete (ref: ' + out.split('/').pop() + ')', text: 'Your export is complete. We recommend you download and store files elsewhere as soon as possible as we may delete this file at any time.<br><br><a href="' + eurl + '">Download CSV</a><br><br>Thanks'
-                @waitUntil _makecsv rt, qry, out, ks, nfeml, eurl, pfs, pok
+                @waitUntil _makecsv rt, qry, out, ks, nfeml, eurl, pfs, afs, pok
                 delete @format
                 res = eurl
           else

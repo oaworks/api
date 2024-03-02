@@ -1,7 +1,7 @@
 
 P.convert ?= {}
 
-# apt-get install pdftk poppler-utils antiword unoconv #ghostscript tesseract-ocr
+# apt-get install pdftk poppler-utils antiword unoconv unzip #ghostscript tesseract-ocr
 
 P.convert._content2file = (content) ->
   if not content? and (@params.url or @params.content)
