@@ -59,7 +59,7 @@ P.src.google.sheets = (opts) ->
           try hd = hd.trim()
           headers.push hd #.toLowerCase().replace /[^a-z0-9]/g, ''
     values = []
-    for l in g.values
+    for l in g.values ? []
       val = {}
       for h of headers
         #try l[h] = l[h].trim()

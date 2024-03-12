@@ -110,9 +110,7 @@ P.find = (options, metadata={}, content) ->
         await _metadata(oad) if oad?.doi and metadata?.doi and oad.doi.toLowerCase() is metadata.doi.toLowerCase() # check again for doi in case removed by failed crossref lookup
         return true
       _crd = () =>
-        cr = await @src.crossref.works metadata.doi
-        cr = undefined if cr?.hits?.total?
-        cr ?= await @src.crossref.works.doi metadata.doi, true
+        cr = await @src.crossref.works.doi metadata.doi
         if not cr?.type
           res.doi_not_in_crossref = metadata.doi
         else
@@ -172,43 +170,42 @@ P.citation = (citation) ->
   if typeof citation is 'string' and (citation.startsWith('{') or citation.startsWith '[')
     try citation = JSON.parse citation
 
-  if typeof citation is 'object'
+  if typeof citation is 'object' # can be crossref, oadoi, openalex, epmc format
     res.doi = citation.DOI ? citation.doi
-    res.pmid = citation.pmid if citation.pmid
-    res.pmcid = citation.pmcid if citation.pmcid
-    try res.type = citation.type ? citation.genre
-    res.issn ?= citation.ISSN ? citation.issn ? citation.journalInfo?.journal?.issn ? citation.journal?.issn
+    res.pmid = citation.pmid ? citation.ids?.pmid
+    res.pmcid = citation.pmcid ? citation.ids?.pmcid
+    try res.type = citation.type_crossref ? citation.type ? citation.genre
+    res.issn ?= citation.ISSN ? citation.issn ? citation.journalInfo?.journal?.issn ? citation.journal?.issn ? citation.primary_location?.source?.issn
     if citation.journalInfo?.journal?.eissn?
       res.issn ?= []
       res.issn = [res.issn] if typeof res.issn is 'string'
-      res.issn.push citation.journalInfo.journal.eissn
-    res.issn ?= citation.journal_issns.split(',') if citation.journal_issns
-    try res.title ?= citation.title[0] if Array.isArray citation.title
-    try
-      if citation.subtitle? and citation.subtitle.length and citation.subtitle[0].length
-        res.title += ': ' + citation.subtitle[0]
+      res.issn.push(citation.journalInfo.journal.eissn) if citation.journalInfo.journal.eissn not in res.issn
+    res.issn = citation.journal_issns.split(',') if not res.issn and citation.journal_issns
+    res.title = citation.title
+    res.title = res.title[0] if Array.isArray res.title
+    res.title += ': ' + citation.subtitle[0] if res.title and citation.subtitle? and citation.subtitle.length and citation.subtitle[0].length
     res.title ?= citation.dctitle ? citation.bibjson?.title
-    res.title ?= citation.title if citation.title not in [404,'404']
+    delete res.title if res.title in [404, '404']
     res.title = res.title.replace(/\s\s+/g,' ').trim() if typeof res.title is 'string'
-    try res.journal ?= citation['container-title'][0]
+    res.journal ?= if citation['container-title'] then citation['container-title'][0] else citation.primary_location?.source?.display_name
     try res.shortname = citation['short-container-title'][0]
     try res.shortname = citation.journalInfo.journal.isoabbreviation ? citation.journalInfo.journal.medlineAbbreviation
     res.journal_short = res.shortname if res.shortname and not res.journal_short # temporary fix for change to metadata field name
     res.journal ?= citation.journal_name ? citation.journalInfo?.journal?.title ? citation.journal?.title
     res.journal = citation.journal.split('(')[0].trim() if citation.journal
-    try res[key] = res[key].charAt(0).toUpperCase() + res[key].slice(1) for key in ['title','journal']
-    res.publisher ?= citation.publisher
+    try res[key] ?= res[key].charAt(0).toUpperCase() + res[key].slice(1) for key in ['title','journal']
+    res.publisher ?= citation.publisher ? citation.primary_location?.source?.publisher
     res.publisher = res.publisher.trim() if res.publisher
-    try res.issue ?= citation.issue if citation.issue?
-    try res.issue ?= citation.journalInfo.issue if citation.journalInfo?.issue
-    try res.volume ?= citation.volume if citation.volume?
-    try res.volume ?= citation.journalInfo.volume if citation.journalInfo?.volume
-    try res.page ?= citation.page.toString() if citation.page?
-    res.page = citation.pageInfo.toString() if citation.pageInfo
-    res.abstract = citation.abstract ? citation.abstractText if citation.abstract or citation.abstractText
+    res.published ?= citation.publication_date # like 2009-01-01
+    try res.issue ?= citation.issue ? citation.journalInfo?.issue ? citation.biblio?.issue
+    try res.volume ?= citation.volume ? citation.journalInfo?.volume ? citation.biblio?.volume
+    res.pages ?= (citation.page ? citation.pageInfo).toString() if citation.page or citation.pages or citation.pageInfo
+    if citation.biblio?.first_page or citation.biblio?.last_page
+      res.pages = (citation.biblio.first_page ? '') + (if citation.biblio.first_page and citation.biblio.last_page then ' to ' else '') + (citation.biblio.last_page ? '')
+    res.abstract = citation.abstract ? citation.abstractText
 
     for p in ['published-print', 'journal-issue.published-print', 'journalInfo.printPublicationDate', 'firstPublicationDate', 'journalInfo.electronicPublicationDate', 'published', 'published_date', 'issued', 'published-online', 'created', 'deposited']
-      if typeof res.published isnt 'string'
+      if typeof res.published isnt 'string' # this may already be set above from openalex for example
         if rt = citation[p] ? citation['journal-issue']?[p.replace('journal-issue.','')] ? citation['journalInfo']?[p.replace('journalInfo.','')]
           rt = rt.toString() if typeof rt is 'number'
           try rt = rt['date-time'].toString() if typeof rt isnt 'string'
@@ -228,31 +225,41 @@ P.citation = (citation) ->
         break if res.published
     res.year ?= citation.year if citation.year
     try res.year ?= citation.journalInfo.yearOfPublication.trim()
+    res.year = res.published.split('-')[0] if not res.year and res.published and res.published.includes '-'
 
-    if not res.author? and (citation.author? or citation.z_authors? or citation.authorList?.author)
+    if not res.author? and (citation.author? or citation.z_authors? or citation.authorList?.author or citation.authorships)
       res.author ?= []
       try
-        for a in citation.author ? citation.z_authors ? citation.authorList.author
+        for a in citation.author ? citation.z_authors ? citation.authorList.author ? citation.authorships
           if typeof a is 'string'
             res.author.push name: a
           else
             au = {}
-            au.given = a.given ? a.firstName
-            au.family = a.family ? a.lastName
-            au.name = (if au.given then au.given + ' ' else '') + (au.family ? '')
-            if a.affiliation?
-              try
-                for aff in (if au.affiliation then (if Array.isArray(a.affiliation) then a.affiliation else [a.affiliation]) else au.authorAffiliationDetailsList.authorAffiliation)
-                  if typeof aff is 'string'
-                    au.affiliation ?= []
-                    au.affiliation.push name: aff.replace(/\s\s+/g,' ').trim()
-                  else if typeof aff is 'object' and (aff.name or aff.affiliation)
-                    au.affiliation ?= []
-                    au.affiliation.push name: (aff.name ? aff.affiliation).replace(/\s\s+/g,' ').trim()
+            if type of a.author is 'object'
+              au.name = a.author.display_name
+              au.family = au.name.split(' ').pop()
+              au.given = au.name.split(' ')[0] if au.name.split(' ').length > 1
+              for aff in au.raw_affiliation_strings ? []
+                au.affiliation ?= []
+                au.affiliation.push name: aff
+            else
+              au.given = a.given ? a.firstName
+              au.family = a.family ? a.lastName
+              au.name = (if au.given then au.given + ' ' else '') + (au.family ? '')
+              for aff in (if a.affiliation then (if Array.isArray(a.affiliation) then a.affiliation else [a.affiliation]) else (a.authorAffiliationDetailsList.authorAffiliation ? []))
+                if typeof aff is 'string'
+                  au.affiliation ?= []
+                  au.affiliation.push name: aff.replace(/\s\s+/g,' ').trim()
+                else if typeof aff is 'object' and (aff.name or aff.affiliation)
+                  au.affiliation ?= []
+                  au.affiliation.push name: (aff.name ? aff.affiliation).replace(/\s\s+/g,' ').trim()
             res.author.push au
 
     try res.subject = citation.subject if citation.subject? and citation.subject.length and typeof citation.subject[0] is 'string'
     try res.keyword = citation.keywordList.keyword if citation.keywordList?.keyword? and citation.keywordList.keyword.length and typeof citation.keywordList.keyword[0] is 'string'
+    if not res.keyword and citation.keywords # openalex also has topics and fields / subfields, use those here?
+      res.keyword = []
+      res.keyword.push(kw.keyword) for kw in citation.keywords
     try
       for m in [...(citation.meshHeadingList?.meshHeading ? []), ...(citation.chemicalList?.chemical ? [])]
         res.keyword ?= []
@@ -261,25 +268,23 @@ P.citation = (citation) ->
 
     res.licence = citation.license.trim().replace(/ /g,'-') if typeof citation.license is 'string'
     res.licence = citation.licence.trim().replace(/ /g,'-') if typeof citation.licence is 'string'
-    try res.licence ?= citation.best_oa_location.license if citation.best_oa_location?.license and citation.best_oa_location?.license isnt null
+    try res.licence ?= citation.best_oa_location.license if citation.best_oa_location?.license
+    try res.licence ?= citation.primary_location.license if citation.primary_location?.license
     if not res.licence
-      if Array.isArray citation.assertion
-        for a in citation.assertion
-          if a.label is 'OPEN ACCESS' and a.URL and a.URL.includes 'creativecommons'
-            res.licence ?= a.URL # and if the record has a URL, it can be used as an open URL rather than a paywall URL, or the DOI can be used
-      if Array.isArray citation.license
-        for l in citation.license ? []
-          if l.URL and l.URL.includes('creativecommons') and (not res.licence or not res.licence.includes 'creativecommons')
-            res.licence ?= l.URL
+      for a in citation.assertion ? []
+        if a.label is 'OPEN ACCESS' and a.URL and a.URL.includes 'creativecommons'
+          res.licence ?= a.URL # and if the record has a URL, it can be used as an open URL rather than a paywall URL, or the DOI can be used
+      for l in citation.license ? []
+        if l.URL and l.URL.includes('creativecommons') and (not res.licence or not res.licence.includes 'creativecommons')
+          res.licence ?= l.URL
     if typeof res.licence is 'string' and res.licence.includes '/licenses/'
       res.licence = 'cc-' + res.licence.split('/licenses/')[1].replace(/$\//,'').replace(/\//g, '-').replace(/-$/, '')
 
-    # if there is a URL to use but not open, store it as res.paywall
-    res.url ?= citation.best_oa_location?.url_for_pdf ? citation.best_oa_location?.url #? citation.url # is this always an open URL? check the sources, and check where else the open URL could be. Should it be blacklist checked and dereferenced?
+    # if there is a URL to use but not open, store it as res.paywall?
+    res.url ?= citation.best_oa_location?.pdf_url ? citation.best_oa_location?.url_for_pdf ? citation.best_oa_location?.url ? citation.best_oa_location?.landing_page_url #? citation.url # is this always an open URL? check the sources, and check where else the open URL could be. Should it be blacklist checked and dereferenced?
     if not res.url and citation.fullTextUrlList?.fullTextUrl? # epmc fulltexts
       for cf in citation.fullTextUrlList.fullTextUrl
-        if cf.availabilityCode.toLowerCase() in ['oa','f'] and (not res.url or (cf.documentStyle is 'pdf' and not res.url.includes 'pdf'))
-          res.url = cf.url
+        res.url = cf.url if cf.availabilityCode.toLowerCase() in ['oa','f'] and (not res.url or (cf.documentStyle is 'pdf' and not res.url.includes 'pdf'))
 
   else if typeof citation is 'string'
     try
@@ -415,7 +420,7 @@ P.citation = (citation) ->
   return res
 
 
-# temporary legacy wrapper for old site front page availability check
+# legacy wrapper for old site front page availability check
 # that page should be moved to use the new embed, like shareyourpaper
 P.availability = (params, v2) ->
   params ?= @copy @params
