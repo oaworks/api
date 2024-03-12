@@ -1001,7 +1001,7 @@ P.report.works.load = (timestamp, org, idents, year, clear, supplements, everyth
     await @report.queue idents, undefined, (timestamp ? refresh), everything
     total += idents.length
   else
-    _crossref = (cq, action, parentorg) =>
+    _crossref = (cq, action) =>
       cq ?= '(funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year
       cq = '(' + cq + ') AND srcday:>' + timestamp if timestamp
       precount = await @src.crossref.works.count cq
@@ -1013,7 +1013,7 @@ P.report.works.load = (timestamp, org, idents, year, clear, supplements, everyth
 
     await _crossref(undefined, 'years') if org isnt true and year is @params.load
 
-    _openalex = (oq, action, parentorg) =>
+    _openalex = (oq, action) =>
       oq ?= 'authorships.institutions.display_name:* AND publication_year:' + year
       oq = '(' + oq + ') AND updated_date:>' + timestamp if timestamp
       precount = await @src.openalex.works.count oq
@@ -1034,11 +1034,11 @@ P.report.works.load = (timestamp, org, idents, year, clear, supplements, everyth
       if o.source?.crossref
         try o.source.crossref = decodeURIComponent(decodeURIComponent(o.source.crossref)) if o.source.crossref.includes '%'
         console.log 'report works load crossref by org', o.name, o.source.crossref
-        try await _crossref o.source.crossref, undefined, (if timestamp then undefined else o)
+        #await _crossref o.source.crossref
       if o.source?.openalex
         try o.source.openalex = decodeURIComponent(decodeURIComponent(o.source.openalex)) if o.source.openalex.includes '%'
         console.log 'report works load openalex by org', o.name, o.source.openalex
-        try await _openalex o.source.openalex, undefined, (if timestamp then undefined else o)
+        #await _openalex o.source.openalex
 
     if timestamp
       for await crt from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'orgs:* AND updated:<' + timestamp, scroll: '10m'

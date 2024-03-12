@@ -12,7 +12,7 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref, best) -> # oadoi and cross
     delete rec.embargo_end if rec.embargo_end is ''
     rec.copyright_name = if rec.copyright_owner and rec.copyright_owner.toLowerCase() is 'publisher' then (if typeof rec.issuer.parent_policy is 'string' then rec.issuer.parent_policy else if typeof rec.issuer.id is 'string' then rec.issuer.id else rec.issuer.id[0]) else if rec.copyright_owner and rec.copyright_owner.toLowerCase() in ['journal','affiliation'] then (meta.journal ? '') else if (haddoi and rec.copyright_owner and rec.copyright_owner.toLowerCase().includes('author')) and meta.author? and meta.author.length and (meta.author[0].name or meta.author[0].family) then (meta.author[0].name ? meta.author[0].family) + (if meta.author.length > 1 then ' et al' else '') else ''
     if rec.copyright_name.toLowerCase() in ['publisher','journal'] and (crossref or meta.doi or rec.provenance?.example)
-      crossref ?= await @src.crossref.works meta.doi ? rec.provenance.example
+      crossref ?= await @src.crossref.works.doi meta.doi ? rec.provenance.example
       for a in (crossref?.assertion ? [])
         if a.name.toLowerCase() is 'copyright'
           try rec.copyright_name = a.value
@@ -449,7 +449,7 @@ P.permissions.journals.oa.type = (issns, doajrnl, oadoi, crossref) ->
     issns = issns.split('doi.org/')[1] if issns.includes 'doi.org/'
     if issns.startsWith '10.'
       oadoi ?= await @src.oadoi.doi issns
-      crossref ?= await @src.crossref.works issns
+      crossref ?= await @src.crossref.works.doi issns
       issns = oadoi?.journal_issns ? crossref?.ISSN
   issns = issns.split(',') if typeof issns is 'string'
 

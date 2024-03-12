@@ -54,6 +54,12 @@ P.src.openalex.works.doi = (doi, refresh, save) ->
         await @src.openalex.works(found) if save
   return found
 
+P.src.openalex.works.title = (title) ->
+  if title ?= @params.title
+    return await @src.openalex.works 'title:"' + title + '"', 1
+  else
+    return
+
 P.src.openalex.load = (what, changes, clear, sync, last) ->
   what ?= @params.load ? @params.openalex ? 'works'
   return false if what not in ['works'] #, 'venues', 'authors', 'institutions', 'concepts']
