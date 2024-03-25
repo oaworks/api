@@ -26,9 +26,17 @@ P.src.openalex.works = _index: {settings: {number_of_shards: 15}}, _prefix: fals
 #P.src.openalex.venues = _index: true, _prefix: false
 
 P.src.openalex.works._format = (rec) ->
-  try
-    for xc in rec.concepts
-      xc.score = Math.floor(xc.score) if xc.score?
+  for kt in ['concepts', 'topics', 'keywords', 'sustainable_development_goals', 'domains', 'fields', 'subfields', 'authorships', 'locations']
+    for xc in rec[kt] ? []
+      try xc.score = Math.floor(xc.score) if xc.score?
+      try xc.id = 'https://openalex.org/' + xc.id if xc.id? and typeof xc.id isnt 'string'
+      for sub in ['source', 'author', 'institutions', 'domain', 'field', 'subfield']
+        try xc[sub].id = 'https://openalex.org/' + xc[sub].id if xc[sub]?.id? and typeof xc[sub].id isnt 'string'
+  for mr in ['best_oa_location', 'primary_location', 'primary_topic']
+    try rec[mr].score = Math.floor(rec[mr].score) if rec[mr]?.score
+    try rec[mr].id = 'https://openalex.org/' + rec[mr].id if rec[mr]?.id? and typeof rec[mr].id isnt 'string'
+    for sub in ['source', 'domain', 'field', 'subfield']
+      try rec[mr][sub].id = 'https://openalex.org/' + rec[mr][sub].id if rec[mr][sub]?.id? and typeof rec[mr][sub].id isnt 'string'
   try
     rec._id = rec.doi ? rec.DOI ? rec.ids?.doi
     rec._id = '10.' + rec._id.split('/10.').pop() if rec._id.includes('http') and rec._id.includes '/10.'
@@ -60,19 +68,25 @@ P.src.openalex.works.title = (title) ->
   else
     return
 
-P.src.openalex.load = (what, changes, clear, sync, last) ->
+# got up to updated_date=2024-02-21 part_021.gz
+P.src.openalex.load = (what, changes, clear, sync, last, toalias) ->
   what ?= @params.load ? @params.openalex ? 'works'
   return false if what not in ['works'] #, 'venues', 'authors', 'institutions', 'concepts']
 
-  clear ?= @params.clear ? false
+  toalias ?= @params.toalias
+  toalias += '' if typeof toalias is 'number'
+  toalias = '15032024'
+
+  clear ?= true #@params.clear ? false
   sync ?= @params.sync ? false
 
   if clear is true
-    await @src.openalex[what] ''
-    await @sleep 60000
+    #await @src.openalex[what] ''
+    await @index._send 'src_openalex_' + what, '', undefined, false, toalias
+    await @sleep 30000
   
   howmany = @params.howmany ? -1 # max number of lines to process. set to -1 to keep going
-  maxbatchsize = 10000 # how many records to batch upload at a time
+  maxbatchsize = 20000 # how many records to batch upload at a time
   total = 0
   infiles = @S.directory + '/import/openalex/data/' + what
 
@@ -137,14 +151,16 @@ P.src.openalex.load = (what, changes, clear, sync, last) ->
             rec = await @src.openalex.works._format rec
           batch.push rec
           if batch.length >= maxbatchsize
-            console.log 'Openalex ' + what + ' bulk loading', updated, infile, batch.length, total
-            await @src.openalex[what] batch
+            console.log 'Openalex ' + what + ' ' + toalias + ' bulk loading', updated, infile, batch.length, total
+            #await @src.openalex[what] batch
+            await @index._bulk 'src_openalex_' + what, batch, undefined, undefined, false, toalias
             batch = []
         if batch.length
-          console.log 'Openalex ' + what + ' bulk loading final set for', updated, infile, batch.length, expectedfiles, processedfiles, total
-          await @src.openalex[what] batch
-        console.log 'removing', infiles + '/' + updated + '/' + infile
-        await fs.unlink infiles + '/' + updated + '/' + infile
+          console.log 'Openalex ' + what + ' ' + toalias + ' bulk loading final set for', updated, infile, batch.length, expectedfiles, processedfiles, total
+          #await @src.openalex[what] batch
+          await @index._bulk 'src_openalex_' + what, batch, undefined, undefined, false, toalias
+        #console.log 'removing', infiles + '/' + updated + '/' + infile
+        #await fs.unlink infiles + '/' + updated + '/' + infile
         processedfiles += 1
         running -= 1
         return true
@@ -160,7 +176,7 @@ P.src.openalex.load = (what, changes, clear, sync, last) ->
 
       while running isnt 0
         await @sleep 5000
-      await fs.rmdir infiles + '/' + updated
+      #await fs.rmdir infiles + '/' + updated
 
   console.log expectedfiles, processedfiles, total
   return expected: expectedfiles, processed: processedfiles, total: total
