@@ -668,6 +668,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
     if openalex?
       try refresh = true if exists?.updated and not openalex.is_paratext and not openalex.is_retracted and openalex.updated_date and exists.updated < await @epoch openalex.updated_date
       rec.openalx = openalex
+      delete rec.openalx[dodgy] for dodgy in ['topics', 'primary_topic', 'keywords', 'concepts', 'domains', 'fields', 'subfields'] # avoid data type changes on openalex that caused save fails due to mapping mismatch
       rec.publisher_license_v2 = rec.openalx.primary_location?.license # primary location is NOT always present
       for ll in (rec.openalx.locations ? [])
         rec.publisher_license_v2 = ll.license if ll.license and (not rec.publisher_license_v2 or ll.license.length < rec.publisher_license_v2) and ll.source?.type is 'journal'
