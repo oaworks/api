@@ -564,11 +564,11 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
               flid = (if @fn then @fn.replace(/\./g, '_') else '') + '_' + @uid()
               eurl = @S.static.url + '/export/' + flid + '.csv'
               if tot > 100000
-                await @mail to: (@S.log?.notify ? 'mark@oa.works'), text: 'Someone is creating a large csv of size ' + tot + '\n\n' + eurl
+                await @mail to: (@S.log?.notify ? 'mark+notifications@oa.works'), text: 'Someone is creating a large csv of size ' + tot + '\n\n' + eurl
               out = @S.static.folder + '/export'
               try
                 filecount = (await fs.readdir out).length
-                @mail({to: (@S.log?.notify ? 'mark@oa.works'), text: 'Warning, export file count is ' + filecount + ' they will be deleted at 1000'}) if filecount > 900 and filecount % 20 is 0
+                @mail({to: (@S.log?.notify ? 'mark+notifications@oa.works'), text: 'Warning, export file count is ' + filecount + ' they will be deleted at 1000'}) if filecount > 900 and filecount % 20 is 0
                 # add auto deletion of old export files?
               catch
                 await fs.mkdir out
@@ -577,7 +577,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                 if filecount > 999
                   for fl in await fs.readdir out
                     await fs.unlink out + '/' + fl
-                  @mail {to: (@S.log?.notify ? 'mark@oa.works'), text: 'Export files had reached 1000 so have been deleted '}
+                  @mail {to: (@S.log?.notify ? 'mark+notifications@oa.works'), text: 'Export files had reached 1000 so have been deleted '}
               if filecount > 1000
                 res = status: 401
               else

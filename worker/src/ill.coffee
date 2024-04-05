@@ -70,7 +70,7 @@ P.ill = (opts) -> # only worked on POST with optional auth
   if not opts.forwarded and not opts.resolved and (config.email or opts.email)
     @waitUntil @mail svc: 'oaworks', vars: vars, template: tmpl, to: (config.email ? opts.email), from: "InstantILL <InstantILL@openaccessbutton.org>", subject: "ILL request " + opts._id
   tmpl = tmpl.replace /Dear.*?\,/, 'Dear Joe, here is a copy of what was just sent:'
-  @waitUntil @mail svc: 'oaworks', vars: vars, template: tmpl, from: "InstantILL <InstantILL@openaccessbutton.org>", subject: "ILL CREATED " + opts._id, to: 'joe@oa.works'
+  @waitUntil @mail svc: 'oaworks', vars: vars, template: tmpl, from: "InstantILL <InstantILL@openaccessbutton.org>", subject: "ILL CREATED " + opts._id, to: 'joe+notifications@oa.works'
   return opts
 
 P.ills = _index: true
