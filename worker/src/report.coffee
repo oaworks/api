@@ -1035,11 +1035,11 @@ P.report.works.load = (timestamp, org, idents, year, clear, supplements, everyth
       if o.source?.crossref
         try o.source.crossref = decodeURIComponent(decodeURIComponent(o.source.crossref)) if o.source.crossref.includes '%'
         console.log 'report works load crossref by org', o.name, o.source.crossref
-        #await _crossref o.source.crossref
+        await _crossref o.source.crossref
       if o.source?.openalex
         try o.source.openalex = decodeURIComponent(decodeURIComponent(o.source.openalex)) if o.source.openalex.includes '%'
         console.log 'report works load openalex by org', o.name, o.source.openalex
-        #await _openalex o.source.openalex
+        await _openalex o.source.openalex
 
     if timestamp
       for await crt from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'orgs:* AND updated:<' + timestamp, scroll: '10m'
@@ -1057,7 +1057,7 @@ P.report.works.load = (timestamp, org, idents, year, clear, supplements, everyth
   text += 'The load process was run for year ' + year + '\n' if year and typeof org isnt 'string' and (@params.load or not timestamp) and not (idents ? []).length
   text += '\n' + JSON.stringify(i) + '\n' for i in (info ? [])
   console.log 'Report works loaded', total, took
-  await @mail to: ['mark@oa.works', 'joe@oa.works'], subject: 'OA report works loaded ' + total, text: text
+  await @mail to: ['mark+notifications@oa.works', 'joe+notifications@oa.works'], subject: 'OA report works loaded ' + total, text: text
   return total
 P.report.works.load._log = false
 P.report.works.load._bg = true

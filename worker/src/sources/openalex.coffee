@@ -68,206 +68,179 @@ P.src.openalex.works.title = (title) ->
   else
     return
 
-# got up to updated_date=2024-02-21 part_021.gz
+P.src.openalex.manifest = ->
+  what = @params.manifest ? @params.openalex ? 'works'
+  return false if what not in ['works']
+  res = last: '', previous:'', manifest: await @fetch 'https://openalex.s3.amazonaws.com/data/' + what + '/manifest'
+  _ls = (m) =>
+    ret = ''
+    last = 0
+    for entry in m.entries
+      esd = entry.url.split('=')[1].split('/')[0]
+      de = await @epoch esd
+      if de > last
+        last = de
+        ret = esd
+    return ret
+  res.last = await _ls res.manifest
+  try res.previous = await _ls JSON.parse (await fs.readFile @S.directory + '/import/openalex/data/' + what + '/manifest').toString()
+  return res
+
 P.src.openalex.load = (what, changes, clear, sync, last, toalias) ->
+  started = await @epoch()
   what ?= @params.load ? @params.openalex ? 'works'
   return false if what not in ['works'] #, 'venues', 'authors', 'institutions', 'concepts']
+
+  onlyinfo = @params.onlyinfo ? false
+  changes ?= @params.changes
+  infiles = @S.directory + '/import/openalex/data/' + what
 
   toalias ?= @params.toalias
   toalias += '' if typeof toalias is 'number'
   toalias = '15032024'
 
-  clear ?= true #@params.clear ? false
-  sync ?= @params.sync ? false
-
-  if clear is true
-    #await @src.openalex[what] ''
+  clear ?= @params.clear
+  if clear
+    console.log 'clearing', what, toalias
     await @index._send 'src_openalex_' + what, '', undefined, false, toalias
-    await @sleep 30000
-  
-  howmany = @params.howmany ? -1 # max number of lines to process. set to -1 to keep going
-  maxbatchsize = 20000 # how many records to batch upload at a time
-  total = 0
-  infiles = @S.directory + '/import/openalex/data/' + what
+    await @sleep 20000
+    await @index._send 'src_openalex_' + what, {settings: {number_of_shards: 15}}, undefined, false, toalias
+    console.log 'cleared and mapped'
+    await @sleep 1000
 
-  if typeof changes is 'string'
-    changes = [changes]
-  else if changes is true
-    console.log 'Checking for Openalex changes in', what
-    changes = []
-    try
-      manifest = JSON.parse (await fs.readFile infiles + '/manifest').toString()
-      last = await @epoch manifest.entries[manifest.entries.length-1].url.split('=')[1].split('/')[0]
-    catch
-      last = 0
-    if sync
-      # can also just import certain types, like at s3://openalex/data/works
-      synced = await @_child 'aws', ['s3', 'sync', 's3://openalex', @S.directory + '/import/openalex', '--no-sign-request']
-      console.log 'Openalex sync returned', synced
-    else
-      await fs.writeFile infiles + '/manifest', await @fetch 'https://openalex.s3.amazonaws.com/data/' + what + '/manifest', buffer: true
-      console.log 'Openalex manifest updated'
-    hasnew = false
-    manifest = JSON.parse (await fs.readFile infiles + '/manifest').toString()
-    for entry in manifest.entries
-      de = entry.url.split('=')[1].split('/')[0]
-      if not hasnew
-        hasnew = true if (await @epoch de) > last
-      changes.push(de) if hasnew and de not in changes
-    console.log('Found changes', changes) if changes.length
-  else if sync is true
+  last ?= 0
+  lasth = ''
+  try
+    pm = (await fs.readFile infiles + '/manifest').toString()
+    for entry in JSON.parse(pm).entries
+      esd = entry.url.split('=')[1].split('/')[0]
+      de = await @epoch esd
+      if de > last
+        last = de
+        lasth = esd
+
+  sync ?= @params.sync ? false
+  if sync # can import all or certain types, e.g s3://openalex or s3://openalex/data/works
     console.log 'Openalex load syncing', what
     synced = await @_child 'aws', ['s3', 'sync', 's3://openalex/data/' + what, infiles, '--no-sign-request']
     console.log 'Openalex sync returned', synced
 
-  if not sync and changes and changes.length
-    for change in changes
-      console.log 'Openalex syncing files', what, change
-      try
-        stats = await fs.stat infiles + '/updated_date=' + change
-      catch
-        await @_child 'aws', ['s3', 'sync', 's3://openalex/data/' + what + '/updated_date=' + change, infiles + '/updated_date=' + change, '--no-sign-request']
+  changes = [changes] if typeof changes is 'string'
+  if changes is true
+    console.log 'Checking for Openalex changes in', what
+    changes = []
+    if not sync
+      await fs.writeFile infiles + '/manifest' + (if onlyinfo then 'info' else ''), await @fetch 'https://openalex.s3.amazonaws.com/data/' + what + '/manifest', buffer: true
+      console.log 'Openalex manifest ' + (if onlyinfo then 'temp saved for info' else 'updated')
+    for entry in JSON.parse((await fs.readFile infiles + '/manifest' + (if onlyinfo then 'info' else '')).toString()).entries
+      de = entry.url.split('=')[1].split('/')[0]
+      changes.push(de) if de not in changes and await @epoch(de) > last
 
+  console.log changes, last, lasth
+  for change in changes ? []
+    console.log 'Openalex checking if sync required for possibly changed files', what, change
+    try
+      stats = await fs.stat infiles + '/updated_date=' + change
+    catch
+      await @_child 'aws', ['s3', 'sync', 's3://openalex/data/' + what + '/updated_date=' + change, infiles + '/updated_date=' + change, '--no-sign-request']
+      console.log change, 'was not present, now synced'
+
+  caughtup = true # ['2024-02-21', 'part_043'] # set to list of values to match on file name e.g if had to kill earlier part way through
+  total = 0
   expectedfiles = 0
   processedfiles = 0
-  running = 0
-  maxrunners = 3
-  for updated in await fs.readdir infiles # folder names are like updated_date=2022-04-30
-    if not updated.startsWith('manifest') and (not changes or changes.length is 0 or updated.split('=')[1] in changes)
-      # if we find in future there is no need to download a whole copy of openalex, instead of s3 sync the whole lot it may be better 
-      # to just use streams of the files in each change folder direct from s3, and never have to land them on disk
-      _dofile = (infile) =>
+  running = []
+  maxrunners = 5
+
+  _dofile = (flo) =>
+    # if we find in future there is no need to download a whole copy of openalex, instead of s3 sync the whole lot it may be better 
+    # to just use streams of the files in each change folder direct from s3, and never have to land them on disk
+    batch = []
+    for await line from readline.createInterface input: fs.createReadStream(flo).pipe zlib.createGunzip() #, crlfDelay: Infinity
+      rec = JSON.parse line.trim().replace /\,$/, ''
+      total += 1
+      #if what in ['venues', 'institutions', 'concepts', 'authors']
+      #  rec._id = rec.id.split('/').pop()
+      #  if what is 'authors' and rec.x_concepts?
+      #    for xc in rec.x_concepts
+      #      xc.score = Math.floor(xc.score) if xc.score?
+      #else if what is 'works'
+      batch.push await @src.openalex.works._format rec
+      if batch.length >= 20000
+        console.log 'Openalex ' + what + ' ' + toalias + ' bulk loading', flo, batch.length, total
+        await @index._bulk 'src_openalex_' + what, batch, undefined, undefined, false, toalias
         batch = []
-        for await line from readline.createInterface input: fs.createReadStream(infiles + '/' + updated + '/' + infile).pipe zlib.createGunzip() #, crlfDelay: Infinity
-          break if total is howmany
-          rec = JSON.parse line.trim().replace /\,$/, ''
-          total += 1
-          if what in ['venues', 'institutions', 'concepts', 'authors']
-            rec._id = rec.id.split('/').pop()
-            if what is 'authors' and rec.x_concepts?
-              for xc in rec.x_concepts
-                xc.score = Math.floor(xc.score) if xc.score?
-          else if what is 'works'
-            rec = await @src.openalex.works._format rec
-          batch.push rec
-          if batch.length >= maxbatchsize
-            console.log 'Openalex ' + what + ' ' + toalias + ' bulk loading', updated, infile, batch.length, total
-            #await @src.openalex[what] batch
-            await @index._bulk 'src_openalex_' + what, batch, undefined, undefined, false, toalias
-            batch = []
-        if batch.length
-          console.log 'Openalex ' + what + ' ' + toalias + ' bulk loading final set for', updated, infile, batch.length, expectedfiles, processedfiles, total
-          #await @src.openalex[what] batch
-          await @index._bulk 'src_openalex_' + what, batch, undefined, undefined, false, toalias
-        #console.log 'removing', infiles + '/' + updated + '/' + infile
-        #await fs.unlink infiles + '/' + updated + '/' + infile
-        processedfiles += 1
-        running -= 1
-        return true
+    if batch.length
+      console.log 'Openalex ' + what + ' ' + toalias + ' bulk loading final set for', flo, batch.length, expectedfiles, processedfiles, total
+      await @index._bulk 'src_openalex_' + what, batch, undefined, undefined, false, toalias
+    console.log 'removing', flo
+    await fs.unlink flo
+    processedfiles += 1
+    running.splice running.indexOf(flo), 1
+    return true
 
+  for updated in await fs.readdir infiles # folder names are like updated_date=2022-04-30
+    if not updated.startsWith('manifest') and (not changes? or updated.split('=')[1] in changes)
       for inf in await fs.readdir infiles + '/' + updated
-        console.log 'Openalex load running', running
-        expectedfiles += 1
-        while running is maxrunners
-          await @sleep 5000
-          console.log 'Openalex load running', running
-        running += 1
-        _dofile inf
+        if not caughtup
+          console.log 'awaiting catch up', updated, inf, caughtup
+          caughtup = true if updated.includes(caughtup[0]) and (caughtup.length is 1 or  inf.includes caughtup[1])
+        else
+          oe = false #parseInt(inf.split('_')[1]) % 2
+          if oe is false or (oe is 0 and S.port is 4006) or (oe is 1 and S.port is 4003)
+            expectedfiles += 1
+            while running.length is maxrunners
+              await @sleep 3000
+            flo = infiles + '/' + updated + '/' + inf
+            if onlyinfo
+              console.log 'Openalex load would run', flo
+            else
+              running.push flo
+              console.log 'Openalex load running', running
+              _dofile flo
+          else
+            console.log 'skipping', oe, inf
 
-      while running isnt 0
+      while running.length isnt 0
         await @sleep 5000
-      #await fs.rmdir infiles + '/' + updated
+      await fs.rmdir infiles + '/' + updated
 
-  console.log expectedfiles, processedfiles, total
-  return expected: expectedfiles, processed: processedfiles, total: total
+  if onlyinfo
+    try await fs.unlink infiles + '/manifestinfo'
+  else if pm? and Array.isArray(changes) and changes.length
+    await fs.writeFile infiles + '/manifestprevious', pm
+  ended = await @epoch()
+  ret = started: started, took: ended - started, expected: expectedfiles, processed: processedfiles, total: total, sync: sync, last: last, lasth: lasth, changes: changes
+  await @mail to: ['mark+notifications@oa.works', 'joe+notifications@oa.works'], subject: 'Openalex works load or changes ' + total, text: JSON.stringify ret
+  console.log ret
+  return ret
 
 P.src.openalex.load._bg = true
-P.src.openalex.load._async = true
+#P.src.openalex.load._async = true
 P.src.openalex.load._log = false
 P.src.openalex.load._auth = 'root'
 
-P.src.openalex.changes = (what, last) ->
+P.src.openalex.changes = (what) ->
   started = await @epoch()
-  what ?= @params.changes ? @params.openalex ? 'works'
-  last = {updated: last} if typeof last isnt 'object'
-  last ?= {}
-  if @params.last # can be a date like 2022-12-13 to match the last updated file date on openalex update files
-    last.updated = @params.last
-    last.created = @params.last
-  # if no last, calculate it as previous day? or read last from index?
-  if not last.updated? or not last.created?
-    try last.updated = (await @src.openalex.works 'updated_date:*', size:1, sort: updated_date:'desc').updated_date
-    try last.created = (await @src.openalex.works 'created_date:*', size:1, sort: created_date:'desc').created_date
-  last.updated ?= (await @datetime await @epoch() - 86400000).replace 'Z', '000' # datetime format for openalex (ISO) 2023-09-25T22:33:51.835860
-  last.created ?= (await @datetime await @epoch() - 86400000).replace 'Z', '000'
-  # doing this only for works now, as it does not appear the other types get updated in the same way any more
-  whats = ['works'] #, 'venues', 'authors', 'institutions', 'concepts']
-  if what
-    return false if what not in whats
-  else
-    what = whats
-
-  # https://docs.openalex.org/how-to-use-the-api/get-lists-of-entities/paging
-  console.log 'Openalex changes checking from', last
-  total = 0
-  queued = []
-  for w in (if Array.isArray(what) then what else [what])
-    for filter in ['updated'] #, 'created'] # apparently, now, (2/10/2023) all records do have an updated_date... 
-      if (await @epoch(last.updated)) < started - 3600000 # if it has been at least an hour since something was updated...
-        batch = []
-        cursor = '*'
-        # doing created and updated separately because although we initially thought updated would include created, there is suggestions it does not, in missing records
-        # https://github.com/ourresearch/openalex-api-tutorials/blob/main/notebooks/getting-started/premium.ipynb
-        url = 'https://api.openalex.org/' + w + '?filter=from_' + filter + '_date:' + last[filter] + '&api_key=' + @S.src.openalex.apikey + '&per-page=200&cursor='
-        console.log 'Openalex changes querying', url + cursor
-        try
-          res = await @fetch url + cursor
-          try console.log 'Openalex changes query retrieved', res.results.length
-          while res? and typeof res is 'object' and Array.isArray(res.results) and res.results.length
-            for rec in res.results
-              if w is 'works'
-                rec = await @src.openalex.works._format rec
-
-                '''if rec._id.startsWith('10.') and rec.authorships? and rec.publication_year in ['2023', '2022', 2023, 2022]
-                  doq = false
-                  for a in rec.authorships
-                    break if doq
-                    for i in (a.institutions ? [])
-                      if i.display_name?
-                        queued.push rec._id
-                        doq = true
-                        break'''
-
-              batch.push rec
-            
-            if batch.length >= 10000
-              console.log 'Openalex ' + what + ' ' + filter + ' bulk loading changes', batch.length, total, queued.length
-              total += batch.length
-              await @src.openalex[what] batch
-              batch = []
-
-            if res.meta?.next_cursor
-              cursor = res.meta.next_cursor
-              res = await @fetch url + encodeURIComponent cursor
-      
-        if batch.length
-          total += batch.length
-          await @src.openalex[what] batch
-          batch = []
-
-  await @report.queue(queued, undefined, undefined, undefined, 'changes') if queued.length
+  console.log 'Openalex checking for changes by running load on comparison to manifest'
+  ret = await @src.openalex.load undefined, true
 
   ended = await @epoch() # schedule this to loop, and run at most every hour
-  if @fn isnt 'src.openalex.changes' and ended - started < 3600000
-    console.log 'Openalex changes waiting to loop'
-    await @sleep 3600000 - (ended - started) 
-  console.log 'Openalex changes changed', total, queued.length
-  return total
+  took = ended - started
+  if @fn isnt 'src.openalex.changes'
+    while took < 3600000
+      remaining = 3600000 - took
+      console.log 'Openalex changes waiting', remaining, 'to loop'
+      await @sleep remaining
+      ended = await @epoch()
+      took = ended - started
+  console.log 'Openalex changes took', ended - started
+  return ret
 
 P.src.openalex.changes._log = false
 P.src.openalex.changes._bg = true
 P.src.openalex.changes._async = true
-#P.src.openalex.changes._auth = 'root'
+P.src.openalex.changes._auth = 'root'
 
 
 # https://docs.openalex.org/api-entities/sources/get-lists-of-sources
@@ -309,3 +282,85 @@ P.src.openalex.hybrid = (issns) ->
   else
     return
 
+
+
+
+
+'''P.src.openalex.changes = (what, last) ->
+  started = await @epoch()
+  what ?= @params.changes ? @params.openalex ? 'works'
+  last = {updated: last} if typeof last isnt 'object'
+  last ?= {}
+  if @params.last # can be a date like 2022-12-13 to match the last updated file date on openalex update files
+    last.updated = @params.last
+    last.created = @params.last
+  # if no last, calculate it as previous day? or read last from index?
+  if not last.updated? or not last.created?
+    try last.updated = (await @src.openalex.works 'updated_date:*', size:1, sort: updated_date:'desc').updated_date
+    try last.created = (await @src.openalex.works 'created_date:*', size:1, sort: created_date:'desc').created_date
+  last.updated ?= (await @datetime await @epoch() - 86400000).replace 'Z', '000' # datetime format for openalex (ISO) 2023-09-25T22:33:51.835860
+  last.created ?= (await @datetime await @epoch() - 86400000).replace 'Z', '000'
+  # doing this only for works now, as it does not appear the other types get updated in the same way any more
+  whats = ['works'] #, 'venues', 'authors', 'institutions', 'concepts']
+  if what
+    return false if what not in whats
+  else
+    what = whats
+
+  # https://docs.openalex.org/how-to-use-the-api/get-lists-of-entities/paging
+  console.log 'Openalex changes checking from', last
+  total = 0
+  queued = []
+  for w in (if Array.isArray(what) then what else [what])
+    for filter in ['updated'] #, 'created'] # apparently, now, (2/10/2023) all records do have an updated_date... 
+      if (await @epoch(last.updated)) < started - 3600000 # if it has been at least an hour since something was updated...
+        batch = []
+        cursor = '*'
+        # doing created and updated separately because although we initially thought updated would include created, there is suggestions it does not, in missing records
+        # https://github.com/ourresearch/openalex-api-tutorials/blob/main/notebooks/getting-started/premium.ipynb
+        url = 'https://api.openalex.org/' + w + '?filter=from_' + filter + '_date:' + last[filter] + '&api_key=' + @S.src.openalex.apikey + '&per-page=200&cursor='
+        console.log 'Openalex changes querying', url + cursor
+        try
+          res = await @fetch url + cursor
+          try console.log 'Openalex changes query retrieved', res.results.length
+          while res? and typeof res is 'object' and Array.isArray(res.results) and res.results.length
+            for rec in res.results
+              if w is 'works'
+                rec = await @src.openalex.works._format rec
+
+                #if rec._id.startsWith('10.') and rec.authorships? and rec.publication_year in ['2023', '2022', 2023, 2022]
+                #  doq = false
+                #  for a in rec.authorships
+                #    break if doq
+                #    for i in (a.institutions ? [])
+                #      if i.display_name?
+                #        queued.push rec._id
+                #        doq = true
+                #        break
+
+              batch.push rec
+            
+            if batch.length >= 10000
+              console.log 'Openalex ' + what + ' ' + filter + ' bulk loading changes', batch.length, total, queued.length
+              total += batch.length
+              await @src.openalex[what] batch
+              batch = []
+
+            if res.meta?.next_cursor
+              cursor = res.meta.next_cursor
+              res = await @fetch url + encodeURIComponent cursor
+      
+        if batch.length
+          total += batch.length
+          await @src.openalex[what] batch
+          batch = []
+
+  await @report.queue(queued, undefined, undefined, undefined, 'changes') if queued.length
+
+  ended = await @epoch() # schedule this to loop, and run at most every hour
+  if @fn isnt 'src.openalex.changes' and ended - started < 3600000
+    console.log 'Openalex changes waiting to loop'
+    await @sleep 3600000 - (ended - started) 
+  console.log 'Openalex changes changed', total, queued.length
+  return total
+'''
