@@ -317,55 +317,61 @@ P.src.crossref.changes = (startday, endday, created) ->
   queued = []
   days = 0
   batch = []
-  while startday < dn
-    console.log 'Crossref changes', startday, days
-    cursor = '*' # set a new cursor on each index day query
-    days += 1
-    totalthisday = false
-    fromthisday = 0
-    retries = 0
-    while retries < 3 and (totalthisday is false or fromthisday < totalthisday)
-      await @sleep 500
-      thisdays = await @src.crossref.works.search undefined, cursor, 1000, searchtype, startday, startday # using same day for crossref API gets that whole day
-      if not thisdays?.data
-        console.log 'crossref error'
-        await @sleep 2000 # wait on crossref downtime
-        retries += 1
-      else
-        for rec in thisdays.data
-          fr = await @src.crossref.works._format rec
-          fr.srcday = startday
-          batch.push fr
-          loaded += 1
 
-          '''if (rec.funder? or rec.author?) and rec.year in ['2023', '2022', 2023, 2022]
-            doq = false
-            for f in (rec.funder ? [])
-              break if doq
-              doq = rec.DOI if f.name?
-            if not doq
-              for a in (rec.author ? [])
+  if startday >= dn and @fn isnt 'src.crossref.changes'
+    console.log 'crossref works changes waiting an hour before looping to check for new changes because start day is not yet a day or more in the past'
+    await @sleep 3600000
+  else
+    while startday < dn
+      console.log 'Crossref changes', startday, days
+      cursor = '*' # set a new cursor on each index day query
+      days += 1
+      totalthisday = false
+      fromthisday = 0
+      retries = 0
+      while retries < 3 and (totalthisday is false or fromthisday < totalthisday)
+        await @sleep 500
+        thisdays = await @src.crossref.works.search undefined, cursor, 1000, searchtype, startday, startday # using same day for crossref API gets that whole day
+        if not thisdays?.data
+          console.log 'crossref error'
+          await @sleep 2000 # wait on crossref downtime
+          retries += 1
+        else
+          for rec in thisdays.data
+            fr = await @src.crossref.works._format rec
+            fr.srcday = startday
+            batch.push fr
+            loaded += 1
+
+            '''if (rec.funder? or rec.author?) and rec.year in ['2023', '2022', 2023, 2022]
+              doq = false
+              for f in (rec.funder ? [])
                 break if doq
-                for af in (a.affiliation ? [])
+                doq = rec.DOI if f.name?
+              if not doq
+                for a in (rec.author ? [])
                   break if doq
-                  doq = rec.DOI if af.name?
-            queued.push(doq) if doq'''
+                  for af in (a.affiliation ? [])
+                    break if doq
+                    doq = rec.DOI if af.name?
+              queued.push(doq) if doq'''
 
-        if batch.length >= batchsize
-          console.log 'Crossref bulk load', startday, days, totalthisday, fromthisday, loaded, queued.length
-          await @src.crossref.works batch
-          batch = []
-        if totalthisday is false
-          totalthisday = thisdays['total-results'] ? 0
-          console.log startday, totalthisday
-        fromthisday += 1000
-        cursor = thisdays.cursor
-    startday += 86400000
+          if batch.length >= batchsize
+            console.log 'Crossref bulk load', startday, days, totalthisday, fromthisday, loaded, queued.length
+            await @src.crossref.works batch
+            batch = []
+          if totalthisday is false
+            totalthisday = thisdays.total ? 0
+            console.log startday, totalthisday
+          fromthisday += 1000
+          cursor = thisdays.cursor
+      startday += 86400000
 
-  await @src.crossref.works(batch) if batch.length
-  await @report.queue(queued, undefined, undefined, undefined, 'changes') if queued.length
+    await @src.crossref.works(batch) if batch.length
+    #await @report.queue(queued, undefined, undefined, undefined, 'changes') if queued.length
+    console.log 'crossref works changes completed', loaded, days, queued.length
+    await @mail to: ['mark+notifications@oa.works', 'joe+notifications@oa.works'], subject: 'Crossref works load or changes ' + loaded, text: 'loaded ' + loaded
 
-  console.log 'crossref works changes completed', loaded, days, queued.length
   return loaded
 
 P.src.crossref.changes._bg = true
