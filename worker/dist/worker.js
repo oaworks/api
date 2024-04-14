@@ -8576,37 +8576,40 @@ _xrefs_preprints = [];
 _xrefs_length = 0;
 
 P.oareport.xrefs = async function(xr) {
-  var ad, alt, arel, ass, assl, ax, j, jlist, jr, l, len, len1, len2, len3, len4, m, n, name, ndlast, ndm, ndparts, oj, p, pp, pr, ref, ref1, ref10, ref11, ref12, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rels, ret, started, up, upd, updates, ux, x, xra, xrd, xrp;
+  var ad, ar, arel, ass, assl, ax, j, jlist, jr, l, len, len1, len2, len3, len4, m, n, name, ndlast, ndm, ndparts, oj, p, pp, pr, ref, ref1, ref10, ref11, ref12, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rels, ret, started, up, upd, ux, x, xra, xrd, xrp;
   if (xr == null) {
     xr = this.params.xrefs;
   }
-  if (_xrefs === false) {
+  if (_xrefs === false || this.refresh) {
     started = Date.now();
     _xrefs = new Map();
     console.log('report orgs supplement building in-memory crossref data values');
-    if (false) { //@params.relations isnt false # just for testing - about 64k of these. Takes a minute or two to build. Example with is-same-as and is-version-of: 10.7554/elife.87196
-      rels = ['is-same-as', 'is-version-of', 'has-version'];
+    if (this.params.relations !== false) { // just for testing - about 82k of these. Takes 30 mins to build. Example with is-same-as and is-version-of: 10.7554/elife.87196
+      // creates about 182k xrefs for 82k records, because they can relate to more than one other record
+      rels = [
+        'is-same-as',
+        'is-version-of',
+        'has-version' // NONE of these are for container-title Gates / Wellcome / F1000
+      ];
       ref = this.index._for('src_crossref_works', 'relation.' + rels.join('.id:* OR relation.') + '.id:*', {
         scroll: '10m',
         include: ['DOI', 'relation', 'indexed']
       });
       for await (xrd of ref) {
-        // BUT what would the order of preference be for replacement DOIs, and what about cascades? should this also or only handle update-to erratum / correction?
-        console.log(xrd.DOI);
+// BUT what would the order of preference be for replacement DOIs, and what about cascades? should this also or only handle update-to erratum / correction?
         for (j = 0, len = rels.length; j < len; j++) {
           pr = rels[j];
           ref2 = (ref1 = xrd.relation[pr]) != null ? ref1 : [];
           for (l = 0, len1 = ref2.length; l < len1; l++) {
             arel = ref2[l];
-            if (alt = arel.id) {
-              console.log(alt);
-              if (false) { //ar = await @src.crossref.works alt
+            if (typeof (arel != null ? arel.id : void 0) === 'string' && arel.id.startsWith('10.')) { // some are URLs to remote sources, or other kinds of ID not of any use in this context
+              if (ar = (await this.src.crossref.works(arel.id))) {
                 if (((ref3 = ar.indexed) != null ? ref3.timestamp : void 0) > ((ref4 = xrd.indexed) != null ? ref4.timestamp : void 0)) {
                   _xrefs.set(xrd.DOI, {
-                    duplicate: alt
+                    duplicate: arel.id
                   });
-                } else {
-                  _xrefs.set(alt, {
+                } else if (ar.DOI) {
+                  _xrefs.set(arel.id, {
                     duplicate: xrd.DOI
                   });
                 }
@@ -8617,7 +8620,7 @@ P.oareport.xrefs = async function(xr) {
         }
       }
     }
-    if (false) { //@params.updates isnt false # just for testing - about 271k of these. These appear NOT to overlap with relation
+    if (this.params.updates !== false) { // just for testing - 295236 of these takes about 2 mins. These appear NOT to overlap with relation, but almost completely overlap with journals (at least when tested for gates, wellcome, f1000)
       ref5 = this.index._for('src_crossref_works', 'update-to.DOI:*', {
         scroll: '10m',
         include: ['DOI', 'update-to']
@@ -8638,7 +8641,7 @@ P.oareport.xrefs = async function(xr) {
         }
       }
     }
-    if (false) { //@params.preprints isnt false # just for testing - about 1.1m of these takes about 8 mins to build (or half that doing them into a list)
+    if (this.params.preprints !== false) { // just for testing - about 1.1m of these takes about 8 mins to build into xrefs map or 4 mins into a separate list
       ref7 = this.index._for('src_crossref_works', 'subtype.keyword:"preprint"', {
         scroll: '10m',
         include: ['DOI']
@@ -8647,7 +8650,7 @@ P.oareport.xrefs = async function(xr) {
         _xrefs_preprints.push(xrp.DOI);
       }
     }
-    if (false) { //@params.assertions isnt false # just for testing - about 6.5m of these
+    if (this.params.assertions !== false) { // just for testing - about 6.5m of these takes 40 mins. Example with both submitted and accepted 10.1002/bdr2.2210
       ref8 = this.index._for('src_crossref_works', 'assertion.label:"accepted" OR assertion.label:"received"', {
         scroll: '10m',
         include: ['DOI', 'assertion']
@@ -8676,9 +8679,9 @@ P.oareport.xrefs = async function(xr) {
         }
       }
     }
-    updates = 0;
     if (this.params.journals !== false) { // just for testing - about 750 Gates, 3k Wellcome, 12k F1000. Takes under a min to build. A good example 10.12688/gatesopenres.13035.4
       ref11 = ['Gates Open Research', 'Wellcome Open Research', 'F1000Research'];
+      // running for gates wellcome and f1000 in conjunction with update-to above provides 295240 total - so only 4 more
       for (p = 0, len4 = ref11.length; p < len4; p++) {
         oj = ref11[p];
         jlist = [];
@@ -8691,19 +8694,7 @@ P.oareport.xrefs = async function(xr) {
           ndparts = jr.DOI.split('.');
           ndlast = parseInt(ndparts.pop());
           ndm = ndparts.join('.') + '.' + (ndlast - 1);
-          if ((function() {
-            var len5, ref13, ref14, results, t;
-            ref14 = (ref13 = jr['update-to']) != null ? ref13 : [];
-            results = [];
-            for (t = 0, len5 = ref14.length; t < len5; t++) {
-              up = ref14[t];
-              results.push(up.DOI === ndm);
-            }
-            return results;
-          })()) {
-            //ndp = ndparts.join('.') + '.' + (ndlast + 1)
-            updates += 1;
-          }
+          //ndp = ndparts.join('.') + '.' + (ndlast + 1)
           if (indexOf.call(jlist, ndm) >= 0) {
             pp = _xrefs.get(ndm);
             if (pp == null) {
@@ -8719,7 +8710,7 @@ P.oareport.xrefs = async function(xr) {
         }
       }
     }
-    console.log('report orgs supplement completed build of crossref data values', _xrefs_length, updates, Date.now() - started);
+    console.log('report orgs supplement completed build of crossref data values', _xrefs_length, Date.now() - started);
   }
   if (xr != null) {
     ret = void 0;
@@ -16495,7 +16486,7 @@ P.index._each = async function(route, q, opts, fn, prefix, alias) {
 };
 
 P.index._bulk = async function(route, data, action = 'index', bulk = 50000, prefix, alias, url) {
-  var counter, dtp, errorcount, errors, it, j, len, meta, pkg, r, ref1, ref10, ref11, ref12, ref13, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rid, row, rows, rs, rso;
+  var counter, dtp, errorcount, errors, it, j, len, meta, pkg, r, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rid, row, rows, rs, rso;
   if (action === true) {
     action = 'index';
   }
@@ -16527,6 +16518,13 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000, pref
       route = prefix + route;
     }
   }
+  // have to work out URL here as well as in _send because when we call _send below it will only know the route is /_bulk, so can't check the settings for a different URL for the real route for the data to bulk
+  if (url == null) {
+    url = (ref5 = (ref6 = (ref7 = this.S.route) != null ? ref7[rso.startsWith(this.S.index.name + '_') ? rso.replace(this.S.index.name + '_', '') : rso] : void 0) != null ? ref6 : dtp != null ? dtp._route : void 0) != null ? ref5 : ((this != null ? (ref8 = this.S) != null ? (ref9 = ref8.index) != null ? ref9.url : void 0 : void 0 : void 0) ? this.S.index.url : (ref10 = S.index) != null ? ref10.url : void 0);
+  }
+  if (Array.isArray(url)) {
+    url = url[Math.floor(Math.random() * url.length)];
+  }
   if (this.index == null) {
     this.index = P.index;
   }
@@ -16540,7 +16538,7 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000, pref
     }, void 0, prefix, alias, url); // new ES 7.x requires this rather than text/plain
     return true;
   } else {
-    rows = typeof data === 'object' && !Array.isArray(data) && ((data != null ? (ref5 = data.hits) != null ? ref5.hits : void 0 : void 0) != null) ? data.hits.hits : data;
+    rows = typeof data === 'object' && !Array.isArray(data) && ((data != null ? (ref11 = data.hits) != null ? ref11.hits : void 0 : void 0) != null) ? data.hits.hits : data;
     if (!Array.isArray(rows)) {
       rows = [rows];
     }
@@ -16551,7 +16549,7 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000, pref
       row = rows[r];
       counter += 1;
       if (typeof row === 'object') {
-        rid = (ref6 = (ref7 = row._id) != null ? ref7 : (ref8 = row._source) != null ? ref8._id : void 0) != null ? ref6 : (await this.uid());
+        rid = (ref12 = (ref13 = row._id) != null ? ref13 : (ref14 = row._source) != null ? ref14._id : void 0) != null ? ref12 : (await this.uid());
         if (typeof rid === 'string') {
           rid = rid.replace(/\//g, '_');
         }
@@ -16564,7 +16562,7 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000, pref
       meta[action] = {
         "_index": route
       };
-      meta[action]._id = action === 'delete' && ((ref9 = typeof row) === 'string' || ref9 === 'number') ? row : rid; // what if action is delete but can't set an ID?
+      meta[action]._id = action === 'delete' && ((ref15 = typeof row) === 'string' || ref15 === 'number') ? row : rid; // what if action is delete but can't set an ID?
       pkg += JSON.stringify(meta) + '\n';
       if (action === 'create' || action === 'index') {
         pkg += JSON.stringify(row) + '\n';
@@ -16580,14 +16578,14 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000, pref
           headers: {
             'Content-Type': 'application/x-ndjson'
           }
-        }, void 0, prefix, alias));
-        if ((this != null ? (ref10 = this.S) != null ? ref10.dev : void 0 : void 0) && (this != null ? (ref11 = this.S) != null ? ref11.bg : void 0 : void 0) === true && (rs != null ? rs.errors : void 0)) {
+        }, void 0, prefix, alias, url));
+        if ((this != null ? (ref16 = this.S) != null ? ref16.dev : void 0 : void 0) && (this != null ? (ref17 = this.S) != null ? ref17.bg : void 0 : void 0) === true && (rs != null ? rs.errors : void 0)) {
           errors = [];
-          ref12 = rs.items;
-          for (j = 0, len = ref12.length; j < len; j++) {
-            it = ref12[j];
+          ref18 = rs.items;
+          for (j = 0, len = ref18.length; j < len; j++) {
+            it = ref18[j];
             try {
-              if ((ref13 = it[action].status) !== 200 && ref13 !== 201) {
+              if ((ref19 = it[action].status) !== 200 && ref19 !== 201) {
                 errors.push(it[action]);
                 errorcount += 1;
               }
@@ -18516,7 +18514,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Wed Apr 10 2024 08:54:32 GMT+0100";
+S.built = "Sun Apr 14 2024 04:01:43 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
