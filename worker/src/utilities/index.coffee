@@ -468,7 +468,10 @@ P.index._bulk = (route, data, action='index', bulk=50000, prefix, alias, url) ->
   prefix ?= dtp?._prefix ? @S.index.name
   if typeof prefix is 'string'
     prefix += '_' if prefix.length and not prefix.endsWith '_'
-    route = prefix + route if not route.startsWith prefix 
+    route = prefix + route if not route.startsWith prefix
+  # have to work out URL here as well as in _send because when we call _send below it will only know the route is /_bulk, so can't check the settings for a different URL for the real route for the data to bulk
+  url ?= @S.route?[if rso.startsWith(@S.index.name + '_') then rso.replace(@S.index.name + '_', '') else rso] ? dtp?._route ? (if this?.S?.index?.url then @S.index.url else S.index?.url)
+  url = url[Math.floor(Math.random()*url.length)] if Array.isArray url
   this.index ?= P.index
   if typeof data is 'string' and data.indexOf('\n') isnt -1
     # TODO should this check through the string and make sure it only indexes to the specified route?
@@ -498,7 +501,7 @@ P.index._bulk = (route, data, action='index', bulk=50000, prefix, alias, url) ->
         pkg += JSON.stringify({doc: row}) + '\n' # is it worth expecting other kinds of update in bulk import?
       # don't need a second row for deletes
       if counter is bulk or parseInt(r) is (rows.length - 1) or pkg.length > 70000000
-        rs = await @index._send '/_bulk', {body:pkg, headers: {'Content-Type': 'application/x-ndjson'}}, undefined, prefix, alias
+        rs = await @index._send '/_bulk', {body:pkg, headers: {'Content-Type': 'application/x-ndjson'}}, undefined, prefix, alias, url
         if this?.S?.dev and this?.S?.bg is true and rs?.errors
           errors = []
           for it in rs.items
