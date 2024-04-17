@@ -981,20 +981,18 @@ P.report.works.load = (timestamp, org, idents, year, clear, supplements, everyth
   if @params.q
     idents ?= []
     for await sw from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', @params.q, scroll: '5m', include: ['DOI', 'openalex', 'PMCID']
-      sd = sw.DOI ? sw.openalex ? sw.PMCID
-      idents.push(sd) if sd not in idents
+      idents.push sw.DOI ? sw.openalex ? sw.PMCID
+      console.log('report works preparing to load from query', idents.length) if idents.length % 1000 is 0
     console.log 'report works supplements to load from query', @params.q
   else if @params.load is 'supplements'
     idents ?= []
     for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', (if timestamp then 'updated:<' + timestamp else if org then 'org:"' + org + '"' else undefined), scroll: '5m', include: ['DOI', 'openalex', 'pmcid']
-      sd = sup.DOI ? sup.openalex ? sup.pmcid
-      idents.push(sd) if sd not in idents
+      idents.push sup.DOI ? sup.openalex ? sup.pmcid
     console.log 'report works supplements to load', timestamp, org, idents.length
   else if everything
     idents ?= []
     for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'NOT pmc_has_data_availability_statement:*', scroll: '5m', include: ['DOI', 'openalex', 'PMCID']
-      sd = sup.DOI ? sup.openalex ? sup.PMCID
-      idents.push(sd) if sd not in idents
+      idents.push sup.DOI ? sup.openalex ? sup.PMCID
     console.log 'report works supplements to load everything for records that do not yet have everything', idents.length
 
   if Array.isArray idents
