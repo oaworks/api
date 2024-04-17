@@ -8738,7 +8738,7 @@ P.oareport.xrefs = async function(xr) {
 // error to fix, below failed on Robert Wood Johnson Foundation rwjf-repo__rwjf 12000
 // for DOI 10.1111/cdev.13779 as idents[10.1111/cdev.13779] had no .supplements
 P.oareport.orgs.supplement = async function(orgname, sheetname) {
-  var an, check, dv, header, headers, hstarted, idents, idl, j, kv, l, last, latest, ld, len, len1, len2, len3, lt, m, n, org, orgs, qrc, ref, ref1, ref10, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, row, rows, runs, s, started, total, tries, update;
+  var an, check, dv, header, headers, hstarted, idents, idl, j, kv, l, last, latest, ld, len, len1, len2, len3, lt, m, n, org, orgs, orgtotal, qrc, ref, ref1, ref10, ref11, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, row, rows, runs, s, started, total, tries, update;
   if (true) { // @params.empty
     await this.oareport.works('');
   }
@@ -8759,6 +8759,7 @@ P.oareport.orgs.supplement = async function(orgname, sheetname) {
   ref = (typeof orgs === 'object' && !Array.isArray(orgs) ? [orgs] : orgs);
   for (j = 0, len = ref.length; j < len; j++) {
     org = ref[j];
+    orgtotal = 0;
     idents = {};
     runs = [];
     try {
@@ -8771,9 +8772,9 @@ P.oareport.orgs.supplement = async function(orgname, sheetname) {
       s = ref1[l];
       if ((!orgname || org.name === orgname) && (!sheetname || s.name === sheetname)) {
         console.log(org.name, s.name, s.url);
-        update = (ref2 = this.params.update) != null ? ref2 : true;
+        update = (ref2 = (ref3 = this.params.update) != null ? ref3 : this.params.empty) != null ? ref2 : true;
         last = false;
-        if (this.params.update == null) { // can force an update on URL call
+        if ((this.params.update == null) && !this.params.empty) { // can force an update on URL call
           try {
             check = (await this.src.google.sheets({
               sheetid: s.url,
@@ -8793,7 +8794,7 @@ P.oareport.orgs.supplement = async function(orgname, sheetname) {
                   }
                 }));
               } catch (error) {}
-              if ((latest != null ? (ref3 = latest.hits) != null ? ref3.hits : void 0 : void 0) != null) {
+              if ((latest != null ? (ref4 = latest.hits) != null ? ref4.hits : void 0 : void 0) != null) {
                 latest = latest.hits.hits[0]._source;
               }
               if ((latest != null ? latest.updated : void 0) && last <= latest.updated) {
@@ -8827,14 +8828,17 @@ P.oareport.orgs.supplement = async function(orgname, sheetname) {
             }
           }
           if (Array.isArray(rows) && rows.length) {
-            ref4 = rows.shift();
-            for (m = 0, len2 = ref4.length; m < len2; m++) {
-              header = ref4[m];
+            ref5 = rows.shift();
+            for (m = 0, len2 = ref5.length; m < len2; m++) {
+              header = ref5[m];
               headers.push(header.toLowerCase().trim().replace(/ /g, '_').replace('?', ''));
             }
             for (n = 0, len3 = rows.length; n < len3; n++) {
               row = rows[n];
-              if (Object.keys(idents).length > 100000) { // if we keep too many in memory we run out of memory
+              idl = Object.keys(idents).length;
+              if (idl >= 100000) { // if we keep too many in memory we run out of memory
+                console.log(org.name, s.name, 'saving', idl);
+                orgtotal += idl;
                 await this.oareport.works(Object.values(idents));
                 idents = {};
               }
@@ -8843,28 +8847,32 @@ P.oareport.orgs.supplement = async function(orgname, sheetname) {
               // awaiting each instead of awaiting all takes about 250s. So awaiting all with 20ms sleep gives good speed with ES having some breathing space
               await this.sleep(20);
               runs.push(this.oareport.works._supplement(row, org, s, headers, idents, started, hstarted));
+              if (idl % 1000 === 0) {
+                console.log(org.name, s.name, runs.length, idl, Date.now() - started);
+              }
             }
           }
         }
       }
     }
-    //console.log(org.name, s.name, runs.length, dlv, Date.now() - started) if (dlv = Object.values(idents).length) % 1000 is 0
     await Promise.all(runs);
+    console.log('report orgs supplemented from sheets for', org.name, orgtotal, Date.now() - started, 'will now check for by query');
     idl = Object.keys(idents).length;
-    total += idl;
-    if (idl) {
-      // do they have to be written first then again, to ensure the queries match? Would queries require all supps data?
-      // yes, see https://github.com/oaworks/Gates/issues/698#issuecomment-1979817449
-      await this.oareport.works(Object.values(idents));
+    orgtotal += idl;
+    if (orgtotal) {
+      if (idl) {
+        // have to be write first to ensure the queries match, see https://github.com/oaworks/Gates/issues/698#issuecomment-1979817449
+        await this.oareport.works(Object.values(idents));
+      }
       idents = {};
-      for (an in (ref5 = org.analysis) != null ? ref5 : []) {
-        if (org.analysis[an].query && ((ref6 = !org.analysis[an].make_key) === false || ref6 === 'false' || ref6 === 'False' || ref6 === 'FALSE')) {
-          ref7 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'oareport_works', org.analysis[an].query, {
+      for (an in (ref6 = org.analysis) != null ? ref6 : []) {
+        if (org.analysis[an].query && ((ref7 = !org.analysis[an].make_key) === false || ref7 === 'false' || ref7 === 'False' || ref7 === 'FALSE')) {
+          ref8 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'oareport_works', org.analysis[an].query, {
             scroll: '30m'
           });
-          for await (qrc of ref7) {
-            kv = (ref8 = (ref9 = o.analysis[an].key) != null ? ref9 : o.analysis[an].name) != null ? ref8 : an;
-            dv = (ref10 = org.analysis[an].value) != null ? ref10 : true;
+          for await (qrc of ref8) {
+            kv = (ref9 = (ref10 = o.analysis[an].key) != null ? ref10 : o.analysis[an].name) != null ? ref9 : an;
+            dv = (ref11 = org.analysis[an].value) != null ? ref11 : true;
             if (org.analysis[an].list) {
               dv = [dv];
             }
@@ -8877,14 +8885,16 @@ P.oareport.orgs.supplement = async function(orgname, sheetname) {
           }
         }
       }
-      idl = Object.keys(idents).length;
-      total += idl;
-      if (idl) {
+      if (idl = Object.keys(idents).length) {
+        orgtotal += idl;
         await this.oareport.works(Object.values(idents));
+        console.log('report orgs supplemented by query', org.name, idl, Date.now() - started);
       }
+      total += orgtotal;
     }
+    console.log('report orgs supplemented done for', org.name, orgtotal, Date.now() - started);
   }
-  console.log('report orgs supplemented', total, Date.now() - started);
+  console.log('report orgs supplemented complete', total, Date.now() - started);
   return total;
 };
 
@@ -9551,63 +9561,6 @@ P.oareport.works.load._auth = '@oa.works';
 //  qry.collapse = field: 'DOI.keyword'
 //  console.log JSON.stringify qry
 //  return @index._send 'src_crossref_works,paradigm_b_oareport_orgs_supplements/_search', qry
-`_queue_batch = {}
-_queue_batch_last = false
-_do_batch = []
-_processed_batch = {}
-_processed_batch_last = false
-
-P.oareport._handle_queue = ->
-  _queue_batch_last = Date.now() if _queue_batch_last is false
-  qb = Object.keys _queue_batch
-  if qb.length >= 5000 or Date.now() > (_queue_batch_last + 30000)
-    _queue_batch = {}
-    batch = []
-    ca = Date.now()
-    batch.push(_id: d, createdAt: ca) while d = qb.shift()
-    @oareport.queued batch
-    _queue_batch_last = ca
-  @oareport._handle_processed() if _processed_batch_last is false
-  setTimeout @oareport._handle_queue, 15000
-
-P.oareport._handle_processed = ->
-  _processed_batch_last = Date.now() if _processed_batch_last is false
-  if Object.keys(_processed_batch).length >= 5000 or Date.now() > (_processed_batch_last + 30000)
-    pb = _processed_batch
-    _processed_batch = {}
-    @oareport.works Object.values pb
-    pbk = Object.keys pb
-    @index._bulk 'paradigm_' + (if @S.dev then 'b_' else '') + 'oareport_processing', pbk, 'delete'
-    await @index._bulk 'paradigm_' + (if @S.dev then 'b_' else '') + 'oareport_queued', pbk, 'delete'
-    _processed_batch_last = Date.now()
-  setTimeout @oareport._handle_processed, 15000
-
-P.oareport.queued = _index: true
-P.oareport.processing = _index: true
-P.oareport.queue = (idents) -> # idents could be DOIs, openalex IDs or PMCIDs
-  await @oareport.queued('') if @params.empty
-  idents ?= @params.queue
-  idents = [idents] if not Array.isArray idents
-  _queue_batch[ident.toLowerCase()] = true for ident in idents when typeof ident is 'string'
-  @oareport._handle_queue() if _queue_batch_last is false
-  return if Array.isArray(idents) then idents.length else 1
-P.oareport.queue._bg = true
-P.oareport.queue._log = false
-P.oareport.queue._auth = '@oa.works'
-
-P.oareport._runqueue = (qry = '*') ->
-  if not _do_batch.length
-    q = await @oareport.queued qry, size: 1000 # make the default query random so multiple servers can pick up from it?
-    _do_batch.push(qd._id) for qd in (q?.hits?.hits ? []) when qd._id not in _do_batch and not _processed_batch[qd._id]?
-  if not _do_batch.length
-    await @sleep 5000
-  else
-    ident = _do_batch.shift()
-    if not await @oareport.processing ident
-      await @oareport.processing _id: ident
-      _processed_batch[_id] = await @oareport.works.process ident
-  @oareport._handle_queue() if _queue_batch_last is false
-  return true`;
 
 var indexOf = [].indexOf;
 
@@ -17980,6 +17933,149 @@ P.ping = async function() {
   }
 };
 
+var _do_batch, _processed_batch, _processed_batch_last, _queue_batch, _queue_batch_last, _queue_master, _queue_runner;
+
+_queue_master = process.env.name && process.env.name.includes('queue_run_master');
+
+_queue_runner = process.env.name && process.env.name.includes('queue_run');
+
+_queue_batch = {};
+
+_queue_batch_last = 0;
+
+_do_batch = {};
+
+_processed_batch = {};
+
+_processed_batch_last = false;
+
+P.queue = {
+  _index: true
+};
+
+P.queue.processing = {
+  _index: true
+};
+
+P.enqueue = async function(idents) { // idents could be DOIs, openalex IDs or PMCIDs
+  var i, ident, len;
+  if (this.params.empty) {
+    await this.queue('');
+    await this.queue.processing('');
+  }
+  if (idents == null) {
+    idents = this.params.enqueue;
+  }
+  if (!Array.isArray(idents)) {
+    idents = [idents];
+  }
+  for (i = 0, len = idents.length; i < len; i++) {
+    ident = idents[i];
+    if (ident != null) {
+      _queue_batch[ident] = ident;
+    }
+  }
+  if (_queue_batch_last === 0) {
+    this.queue._handle();
+  }
+  if (Array.isArray(idents)) {
+    return idents.length;
+  } else {
+    return 1;
+  }
+};
+
+P.enqueue._bg = true;
+
+P.enqueue._log = false;
+
+P.enqueue._auth = '@oa.works';
+
+P.queue.batch = async function(qry = '*') {
+  var nb, qd, ref, ref1;
+  if (_queue_master) {
+    if (_queue_batch_last === 0) { // this is startup, so move everything from processing back to queue, in case it never completed
+      ref = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'queue_processing');
+      for await (qd of ref) {
+        _queue_batch[qd._id] = qd;
+      }
+      await this.queue.processing('');
+      await this.queue._handle();
+    }
+    nb = this.params.requested ? [] : _do_batch;
+    ref1 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'queue', qry, {
+      size: 1000
+    });
+    for await (qd of ref1) {
+      if (this.params.requested || ((nb[qd._id] == null) && (_processed_batch[qd._id] == null))) {
+        nb[qd._id] = qd;
+      }
+    }
+    await this.queue.processing(Object.values(nb));
+    return (await this.index._bulk('paradigm_' + (this.S.dev ? 'b_' : '') + 'queue', Object.keys(nb), 'delete'));
+  } else {
+    return _do_batch = (await this.fetch(this.S.queue.master + '/queue/batch?requested'));
+  }
+};
+
+P.queue._handle = function() {
+  var batch, k;
+  if (Object.keys(_queue_batch).length >= 5000 || Date.now() > (_queue_batch_last + 10000)) {
+    _queue_batch_last = Date.now();
+    batch = [];
+    for (k in _queue_batch) {
+      k = typeof _queue_batch[k] !== 'object' ? {
+        _id: k
+      } : _queue_batch[k];
+      if (k._id == null) {
+        k._id = k;
+      }
+      if (k.createdAt == null) {
+        k.createdAt = _queue_batch_last;
+      }
+      batch.push(k);
+    }
+    this.queue(batch);
+    _queue_batch = {};
+  }
+  if (_processed_batch_last === false) {
+    this.queue._processed();
+  }
+  return setTimeout(this.queue._handle, 10000);
+};
+
+P.queue._processed = function() {
+  var pbk;
+  if (_processed_batch_last === false) {
+    _processed_batch_last = Date.now();
+  }
+  pbk = Object.keys(_processed_batch);
+  if (pbk.length >= 5000 || Date.now() > (_processed_batch_last + 10000)) {
+    this.oareport.works(Object.values(_processed_batch)); // need to know where to save (if anywhere) for a generic queue
+    this.index._bulk('paradigm_' + (this.S.dev ? 'b_' : '') + 'queue_processing', pbk, 'delete');
+    _processed_batch = {};
+    _processed_batch_last = Date.now();
+  }
+  return setTimeout(this.queue._processed, 10000);
+};
+
+P.queue._run = async function(qry) {
+  var dbk, ident;
+  if (!Object.keys(_do_batch).length) {
+    await this.sleep(2000);
+    await this.queue.batch(qry);
+  }
+  dbk = Object.keys(_do_batch);
+  while (ident = dbk.shift()) {
+    _processed_batch[ident] = (await this.oareport.works.process(_do_batch(ident))); // need to know the task to run for a generic queue
+  }
+  _do_batch = {};
+  if (_queue_batch_last === false) {
+    this.queue._handle();
+  }
+  return true;
+};
+
 // https://jcheminf.springeropen.com/articles/10.1186/1758-2946-3-47
 P.scrape = async function(content, doi) {
   var cl, cnts, d, i, j, k, kk, l, len, len1, len2, len3, len4, m, me, meta, mk, mkp, mls, mm, mr, mstr, my, n, o, p, q, ref, ref1, ref2, ref3, ref4, str, ud;
@@ -18514,7 +18610,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Sun Apr 14 2024 04:01:43 GMT+0100";
+S.built = "Tue Apr 16 2024 04:42:10 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
