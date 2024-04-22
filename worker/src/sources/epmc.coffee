@@ -41,7 +41,7 @@ P.src.epmc.doi = (ident, refresh) ->
   exists = await @src.epmc 'doi:"' + ident + '"'
   if exists?.hits?.total
     return exists.hits.hits[0]._source
-  else if not refresh and Date.now() - ((await @src.epmc.notinepmc ident)?.checkedAt ? 0) < 1209600000 # 1000*60*60*24*14 # if we checked in the last fourteen days, don't check again
+  else if not refresh and Date.now() - ((await @src.epmc.notinepmc ident)?.checkedAt ? 0) < 2419200000 # 1000*60*60*24*14 # if we checked in the last 28 days, don't check again
     return
   else
     res = await @src.epmc.search 'DOI:' + ident
@@ -60,7 +60,7 @@ P.src.epmc.pmid = (ident, refresh) ->
   exists = await @src.epmc 'pmid:"' + ident + '"'
   if exists?.hits?.total
     return exists.hits.hits[0]._source
-  else if not refresh and Date.now() - ((await @src.epmc.notinepmc ident)?.checkedAt ? 0) < 1209600000
+  else if not refresh and Date.now() - ((await @src.epmc.notinepmc ident)?.checkedAt ? 0) < 2419200000
     return
   else
     res = await @src.epmc.search 'EXT_ID:' + ident + ' AND SRC:MED'
@@ -77,7 +77,7 @@ P.src.epmc.pmc = (ident, refresh) ->
   exists = await @src.epmc 'pmcid:"' + ident + '"'
   if exists?.hits?.total
     return exists.hits.hits[0]._source
-  else if not refresh and Date.now() - ((await @src.epmc.notinepmc ident)?.checkedAt ? 0) < 1209600000
+  else if not refresh and Date.now() - ((await @src.epmc.notinepmc ident)?.checkedAt ? 0) < 2419200000
     return
   else
     res = await @src.epmc.search 'PMCID:' + ident

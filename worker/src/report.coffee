@@ -232,22 +232,25 @@ P.report.oapolicy = _sheet: S.report.oapolicy_sheet, _format: (recs=[]) ->
 
 P.report.cleandoi = (doi) ->
   doi ?= @params.cleandoi ? @params.doi
+  try doi = doi.split(',http')[0] # due to dirty data
   try doi = '10.' + doi.split('/10.')[1] if doi.startsWith 'http'
   try doi = doi.toLowerCase().replace('doi ', '') if doi.startsWith 'doi '
-  try doi = doi.toLowerCase().trim().split('\\')[0].replace(/\/\//g, '/').replace(/\/ /g, '/').replace(/^\//, '').split(' ')[0].split('?')[0].split('#')[0].split(' pmcid')[0].split('\n')[0].replace(/[\u{0080}-\u{FFFF}]/gu, '').trim()
-  try doi = doi.split(',http')[0] # due to dirty data
+  try doi = doi.toLowerCase().trim().split('\\')[0].replace(/\/\//g, '/').replace(/\/ /g, '/').replace(/^\//, '').split(' ')[0].split('&')[0].split('?')[0].split('#')[0].split(' pmcid')[0].split('\n')[0].replace(/[\u{0080}-\u{FFFF}]/gu, '').trim()
   try doi = doi.split('#')[0]
   try doi = doi.replace /#/g, '%23'
+  try doi = doi.replace /\,$/, ''
+  try doi = doi.replace /\.$/, ''
+  try doi = doi.replace /\)$/, ''
   if typeof doi is 'string' and doi.startsWith('10.') and not doi.includes '@'
     return doi
   else
-    return ''
+    return
 P.report.cleandoi._log = false
 
 _report_publishers = []
 P.report.publishers = _sheet: '1M2s1KBycWI5j7SIfIY0mzfkRC4cYr0HoROP7MR6k3GU'
 
-P.report.orgs = _sheet: S.report.orgs_sheet, _format: (recs=[]) ->
+P.report.orgs = _sheet: S.report.orgs_sheet, _format: (recs=[], encrypt) ->
   ready = []
   bs = 0
   for rec in (if typeof recs is 'object' and not Array.isArray(recs) then [recs] else recs)
@@ -272,8 +275,9 @@ P.report.orgs = _sheet: S.report.orgs_sheet, _format: (recs=[]) ->
       else
         nr[h] = rec[h]
     if Array.isArray nr.sheets
-      for s in nr.sheets
-        s.url = await @encrypt s.url
+      if encrypt isnt false
+        for s in nr.sheets
+          s.url = await @encrypt s.url
     else
       delete nr.sheets
     ready.push(nr) if JSON.stringify(nr) isnt '{}'
@@ -769,14 +773,14 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
         rec[k] ?= exists[k] for k of exists when k not in ['orgs_by_query']
       rec.PMCID ?= exists.PMCID
 
-    if rec.DOI and not refresh?
-      for await o from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs', 'paid:true', scroll: '10m'
-        if o.name not in rec.orgs and o.source?.crossref
-          try o.source.crossref = decodeURIComponent(decodeURIComponent(o.source.crossref)) if o.source.crossref.includes '%'
-          try rec.orgs.push(o.name) if matches = await @src.crossref.works '(' + o.source.crossref + ') AND DOI.keyword:"' + rec.DOI + '"', 1
-        if o.name not in rec.orgs and o.source?.openalex
-          try o.source.openalex = decodeURIComponent(decodeURIComponent(o.source.openalex)) if o.source.openalex.includes '%'
-          try rec.orgs.push(o.name) if matches = await @src.openalex.works '(' + o.source.openalex + ') AND ids.doi.keyword:"https://doi.org/' + rec.DOI + '"', 1
+    #if rec.DOI and not refresh?
+    #  for await o from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs', 'paid:true', scroll: '10m'
+    #    if o.name not in rec.orgs and o.source?.crossref
+    #      try o.source.crossref = decodeURIComponent(decodeURIComponent(o.source.crossref)) if o.source.crossref.includes '%'
+    #      try rec.orgs.push(o.name) if matches = await @src.crossref.works '(' + o.source.crossref + ') AND DOI.keyword:"' + rec.DOI + '"', 1
+    #    if o.name not in rec.orgs and o.source?.openalex
+    #      try o.source.openalex = decodeURIComponent(decodeURIComponent(o.source.openalex)) if o.source.openalex.includes '%'
+    #      try rec.orgs.push(o.name) if matches = await @src.openalex.works '(' + o.source.openalex + ') AND ids.doi.keyword:"https://doi.org/' + rec.DOI + '"', 1
 
     if rec.authorships? and rec.email and not rec.author_email_name and (refresh or not exists?.authorships? or not exists?.email)
       email = if rec.email.includes('@') then rec.email else await @decrypt rec.email
