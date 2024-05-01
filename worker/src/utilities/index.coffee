@@ -373,8 +373,10 @@ P.index.mapping = (route, map) ->
 
 
 # use this like: for await rec from @index._for route, q, opts
+# or call from an endpoint it is attached to such as for await rec from await @src.crossref.works._for q, opts
+# NOTE the extra await required when attached to an endpoint
 # see index._each below for example of how to call this for/yield generator
-P.index._for = (route, q, opts, prefix, alias) ->
+P.index._for = (route, q, opts, prefix, alias, url) ->
   opts = {until: opts} if typeof opts is 'number'
   if opts?.scroll # set this longer, e.g. 10m, if the processing to be done with the records may take longer than a minute
     scroll = opts.scroll
@@ -393,6 +395,23 @@ P.index._for = (route, q, opts, prefix, alias) ->
   qy.sort ?= ['_doc'] # performance improved for scrolling sorted on _doc if no other sort was configured
   # use scan/scroll for each, because _pit is only available in "default" ES, which ES means is NOT the open one, so our OSS distro does not include it!
   # https://www.elastic.co/guide/en/elasticsearch/reference/7.10/paginate-search-results.html#search-after
+
+  rso = route.split('/')[0]
+  dtp = await @dot P, rso.replace /_/g, '.' # need to do this here as well as in _send so it can be set in each subsequent /_search/scroll request
+  alias ?= @params._alias ? @S.alias?[if rso.startsWith(@S.index.name + '_') then rso.replace(@S.index.name + '_', '') else rso] ? dtp?._alias
+  if typeof alias is 'string'
+    alias = '_' + alias if not alias.startsWith '_'
+    alias = alias.replace /\//g, '_'
+    route = route.replace(rso, rso + alias) if not rso.endsWith alias
+  prefix = @S.index.name if prefix is true
+  prefix ?= dtp?._prefix ? @S.index.name
+  if typeof prefix is 'string'
+    prefix += '_' if prefix.length and not prefix.endsWith '_'
+    route = prefix + route if not route.startsWith prefix
+  # have to work out URL here as well as in _send because when we call _send below it will only know the route is /_search/scroll, so can't check the settings for a different URL for the real route for the data to bulk
+  url ?= @S.route?[if rso.startsWith(@S.index.name + '_') then rso.replace(@S.index.name + '_', '') else rso] ? dtp?._route ? (if this?.S?.index?.url then @S.index.url else S.index?.url)
+  url = url[Math.floor(Math.random()*url.length)] if Array.isArray url
+
   res = await @index._send route + '/_search?scroll=' + scroll, qy, undefined, prefix, alias
   if res?._scroll_id
     prs = res._scroll_id.replace /==$/, ''
@@ -400,9 +419,9 @@ P.index._for = (route, q, opts, prefix, alias) ->
   counter = 0
   loop
     if (not res?.hits?.hits or res.hits.hits.length is 0) and res?._scroll_id # get more if possible
-      res = await @index._send '/_search/scroll?scroll=' + scroll + '&scroll_id=' + res._scroll_id, undefined, undefined, prefix, alias
+      res = await @index._send '/_search/scroll?scroll=' + scroll + '&scroll_id=' + res._scroll_id, undefined, undefined, prefix, alias, url
       if res?._scroll_id isnt prs
-        await @index._send '/_search/scroll?scroll_id=' + prs, '', undefined, prefix, alias
+        await @index._send '/_search/scroll?scroll_id=' + prs, '', undefined, prefix, alias, url
         prs = res?._scroll_id
     if counter isnt max and res?.hits?.hits? and res.hits.hits.length
       counter += 1
@@ -411,7 +430,7 @@ P.index._for = (route, q, opts, prefix, alias) ->
       ret._id ?= r._id
       yield ret
     else
-      await @index._send('/_search/scroll?scroll_id=' + prs, '', undefined, prefix, alias) if prs # don't keep too many old scrolls open (default ES max is 500)
+      await @index._send('/_search/scroll?scroll_id=' + prs, '', undefined, prefix, alias, url) if prs # don't keep too many old scrolls open (default ES max is 500)
       break
   return
 
@@ -704,6 +723,35 @@ P.index.translate = (q, opts) ->
   return qry
 
 P.index.translate._auth = false
+
+
+'''P.index._locate = (route) -> # INCOMPLETE - since calculating route alias prefix etc relative to calling function is useful in more than just _send, it's probably worth separating it out, but haven't bothered doing so yet.
+  route = route.split('?')[0]
+  route = route.toLowerCase() # force lowercase on all IDs so that can deal with users giving incorrectly cased IDs for things like DOIs which are defined as case insensitive
+  route = route.replace('/','') if route.startsWith '/' # gets added back in when combined with the url
+  route = route.replace(/\/$/,'') if route.endsWith '/'
+  try route = route.replace(/#/g, '%23') if route.split('/').pop().includes '#'
+  if not route.startsWith 'http' # which it probably doesn't
+    rso = route.split('/')[0]
+    if not route.startsWith '_'
+      dtp = await @dot P, rso.replace /_/g, '.'
+      alias ?= @params._alias ? @S.alias?[if rso.startsWith(@S.index.name + '_') then rso.replace(@S.index.name + '_', '') else rso] ? dtp?._alias
+      if typeof alias is 'string'
+        alias = '_' + alias if not alias.startsWith '_'
+        alias = alias.replace /\//g, '_'
+        route = route.replace(rso, rso + alias) if not rso.endsWith alias
+      prefix ?= dtp?._prefix ? @S.index.name
+      prefix = @S.index.name if prefix is true
+      if typeof prefix is 'string'
+        prefix += '_' if prefix.length and not prefix.endsWith '_'
+        route = prefix + route if not route.startsWith prefix # TODO could allow prefix to be a list of names, and if index name is in the list, alias the index into those namespaces, to share indexes between specific instances rather than just one or global
+    url ?= @S.route?[if rso.startsWith(@S.index.name + '_') then rso.replace(@S.index.name + '_', '') else rso] ? dtp?._route ? (if this?.S?.index?.url then @S.index.url else S.index?.url)
+    url = url[Math.floor(Math.random()*url.length)] if Array.isArray url
+    if typeof url isnt 'string'
+      return undefined
+    route = url + '/' + route
+  return route'''
+
 
 # calling this should be given a correct URL route for ES7.x, domain part of the URL is optional though.
 # call the above to have the route constructed. method is optional and will be inferred if possible (may be removed)

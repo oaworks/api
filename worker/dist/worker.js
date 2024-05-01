@@ -8809,7 +8809,8 @@ P.oareport.orgs.supplement = async function(orgname, sheetname) {
             if (Array.isArray(rows) && rows.length) {
               idents = {};
               console.log(org.name, sheet.name, 'preloading', (await this.oareport.works.count('DOI:* AND supplements.sheets.keyword:"' + sheet.name + '"')));
-              ref5 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'oareport_works', 'DOI:* AND supplements.sheets.keyword:"' + sheet.name + '"');
+              ref5 = (await this.oareport.works._for('DOI:* AND supplements.sheets.keyword:"' + sheet.name + '"'));
+              //for await qrc from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'oareport_works', 'DOI:* AND supplements.sheets.keyword:"' + sheet.name + '"'
               for await (qrc of ref5) {
                 cps = [];
                 ref6 = qrc.supplements;
@@ -8947,7 +8948,7 @@ P.oareport.orgs.supplement = async function(orgname, sheetname) {
                   }
                   idents[_id].supplements.push(sup);
                 }
-                if ((rc = parseInt(r)) && rc % 100 === 0) {
+                if ((rc = parseInt(r)) && rc % 1000 === 0) {
                   //await @oareport.works._supplement row, org, s, headers, idents, started, hstarted, @params.update
                   console.log(org.name, sheet.name, s, 'of', sheets.length, 'row', r, 'of', rows.length, Date.now() - started);
                 }
@@ -8972,7 +8973,8 @@ P.oareport.orgs.supplement = async function(orgname, sheetname) {
               dv = [dv];
             }
             console.log('report orgs supplementing by query', org.name, an, kv, (await this.oareport.works.count(dqr)));
-            ref26 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'oareport_works', dqr);
+            ref26 = (await this.oareport.works._for(dqr));
+            //for await qrc from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'oareport_works', dqr
             for await (qrc of ref26) {
               if (idents[name1 = qrc.DOI] == null) {
                 idents[name1] = qrc;
@@ -9468,10 +9470,11 @@ P.oareport.works.load = async function(idents, timestamp, org, year) {
     idents = [idents];
   }
   if (this.params.q) {
-    ref3 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'oareport_works', this.params.q, {
+    ref3 = (await this.oareport.works._for(this.params.q, {
       scroll: '5m',
       include: ['DOI', 'openalex', 'PMCID']
-    });
+    }));
+    //for await sw from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'oareport_works', @params.q, scroll: '5m', include: ['DOI', 'openalex', 'PMCID']
     for await (sw of ref3) {
       idents.push((ref4 = (ref5 = sw.DOI) != null ? ref5 : sw.openalex) != null ? ref4 : sw.PMCID);
     }
@@ -9484,12 +9487,13 @@ P.oareport.works.load = async function(idents, timestamp, org, year) {
       if (timestamp) {
         q = '(' + q + ') AND ' + (cr ? 'srcday' : 'updated_date') + ':>' + timestamp;
       }
-      ref6 = this.index._for((cr ? 'src_crossref_works' : 'src_openalex_works'), q, {
+      ref6 = (await this.src[cr ? 'crossref' : 'openalex'].works._for(q, {
         include: (cr ? ['DOI'] : ['id', 'ids']),
         scroll: '10m'
-      });
+      }));
       //precount = await @src[if cr then 'crossref' else 'openalex'].works.count q
       //console.log 'report works load ' + (if cr then 'crossref' else 'openalex') + ' by query expects', q, precount
+      //for await r from @index._for (if cr then 'src_crossref_works' else 'src_openalex_works'), q, include: (if cr then ['DOI'] else ['id', 'ids']), scroll: '10m'
       results = [];
       for await (r of ref6) {
         if (od = (r.DOI ? r.DOI : ((ref7 = r.ids) != null ? ref7.doi : void 0) ? '10.' + r.ids.doi.split('/10.')[1] : r.id.split('openalex.org/').pop()) && (timestamp || indexOf.call(idents, od) < 0)) {
@@ -9503,9 +9507,10 @@ P.oareport.works.load = async function(idents, timestamp, org, year) {
     if (!org && year === this.params.load) {
       await Promise.all(_byqry(), _byqry(void 0, true));
     } else {
-      ref6 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'oareport_orgs', (typeof org === 'string' ? 'name.keyword:"' + org + '"' : 'meta.paid:true'), {
+      ref6 = (await this.oareport.orgs._for((typeof org === 'string' ? 'name.keyword:"' + org + '"' : 'meta.paid:true'), {
         scroll: '10m'
-      });
+      }));
+      //for await o from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'oareport_orgs', (if typeof org is 'string' then 'name.keyword:"' + org + '"' else 'meta.paid:true'), scroll: '10m'
       for await (o of ref6) {
         if ((ref7 = o.source) != null ? ref7.openalex : void 0) {
           // if an org has no known records in report/works yet, could default it here to a timestamp of start of current year, or older, to pull in all records first time round
@@ -9517,10 +9522,11 @@ P.oareport.works.load = async function(idents, timestamp, org, year) {
       }
     }
     if (timestamp) {
-      ref9 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'oareport_works', 'DOI:* AND meta.paid:true AND updated:<' + timestamp, {
+      ref9 = (await this.oareport.works._for('DOI:* AND meta.paid:true AND updated:<' + timestamp, {
         include: ['DOI'],
         scroll: '10m'
-      });
+      }));
+      //for await ot from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'oareport_works', 'DOI:* AND meta.paid:true AND updated:<' + timestamp, include: ['DOI'], scroll: '10m'
       for await (ot of ref9) {
         if (ref10 = ot.DOI, indexOf.call(idents, ref10) < 0) {
           idents.push(ot.DOI);
@@ -9544,6 +9550,49 @@ P.oareport.works.load._bg = true;
 P.oareport.works.load._async = true;
 
 P.oareport.works.load._auth = '@oa.works';
+
+`P.oareport.testfors = ->
+res = byindex: 0, byroute: 0, fromindex: [], fromroute: []
+for await r from @index._for 'paradigm_b_oareport_works', '*', until: 20, include: ['DOI']
+  console.log res.byindex, res.byroute, r.DOI
+  res.byindex += 1
+  res.fromindex.push r
+for await p from await @oareport.works._for '*', until: 20, include: ['DOI']
+  console.log res.byindex, res.byroute, p.DOI
+  res.byroute += 1
+  res.fromroute.push p
+return res`;
+
+`_works_map = new Map()
+_works_map_last = Date.now() # generalise this into index? Could get quite big in memory, and is it any faster/better than update to ES?
+P.oareport.works.update = (recs, previous, immediate) ->
+  recs ?= @params.update ? @body
+  if typeof recs is 'string'
+    return _works_map.get(recs) ? @oareport.works recs
+  
+  recs = [recs] if not Array.isArray recs
+  previous ?= []
+  previous = [previous] if not Array.isArray previous
+  for r of recs ? []
+    rec = recs[r]
+    rec._id = rec.DOI.toLowerCase().replace(/\//g, '_') if not rec._id and rec.DOI
+    if rec?._id
+      if work = _works_map.get(rec._id) ? previous[r] ? await @oareport.works rec._id
+        for k of rec
+          work[k] = rec[k] # cascade through complex objects, handle extra supps, etc
+      else
+      _works_map.set rec._id, rec
+    else
+      await @oareport.works rec
+
+  now = Date.now()
+  ws = _works_map.size
+  if ws and (immediate or ws >= 10000 or _works_map_last < now - 600000)
+    await @oareport.works [..._works_map.values()]
+    _works_map = new Map() if ws >= 10000
+    _works_map_last = now
+  return work ? rec`;
+
 
 //P.oareport.query = ->
 //  qry = await @index.translate @params
@@ -16297,9 +16346,11 @@ P.index.mapping = async function(route, map) {
 };
 
 // use this like: for await rec from @index._for route, q, opts
+// or call from an endpoint it is attached to such as for await rec from await @src.crossref.works._for q, opts
+// NOTE the extra await required when attached to an endpoint
 // see index._each below for example of how to call this for/yield generator
-P.index._for = async function*(route, q, opts, prefix, alias) {
-  var counter, max, prs, qy, r, ref1, ref2, ref3, ref4, ref5, res, ret, scroll;
+P.index._for = async function*(route, q, opts, prefix, alias, url) {
+  var counter, dtp, max, prs, qy, r, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, ret, rso, scroll;
   if (typeof opts === 'number') {
     opts = {
       until: opts
@@ -16334,33 +16385,68 @@ P.index._for = async function*(route, q, opts, prefix, alias) {
   }
   // use scan/scroll for each, because _pit is only available in "default" ES, which ES means is NOT the open one, so our OSS distro does not include it!
   // https://www.elastic.co/guide/en/elasticsearch/reference/7.10/paginate-search-results.html#search-after
+  rso = route.split('/')[0];
+  dtp = (await this.dot(P, rso.replace(/_/g, '.'))); // need to do this here as well as in _send so it can be set in each subsequent /_search/scroll request
+  if (alias == null) {
+    alias = (ref2 = (ref3 = this.params._alias) != null ? ref3 : (ref4 = this.S.alias) != null ? ref4[rso.startsWith(this.S.index.name + '_') ? rso.replace(this.S.index.name + '_', '') : rso] : void 0) != null ? ref2 : dtp != null ? dtp._alias : void 0;
+  }
+  if (typeof alias === 'string') {
+    if (!alias.startsWith('_')) {
+      alias = '_' + alias;
+    }
+    alias = alias.replace(/\//g, '_');
+    if (!rso.endsWith(alias)) {
+      route = route.replace(rso, rso + alias);
+    }
+  }
+  if (prefix === true) {
+    prefix = this.S.index.name;
+  }
+  if (prefix == null) {
+    prefix = (ref5 = dtp != null ? dtp._prefix : void 0) != null ? ref5 : this.S.index.name;
+  }
+  if (typeof prefix === 'string') {
+    if (prefix.length && !prefix.endsWith('_')) {
+      prefix += '_';
+    }
+    if (!route.startsWith(prefix)) {
+      route = prefix + route;
+    }
+  }
+  // have to work out URL here as well as in _send because when we call _send below it will only know the route is /_search/scroll, so can't check the settings for a different URL for the real route for the data to bulk
+  if (url == null) {
+    url = (ref6 = (ref7 = (ref8 = this.S.route) != null ? ref8[rso.startsWith(this.S.index.name + '_') ? rso.replace(this.S.index.name + '_', '') : rso] : void 0) != null ? ref7 : dtp != null ? dtp._route : void 0) != null ? ref6 : ((this != null ? (ref9 = this.S) != null ? (ref10 = ref9.index) != null ? ref10.url : void 0 : void 0 : void 0) ? this.S.index.url : (ref11 = S.index) != null ? ref11.url : void 0);
+  }
+  if (Array.isArray(url)) {
+    url = url[Math.floor(Math.random() * url.length)];
+  }
   res = (await this.index._send(route + '/_search?scroll=' + scroll, qy, void 0, prefix, alias));
   if (res != null ? res._scroll_id : void 0) {
     prs = res._scroll_id.replace(/==$/, '');
   }
-  if ((res != null ? (ref2 = res.hits) != null ? ref2.total : void 0 : void 0) && ((max == null) || max > res.hits.total)) {
+  if ((res != null ? (ref12 = res.hits) != null ? ref12.total : void 0 : void 0) && ((max == null) || max > res.hits.total)) {
     max = res.hits.total;
   }
   counter = 0;
   while (true) {
-    if ((!(res != null ? (ref3 = res.hits) != null ? ref3.hits : void 0 : void 0) || res.hits.hits.length === 0) && (res != null ? res._scroll_id : void 0)) { // get more if possible
-      res = (await this.index._send('/_search/scroll?scroll=' + scroll + '&scroll_id=' + res._scroll_id, void 0, void 0, prefix, alias));
+    if ((!(res != null ? (ref13 = res.hits) != null ? ref13.hits : void 0 : void 0) || res.hits.hits.length === 0) && (res != null ? res._scroll_id : void 0)) { // get more if possible
+      res = (await this.index._send('/_search/scroll?scroll=' + scroll + '&scroll_id=' + res._scroll_id, void 0, void 0, prefix, alias, url));
       if ((res != null ? res._scroll_id : void 0) !== prs) {
-        await this.index._send('/_search/scroll?scroll_id=' + prs, '', void 0, prefix, alias);
+        await this.index._send('/_search/scroll?scroll_id=' + prs, '', void 0, prefix, alias, url);
         prs = res != null ? res._scroll_id : void 0;
       }
     }
-    if (counter !== max && ((res != null ? (ref4 = res.hits) != null ? ref4.hits : void 0 : void 0) != null) && res.hits.hits.length) {
+    if (counter !== max && ((res != null ? (ref14 = res.hits) != null ? ref14.hits : void 0 : void 0) != null) && res.hits.hits.length) {
       counter += 1;
       r = res.hits.hits.shift();
-      ret = (ref5 = r._source) != null ? ref5 : r.fields;
+      ret = (ref15 = r._source) != null ? ref15 : r.fields;
       if (ret._id == null) {
         ret._id = r._id;
       }
       yield ret;
     } else {
       if (prs) { // don't keep too many old scrolls open (default ES max is 500)
-        await this.index._send('/_search/scroll?scroll_id=' + prs, '', void 0, prefix, alias);
+        await this.index._send('/_search/scroll?scroll_id=' + prs, '', void 0, prefix, alias, url);
       }
       break;
     }
@@ -16924,6 +17010,33 @@ P.index.translate = function(q, opts) {
 };
 
 P.index.translate._auth = false;
+
+`P.index._locate = (route) -> # INCOMPLETE - since calculating route alias prefix etc relative to calling function is useful in more than just _send, it's probably worth separating it out, but haven't bothered doing so yet.
+route = route.split('?')[0]
+route = route.toLowerCase() # force lowercase on all IDs so that can deal with users giving incorrectly cased IDs for things like DOIs which are defined as case insensitive
+route = route.replace('/','') if route.startsWith '/' # gets added back in when combined with the url
+route = route.replace(/\/$/,'') if route.endsWith '/'
+try route = route.replace(/#/g, '%23') if route.split('/').pop().includes '#'
+if not route.startsWith 'http' # which it probably doesn't
+  rso = route.split('/')[0]
+  if not route.startsWith '_'
+    dtp = await @dot P, rso.replace /_/g, '.'
+    alias ?= @params._alias ? @S.alias?[if rso.startsWith(@S.index.name + '_') then rso.replace(@S.index.name + '_', '') else rso] ? dtp?._alias
+    if typeof alias is 'string'
+      alias = '_' + alias if not alias.startsWith '_'
+      alias = alias.replace /\//g, '_'
+      route = route.replace(rso, rso + alias) if not rso.endsWith alias
+    prefix ?= dtp?._prefix ? @S.index.name
+    prefix = @S.index.name if prefix is true
+    if typeof prefix is 'string'
+      prefix += '_' if prefix.length and not prefix.endsWith '_'
+      route = prefix + route if not route.startsWith prefix # TODO could allow prefix to be a list of names, and if index name is in the list, alias the index into those namespaces, to share indexes between specific instances rather than just one or global
+  url ?= @S.route?[if rso.startsWith(@S.index.name + '_') then rso.replace(@S.index.name + '_', '') else rso] ? dtp?._route ? (if this?.S?.index?.url then @S.index.url else S.index?.url)
+  url = url[Math.floor(Math.random()*url.length)] if Array.isArray url
+  if typeof url isnt 'string'
+    return undefined
+  route = url + '/' + route
+return route`;
 
 // calling this should be given a correct URL route for ES7.x, domain part of the URL is optional though.
 // call the above to have the route constructed. method is optional and will be inferred if possible (may be removed)
@@ -17922,148 +18035,80 @@ P.ping = async function() {
   }
 };
 
-var _do_batch, _processed_batch, _processed_batch_last, _queue_batch, _queue_batch_last, _queue_master, _queue_runner;
+`_queue_master = process.env.name and process.env.name.includes 'queue_run_master'
+_queue_runner = process.env.name and process.env.name.includes 'queue_run'
 
-_queue_master = process.env.name && process.env.name.includes('queue_run_master');
+_queue_batch = {}
+_queue_batch_last = 0
+_do_batch = {}
+_processed_batch = {}
+_processed_batch_last = false
 
-_queue_runner = process.env.name && process.env.name.includes('queue_run');
+P.queue = _index: true
+P.queue.processing = _index: true
 
-_queue_batch = {};
+P.enqueue = (idents) -> # idents could be DOIs, openalex IDs or PMCIDs
+  if @params.empty
+    await @queue ''
+    await @queue.processing ''
+  idents ?= @params.enqueue
+  idents = [idents] if not Array.isArray idents
+  _queue_batch[ident] = ident for ident in idents when ident?
+  @queue._handle() if _queue_batch_last is 0
+  return if Array.isArray(idents) then idents.length else 1
+P.enqueue._bg = true
+P.enqueue._log = false
+P.enqueue._auth = '@oa.works'
 
-_queue_batch_last = 0;
+P.queue.batch = (qry = '*') ->
+  if _queue_master
+    if _queue_batch_last is 0 # this is startup, so move everything from processing back to queue, in case it never completed
+      _queue_batch[qd._id] = qd for await qd from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'queue_processing'
+      await @queue.processing ''
+      await @queue._handle()
+    nb = if @params.requested then [] else _do_batch
+    for await qd from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'queue', qry, size: 1000
+      nb[qd._id] = qd if @params.requested or (not nb[qd._id]? and not _processed_batch[qd._id]?)
+    await @queue.processing Object.values nb
+    await @index._bulk 'paradigm_' + (if @S.dev then 'b_' else '') + 'queue', Object.keys(nb), 'delete'
+  else
+    _do_batch = await @fetch @S.queue.master + '/queue/batch?requested'
 
-_do_batch = {};
+P.queue._handle = ->
+  if Object.keys(_queue_batch).length >= 5000 or Date.now() > (_queue_batch_last + 10000)
+    _queue_batch_last = Date.now()
+    batch = []
+    for k of _queue_batch
+      k = if typeof _queue_batch[k] isnt 'object' then {_id: k} else _queue_batch[k]
+      k._id ?= k
+      k.createdAt ?= _queue_batch_last
+      batch.push k
+    @queue batch
+    _queue_batch = {}
+  @queue._processed() if _processed_batch_last is false
+  setTimeout @queue._handle, 10000
 
-_processed_batch = {};
+P.queue._processed = ->
+  _processed_batch_last = Date.now() if _processed_batch_last is false
+  pbk = Object.keys _processed_batch
+  if pbk.length >= 5000 or Date.now() > (_processed_batch_last + 10000)
+    @oareport.works Object.values _processed_batch # need to know where to save (if anywhere) for a generic queue
+    @index._bulk 'paradigm_' + (if @S.dev then 'b_' else '') + 'queue_processing', pbk, 'delete'
+    _processed_batch = {}
+    _processed_batch_last = Date.now()
+  setTimeout @queue._processed, 10000
 
-_processed_batch_last = false;
+P.queue._run = (qry) ->
+  if not Object.keys(_do_batch).length
+    await @sleep 2000
+    await @queue.batch qry
+  dbk = Object.keys _do_batch
+  while ident = dbk.shift()
+    _processed_batch[ident] = await @oareport.works.process _do_batch ident # need to know the task to run for a generic queue
+  _do_batch = {}
+  @queue._handle() if _queue_batch_last is false
+  return true`;
 
-P.queue = {
-  _index: true
-};
-
-P.queue.processing = {
-  _index: true
-};
-
-P.enqueue = async function(idents) { // idents could be DOIs, openalex IDs or PMCIDs
-  var i, ident, len;
-  if (this.params.empty) {
-    await this.queue('');
-    await this.queue.processing('');
-  }
-  if (idents == null) {
-    idents = this.params.enqueue;
-  }
-  if (!Array.isArray(idents)) {
-    idents = [idents];
-  }
-  for (i = 0, len = idents.length; i < len; i++) {
-    ident = idents[i];
-    if (ident != null) {
-      _queue_batch[ident] = ident;
-    }
-  }
-  if (_queue_batch_last === 0) {
-    this.queue._handle();
-  }
-  if (Array.isArray(idents)) {
-    return idents.length;
-  } else {
-    return 1;
-  }
-};
-
-P.enqueue._bg = true;
-
-P.enqueue._log = false;
-
-P.enqueue._auth = '@oa.works';
-
-P.queue.batch = async function(qry = '*') {
-  var nb, qd, ref, ref1;
-  if (_queue_master) {
-    if (_queue_batch_last === 0) { // this is startup, so move everything from processing back to queue, in case it never completed
-      ref = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'queue_processing');
-      for await (qd of ref) {
-        _queue_batch[qd._id] = qd;
-      }
-      await this.queue.processing('');
-      await this.queue._handle();
-    }
-    nb = this.params.requested ? [] : _do_batch;
-    ref1 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'queue', qry, {
-      size: 1000
-    });
-    for await (qd of ref1) {
-      if (this.params.requested || ((nb[qd._id] == null) && (_processed_batch[qd._id] == null))) {
-        nb[qd._id] = qd;
-      }
-    }
-    await this.queue.processing(Object.values(nb));
-    return (await this.index._bulk('paradigm_' + (this.S.dev ? 'b_' : '') + 'queue', Object.keys(nb), 'delete'));
-  } else {
-    return _do_batch = (await this.fetch(this.S.queue.master + '/queue/batch?requested'));
-  }
-};
-
-P.queue._handle = function() {
-  var batch, k;
-  if (Object.keys(_queue_batch).length >= 5000 || Date.now() > (_queue_batch_last + 10000)) {
-    _queue_batch_last = Date.now();
-    batch = [];
-    for (k in _queue_batch) {
-      k = typeof _queue_batch[k] !== 'object' ? {
-        _id: k
-      } : _queue_batch[k];
-      if (k._id == null) {
-        k._id = k;
-      }
-      if (k.createdAt == null) {
-        k.createdAt = _queue_batch_last;
-      }
-      batch.push(k);
-    }
-    this.queue(batch);
-    _queue_batch = {};
-  }
-  if (_processed_batch_last === false) {
-    this.queue._processed();
-  }
-  return setTimeout(this.queue._handle, 10000);
-};
-
-P.queue._processed = function() {
-  var pbk;
-  if (_processed_batch_last === false) {
-    _processed_batch_last = Date.now();
-  }
-  pbk = Object.keys(_processed_batch);
-  if (pbk.length >= 5000 || Date.now() > (_processed_batch_last + 10000)) {
-    this.oareport.works(Object.values(_processed_batch)); // need to know where to save (if anywhere) for a generic queue
-    this.index._bulk('paradigm_' + (this.S.dev ? 'b_' : '') + 'queue_processing', pbk, 'delete');
-    _processed_batch = {};
-    _processed_batch_last = Date.now();
-  }
-  return setTimeout(this.queue._processed, 10000);
-};
-
-P.queue._run = async function(qry) {
-  var dbk, ident;
-  if (!Object.keys(_do_batch).length) {
-    await this.sleep(2000);
-    await this.queue.batch(qry);
-  }
-  dbk = Object.keys(_do_batch);
-  while (ident = dbk.shift()) {
-    _processed_batch[ident] = (await this.oareport.works.process(_do_batch(ident))); // need to know the task to run for a generic queue
-  }
-  _do_batch = {};
-  if (_queue_batch_last === false) {
-    this.queue._handle();
-  }
-  return true;
-};
 
 // https://jcheminf.springeropen.com/articles/10.1186/1758-2946-3-47
 P.scrape = async function(content, doi) {
@@ -18599,7 +18644,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Mon Apr 22 2024 12:08:48 GMT+0100";
+S.built = "Wed May 01 2024 02:30:08 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
