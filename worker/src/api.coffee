@@ -309,8 +309,8 @@ P = () ->
 
   if typeof fn in ['object', 'function'] and fn._bg and typeof @S.bg is 'string' and @S.bg.startsWith 'http'
     throw new Error()
-  else if typeof fn in ['object', 'function'] and fn._async and typeof @S.async is 'string' and (typeof @S.async_runner?[fn._runner ? @fn] isnt 'string' or not process.env.name or not process.env.name.endsWith (fn._runner ? @fn).replace /\./g, '_' )
-    asr = @S.async_runner?[fn._runner ? @fn] ? @S.async
+  else if typeof fn in ['object', 'function'] and (fn._async or (@params.size is 'all' and fn._index and not (process.env.name ? '').endsWith('_makecsv'))) and typeof @S.async is 'string' and (typeof @S.async_runner?[fn._runner ? @fn] isnt 'string' or not process.env.name or not process.env.name.endsWith (fn._runner ? @fn).replace /\./g, '_' )
+    asr = if @params.size is 'all' and fn._index and @S.async_runner?._makecsv then @S.async_runner._makecsv else (@S.async_runner?[fn._runner ? @fn] ? @S.async)
     console.log 'Fetching from async process', asr, @request.url
     res = await @fetch asr + @request.url, method: @request.method, headers: @headers, body: @request.body
   else if typeof fn is 'function'
@@ -624,7 +624,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                     await fs.appendFile out, (if not first then ',"' else '"') + key.replace('supplements.', '') + '"'
                     first = false
                   themax = 100000
-                  for ab in ['@oa.works', 'pcastromartin@', 'wbschmal@']
+                  for ab in ['@oa.works', 'pcastromartin@', 'wbschmal@', 'mailparser.io']
                     themax = 3000000 if notify and notify.includes ab
                   for await blr from @index._for rt, qry, {scroll: '30m', max: themax}
                     await fs.appendFile out, '\n'
@@ -638,7 +638,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                       if blr.funder? and pfs
                         first = true
                         for funder in blr.funder
-                          names += (if first then '' else ';') + (funder.name ? '')
+                          names += (if first then '' else ';') + (funder.name ? '').replace(/"/g, '')
                           funder.award = funder.award.join(' ') if funder.award? and funder.award.length
                           funder.award ?= ''
                           if Array.isArray funder.award
@@ -659,11 +659,11 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                           if author.institutions?
                             fi = true
                             for inst in author.institutions
-                              institutions += (if fi then '' else ',') + (inst.display_name ? '')
+                              institutions += (if fi then '' else ',') + (inst.display_name ? '').replace(/"/g, '')
                               rors += (if fi then '' else ',') + (inst.ror ? '')
                               fi = false
                           orcids += (if orcids then ',' else '') + author.author.orcid if author.author?.orcid
-                          affiliations += (if affiliations then ',' else '') + author.raw_affiliation_string if author.raw_affiliation_string
+                          affiliations += (if affiliations then ',' else '') + author.raw_affiliation_string.replace(/"/g, '') if author.raw_affiliation_string
                       await fs.appendFile out, '"' + blr.DOI + (if pfs then '","' + names + '","' + awards else '') + (if afs then '","' + institutions + '","' + rors + '","' + orcids + '","' + affiliations else '') + '"'
                     else
                       first = true
