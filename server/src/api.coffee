@@ -1,6 +1,6 @@
 
 # for running with pm2:
-# pm2 start server/dist/server.min.js --name paradigm_b --watch --node-args="--max_old_space_size=8192"
+# pm2 start server/dist/server.min.js --name paradigm_b --node-args="--max_old_space_size=8192"
 # can use --watch to restart on file changes, and --node-args --max_old_space_size to increase memory limit, 
 # and -i 0 to run as many instances as there are cores, or -i x to run x instance per core
 # and give different names to different running processes (see below for assigning different port numbers by name ending)
