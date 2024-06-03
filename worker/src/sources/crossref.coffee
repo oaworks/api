@@ -27,7 +27,7 @@ P.src.crossref.works._prefix = false
 
 P.src.crossref.works.doi = (doi, refresh, save) ->
   doi ?= @params.doi
-  refresh ?= @refresh
+  refresh = @refresh if not refresh? and @fn is 'src.crossref.works.doi'
   save ?= @params.save ? true
   if typeof doi is 'string' and doi.startsWith '10.'
     doi = doi.split('//')[1] if doi.indexOf('http') is 0

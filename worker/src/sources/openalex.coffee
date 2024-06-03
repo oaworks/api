@@ -53,7 +53,7 @@ P.src.openalex.works._format = (rec) ->
 
 P.src.openalex.works.doi = (doi, refresh, save) ->
   doi ?= @params.doi
-  refresh ?= @refresh
+  refresh = @refresh if not refresh? and @fn is 'src.openalex.works.doi'
   save ?= @params.save ? true
   if refresh or not found = await @src.openalex.works 'ids.doi.keyword:"https://doi.org/' + doi + '"', 1
     if found = await @fetch 'https://api.openalex.org/works/https://doi.org/' + doi + (if @S.src.openalex?.apikey then '?api_key=' + @S.src.openalex.apikey else '')
