@@ -313,6 +313,7 @@ P = () ->
     asr = if @params.size is 'all' and fn._index and @S.async_runner?._makecsv then @S.async_runner._makecsv else (@S.async_runner?[fn._runner ? @fn] ? @S.async)
     console.log 'Fetching from async process', asr, @request.url
     res = await @fetch asr + @request.url, method: @request.method, headers: @headers, body: @request.body
+    delete @format
   else if typeof fn is 'function'
     authd = if @fn is 'auth' then undefined else await @auth()
     @user = authd if typeof authd is 'object' and authd._id and authd.email
