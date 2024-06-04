@@ -6209,28 +6209,30 @@ P.report.queue = async function(idents, openalex, refresh, everything, action = 
     ref4 = (!Array.isArray(idents) ? [idents] : idents);
     for (j = 0, len = ref4.length; j < len; j++) {
       ident = ref4[j];
-      theid = typeof ident === 'object' ? (ref5 = (ref6 = (ref7 = (ref8 = (ref9 = ident.ident) != null ? ref9 : ident.identifier) != null ? ref8 : ident.DOI) != null ? ref7 : ident.doi) != null ? ref6 : ident.openalex) != null ? ref5 : ident.pmcid : ident;
-      if (theid.startsWith('w')) {
-        theid = theid.replace('w', 'W');
-      }
-      if (theid.startsWith('pmc')) {
-        theid = theid.replace('pmc', 'PMC');
-      }
-      if (theid.includes('10.')) {
-        theid = (await this.report.cleandoi(theid));
-      }
-      theidl = theid.toLowerCase();
-      if (theid && typeof theid === 'string' && (theid.startsWith('10.') || theid.startsWith('W') || theid.startsWith('PMC')) && indexOf.call(_queued_batch, theidl) < 0 && indexOf.call(_done_batch, theidl) < 0) {
-        _queued_batch.push(theidl);
-        rf = typeof ident === 'object' && (ident.refresh != null) ? ident.refresh : refresh != null ? refresh : typeof inq !== "undefined" && inq !== null ? inq.refresh : void 0;
-        rf = rf === true ? 0 : rf === false ? void 0 : rf;
-        _queue_batch.push({
-          identifier: theid,
-          refresh: rf,
-          everything: (typeof ident === 'object' && (ident.everything != null) ? ident.everything : everything != null ? everything : typeof inq !== "undefined" && inq !== null ? inq.everything : void 0),
-          action: (typeof ident === 'object' && (ident.action != null) ? ident.action : action)
-        });
-      }
+      try {
+        theid = typeof ident === 'object' ? (ref5 = (ref6 = (ref7 = (ref8 = (ref9 = ident.ident) != null ? ref9 : ident.identifier) != null ? ref8 : ident.DOI) != null ? ref7 : ident.doi) != null ? ref6 : ident.openalex) != null ? ref5 : ident.pmcid : ident;
+        if (theid.startsWith('w')) {
+          theid = theid.replace('w', 'W');
+        }
+        if (theid.startsWith('pmc')) {
+          theid = theid.replace('pmc', 'PMC');
+        }
+        if (theid.includes('10.')) {
+          theid = (await this.report.cleandoi(theid));
+        }
+        theidl = theid.toLowerCase();
+        if (theid && typeof theid === 'string' && (theid.startsWith('10.') || theid.startsWith('W') || theid.startsWith('PMC')) && indexOf.call(_queued_batch, theidl) < 0 && indexOf.call(_done_batch, theidl) < 0) {
+          _queued_batch.push(theidl);
+          rf = typeof ident === 'object' && (ident.refresh != null) ? ident.refresh : refresh != null ? refresh : typeof inq !== "undefined" && inq !== null ? inq.refresh : void 0;
+          rf = rf === true ? 0 : rf === false ? void 0 : rf;
+          _queue_batch.push({
+            identifier: theid,
+            refresh: rf,
+            everything: (typeof ident === 'object' && (ident.everything != null) ? ident.everything : everything != null ? everything : typeof inq !== "undefined" && inq !== null ? inq.everything : void 0),
+            action: (typeof ident === 'object' && (ident.action != null) ? ident.action : action)
+          });
+        }
+      } catch (error) {}
     }
   }
   if (_queue_batch_last === false) {
@@ -18686,7 +18688,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Mon Jun 03 2024 12:08:09 GMT+0100";
+S.built = "Tue Jun 04 2024 10:19:10 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor

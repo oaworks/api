@@ -79,16 +79,17 @@ P.report.queue = (idents, openalex, refresh, everything, action = 'default') -> 
   everything ?= @params.everything
   if idents # can be list of DOI strings and/or openalex strings, or objects with DOI and/or openalex, plus optional refresh, everything, action
     for ident in (if not Array.isArray(idents) then [idents] else idents)
-      theid = if typeof ident is 'object' then (ident.ident ? ident.identifier ? ident.DOI ? ident.doi ? ident.openalex ? ident.pmcid) else ident
-      theid = theid.replace('w', 'W') if theid.startsWith 'w'
-      theid = theid.replace('pmc', 'PMC') if theid.startsWith 'pmc'
-      theid = await @report.cleandoi(theid) if theid.includes '10.'
-      theidl = theid.toLowerCase()
-      if theid and typeof theid is 'string' and (theid.startsWith('10.') or theid.startsWith('W') or theid.startsWith('PMC')) and theidl not in _queued_batch and theidl not in _done_batch
-        _queued_batch.push theidl
-        rf = if typeof ident is 'object' and ident.refresh? then ident.refresh else (refresh ? inq?.refresh)
-        rf = if rf is true then 0 else if rf is false then undefined else rf
-        _queue_batch.push identifier: theid, refresh: rf, everything: (if typeof ident is 'object' and ident.everything? then ident.everything else (everything ? inq?.everything)), action: (if typeof ident is 'object' and ident.action? then ident.action else action)
+      try
+        theid = if typeof ident is 'object' then (ident.ident ? ident.identifier ? ident.DOI ? ident.doi ? ident.openalex ? ident.pmcid) else ident
+        theid = theid.replace('w', 'W') if theid.startsWith 'w'
+        theid = theid.replace('pmc', 'PMC') if theid.startsWith 'pmc'
+        theid = await @report.cleandoi(theid) if theid.includes '10.'
+        theidl = theid.toLowerCase()
+        if theid and typeof theid is 'string' and (theid.startsWith('10.') or theid.startsWith('W') or theid.startsWith('PMC')) and theidl not in _queued_batch and theidl not in _done_batch
+          _queued_batch.push theidl
+          rf = if typeof ident is 'object' and ident.refresh? then ident.refresh else (refresh ? inq?.refresh)
+          rf = if rf is true then 0 else if rf is false then undefined else rf
+          _queue_batch.push identifier: theid, refresh: rf, everything: (if typeof ident is 'object' and ident.everything? then ident.everything else (everything ? inq?.everything)), action: (if typeof ident is 'object' and ident.action? then ident.action else action)
   @report._handle_queue() if _queue_batch_last is false
   return queue: _queue_batch.length
 P.report.queue._bg = true
