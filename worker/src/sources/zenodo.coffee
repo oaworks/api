@@ -149,3 +149,49 @@ P.src.zenodo.deposition.delete = (id, token, dev) ->
   await @fetch url, method: 'DELETE', headers: referer: if @S.dev or dev then 'https://sandbox.zenodo.org' else 'https://zenodo.org'
   return true
 
+
+'''
+P.src.zenodo.test = ->
+  creators = []
+  #for a in [] #params.metadata.author
+  #  if a.family?
+  #    at = {name: a.family + (if a.given then ', ' + a.given else '')}
+  #    try at.orcid = a.ORCID.split('/').pop() if a.ORCID
+  #    try at.affiliation = a.affiliation.name if typeof a.affiliation is 'object' and a.affiliation.name?
+  #    creators.push at 
+  creators = [{name: 'MacGillivray, Mark'}] if creators.length is 0
+
+  # https://doi.org/10.1086/704224
+  # https://www.journals.uchicago.edu/doi/10.1086/704224
+  meta =
+    title: 'Our latest test upload ' + await @uid()
+    description: 'This is a test description. <br><br>Deposited by shareyourpaper.org and openaccessbutton.org. We\'ve taken reasonable steps to ensure this content doesn\'t violate copyright. However, if you think it does you can request a takedown by emailing help@openaccessbutton.org.'
+    creators: creators
+    version: 'Accepted Version' # 'Submitted Version' 'Published Version'
+    journal_title: 'Our great journal'
+    #journal_volume: 1
+    #journal_issue: 1
+    #journal_pages: '1-10'
+
+  #meta.prereserve_doi = true
+  meta['access_right'] = 'open'
+  meta.license = 'cc-by'
+  #meta['publication_date'] = params.metadata.published if params.metadata.published? and typeof params.metadata.published is 'string'
+  #meta['related_identifiers'] = [{relation: (if meta.version is 'postprint' or meta.version is 'AAM' or meta.version is 'preprint' then 'isPreviousVersionOf' else 'isIdenticalTo'), identifier: params.doi}]
+  #meta['access_right'] = 'embargoed'
+  #meta['embargo_date'] = dep.permissions.best_permission.embargo_end # check date format required by zenodo
+  #meta.communities = []
+  #meta.communities.push(if typeof com is 'string' then {identifier: com} else com) for com in uc.communities
+
+  zn = publish: true, name: meta.title, content: await fs.readFile '/home/oaw/static/ExtendedInterval.pdf'
+  tk = @S.src.zenodo.sandbox
+  dev = true
+  z = await @src.zenodo.deposition.create meta, zn, tk, dev
+  console.log z
+
+  #url = 'https://sandbox.zenodo.org/record/' + z.id
+  #doi = z.metadata?.prereserve_doi?.doi
+  #file = z.uploaded?.links?.download
+
+  return z
+'''

@@ -229,15 +229,15 @@ P.src.epmc.submitted = (pmcid, rec, refresh) ->
     pmcid = 'PMC' + (pmcid + '').toLowerCase().replace('pmc', '')
     try
       if ft = await @src.epmc.xml pmcid, rec, refresh
-        ft = ft.split('<article-meta')[1].split('/article-meta')[0].split('date-type="received"')[1].split('">')[0]
-        if ft.includes '<year>'
-          yt = ft.split('<year>')[1].split('</year>')[0]
+        ft = ft.split('<article-meta')[1].split('/article-meta')[0].split('date-type="received"')[1].split('</date')[0]
+        if ft.includes '<year'
+          yt = ft.split('<year')[1].split('</year>')[0].split('>').pop()
           try
-            yt += '-' + ft.split('<month>')[1].split('</month>')[0]
+            yt += '-' + ft.split('<month')[1].split('</month>')[0].split('>').pop()
           catch
             yt += '-01'
           try
-            yt += '-' + ft.split('<day>')[1].split('</day>')[0]
+            yt += '-' + ft.split('<day')[1].split('</day>')[0].split('>').pop()
           catch
             yt += '-01'
           ft = yt
@@ -245,7 +245,8 @@ P.src.epmc.submitted = (pmcid, rec, refresh) ->
           ft = ft.replace('>', '').split('<')[0]
         else
           ft = ft.split('"')[1]
-        if ft and typeof ft is 'string'
+        ft = ft.replace('\n', '').trim()
+        if ft
           if ft.length isnt 10
             nft = []
             nft.push(if ftp.length is 1 then '0' + ftp else ftp) for ftp in ft.split('T')[0].split '-'
