@@ -14,7 +14,7 @@ P.find = (options, metadata={}, content) ->
       if k in ['url', 'paywall']
         res[k] ?= ct[k]
       else
-        metadata[k] ?= ct[k]
+        metadata[k] = ct[k] if not metadata[k]
     return true
 
   if typeof options is 'string'
@@ -167,8 +167,11 @@ P.citation = (citation) ->
   res = {}
   
   try citation ?= @params.citation ? @params
-  if typeof citation is 'string' and (citation.startsWith('{') or citation.startsWith '[')
-    try citation = JSON.parse citation
+  if typeof citation is 'string'
+    if citation.startsWith('{') or citation.startsWith '['
+      try citation = JSON.parse citation
+    else if citation.startsWith '10.'
+      try citation = await @src.crossref.works.doi citation
 
   if typeof citation is 'object' # can be crossref, oadoi, openalex, epmc format
     res.doi = citation.DOI ? citation.doi
@@ -235,7 +238,7 @@ P.citation = (citation) ->
             res.author.push name: a
           else
             au = {}
-            if type of a.author is 'object'
+            if typeof a.author is 'object'
               au.name = a.author.display_name
               au.family = au.name.split(' ').pop()
               au.given = au.name.split(' ')[0] if au.name.split(' ').length > 1

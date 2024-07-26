@@ -701,7 +701,7 @@ P.index.translate = (q, opts) ->
         v = undefined if isNaN v
     # some URL params that may be commonly used in this API along with valid ES URL query params will be removed here by default too
     # this makes it easy to handle them in routes whilst also just passing the whole params here and still get back a valid ES query
-    qry[k] = v if v? and k not in ['apikey', '_', 'callback', 'refresh', 'key', 'counts', 'index', 'search', 'source', 'q', '_alias'] and k.replace('_', '').replace('s', '') not in ['include', 'exclude']
+    qry[k] = v if v? and k not in ['apikey', '_', 'callback', 'refresh', 'key', 'counts', 'order', 'index', 'search', 'source', 'q', '_alias'] and k.replace('_', '').replace('s', '') not in ['include', 'exclude']
 
   try
     # order: (default) count is highest count first, reverse_count is lowest first. term is ordered alphabetical by term, reverse_term is reverse alpha

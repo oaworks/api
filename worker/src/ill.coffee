@@ -205,10 +205,23 @@ P.ill.subscription = (config, meta) ->
           # proxy may still be required if our main machine was registered with some of these ILL service providers...
           #pg = if url.includes('.xml.serialssolutions') or url.includes('sfx.response_type=simplexml') or url.includes('response_type=xml') then await @fetch(url) else await @puppet url
           pg = await @fetch url
+          try await @mail to: 'mark@oa.works', subject: 'oa.works serials solutions dev query running', text: url + '\n\n' + JSON.stringify pg
+          if not pg? or typeof pg is 'object'
+            if subtype is 'serialssolutions'
+              try await @mail to: 'mark@oa.works', subject: 'oa.works serials solutions error', text: url + '\n\n' + JSON.stringify pg
+            pg = ''
+            error = true
+        catch err
+          error = true
+          if subtype is 'serialssolutions'
+            try await @mail to: 'mark@oa.works', subject: 'oa.works serials solutions error', text: url + '\n\n' + JSON.stringify(pg) + '\n\n' + JSON.stringify err
+        try
           spg = if pg.indexOf('<body') isnt -1 then pg.toLowerCase().split('<body')[1].split('</body')[0] else pg
           res.contents.push spg
         catch err
           error = true
+          if subtype is 'serialssolutions'
+            try await @mail to: 'mark@oa.works', subject: 'oa.works serials solutions error', text: url + '\n\n' + JSON.stringify(pg) + '\n\n' + JSON.stringify err
 
         # sfx 
         # with access:
@@ -219,7 +232,7 @@ P.ill.subscription = (config, meta) ->
         # can test this with 10.1016/j.jtbi.2019.01.031 on instantill page
         # note there is also now an sfx xml endpoint that we have found to check
         if subtype is 'sfx' or url.indexOf('sfx.') isnt -1
-          res.error.push 'sfx' if error
+          res.error.push('sfx') if error
           if spg.indexOf('getFullTxt') isnt -1 and spg.indexOf('<target_url>') isnt -1
             try
               # this will get the first target that has a getFullTxt type and has a target_url element with a value in it, or will error
@@ -254,7 +267,7 @@ P.ill.subscription = (config, meta) ->
         # without:
         # https://snc.idm.oclc.org/login?url=http://resolver.ebscohost.com/openurl?sid=google&auinit=MP&aulast=Newton&atitle=Librarian+roles+in+institutional+repository+data+set+collecting:+outcomes+of+a+research+library+task+force&id=doi:10.1080/01462679.2011.530546
         else if subtype is 'eds' or url.indexOf('ebscohost.') isnt -1
-          res.error.push 'eds' if error
+          res.error.push('eds') if error
           if spg.indexOf('view this ') isnt -1 and pg.indexOf('<a data-auto="menu-link" href="') isnt -1
             res.url = url.replace('://','______').split('/')[0].replace('______','://') + pg.split('<a data-auto="menu-link" href="')[1].split('" title="')[0]
             res.findings.eds = res.url
@@ -283,7 +296,7 @@ P.ill.subscription = (config, meta) ->
         # we also have an xml alternative for serials solutions
         # see https://journal.code4lib.org/articles/108
         else if subtype is 'serialssolutions' or url.indexOf('serialssolutions.') isnt -1
-          res.error.push 'serialssolutions' if error
+          res.error.push('serialssolutions') if error
           if spg.indexOf('<ssopenurl:url type="article">') isnt -1
             fnd = spg.split('<ssopenurl:url type="article">')[1].split('</ssopenurl:url>')[0].trim().replace(/&amp;/g, '&') # this gets us something that has an empty accountid param - do we need that for it to work?
             if fnd.length
@@ -306,6 +319,7 @@ P.ill.subscription = (config, meta) ->
                 surl = url.split('?')[0] + '?ShowSupressedLinks' + pg.split('?ShowSupressedLinks')[1].split('">')[0]
                 #npg = await @puppet surl # would this still need proxy?
                 npg = await @fetch surl
+                try await @mail to: 'mark@oa.works', subject: 'oa.works serials solutions dev query running second stage', text: surl + '\n\n' + JSON.stringify npg
                 if npg.indexOf('ArticleCL') isnt -1 and npg.split('DatabaseCL')[0].indexOf('href="./log') isnt -1
                   res.url = surl.split('?')[0] + npg.split('ArticleCL')[1].split('DatabaseCL')[0].split('href="')[1].split('">')[0].replace(/&amp;/g, '&')
                   res.findings.serials = res.url
@@ -315,11 +329,12 @@ P.ill.subscription = (config, meta) ->
                     else
                       res.url = undefined
                       res.findings.serials = undefined
-              catch
-                res.error.push 'serialssolutions' if error
+              catch err
+                res.error.push('serialssolutions') if error
+                try await @mail to: 'mark@oa.works', subject: 'oa.works serials solutions error', text: 'serials solutions later error\n\n' + url + '\n\n' + surl + '\n\n' + JSON.stringify(npg) + '\n\n' + JSON.stringify err
 
         else if subtype is 'exlibris' or url.indexOf('.exlibris') isnt -1
-          res.error.push 'exlibris' if error
+          res.error.push('exlibris') if error
           if spg.indexOf('full_text_indicator') isnt -1 and spg.split('full_text_indicator')[1].replace('">', '').indexOf('true') is 0 and spg.indexOf('resolution_url') isnt -1
             res.url = spg.split('<resolution_url>')[1].split('</resolution_url>')[0].replace(/&amp;/g, '&')
             res.findings.exlibris = res.url
