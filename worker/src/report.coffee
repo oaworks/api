@@ -231,7 +231,7 @@ P.report.oapolicy = _sheet: S.report.oapolicy_sheet, _format: (recs=[]) ->
       ready.push nr
   return if ready.length is 1 then ready[0] else ready
 
-P.report.cleandoi = (doi) -> # 10.1002/1096-8628(20000717)93:2<110::aid-ajmg6>3.0.co;2-9 ?
+P.report.cleandoi = (doi) -> # 10.1002/1096-8628(20000717)93:2<110::aid-ajmg6>3.0.co;2-9 ? or 10.36108_njsa_0202_81(0210 ? or 10.12688_gatesopenres.13118.1)
   doi ?= @params.cleandoi ? @params.doi
   try doi = doi.split(',http')[0] # due to dirty data
   try doi = '10.' + doi.split('/10.')[1] if doi.startsWith 'http'
@@ -241,7 +241,7 @@ P.report.cleandoi = (doi) -> # 10.1002/1096-8628(20000717)93:2<110::aid-ajmg6>3.
   try doi = doi.replace /#/g, '%23'
   try doi = doi.replace /\,$/, ''
   try doi = doi.replace /\.$/, ''
-  try doi = doi.replace /\)$/, ''
+  try doi = doi.replace(/\)$/, '') if not doi.includes '(' # it seems brackets are pretty common in DOIs, but some of our sheet processing appends a close bracket without an open
   if typeof doi is 'string' and doi.startsWith('10.') and not doi.includes '@'
     return doi
   else
@@ -527,15 +527,15 @@ P.report.email = (doi) ->
   doi ?= @params.email ? @params.doi
   return undefined if not doi?
   rec = await @report.works doi
-  if rec?.email
-    return rec.email if rec.email.includes '@'
+  if (email = rec?.email ? rec?.outreach?.email_address)
+    return email if email.includes '@'
     rpke = await @encrypt @params.orgkey
     ok = await @report.orgs.orgkeys 'key.keyword:"' + rpke + '"', 1
     if typeof ok?.org is 'string' and ok.org.length
       rol = []
       rol.push(rou.toLowerCase()) for rou in rec.orgs
       if ok.org in rol
-        return @decrypt rec.email
+        return @decrypt email
   return
 P.report.email._log = false
 

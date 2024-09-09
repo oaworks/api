@@ -205,23 +205,23 @@ P.ill.subscription = (config, meta) ->
           # proxy may still be required if our main machine was registered with some of these ILL service providers...
           #pg = if url.includes('.xml.serialssolutions') or url.includes('sfx.response_type=simplexml') or url.includes('response_type=xml') then await @fetch(url) else await @puppet url
           pg = await @fetch url
-          try await @mail to: 'mark@oa.works', subject: 'oa.works serials solutions dev query running', text: url + '\n\n' + JSON.stringify pg
+          #try await @mail(to: 'mark@oa.works', subject: 'oa.works serials solutions query running', text: url + '\n\n' + JSON.stringify pg) if @S.dev
           if not pg? or typeof pg is 'object'
-            if subtype is 'serialssolutions'
-              try await @mail to: 'mark@oa.works', subject: 'oa.works serials solutions error', text: url + '\n\n' + JSON.stringify pg
+            #if subtype is 'serialssolutions'
+            #  try await @mail(to: 'mark@oa.works', subject: 'oa.works serials solutions error', text: url + '\n\n' + JSON.stringify pg) if @S.dev
             pg = ''
             error = true
         catch err
           error = true
-          if subtype is 'serialssolutions'
-            try await @mail to: 'mark@oa.works', subject: 'oa.works serials solutions error', text: url + '\n\n' + JSON.stringify(pg) + '\n\n' + JSON.stringify err
+          #if subtype is 'serialssolutions'
+          #  try await @mail to: 'mark@oa.works', subject: 'oa.works serials solutions error', text: url + '\n\n' + JSON.stringify(pg) + '\n\n' + JSON.stringify err
         try
           spg = if pg.indexOf('<body') isnt -1 then pg.toLowerCase().split('<body')[1].split('</body')[0] else pg
           res.contents.push spg
         catch err
           error = true
-          if subtype is 'serialssolutions'
-            try await @mail to: 'mark@oa.works', subject: 'oa.works serials solutions error', text: url + '\n\n' + JSON.stringify(pg) + '\n\n' + JSON.stringify err
+          #if subtype is 'serialssolutions'
+          #  try await @mail to: 'mark@oa.works', subject: 'oa.works serials solutions error', text: url + '\n\n' + JSON.stringify(pg) + '\n\n' + JSON.stringify err
 
         # sfx 
         # with access:
@@ -315,11 +315,12 @@ P.ill.subscription = (config, meta) ->
             #  res.found = 'serials'
           else
             if spg.indexOf('ss_noresults') is -1
+              surl = url.split('?')[0] + '?ShowSupressedLinks' + pg.split('?ShowSupressedLinks')[1].split('">')[0]
+              #try await @mail to: 'mark@oa.works', subject: 'oa.works serials solutions query running second stage', text: surl + '\n\n' + JSON.stringify pg
               try
-                surl = url.split('?')[0] + '?ShowSupressedLinks' + pg.split('?ShowSupressedLinks')[1].split('">')[0]
                 #npg = await @puppet surl # would this still need proxy?
                 npg = await @fetch surl
-                try await @mail to: 'mark@oa.works', subject: 'oa.works serials solutions dev query running second stage', text: surl + '\n\n' + JSON.stringify npg
+                #try await @mail to: 'mark@oa.works', subject: 'oa.works serials solutions query running second stage succeeded', text: surl + '\n\n' + JSON.stringify npg
                 if npg.indexOf('ArticleCL') isnt -1 and npg.split('DatabaseCL')[0].indexOf('href="./log') isnt -1
                   res.url = surl.split('?')[0] + npg.split('ArticleCL')[1].split('DatabaseCL')[0].split('href="')[1].split('">')[0].replace(/&amp;/g, '&')
                   res.findings.serials = res.url
@@ -331,7 +332,7 @@ P.ill.subscription = (config, meta) ->
                       res.findings.serials = undefined
               catch err
                 res.error.push('serialssolutions') if error
-                try await @mail to: 'mark@oa.works', subject: 'oa.works serials solutions error', text: 'serials solutions later error\n\n' + url + '\n\n' + surl + '\n\n' + JSON.stringify(npg) + '\n\n' + JSON.stringify err
+                #try await @mail to: 'mark@oa.works', subject: 'oa.works serials solutions second stage error', text: 'serials solutions later error\n\n' + url + '\n\n' + surl + '\n\n' + JSON.stringify(pg) + '\n\n' + JSON.stringify err
 
         else if subtype is 'exlibris' or url.indexOf('.exlibris') isnt -1
           res.error.push('exlibris') if error
