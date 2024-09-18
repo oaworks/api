@@ -538,6 +538,7 @@ P.report.email = (doi) ->
         return @decrypt email
   return
 P.report.email._log = false
+try P.oareport.email = P.report.email # temporary for oareport development
 
 
 # curl -X PUT http://localhost:9200/paradigm_b_report_works/_settings -H 'Content-Type: application/json' -d '{"index.mapping.total_fields.limit": 2000}'
