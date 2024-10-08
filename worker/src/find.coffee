@@ -105,7 +105,7 @@ P.find = (options, metadata={}, content) ->
 
   # temporary until publishers in permissions are re-keyed to match openalex publisher names (which differ from crossref which is what we originally keyed them to)
   # https://github.com/oaworks/discussion/issues/3192#issuecomment-2314515904
-  if metadata.publisher and metadata.doi and cr = await @src.crossref.works.doi metadata.doi
+  if metadata.doi and cr = await @src.crossref.works.doi metadata.doi # metadata.publisher and 
     metadata.publisher = cr.publisher if cr.publisher
 
   _ill = () =>
@@ -117,6 +117,17 @@ P.find = (options, metadata={}, content) ->
       res.permissions ?= await @permissions metadata, options.config?.ror, false
     return true
   await Promise.all [_ill(), _permissions()]
+
+  # temporary 
+  try
+    if metadata.doi and (options.permissions or options.plugin is 'shareyourpaper') and not res.permissions?.all_permissions and metadata.publisher_lineage.length > 1
+      pi = 0
+      while pi < metadata.publisher_lineage.length
+        if metadata.publisher_lineage[pi] isnt metadata.publisher
+          metadata.publisher = metadata.publisher_lineage[pi]
+          res.permissions = await @permissions metadata, options.config?.ror, false
+          break if res.permissions.all_permissions
+        pi++
 
   # certain user-provided search values are allowed to override any that we could find ourselves. TODO is this ONLY relevant to ILL? or anything else?
   metadata[uo] = options[uo] for uo in ['title', 'journal', 'year', 'doi'] when options[uo] and options[uo] isnt metadata[uo]
@@ -161,8 +172,9 @@ P.citation = (citation) ->
     res.shortname ?= res.journal # fix for old embed that still expects something here
     res.journal_short = res.shortname if res.shortname and not res.journal_short # fix for change to old metadata field name
     try res[key] ?= res[key].charAt(0).toUpperCase() + res[key].slice(1) for key in ['title','journal']
-    res.publisher = citation.publisher ? citation.primary_location?.source?.publisher
+    res.publisher = citation.publisher ? citation.primary_location?.source?.publisher ? citation.primary_location?.source?['host_organization_name']
     res.publisher = res.publisher.trim() if res.publisher
+    try res.publisher_lineage = citation.primary_location.source.host_organization_lineage_names # temporary re. https://github.com/oaworks/discussion/issues/3227
     res.published = citation.publication_date # like 2009-01-01
     res.issue = citation.issue ? citation.journalInfo?.issue ? citation.biblio?.issue
     res.volume = citation.volume ? citation.journalInfo?.volume ? citation.biblio?.volume
