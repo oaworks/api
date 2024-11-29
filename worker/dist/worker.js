@@ -2035,7 +2035,7 @@ P.deposits = {
 };
 
 P.deposit = async function(params, file, dev) {
-  var a, as, at, author, bcc, ccm, com, creators, dep, description, ee, i, in_zenodo, j, k, len, len1, len2, len3, len4, m, meta, ml, n, o, parts, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref5, ref6, ref7, ref8, ref9, tk, tmpl, tos, uc, z, zn, zs;
+  var a, as, at, author, bcc, ccm, com, creators, dep, description, ee, i, in_zenodo, j, k, len, len1, len2, len3, len4, meta, ml, n, o, p, parts, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref5, ref6, ref7, ref8, ref9, tk, tmpl, tos, uc, z, zn, zs;
   if (params == null) {
     params = this.copy(this.params);
   }
@@ -2208,8 +2208,8 @@ P.deposit = async function(params, file, dev) {
           uc.communities = [];
         }
         ref19 = (typeof uc.community === 'string' ? uc.community.split(',') : uc.community);
-        for (m = 0, len2 = ref19.length; m < len2; m++) {
-          ccm = ref19[m];
+        for (n = 0, len2 = ref19.length; n < len2; n++) {
+          ccm = ref19[n];
           uc.communities.push({
             identifier: ccm
           });
@@ -2224,8 +2224,8 @@ P.deposit = async function(params, file, dev) {
         }
         meta.communities = [];
         ref20 = uc.communities;
-        for (n = 0, len3 = ref20.length; n < len3; n++) {
-          com = ref20[n];
+        for (o = 0, len3 = ref20.length; o < len3; o++) {
+          com = ref20[o];
           meta.communities.push(typeof com === 'string' ? {
             identifier: com
           } : com);
@@ -2293,8 +2293,8 @@ P.deposit = async function(params, file, dev) {
       }
       as = [];
       ref37 = (ref35 = (ref36 = dep.metadata) != null ? ref36.author : void 0) != null ? ref35 : [];
-      for (o = 0, len4 = ref37.length; o < len4; o++) {
-        author = ref37[o];
+      for (p = 0, len4 = ref37.length; p < len4; p++) {
+        author = ref37[p];
         if (author.family) {
           as.push((author.given ? author.given + ' ' : '') + author.family);
         }
@@ -2367,7 +2367,7 @@ P.archivable = async function(file, url, confirmed, meta, permissions, dev) {
     licence: void 0
   };
   _check = async() => {
-    var a, af, an, authorsfound, base, content, contentsmall, err, ft, hts, i, inc, ind, j, l, len, len1, len2, lowercontentsmall, lowercontentstart, ls, m, matched, re, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rts, sc, wtm, wts;
+    var a, af, an, authorsfound, base, content, contentsmall, err, ft, hts, i, inc, ind, j, l, len, len1, len2, lowercontentsmall, lowercontentstart, ls, matched, n, re, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rts, sc, wtm, wts;
     if (typeof meta === 'string' || ((meta == null) && (this.params.doi || this.params.title))) {
       meta = (await this.metadata((ref = meta != null ? meta : this.params.doi) != null ? ref : this.params.title));
     }
@@ -2498,8 +2498,9 @@ P.archivable = async function(file, url, confirmed, meta, permissions, dev) {
         ref11 = (await this.src.google.sheets((dev ? '1XA29lqVPCJ2FQ6siLywahxBTLFaDCZKaN5qUeoTuApg' : '10DNDmOG19shNnuw6cwtCpK-sBnexRCCtD4WnxJx_DPQ')));
         // dev https://docs.google.com/spreadsheets/d/1XA29lqVPCJ2FQ6siLywahxBTLFaDCZKaN5qUeoTuApg/edit#gid=0
         // live https://docs.google.com/spreadsheets/d/10DNDmOG19shNnuw6cwtCpK-sBnexRCCtD4WnxJx_DPQ/edit#gid=0
-        for (m = 0, len2 = ref11.length; m < len2; m++) {
-          l = ref11[m];
+        for (n = 0, len2 = ref11.length; n < len2; n++) {
+          l = ref11[n];
+          console.log(l);
           f.version_evidence.strings_checked += 1;
           wts = l['what to search'];
           rts = l['where to search'];
@@ -2635,59 +2636,61 @@ P.archivable = async function(file, url, confirmed, meta, permissions, dev) {
 
 P.archivable._bg = true;
 
-`P.deposited = () ->
-  uid ?= @params.uid ? @user.id
-  params = await @copy @params
-  restrict = [{exists:{field:'deposit.type'}}]
-  restrict.push({term:{'deposit.from.exact':uid}}) if uid
-  restrict.push({exists:{field:'deposit.zenodo.url'}}) if @params.submitted # means filter to only those that are actually deposited, not just records of a deposit occurring
-  params.size ?= 10000
-  params.sort ?= 'createdAt:asc'
-  fields = ['metadata','permissions.permissions','permissions.ricks','permissions.best_permission','permissions.file','deposit','url']
-  if params.fields
-    fields = params.fields.split ','
-    delete params.fields
-  res = oab_catalogue.search params, {restrict:restrict}
-  re = []
-  for r in res.hits.hits
-    dr = r._source
-    if csv and dr.metadata?.reference?
-      delete dr.metadata.reference
-    if csv and dr.error
-      try
-        dr.error = dr.error.split(':')[0].split('{')[0].trim()
-      catch
-        delete dr.error
-    if csv and dr.metadata?.author?
-      for a of dr.metadata.author
-        dr.metadata.author[a] = if dr.metadata.author[a].name then dr.metadata.author[a].name else if dr.metadata.author[a].given and dr.metadata.author[a].family then dr.metadata.author[a].given + ' ' + dr.metadata.author[a].family else ''
-    for d in dr.deposit
-      if (not uid? or d.from is uid) and (not @params.submitted or d.zenodo?.file?)
-        red = {doi: dr.metadata.doi, title: dr.metadata.title, type: d.type, createdAt: d.createdAt}
-        already = false
-        if @params.submitted
-          red.file = d.zenodo.file
-          for ad in re
-            if ad.doi is red.doi and ad.file is red.file
-              already = true
-              break
-        if not already
-          for f in fields
-            if f not in ['metadata.doi','metadata.title','deposit.type','deposit.createdAt','metadata.reference']
-              if f is 'deposit'
-                red[f] = d
-              else
-                red[f] = API.collection.dot dr, f
-          re.push red
-  if params.sort is 'createdAt:asc'
-    re = _.sortBy re, 'createdAt'
-  if 'deposit.createdAt' not in fields
-    for dr in re
-      delete dr.createdAt
-  if @format is 'csv'
-    for f of re
-      re[f] = API.collection.flatten re[f]
-  return re`;
+P.deposited = async function() {
+  var a, ad, already, dr, f, i, j, len, len1, m, q, red, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, res, uid;
+  uid = (ref = this.params.uid) != null ? ref : (ref1 = this.user) != null ? ref1.id : void 0;
+  q = 'type:* AND NOT error:*';
+  if (uid) {
+    q += ' AND from.keyword:' + uid;
+  }
+  if (this.params.submitted) { // means filter to only those that are actually deposited, not just records of a deposit occurring
+    q += ' AND zenodo.url:*';
+  }
+  res = [];
+  ref2 = (await this.deposits._for(q, {
+    sort: 'createdAt:asc'
+  }));
+  for await (dr of ref2) {
+    if ((!uid || dr.from === uid) && (!this.params.submitted || ((ref3 = dr.zenodo) != null ? ref3.file : void 0))) {
+      red = {
+        type: dr.type,
+        createdAt: dr.createdAt
+      };
+      if (dr.metadata) {
+        ref4 = ['doi', 'title', 'author', 'journal', 'issn', 'publisher', 'published'];
+        for (i = 0, len = ref4.length; i < len; i++) {
+          m = ref4[i];
+          red[m] = dr.metadata[m];
+        }
+      }
+      red.permission = dr.best_permission;
+      already = false;
+      for (j = 0, len1 = res.length; j < len1; j++) {
+        ad = res[j];
+        if (ad.doi === red.doi && (!this.params.submitted || ad.file === red.file)) {
+          already = true;
+          break;
+        }
+      }
+      if (!already) {
+        red.url = (ref5 = dr.zenodo) != null ? ref5.url : void 0; // default url and file if not zenodo?
+        red.file = (ref6 = dr.zenodo) != null ? ref6.file : void 0;
+        if (this.format === 'csv') {
+          for (a in (ref7 = red.author) != null ? ref7 : []) {
+            red.author[a] = (red.author[a].name ? red.author[a].name : red.author[a].given && red.author[a].family ? red.author[a].given + ' ' + red.author[a].family : '');
+          }
+          for (f in red) {
+            if ((red[f] != null) && typeof red[f] === 'object') {
+              red[f] = (await this.flatten(red[f]));
+            }
+          }
+        }
+        res.push(red);
+      }
+    }
+  }
+  return res;
+};
 
 `P.deposit.config = (user, config) -> # should require an authorised user
   if not config? and @body?
@@ -5445,7 +5448,7 @@ P.oareport.duplicates = async function(doi, res, started) {
                   if (res.recs[res.doi] != null) {
                     res.timestamp = res.recs[res.doi].indexed.timestamp;
                   }
-                } else if (arel.id !== doi && (ar = (await this.src.crossref.works.doi(arel.id)))) {
+                } else if (arel.id !== doi && (ar = (await this.src.crossref.works(arel.id)))) { // can search works.doi to do remote check
                   ar.DOI = ar.DOI.toLowerCase();
                   res.recs[arel.id] = ar;
                   if (ar.indexed.timestamp > xrd.indexed.timestamp && ar.indexed.timestamp > ((ref11 = res.timestamp) != null ? ref11 : 0)) {
@@ -5475,7 +5478,7 @@ P.oareport.duplicates = async function(doi, res, started) {
 };
 
 P.oareport.orgs.analysis = async function(orgs, format) {
-  var an, base, base1, base2, idents, j, len, name, name1, oan, org, orgid, qrc, recs, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9;
+  var an, base, base1, idents, j, len, name, oan, org, orgid, qrc, recs, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9;
   if (typeof orgs === 'string') {
     orgid = orgs;
     orgs = [];
@@ -5521,19 +5524,14 @@ P.oareport.orgs.analysis = async function(orgs, format) {
           }
         }
       }
-      if (org.country_code && org.paid) { // note this means will only check on first org that has country code, or should check every one?
-        ref8 = (await this.oareport.works._for('DOI:* AND supplements.org.keyword:"' + org.id + '" AND NOT meta.funder_country_codes.keyword:"' + org.id + '"'));
+      if (org.country_code && org.paid) {
+        ref8 = (await this.oareport.works._for('DOI:* AND supplements.org.keyword:"' + org.id + '" AND NOT funder.country.keyword:"' + org.country_code + '"'));
+        // AND NOT meta.funder_country_codes.keyword:"' + org.id + '"'
         for await (qrc of ref8) {
-          if (idents[name1 = qrc.DOI] == null) {
-            idents[name1] = qrc;
-          }
-          if ((base2 = idents[qrc.DOI].meta).funder_country_codes == null) {
-            base2.funder_country_codes = [];
-          }
-          if (ref9 = org.id, indexOf.call(idents[qrc.DOI].meta.funder_country_codes, ref9) < 0) {
-            idents[qrc.DOI].meta.funder_country_codes.push(org.id);
-          }
-          idents[qrc.DOI] = (await this.oareport._funder_country(idents[qrc.DOI], org));
+          //idents[qrc.DOI] ?= qrc
+          //idents[qrc.DOI].meta.funder_country_codes ?= []
+          //idents[qrc.DOI].meta.funder_country_codes.push(org.id) if org.id not in idents[qrc.DOI].meta.funder_country_codes
+          idents[qrc.DOI] = (await this.oareport._funder_country((ref9 = idents[qrc.DOI]) != null ? ref9 : qrc, org));
         }
       }
     }
@@ -5550,7 +5548,7 @@ P.oareport.orgs.supplements = {
 };
 
 P.oareport.orgs.supplement = async function(orgid, sheetname, analysis) {
-  var _sheet, _wr, analyse, batch, hstarted, j, l, len, len1, org, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, runbatch, s, sheetprocs, sheets, slv, started, sup, sups, total, updated;
+  var _sheet, _wr, analyse, batch, hstarted, j, l, len, len1, org, ref, ref1, ref2, ref3, ref4, ref5, ref6, runbatch, s, sheetprocs, sheets, slv, started, sup, sups, total, updated;
   if (this.params.empty) { //works
     await this.oareport.works('');
   }
@@ -5560,10 +5558,7 @@ P.oareport.orgs.supplement = async function(orgid, sheetname, analysis) {
   started = (await this.epoch());
   hstarted = (await this.datetime(started));
   if (orgid == null) {
-    orgid = (ref = this.params.org) != null ? ref : [
-      '0456r8d26',
-      'demo' // change this to be RORs #['Bill & Melinda Gates Foundation', 'your institution'] #@params.org
-    ];
+    orgid = this.params.org; //? ['demo'] # change this to be RORs e.g '0456r8d26' is BMGF #['Bill & Melinda Gates Foundation', 'your institution'] #@params.org
   }
   if (typeof orgid === 'string') {
     orgid = orgid.split(',');
@@ -5581,12 +5576,12 @@ P.oareport.orgs.supplement = async function(orgid, sheetname, analysis) {
   sups = {};
   total = 0;
   _sheet = async(s, sheet, org) => {
-    var _id, base, check, ctries, floats, header, headers, hl, hp, hpv, j, last, latest, ld, len, lt, name, olx, r, rc, ref1, ref10, ref11, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, results, row, rows, sup, tries, update;
+    var _id, base, check, ctries, floats, header, headers, hl, hp, hpv, j, last, latest, ld, len, lt, name, olx, r, rc, ref, ref1, ref10, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, results, row, rows, sup, tries, update;
     console.log(org.id, org.name, sheet.name, s, 'of', sheets.length, sheet.url);
     if (analysis !== false) {
       analysis = 1;
     }
-    update = (ref1 = (ref2 = this.params.update) != null ? ref2 : this.params.empty) != null ? ref1 : true;
+    update = (ref = (ref1 = this.params.update) != null ? ref1 : this.params.empty) != null ? ref : true;
     last = false;
     if ((this.params.update == null) && !this.params.empty) { // can force an update on URL call
       try {
@@ -5617,10 +5612,10 @@ P.oareport.orgs.supplement = async function(orgid, sheetname, analysis) {
               }
             }));
           } catch (error) {}
-          if ((latest != null ? (ref3 = latest.hits) != null ? ref3.hits : void 0 : void 0) != null) {
+          if ((latest != null ? (ref2 = latest.hits) != null ? ref2.hits : void 0 : void 0) != null) {
             latest = latest.hits.hits[0]._source;
           }
-          if ((latest != null ? (ref4 = latest.meta) != null ? ref4.updated : void 0 : void 0) && last <= latest.meta.updated) {
+          if ((latest != null ? (ref3 = latest.meta) != null ? ref3.updated : void 0 : void 0) && last <= latest.meta.updated) {
             update = last;
           }
         }
@@ -5647,9 +5642,9 @@ P.oareport.orgs.supplement = async function(orgid, sheetname, analysis) {
       }
       if (Array.isArray(rows) && rows.length) {
         headers = [];
-        ref5 = rows.shift();
-        for (j = 0, len = ref5.length; j < len; j++) {
-          header = ref5[j];
+        ref4 = rows.shift();
+        for (j = 0, len = ref4.length; j < len; j++) {
+          header = ref4[j];
           headers.push(header.toLowerCase().trim().replace(/ /g, '_').replace('?', ''));
         }
         floats = ['apc_cost', 'wellcome.apc_paid_actual_currency_excluding_vat', 'wellcome.apc_paid_gbp_inc_vat_if_charged', 'wellcome.additional_publication_fees_gbp', 'wellcome.amount_of_apc_charged_to_coaf_grant_inc_vat_if_charged_in_gbp', 'wellcome.amount_of_apc_charged_to_rcuk_oa_fund_inc_vat_if_charged_in_gbp', 'wellcome.amount_of_apc_charged_to_wellcome_grant_inc_vat_in_gbp'];
@@ -5669,7 +5664,7 @@ P.oareport.orgs.supplement = async function(orgid, sheetname, analysis) {
               sup[hl.toUpperCase()] = hl === 'pmcid' ? 'PMC' + row[hp].toLowerCase().replace('pmc', '') : row[hp];
             } else {
               try {
-                hpv = indexOf.call(floats, hl) >= 0 ? parseFloat(row[hp]) : typeof row[hp] === 'number' ? row[hp] : !row[hp] ? void 0 : (ref6 = row[hp].trim().toLowerCase()) === 'true' || ref6 === 'yes' ? true : (ref7 = row[hp].trim().toLowerCase()) === 'false' || ref7 === 'no' ? false : hl === 'grant_id' || hl === 'ror' ? row[hp].replace(/\//g, ',').replace(/ /g, '').split(',') : row[hp];
+                hpv = indexOf.call(floats, hl) >= 0 ? parseFloat(row[hp]) : typeof row[hp] === 'number' ? row[hp] : !row[hp] ? void 0 : (ref5 = row[hp].trim().toLowerCase()) === 'true' || ref5 === 'yes' ? true : (ref6 = row[hp].trim().toLowerCase()) === 'false' || ref6 === 'no' ? false : hl === 'grant_id' || hl === 'ror' ? row[hp].replace(/\//g, ',').replace(/ /g, '').split(',') : row[hp];
                 if (typeof row[hp] === 'string' && row[hp].includes(';')) {
                   hpv = row[hp].replace(/; /g, ';').replace(/ ;/g, ';').trim().split(';');
                 }
@@ -5680,19 +5675,19 @@ P.oareport.orgs.supplement = async function(orgid, sheetname, analysis) {
             }
           }
           if (sup.DOI || sup.doi) {
-            sup.DOI = (await this.report.cleandoi((ref8 = sup.DOI) != null ? ref8 : sup.doi));
+            sup.DOI = (await this.report.cleandoi((ref7 = sup.DOI) != null ? ref7 : sup.doi));
           }
-          if (sup.OPENALEX && !sup.DOI && (olx = (await this.src.openalex.works('ids.openalex.keyword:"https://openalex.org/' + sup.OPENALEX + '"', 1))) && ((ref9 = olx.ids) != null ? ref9.doi : void 0)) {
+          if (sup.OPENALEX && !sup.DOI && (olx = (await this.src.openalex.works('ids.openalex.keyword:"https://openalex.org/' + sup.OPENALEX + '"', 1))) && ((ref8 = olx.ids) != null ? ref8.doi : void 0)) {
             sup.DOI = olx.ids.doi.split('doi.org/').pop();
           }
           delete sup.doi;
-          if ((_id = sup.DOI ? sup.DOI.replace(/\//g, '_') : (ref10 = sup.OPENALEX) != null ? ref10 : sup.PMCID)) {
+          if ((_id = sup.DOI ? sup.DOI.replace(/\//g, '_') : (ref9 = sup.OPENALEX) != null ? ref9 : sup.PMCID)) {
             analysis = analysis === 1 ? true : analysis;
             try {
               _id = _id.toLowerCase();
             } catch (error) {}
             if (sups[_id] == null) {
-              sups[_id] = (ref11 = (await this.oareport.orgs.supplements(_id))) != null ? ref11 : {
+              sups[_id] = (ref10 = (await this.oareport.orgs.supplements(_id))) != null ? ref10 : {
                 _id: _id,
                 supplements: [],
                 first_seen: {}
@@ -5723,15 +5718,15 @@ P.oareport.orgs.supplement = async function(orgid, sheetname, analysis) {
       }
     }
   };
-  ref1 = (await this.src.google.sheets('1OzXJFTedsmvxhpgeAmNHg5Y0sB3ZIXGPk45UUu_a5eE/data'));
-  for (j = 0, len = ref1.length; j < len; j++) {
-    org = ref1[j];
-    if (!orgid || (ref2 = org.id, indexOf.call(orgid, ref2) >= 0)) {
+  ref = (await this.src.google.sheets('1OzXJFTedsmvxhpgeAmNHg5Y0sB3ZIXGPk45UUu_a5eE/data'));
+  for (j = 0, len = ref.length; j < len; j++) {
+    org = ref[j];
+    if (!orgid || (ref1 = org.id, indexOf.call(orgid, ref1) >= 0)) {
       org = (await this.report.orgs._format(org, false));
       sheetprocs = [];
       for (s in (sheets = Array.isArray(org.sheets) ? org.sheets : typeof org.sheets === 'string' ? org.sheets.replace(/; /g, ';').replace(/ ;/g, ';').trim().split(';') : [])) {
         // TODO get a list of every sheet for this org already in oareport/works, any sheet in the list that does not show in the org any more should have those records updated to remove those supps from the removed sheet
-        if (!sheetname || (ref3 = sheets[s].name, indexOf.call(sheetname, ref3) >= 0)) {
+        if (!sheetname || (ref2 = sheets[s].name, indexOf.call(sheetname, ref2) >= 0)) {
           await this.sleep(5000);
           sheetprocs.push(_sheet(s, sheets[s], org));
         }
@@ -5758,10 +5753,10 @@ P.oareport.orgs.supplement = async function(orgid, sheetname, analysis) {
   _wr = async(i, s) => {
     return batch.push((await this.oareport.works.process(i, s)));
   };
-  ref4 = (await this.oareport.orgs.supplements._for('updated:>' + (started - 10)));
-  for await (sup of ref4) {
+  ref3 = (await this.oareport.orgs.supplements._for('updated:>' + (started - 10)));
+  for await (sup of ref3) {
     updated += 1;
-    runbatch.push(_wr((ref5 = (ref6 = (ref7 = sup.DOI) != null ? ref7 : sup.OPENALEX) != null ? ref6 : sup.PMCID) != null ? ref5 : sup._id, sup));
+    runbatch.push(_wr((ref4 = (ref5 = (ref6 = sup.DOI) != null ? ref6 : sup.OPENALEX) != null ? ref5 : sup.PMCID) != null ? ref4 : sup._id, sup));
     //await @sleep(5) if runbatch.length > 100
     if (runbatch.length === 100) { // 500 is too many for ES to handle (without more wait spacing). 200 mostly fine, but then failed once while big load on ES from openalex refresh. Back to 100. 100 only a few mins slower than 200.
       //console.log 'report orgs supplement waiting for run batch to complete', updated, Date.now() - started
@@ -5948,7 +5943,7 @@ P.oareport.works.process = async function(ident, sup, refresh) {
       }
       rec = exists;
     }
-    if ((refresh || (rec.openalex == null)) && (openalex != null ? openalex : openalex = ident.startsWith('w') ? (await this.src.openalex.works('id.keyword:"https://openalex.org/' + ident + '"', 1)) : (await this.src.openalex.works.doi(ident)))) { //, refresh # can search works.doi to do remote check
+    if ((refresh || (rec.openalex == null)) && (openalex != null ? openalex : openalex = ident.startsWith('w') ? (await this.src.openalex.works('id.keyword:"https://openalex.org/' + ident + '"', 1)) : (await this.src.openalex.works(ident)))) { //, refresh # can search works.doi to do remote check
       try {
         if (rec.DOI == null) {
           rec.DOI = openalex.ids.doi.split('doi.org/').pop();
@@ -5962,7 +5957,7 @@ P.oareport.works.process = async function(ident, sup, refresh) {
     }
     if (openalex != null ? openalex.id : void 0) {
       rec.openalex = {};
-      ref2 = ['abstract', 'apc_list', 'apc_paid', 'authorships', 'authors_count', 'best_oa_location', 'biblio', 'cited_by_count', 'concepts', 'countries_distinct_count', 'corresponding_author_ids', 'created_date', 'display_name', 'doi', 'domains', 'fields', 'has_fulltext', 'id', 'ids', 'is_paratext', 'is_retracted', 'keywords', 'language', 'mesh', 'open_access', 'primary_location', 'publication_date', 'publication_year', 'referenced_works_count', 'sustainable_development_goals', 'title', 'type', 'type_crossref', 'updated', 'updated_date'];
+      ref2 = ['id', 'abstract', 'apc_list', 'apc_paid', 'authorships', 'authors_count', 'best_oa_location', 'biblio', 'cited_by_count', 'concepts', 'countries_distinct_count', 'corresponding_author_ids', 'created_date', 'display_name', 'domains', 'fields', 'has_fulltext', 'ids', 'is_paratext', 'is_retracted', 'keywords', 'language', 'mesh', 'open_access', 'primary_location', 'publication_date', 'publication_year', 'referenced_works_count', 'sustainable_development_goals', 'title', 'type', 'type_crossref', 'updated', 'updated_date'];
       for (l = 0, len1 = ref2.length; l < len1; l++) {
         mv = ref2[l];
         rec.openalex[mv] = openalex[mv];
@@ -6044,7 +6039,6 @@ P.oareport.works.process = async function(ident, sup, refresh) {
       if ((ref16 = openalex.ids) != null ? ref16.pmid : void 0) {
         rec.PMID = openalex.ids.pmid.split('/').pop();
       }
-      delete openalex.ids;
       if ((ref17 = openalex.open_access) != null ? ref17.is_oa : void 0) {
         rec.is_free_to_read = true;
       }
@@ -6100,6 +6094,7 @@ P.oareport.works.process = async function(ident, sup, refresh) {
           }
           rec.meta.is_updated = true;
         }
+        delete sp.paid;
         if (sp.email && !rec.outreach.email_address) {
           rec.outreach.email_address = sp.email;
         }
@@ -6162,9 +6157,9 @@ P.oareport.works.process = async function(ident, sup, refresh) {
     }
     if (rec.meta.is_updated) { //and (refresh or not rec.syp_permissions?.journal_oa_type or not rec.syp_permissions?.archivable_version)
       issns = [];
-      // get from crossref if not in openalex for paid (is_updated) at least - https://github.com/oaworks/Gates/issues/698#issuecomment-1979820337
+      // get from crossref if not in openalex for is_updated at least - https://github.com/oaworks/Gates/issues/698#issuecomment-1979820337
       // from crossref and not openalex: submitted_date, accepted_date, funders (but openalex grants can cover it), some license info that may be the same as openalex, and a check on crossref oa value
-      if (rec.DOI && ((openalex == null) || !openalex.grants || (refresh && !rec.meta.checked_crossref && (!((ref39 = rec.crossref) != null ? ref39.subtype : void 0) || !rec.accepted_date || !rec.submitted_date))) && (crossref = (await this.src.crossref.works.doi(rec.DOI)))) { //, refresh # can search works.doi to include remote check
+      if (rec.DOI && ((openalex == null) || !openalex.grants || (refresh && !rec.meta.checked_crossref && (!((ref39 = rec.crossref) != null ? ref39.subtype : void 0) || !rec.acceptance_date || !rec.submission_date))) && (crossref = (await this.src.crossref.works(rec.DOI)))) { //, refresh # can search works.doi to include remote check
         if (crossref.ISSN) {
           issns = crossref.ISSN;
         }
@@ -6178,7 +6173,7 @@ P.oareport.works.process = async function(ident, sup, refresh) {
           rec.crossref.subtype = 'preprint';
         }
         rec.meta.checked_crossref = started;
-        if (!rec.submitted_date || !rec.accepted_date) {
+        if (!rec.submission_date || !rec.acceptance_date) {
           ref41 = (ref40 = crossref.assertion) != null ? ref40 : [];
           for (k1 = 0, len13 = ref41.length; k1 < len13; k1++) {
             ass = ref41[k1];
@@ -6186,7 +6181,7 @@ P.oareport.works.process = async function(ident, sup, refresh) {
             if ((assl.includes('accepted') && assl.split(' ').length < 3) || assl.includes('received')) {
               ad = (await this.dateparts(ass.value));
               if ((ad != null ? ad.date : void 0) && ad.timestamp) {
-                if (rec[name = (assl.includes('received') ? 'submitted' : 'accepted') + '_date'] == null) {
+                if (rec[name = (assl.includes('received') ? 'submission' : 'acceptance') + '_date'] == null) {
                   rec[name] = ad.date;
                 }
               }
@@ -6226,7 +6221,7 @@ P.oareport.works.process = async function(ident, sup, refresh) {
           }
         }
       }
-      if ((rec.DOI || rec.PMID || ((ref51 = rec.ids) != null ? ref51.pmid : void 0)) && ((!rec.PMCID && !((ref52 = rec.ids) != null ? ref52.pmcid : void 0)) || (!rec.PMID && !((ref53 = rec.ids) != null ? ref53.pmid : void 0)) || (((ref54 = rec.pubmed) != null ? ref54.pubtype : void 0) == null) || !rec.submitted_date || !rec.accepted_date)) {
+      if ((rec.DOI || rec.PMID || ((ref51 = rec.ids) != null ? ref51.pmid : void 0)) && ((!rec.PMCID && !((ref52 = rec.ids) != null ? ref52.pmcid : void 0)) || (!rec.PMID && !((ref53 = rec.ids) != null ? ref53.pmid : void 0)) || (((ref54 = rec.pubmed) != null ? ref54.pubtype : void 0) == null) || !rec.submission_date || !rec.acceptance_date)) {
         if (pubmed = (rec.PMID || rec.ids.pmid ? (await this.src.pubmed((ref55 = rec.PMID) != null ? ref55 : rec.ids.pmid)) : (await this.src.pubmed.doi(rec.DOI)))) { // pubmed is faster to lookup but can't rely on it being right if no PMC found in it, e.g. 10.1111/nyas.14608
           ref57 = (ref56 = pubmed.ISSN) != null ? ref56 : [];
           for (o1 = 0, len17 = ref57.length; o1 < len17; o1++) {
@@ -6245,16 +6240,16 @@ P.oareport.works.process = async function(ident, sup, refresh) {
             rec.pubmed = {};
           }
           rec.pubmed.pubtype = pubmed.type; // this is a list
-          if (rec.submitted_date == null) {
-            rec.submitted_date = (ref60 = pubmed.dates) != null ? (ref61 = ref60.PubMedPubDate_received) != null ? ref61.date : void 0 : void 0;
+          if (rec.submission_date == null) {
+            rec.submission_date = (ref60 = pubmed.dates) != null ? (ref61 = ref60.PubMedPubDate_received) != null ? ref61.date : void 0 : void 0;
           }
-          if (rec.accepted_date == null) {
-            rec.accepted_date = (ref62 = pubmed.dates) != null ? (ref63 = ref62.PubMedPubDate_accepted) != null ? ref63.date : void 0 : void 0;
+          if (rec.acceptance_date == null) {
+            rec.acceptance_date = (ref62 = pubmed.dates) != null ? (ref63 = ref62.PubMedPubDate_accepted) != null ? ref63.date : void 0 : void 0;
           }
         }
       }
-      if ((rec.PMCID || rec.ids.pmcid) && (refresh || !rec.meta.tried_epmc_license)) {
-        rec.meta.tried_epmc_license = started;
+      if ((rec.PMCID || rec.ids.pmcid) && (refresh || !rec.meta.checked_epmc_license)) {
+        rec.meta.checked_epmc_license = started;
         if (epmc = (await this.src.epmc.pmc((ref64 = rec.PMCID) != null ? ref64 : rec.ids.pmcid))) {
           if (((ref65 = epmc.journalInfo) != null ? (ref66 = ref65.journal) != null ? ref66.issn : void 0 : void 0) && (ref67 = epmc.journalInfo.journal.issn, indexOf.call(issns, ref67) < 0)) {
             issns.push(epmc.journalInfo.journal.issn);
@@ -6323,8 +6318,8 @@ P.oareport.works.process = async function(ident, sup, refresh) {
               rec.data_availability_statement.source = 'epmc';
             }
           }
-          if (rec.submitted_date == null) {
-            rec.submitted_date = (await this.src.epmc.submitted((ref81 = rec.PMCID) != null ? ref81 : rec.ids.pmcid, epmc));
+          if (rec.submission_date == null) {
+            rec.submission_date = (await this.src.epmc.submitted((ref81 = rec.PMCID) != null ? ref81 : rec.ids.pmcid, epmc));
           }
         }
       }
@@ -8517,7 +8512,7 @@ P.report._runqueue = async function(ident, qry, ord, mid) {
       if (mid && (q != null ? (ref1 = q.hits) != null ? ref1.total : void 0 : void 0) && q.hits.total < 5000) {
         console.log('not queueing on mid ' + ord + ' queue when only ' + q.hits.total + ' records to process, waiting 5s...');
         await this.sleep(5000);
-      } else if (ord !== 'desc' && (q != null ? (ref2 = q.hits) != null ? ref2.total : void 0 : void 0) && q.hits.total < 25000) {
+      } else if (ord !== 'desc' && (q != null ? (ref2 = q.hits) != null ? ref2.total : void 0 : void 0) && q.hits.total < 10000) {
         console.log('not queueing on reverse ' + ord + ' queue when only ' + q.hits.total + ' records to process, waiting 5s...');
         await this.sleep(5000);
       } else {
@@ -19028,64 +19023,69 @@ P.flatten = async function(obj, arrayed) {
   res = {};
   _flatten = async function(obj, key) {
     var av, isnum, k, n, pk, results1, v;
-    results1 = [];
-    for (k in obj) {
-      isnum = false;
-      try {
-        isnum = !isNaN(parseInt(k));
-      } catch (error) {}
-      pk = isnum && !arrayed ? key : key ? key + '.' + k : k;
-      v = obj[k];
-      if (typeof v !== 'object') {
-        if (res[pk] != null) {
-          if (!Array.isArray(res[pk])) {
-            res[pk] = [res[pk]];
-          }
-          results1.push(res[pk].push(v));
-        } else {
-          results1.push(res[pk] = v);
-        }
-      } else if (Array.isArray(v)) {
-        if (typeof v[0] === 'object') {
-          results1.push((await (async function() {
-            var results2;
-            results2 = [];
-            for (n in v) {
-              results2.push((await _flatten(v[n], pk + (arrayed ? '.' + n : ''))));
+    if (typeof obj !== 'object') {
+      return res = obj;
+    } else {
+      results1 = [];
+      for (k in obj) {
+        isnum = false;
+        try {
+          isnum = !isNaN(parseInt(k));
+        } catch (error) {}
+        pk = isnum && !arrayed ? key : key ? key + '.' + k : k;
+        v = obj[k];
+        if (typeof v !== 'object') {
+          if (res[pk] != null) {
+            if (!Array.isArray(res[pk])) {
+              res[pk] = [res[pk]];
             }
-            return results2;
-          })()));
-        } else {
-          if (res[pk] == null) {
-            res[pk] = [];
+            results1.push(res[pk].push(v));
+          } else {
+            results1.push(res[pk] = v);
           }
-          if (!Array.isArray(res[pk])) {
-            res[pk] = [res[pk]];
-          }
-          results1.push((function() {
-            var i, len, results2;
-            results2 = [];
-            for (i = 0, len = v.length; i < len; i++) {
-              av = v[i];
-              results2.push(res[pk].push(av));
+        } else if (Array.isArray(v)) {
+          if (typeof v[0] === 'object') {
+            results1.push((await (async function() {
+              var results2;
+              results2 = [];
+              for (n in v) {
+                results2.push((await _flatten(v[n], pk + (arrayed ? '.' + n : ''))));
+              }
+              return results2;
+            })()));
+          } else {
+            if (res[pk] == null) {
+              res[pk] = [];
             }
-            return results2;
-          })());
+            if (!Array.isArray(res[pk])) {
+              res[pk] = [res[pk]];
+            }
+            results1.push((function() {
+              var i, len, results2;
+              results2 = [];
+              for (i = 0, len = v.length; i < len; i++) {
+                av = v[i];
+                results2.push(res[pk].push(av));
+              }
+              return results2;
+            })());
+          }
+        } else {
+          //res[pk] += (if res[pk] then ', ' else '') + v.join ', '
+          //res[pk] = v.join ', '
+          results1.push((await _flatten(v, pk)));
         }
-      } else {
-        //res[pk] += (if res[pk] then ', ' else '') + v.join ', '
-        //res[pk] = v.join ', '
-        results1.push((await _flatten(v, pk)));
       }
+      return results1;
     }
-    return results1;
   };
   if (Array.isArray(obj)) {
     results = [];
-    for (i = 0, len = data.length; i < len; i++) {
-      d = data[i];
+    for (i = 0, len = obj.length; i < len; i++) {
+      d = obj[i];
       res = {};
-      results.push((await _flatten(d)));
+      await _flatten(d);
+      results.push(res);
     }
     return results;
   } else {
@@ -19741,7 +19741,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Wed Oct 02 2024 05:34:41 GMT+0100";
+S.built = "Thu Nov 28 2024 08:24:06 GMT+0000";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
