@@ -353,61 +353,32 @@ P.archivable = (file, url, confirmed, meta, permissions, dev) ->
 P.archivable._bg = true
 
 
-'''
 P.deposited = () ->
-  uid ?= @params.uid ? @user.id
-  params = await @copy @params
-  restrict = [{exists:{field:'deposit.type'}}]
-  restrict.push({term:{'deposit.from.exact':uid}}) if uid
-  restrict.push({exists:{field:'deposit.zenodo.url'}}) if @params.submitted # means filter to only those that are actually deposited, not just records of a deposit occurring
-  params.size ?= 10000
-  params.sort ?= 'createdAt:asc'
-  fields = ['metadata','permissions.permissions','permissions.ricks','permissions.best_permission','permissions.file','deposit','url']
-  if params.fields
-    fields = params.fields.split ','
-    delete params.fields
-  res = oab_catalogue.search params, {restrict:restrict}
-  re = []
-  for r in res.hits.hits
-    dr = r._source
-    if csv and dr.metadata?.reference?
-      delete dr.metadata.reference
-    if csv and dr.error
-      try
-        dr.error = dr.error.split(':')[0].split('{')[0].trim()
-      catch
-        delete dr.error
-    if csv and dr.metadata?.author?
-      for a of dr.metadata.author
-        dr.metadata.author[a] = if dr.metadata.author[a].name then dr.metadata.author[a].name else if dr.metadata.author[a].given and dr.metadata.author[a].family then dr.metadata.author[a].given + ' ' + dr.metadata.author[a].family else ''
-    for d in dr.deposit
-      if (not uid? or d.from is uid) and (not @params.submitted or d.zenodo?.file?)
-        red = {doi: dr.metadata.doi, title: dr.metadata.title, type: d.type, createdAt: d.createdAt}
-        already = false
-        if @params.submitted
-          red.file = d.zenodo.file
-          for ad in re
-            if ad.doi is red.doi and ad.file is red.file
-              already = true
-              break
-        if not already
-          for f in fields
-            if f not in ['metadata.doi','metadata.title','deposit.type','deposit.createdAt','metadata.reference']
-              if f is 'deposit'
-                red[f] = d
-              else
-                red[f] = API.collection.dot dr, f
-          re.push red
-  if params.sort is 'createdAt:asc'
-    re = _.sortBy re, 'createdAt'
-  if 'deposit.createdAt' not in fields
-    for dr in re
-      delete dr.createdAt
-  if @format is 'csv'
-    for f of re
-      re[f] = API.collection.flatten re[f]
-  return re
-'''
+  uid = @params.uid ? @user?.id
+  q = 'type:* AND NOT error:*'
+  q += ' AND from.keyword:' + uid if uid
+  q += ' AND zenodo.url:*' if @params.submitted # means filter to only those that are actually deposited, not just records of a deposit occurring
+  res = []
+  for await dr from await @deposits._for q, sort: 'createdAt:asc'
+    if (not uid or dr.from is uid) and (not @params.submitted or dr.zenodo?.file)
+      red = type: dr.type, createdAt: dr.createdAt
+      if dr.metadata
+        red[m] = dr.metadata[m] for m in ['doi', 'title', 'author', 'journal', 'issn', 'publisher', 'published']
+      red.permission = dr.best_permission
+      already = false
+      for ad in res
+        if ad.doi is red.doi and (not @params.submitted or ad.file is red.file)
+          already = true
+          break
+      if not already
+        red.url = dr.zenodo?.url # default url and file if not zenodo?
+        red.file = dr.zenodo?.file
+        if @format is 'csv'
+          red.author[a] = (if red.author[a].name then red.author[a].name else if red.author[a].given and red.author[a].family then red.author[a].given + ' ' + red.author[a].family else '') for a of (red.author ? [])
+          red[f] = await @flatten(red[f]) for f of red when red[f]? and typeof red[f] is 'object'
+        res.push red
+  return res
+
 
 '''
 P.deposit.config = (user, config) -> # should require an authorised user

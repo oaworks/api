@@ -117,7 +117,7 @@ P.report._runqueue = (ident, qry, ord, mid) ->
       if mid and q?.hits?.total and q.hits.total < 5000
         console.log 'not queueing on mid ' + ord + ' queue when only ' + q.hits.total + ' records to process, waiting 5s...'
         await @sleep 5000
-      else if ord isnt 'desc' and q?.hits?.total and q.hits.total < 25000
+      else if ord isnt 'desc' and q?.hits?.total and q.hits.total < 10000
         console.log 'not queueing on reverse ' + ord + ' queue when only ' + q.hits.total + ' records to process, waiting 5s...'
         await @sleep 5000
       else

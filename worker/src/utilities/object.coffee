@@ -63,34 +63,38 @@ P.flatten = (obj, arrayed) ->
     delete obj.arrayed
   res = {}
   _flatten = (obj, key) ->
-    for k of obj
-      isnum = false
-      try isnum = not isNaN parseInt k
-      pk = if isnum and not arrayed then key else if key then key + '.' + k else k
-      v = obj[k]
-      if typeof v isnt 'object'
-        if res[pk]?
-          res[pk] = [res[pk]] if not Array.isArray res[pk]
-          res[pk].push v
+    if typeof obj isnt 'object'
+      res = obj
+    else
+      for k of obj
+        isnum = false
+        try isnum = not isNaN parseInt k
+        pk = if isnum and not arrayed then key else if key then key + '.' + k else k
+        v = obj[k]
+        if typeof v isnt 'object'
+          if res[pk]?
+            res[pk] = [res[pk]] if not Array.isArray res[pk]
+            res[pk].push v
+          else
+            res[pk] = v
+        else if Array.isArray v
+          if typeof v[0] is 'object'
+            for n of v
+              await _flatten v[n], pk + (if arrayed then '.' + n else '')
+          else
+            res[pk] ?= [] #''
+            res[pk] = [res[pk]] if not Array.isArray res[pk]
+            res[pk].push(av) for av in v
+            #res[pk] += (if res[pk] then ', ' else '') + v.join ', '
+            #res[pk] = v.join ', '
         else
-          res[pk] = v
-      else if Array.isArray v
-        if typeof v[0] is 'object'
-          for n of v
-            await _flatten v[n], pk + (if arrayed then '.' + n else '')
-        else
-          res[pk] ?= [] #''
-          res[pk] = [res[pk]] if not Array.isArray res[pk]
-          res[pk].push(av) for av in v
-          #res[pk] += (if res[pk] then ', ' else '') + v.join ', '
-          #res[pk] = v.join ', '
-      else
-        await _flatten v, pk
+          await _flatten v, pk
   if Array.isArray obj
     results = []
-    for d in data
+    for d in obj
       res = {}
-      results.push await _flatten d
+      await _flatten d
+      results.push res
     return results
   else
     await _flatten obj
