@@ -33,6 +33,8 @@ P.deposit = (params, file, dev) ->
   uc = JSON.parse(params.config) if typeof params.config is 'string'
   if not params.config and params.from
     uc = await @fetch 'https://' + (if dev then 'dev.' else '') + 'api.cottagelabs.com/service/oab/deposit/config?uid=' + params.from
+    uc.owner = @S.log.logs if @S.log?.logs and uc.owner is 'mark+instantilldemo@cottagelabs.com'
+    uc.email = @S.log.logs if @S.log?.logs and uc.email is 'mark+instantilldemo@cottagelabs.com'
 
   dep.permissions = params.permissions ? await @permissions params.metadata ? params.doi # SYP only works on DOI so far, so deposit only works if permissions can work, which requires a DOI if about a specific article
   if not params.redeposit
@@ -140,8 +142,8 @@ P.deposit = (params, file, dev) ->
     await @deposits dep
 
     if (dep.type isnt 'review' or file?) and dep.archivable?.archivable isnt false and (not exists?.zenodo?.already or dev)
-      bcc = ['joe+notifications@oa.works', 'shared@oa.works']
-      bcc.push('mark+notifications@oa.works') if dev
+      bcc = [@S.log?.notify, 'shared@oa.works']
+      #bcc.push('mark+notifications@oa.works') if dev
       tos = []
       if typeof uc?.owner is 'string' and uc.owner.includes('@') and not dep.error
         tos.push uc.owner
@@ -272,6 +274,7 @@ P.archivable = (file, url, confirmed, meta, permissions, dev) ->
           rts = l['where to search']
           hts = l['how to search']
           ind = l['what it Indicates']
+          console.log wts, rts, hts, ind
           try
             if wts.includes('<<') and wts.includes '>>'
               wtm = wts.split('<<')[1].split('>>')[0]
@@ -354,10 +357,12 @@ P.archivable._bg = true
 
 
 P.deposited = () ->
-  uid = @params.uid ? @user?.id
+  uid = @params.uid #? @user?.id
   q = 'type:* AND NOT error:*'
   q += ' AND from.keyword:' + uid if uid
   q += ' AND zenodo.url:*' if @params.submitted # means filter to only those that are actually deposited, not just records of a deposit occurring
+  q += ' AND createdAt:>=' + @params.fromdate if @params.fromdate
+  console.log q
   res = []
   for await dr from await @deposits._for q, sort: 'createdAt:asc'
     if (not uid or dr.from is uid) and (not @params.submitted or dr.zenodo?.file)
@@ -367,7 +372,7 @@ P.deposited = () ->
       red.permission = dr.best_permission
       already = false
       for ad in res
-        if ad.doi is red.doi and (not @params.submitted or ad.file is red.file)
+        if ad.doi and red.doi and ad.doi is red.doi and ad.file and red.file and ad.file is red.file
           already = true
           break
       if not already
