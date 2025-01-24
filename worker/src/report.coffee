@@ -926,6 +926,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
             rec.data_availability_url.push(dor) if dor not in rec.data_availability_url
       rec.submitted_date ?= await @src.epmc.submitted rec.PMCID, epmc
 
+    rec.has_repository_copy = true if rec.PMCID
     rec.is_oa = rec.oadoi_is_oa or rec.crossref_is_oa or rec.journal_oa_type in ['gold']
     rec.has_data_availability_statement = if rec.pmc_has_data_availability_statement or mturk_has_data_availability_statement or (rec.DOI and (rec.DOI.startsWith('10.1186') or rec.DOI.startsWith('10.12688') or rec.DOI.startsWith('10.1371'))) then true else rec.pmc_has_data_availability_statement ? mturk_has_data_availability_statement
     '''for qo in rec.orgs
@@ -1061,7 +1062,7 @@ P.report.works.load = (timestamp, org, idents, year, clear, supplements, everyth
   text += 'The load process was run for year ' + year + '\n' if year and typeof org isnt 'string' and (@params.load or not timestamp) and not (idents ? []).length
   text += '\n' + JSON.stringify(i) + '\n' for i in (info ? [])
   console.log 'Report works loaded', total, took
-  await @mail to: ['mark+notifications@oa.works', 'joe+notifications@oa.works'], subject: 'OA report works loaded ' + total, text: text
+  await @mail to: @S.log?.logs, subject: 'Report works loaded ' + total, text: text
   return total
 P.report.works.load._log = false
 P.report.works.load._bg = true

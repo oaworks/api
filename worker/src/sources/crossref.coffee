@@ -370,7 +370,7 @@ P.src.crossref.changes = (startday, endday, created) ->
     await @src.crossref.works(batch) if batch.length
     #await @report.queue(queued, undefined, undefined, undefined, 'changes') if queued.length
     console.log 'crossref works changes completed', loaded, days, queued.length
-    await @mail to: ['mark+notifications@oa.works', 'joe+notifications@oa.works'], subject: 'Crossref works load or changes ' + loaded, text: 'loaded ' + loaded
+    await @mail to: @S.log?.notify, subject: 'Crossref works load or changes ' + loaded, text: 'loaded ' + loaded
 
   return loaded
 
