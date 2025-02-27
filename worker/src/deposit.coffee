@@ -274,7 +274,7 @@ P.archivable = (file, url, confirmed, meta, permissions, dev) ->
           rts = l['where to search']
           hts = l['how to search']
           ind = l['what it Indicates']
-          console.log wts, rts, hts, ind
+          #console.log wts, rts, hts, ind
           try
             if wts.includes('<<') and wts.includes '>>'
               wtm = wts.split('<<')[1].split('>>')[0]
@@ -362,7 +362,6 @@ P.deposited = () ->
   q += ' AND from.keyword:' + uid if uid
   q += ' AND zenodo.url:*' if @params.submitted # means filter to only those that are actually deposited, not just records of a deposit occurring
   q += ' AND createdAt:>=' + @params.fromdate if @params.fromdate
-  console.log q
   res = []
   for await dr from await @deposits._for q, sort: 'createdAt:asc'
     if (not uid or dr.from is uid) and (not @params.submitted or dr.zenodo?.file)
