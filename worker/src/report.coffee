@@ -534,6 +534,8 @@ P.report.email = (doi) ->
     if typeof ok?.org is 'string' and ok.org.length
       rol = []
       rol.push(rou.toLowerCase()) for rou in rec.orgs
+      if 'gates foundation' in rol and ok.org.includes 'gates foundation'
+        return @decrypt email # a special case for gates due to a name change issue caused in the data https://github.com/oaworks/discussion/issues/3328
       if ok.org in rol
         return @decrypt email
   return

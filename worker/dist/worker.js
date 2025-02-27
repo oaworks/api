@@ -2509,8 +2509,8 @@ P.archivable = async function(file, url, confirmed, meta, permissions, dev) {
           rts = l['where to search'];
           hts = l['how to search'];
           ind = l['what it Indicates'];
-          console.log(wts, rts, hts, ind);
           try {
+            //console.log wts, rts, hts, ind
             if (wts.includes('<<') && wts.includes('>>')) {
               wtm = wts.split('<<')[1].split('>>')[0];
               if (meta[wtm.toLowerCase()] != null) {
@@ -2653,7 +2653,6 @@ P.deposited = async function() {
   if (this.params.fromdate) {
     q += ' AND createdAt:>=' + this.params.fromdate;
   }
-  console.log(q);
   res = [];
   ref = (await this.deposits._for(q, {
     sort: 'createdAt:asc'
@@ -9320,6 +9319,9 @@ P.report.email = async function(doi) {
         rou = ref3[j];
         rol.push(rou.toLowerCase());
       }
+      if (indexOf.call(rol, 'gates foundation') >= 0 && ok.org.includes('gates foundation')) {
+        return this.decrypt(email); // a special case for gates due to a name change issue caused in the data https://github.com/oaworks/discussion/issues/3328
+      }
       if (ref4 = ok.org, indexOf.call(rol, ref4) >= 0) {
         return this.decrypt(email);
       }
@@ -11030,7 +11032,7 @@ P.svc.rscvd.overdue = async function() {
 };
 
 P.test = async function(sid, max) {
-  var base, c, d, diff, dl, err, expect, gt, i, j, len, len1, lt, n, nt, part, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, res, resd, resp, row, specd, t, traversed;
+  var base, c, d, diff, dl, err, expect, gt, i, j, len, len1, lt, n, nt, part, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, res, resd, resp, row, specd, t;
   row = this.params.row;
   if (max == null) {
     max = (ref = this.params.max) != null ? ref : (row ? 1 : 5);
@@ -11058,15 +11060,16 @@ P.test = async function(sid, max) {
   res.sheet.content = (await this.src.google.sheets(res.sheet.id));
   res.responses = [];
   res.diffs = [];
-  traversed = 1; // first row will be column names, so the sheet user would start counting rows from 2
   ref2 = res.sheet.content;
+  //traversed = 1 # first row will be column names, so the sheet user would start counting rows from 2
   for (i = 0, len = ref2.length; i < len; i++) {
     t = ref2[i];
-    traversed += 1;
     if (res.stats.ran === max) {
+      //traversed += 1
       break;
     }
-    if (t.ENDPOINT && ((row == null) || traversed === row)) {
+    //if t.ENDPOINT and (not row? or traversed is row)
+    if (t.ENDPOINT && t.ID && ((row == null) || t.ID.toString().toLowerCase() === row.toString().toLowerCase())) {
       try {
         t.PARAMS = t.PARAMS.trim(); // clean it?
       } catch (error) {}
@@ -11084,7 +11087,7 @@ P.test = async function(sid, max) {
         }
         res.stats.responded++;
         for (c in t) {
-          if ((c !== 'ENDPOINT' && c !== 'DIFF' && c !== 'PARAMS' && c !== 'DESCRIPTION' && c !== 'SPEC') && !c.startsWith('OPTIONS.')) {
+          if ((c !== 'ID' && c !== 'ENDPOINT' && c !== 'DIFF' && c !== 'PARAMS' && c !== 'NAME' && c !== 'SPEC') && !c.startsWith('OPTIONS.')) {
             expect = t[c];
             if (expect != null) {
               part = (await this.dot(resp, c));
@@ -20085,7 +20088,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Fri Jan 24 2025 01:07:25 GMT+0000";
+S.built = "Thu Feb 27 2025 22:38:54 GMT+0000";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
