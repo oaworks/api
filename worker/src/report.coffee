@@ -1071,6 +1071,17 @@ P.report.works.load._bg = true
 P.report.works.load._async = true
 P.report.works.load._auth = '@oa.works'
 
+P.report.works.load.mains = ->
+  orgs = if @params.orgs then @params.orgs.split(',') else ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Howard Hughes Medical Institute', 'Templeton World Charity Foundation']
+  for org in orgs
+    await @report.works.load undefined, org
+  return true
+P.report.works.load.mains._log = false
+P.report.works.load.mains._bg = true
+P.report.works.load.mains._async = true
+P.report.works.load.mains._auth = '@oa.works'
+
+
 P.report.works.changes = (timestamp, org) ->
   # do not reload orgs first before running changes, Joe wants that to remain a manual process
   timestamp ?= @params.changes ? @params.timestamp ? Date.now() - 90000000

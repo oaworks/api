@@ -10354,6 +10354,24 @@ P.report.works.load._async = true;
 
 P.report.works.load._auth = '@oa.works';
 
+P.report.works.load.mains = async function() {
+  var j, len, org, orgs;
+  orgs = this.params.orgs ? this.params.orgs.split(',') : ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Howard Hughes Medical Institute', 'Templeton World Charity Foundation'];
+  for (j = 0, len = orgs.length; j < len; j++) {
+    org = orgs[j];
+    await this.report.works.load(void 0, org);
+  }
+  return true;
+};
+
+P.report.works.load.mains._log = false;
+
+P.report.works.load.mains._bg = true;
+
+P.report.works.load.mains._async = true;
+
+P.report.works.load.mains._auth = '@oa.works';
+
 P.report.works.changes = function(timestamp, org) {
   var ref, ref1;
   // do not reload orgs first before running changes, Joe wants that to remain a manual process
@@ -20088,7 +20106,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Thu Feb 27 2025 22:38:54 GMT+0000";
+S.built = "Thu Mar 06 2025 01:04:11 GMT+0000";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
