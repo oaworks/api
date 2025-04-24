@@ -207,12 +207,12 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref, best) -> # oadoi and cross
 
   if issns and indoaj ?= await @src.doaj.journals 'bibjson.eissn.keyword:"' + issns.join('" OR bibjson.eissn.keyword:"') + '" OR bibjson.pissn.keyword:"' + issns.join('" OR bibjson.pissn.keyword:"') + '"', 1
     for dl in (indoaj.bibjson?.license ? [])
-      altoa.licence = dl.type if not altoa.licence or altoa.licence.length > dl.type
+      altoa.licence = dl.type if not altoa.licence or altoa.licence.length < dl.type.length # altoa.licence.length > dl.type.length # reversed April 2025 https://github.com/oaworks/discussion/issues/3267
       altoa.licences ?= []
       altoa.licences.push type: dl.type
     if not altoa.licence? and crj = await @src.crossref.journals 'ISSN.keyword:"' + issns.join('" OR ISSN.keyword:"') + '"', 1
       for ll in (crj.license ? [])
-        altoa.licence = ll.type if not altoa.licence or altoa.licence.length > ll.type
+        altoa.licence = ll.type if not altoa.licence or altoa.licence.length < ll.type.length # altoa.licence.length > ll.type.length
     if typeof altoa.licence is 'string'
       altoa.licence = altoa.licence.toLowerCase().trim()
       if altoa.licence.startsWith 'cc'
