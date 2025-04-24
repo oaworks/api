@@ -7094,7 +7094,7 @@ P.permissions = async function(meta, ror, getmeta, oadoi, crossref, best) { // o
     ref22 = (ref20 = (ref21 = indoaj.bibjson) != null ? ref21.license : void 0) != null ? ref20 : [];
     for (o = 0, len5 = ref22.length; o < len5; o++) {
       dl = ref22[o];
-      if (!altoa.licence || altoa.licence.length > dl.type) {
+      if (!altoa.licence || altoa.licence.length < dl.type.length) { // altoa.licence.length > dl.type.length # reversed April 2025 https://github.com/oaworks/discussion/issues/3267
         altoa.licence = dl.type;
       }
       if (altoa.licences == null) {
@@ -7108,7 +7108,7 @@ P.permissions = async function(meta, ror, getmeta, oadoi, crossref, best) { // o
       ref24 = (ref23 = crj.license) != null ? ref23 : [];
       for (q = 0, len6 = ref24.length; q < len6; q++) {
         ll = ref24[q];
-        if (!altoa.licence || altoa.licence.length > ll.type) {
+        if (!altoa.licence || altoa.licence.length < ll.type.length) { // altoa.licence.length > ll.type.length
           altoa.licence = ll.type;
         }
       }
@@ -10608,25 +10608,61 @@ P.report.fixtype._bg = true
 P.report.fixtype._async = true
 P.report.fixtype._auth = '@oa.works'`;
 
-P.report.fixsupps = async function() {
-  var checked, rec, ref, removed;
-  checked = 0;
-  removed = 0;
-  ref = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs_supplements', 'byquery:*');
-  for await (rec of ref) {
-    checked += 1;
-    await this.report.orgs.supplements(rec._id, '');
-    removed += 1;
-  }
-  console.log('fix supps completed with', checked, removed);
-  return checked;
-};
+`P.report.fixsupps = ->
+  remove = @params.remove ? true
+  q = @params.q ? 'org:melinda'
+  ondev = @S.dev
+  ondev = false if @params.dev is false or @params.live is true
+  ondev = true if @params.dev is true or @params.live is false
+  checked = 0
+  removed = 0
+  if q
+    console.log 'fixing supps for', q, ondev
+    for await rec from @index._for 'paradigm_' + (if ondev then 'b_' else '') + 'report_orgs_supplements', q, undefined, false
+      checked += 1
+      if remove is true
+        await @index._send 'paradigm_' + (if ondev then 'b_' else '') + 'report_orgs_supplements/_doc/' + rec._id, '', undefined, false
+        removed += 1
+      if checked % 100 is 0
+        console.log 'fix supps checked', checked, removed
+  console.log 'fix supps completed with', checked, removed
+  return checked
+P.report.fixsupps._bg = true
+P.report.fixsupps._async = true
+P.report.fixsupps._auth = '@oa.works'`;
 
-P.report.fixsupps._bg = true;
-
-P.report.fixsupps._async = true;
-
-P.report.fixsupps._auth = '@oa.works';
+`P.report.fixmelinda = ->
+ondev = @S.dev
+ondev = false if @params.dev is false or @params.live is true
+ondev = true if @params.dev is true or @params.live is false
+checked = 0
+updated = 0
+idx = 'paradigm_' + (if ondev then 'b_' else '') + 'report_works' + (if ondev then '' else '_22122023')
+for await rec from @index._for idx, 'supplements.org:melinda', undefined, false
+  checked += 1
+  os = []
+  for org in (rec.orgs ? [])
+    if not org.toLowerCase().includes 'melinda'
+      os.push org
+  if not JSON.stringify(os).toLowerCase().includes 'melinda'
+    os.push 'Gates Foundation'
+  rec.orgs = os
+  ns = []
+  for sup in (rec.supplements ? [])
+    if not sup.org.toLowerCase().includes 'melinda'
+      ns.push sup
+  rec.supplements = ns
+  updated += 1
+  rid = rec._id
+  delete rec._id
+  await @index._send idx + '/_doc/' + rid, rec, undefined, false
+  if checked % 100 is 0
+    console.log 'fix melinda checked', checked, updated
+console.log 'fix melinda completed with', checked, updated
+return checked
+P.report.fixmelinda._bg = true
+P.report.fixmelinda._async = true
+P.report.fixmelinda._auth = '@oa.works'`;
 
 `P.report.fixmjff = ->
   checked = 0
@@ -20106,7 +20142,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Thu Mar 06 2025 01:04:11 GMT+0000";
+S.built = "Thu Apr 24 2025 12:07:54 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor

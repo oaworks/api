@@ -1311,18 +1311,67 @@ P.report.fixtype._auth = '@oa.works'
 '''
 
 
+'''
 P.report.fixsupps = ->
+  remove = @params.remove ? true
+  q = @params.q ? 'org:melinda'
+  ondev = @S.dev
+  ondev = false if @params.dev is false or @params.live is true
+  ondev = true if @params.dev is true or @params.live is false
   checked = 0
   removed = 0
-  for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'byquery:*'
-    checked += 1
-    await @report.orgs.supplements rec._id, ''
-    removed += 1
+  if q
+    console.log 'fixing supps for', q, ondev
+    for await rec from @index._for 'paradigm_' + (if ondev then 'b_' else '') + 'report_orgs_supplements', q, undefined, false
+      checked += 1
+      if remove is true
+        await @index._send 'paradigm_' + (if ondev then 'b_' else '') + 'report_orgs_supplements/_doc/' + rec._id, '', undefined, false
+        removed += 1
+      if checked % 100 is 0
+        console.log 'fix supps checked', checked, removed
   console.log 'fix supps completed with', checked, removed
   return checked
 P.report.fixsupps._bg = true
 P.report.fixsupps._async = true
 P.report.fixsupps._auth = '@oa.works'
+'''
+
+
+
+'''P.report.fixmelinda = ->
+  ondev = @S.dev
+  ondev = false if @params.dev is false or @params.live is true
+  ondev = true if @params.dev is true or @params.live is false
+  checked = 0
+  updated = 0
+  idx = 'paradigm_' + (if ondev then 'b_' else '') + 'report_works' + (if ondev then '' else '_22122023')
+  for await rec from @index._for idx, 'supplements.org:melinda', undefined, false
+    checked += 1
+    os = []
+    for org in (rec.orgs ? [])
+      if not org.toLowerCase().includes 'melinda'
+        os.push org
+    if not JSON.stringify(os).toLowerCase().includes 'melinda'
+      os.push 'Gates Foundation'
+    rec.orgs = os
+    ns = []
+    for sup in (rec.supplements ? [])
+      if not sup.org.toLowerCase().includes 'melinda'
+        ns.push sup
+    rec.supplements = ns
+    updated += 1
+    rid = rec._id
+    delete rec._id
+    await @index._send idx + '/_doc/' + rid, rec, undefined, false
+    if checked % 100 is 0
+      console.log 'fix melinda checked', checked, updated
+  console.log 'fix melinda completed with', checked, updated
+  return checked
+P.report.fixmelinda._bg = true
+P.report.fixmelinda._async = true
+P.report.fixmelinda._auth = '@oa.works'
+'''
+
 
 
 '''
