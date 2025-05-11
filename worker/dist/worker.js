@@ -10565,7 +10565,7 @@ P.report.fixcroa._async = true
 P.report.fixcroa._auth = '@oa.works'`;
 
 P.report.fixoatype = async function() {
-  var batch, checked, count, fixes, issns, noissn, q, rec, ref, ref1, tp, types;
+  var batch, checked, count, fixes, issns, noissn, q, rec, ref, ref1, ref2, tp, types;
   fixes = 0;
   checked = 0;
   noissn = 0;
@@ -10587,12 +10587,13 @@ P.report.fixoatype = async function() {
       console.log('check oa type checked', checked, fixes, noissn);
     }
     if (rec.issn && issns[rec.issn[0]]) {
-      if (issns[rec.issn[0]] !== 'closed') {
+      if ((ref1 = issns[rec.issn[0]]) !== 'closed' && ref1 !== 'unknown') {
         types[issns[rec.issn[0]]] += 1;
         fixes += 1;
         rec.journal_oa_type = issns[rec.issn[0]];
+        batch.push(rec);
       }
-    } else if ((rec.issn || rec.DOI) && (tp = (await this.permissions.journals.oa.type((ref1 = rec.issn) != null ? ref1 : rec.DOI)))) {
+    } else if ((rec.issn || rec.DOI) && (tp = (await this.permissions.journals.oa.type((ref2 = rec.issn) != null ? ref2 : rec.DOI)))) {
       if (rec.issn) {
         issns[rec.issn[0]] = tp;
       }
@@ -10606,7 +10607,7 @@ P.report.fixoatype = async function() {
         batch.push(rec);
       }
     }
-    if (batch.length === 20000) {
+    if (batch.length >= 20000) {
       await this.report.works(batch);
       batch = [];
     }
@@ -20295,7 +20296,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Wed May 07 2025 22:00:46 GMT+0100";
+S.built = "Sun May 11 2025 20:25:46 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor

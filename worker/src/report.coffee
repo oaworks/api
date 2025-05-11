@@ -1276,10 +1276,11 @@ P.report.fixoatype = ->
     noissn += 1 if not rec.issn
     console.log('check oa type checked', checked, fixes, noissn) if checked % 100 is 0
     if rec.issn and issns[rec.issn[0]]
-      if issns[rec.issn[0]] isnt 'closed'
+      if issns[rec.issn[0]] not in ['closed', 'unknown']
         types[issns[rec.issn[0]]] += 1
         fixes += 1
         rec.journal_oa_type = issns[rec.issn[0]]
+        batch.push rec
     else if (rec.issn or rec.DOI) and tp = await @permissions.journals.oa.type rec.issn ? rec.DOI
       issns[rec.issn[0]] = tp if rec.issn
       if tp and tp not in ['closed', 'unknown']
@@ -1288,7 +1289,7 @@ P.report.fixoatype = ->
         fixes += 1
         rec.journal_oa_type = tp
         batch.push rec
-    if batch.length is 20000
+    if batch.length >= 20000
       await @report.works batch
       batch = []
   if batch.length
