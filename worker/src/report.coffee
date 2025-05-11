@@ -704,7 +704,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
 
     if (refresh or not exists?.oadoi) and rec.DOI
       rec.oadoi = true
-      oadoi = await @src.oadoi rec.DOI
+      oadoi = await @src.oadoi.doi rec.DOI
       for loc in oadoi?.oa_locations ? []
         if loc.host_type is 'publisher'
           rec.publisher_license ?= loc.license
@@ -1072,7 +1072,7 @@ P.report.works.load._async = true
 P.report.works.load._auth = '@oa.works'
 
 P.report.works.load.mains = ->
-  orgs = if @params.orgs then @params.orgs.split(',') else ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Howard Hughes Medical Institute', 'Templeton World Charity Foundation']
+  orgs = if @params.orgs then @params.orgs.split(',') else ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Howard Hughes Medical Institute', 'Templeton World Charity Foundation', 'Michael J. Fox Foundation', 'Parkinson’s Progression Markers Initiative']
   for org in orgs
     await @report.works.load undefined, org
   return true
@@ -1260,6 +1260,49 @@ P.report.fixcroa._async = true
 P.report.fixcroa._auth = '@oa.works'
 '''
 
+
+P.report.fixoatype = ->
+  fixes = 0
+  checked = 0
+  noissn = 0
+  issns = {}
+  types = {}
+  batch = []
+  q = 'journal_oa_type.keyword:"closed" AND issn:* AND orgs:*'
+  count = await @report.works.count q
+  console.log 'check oa type expecting', count
+  for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', q, scroll: '30m'
+    checked += 1
+    noissn += 1 if not rec.issn
+    console.log('check oa type checked', checked, fixes, noissn) if checked % 100 is 0
+    if rec.issn and issns[rec.issn[0]]
+      if issns[rec.issn[0]] isnt 'closed'
+        types[issns[rec.issn[0]]] += 1
+        fixes += 1
+        rec.journal_oa_type = issns[rec.issn[0]]
+    else if (rec.issn or rec.DOI) and tp = await @permissions.journals.oa.type rec.issn ? rec.DOI
+      issns[rec.issn[0]] = tp if rec.issn
+      if tp and tp not in ['closed', 'unknown']
+        types[tp] ?= 0
+        types[tp] += 1
+        fixes += 1
+        rec.journal_oa_type = tp
+        batch.push rec
+    if batch.length is 20000
+      await @report.works batch
+      batch = []
+  if batch.length
+    await @report.works batch
+  console.log 'check oa type completed with', checked, fixes, noissn, count
+  console.log types
+  try console.log Object.keys(issns).length
+  return fixes
+P.report.fixoatype._bg = true
+P.report.fixoatype._async = true
+P.report.fixoatype._auth = '@oa.works'
+
+
+'''
 P.report.removeobq = ->
   checked = 0
   for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'orgs_by_query:*', scroll: '30m', include: ['DOI', 'openalex', 'PMCID']
@@ -1271,6 +1314,8 @@ P.report.removeobq = ->
 P.report.removeobq._bg = true
 P.report.removeobq._async = true
 P.report.removeobq._auth = '@oa.works'
+'''
+
 
 
 '''

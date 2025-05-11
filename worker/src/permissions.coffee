@@ -453,6 +453,7 @@ P.permissions.journals.oa.type = (issns, doajrnl, oadoi, crossref) ->
       issns = oadoi?.journal_issns ? crossref?.ISSN
   issns = issns.split(',') if typeof issns is 'string'
 
+  #console.log oadoi, crossref, issns
   js = 'unknown'
   if crossref?.type? and crossref.type isnt 'journal-article'
     js = 'not applicable'
@@ -465,9 +466,13 @@ P.permissions.journals.oa.type = (issns, doajrnl, oadoi, crossref) ->
     else if issns
       if issns and await @permissions.journals.transformative.count 'issn:"' + issns.join('" OR issn:"') + '"'
         js = 'transformative'
-      else if js is 'closed' and await @src.oadoi.hybrid issns
-        # check if it really is closed because sometimes OADOI says it is for one particular DOI but really it isn't (or was at time of publication of that article, but isn't now)
-        js = 'hybrid'
+      else if js is 'closed'
+        if await @src.oadoi.hybrid issns
+          # check if it really is closed because sometimes OADOI says it is for one particular DOI but really it isn't (or was at time of publication of that article, but isn't now)
+          js = 'hybrid'
+        else if oadoi?.oa_status not in ['closed', 'bronze', 'green']
+          calc = await @src.oadoi.oa.type issns
+          js = calc.calculated if calc.calculated and calc.calculated not in ['closed', 'bronze', 'green']
   return js
 P.permissions.journals.oa.type._log = false
 
