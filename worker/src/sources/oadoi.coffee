@@ -59,6 +59,29 @@ P.src.oadoi.hybrid = (issns) ->
   else
     return
 
+P.src.oadoi.oa = type: (issns) ->
+  issns ?= @params.type ? @params.issn ? @params.issns
+  if typeof issns is 'string' and issns.startsWith('10.') and rec = await @src.oadoi.doi issns
+    issns = rec.journal_issns
+  if issns and typeof issns is 'object' and not Array.isArray issns
+    issns = issns.journal_issns ? issns.ISSN
+  issns = issns.replace(/\s/g, '').split(',') if typeof issns is 'string'
+  if Array.isArray(issns) and issns.length
+    types = await @src.oadoi.terms 'oa_status.keyword', 'journal_issns.keyword:*' + issns.join('* OR journals_issns.keyword:*') + '*'
+    if types.length is 1
+      calculated = types[0].term
+    else if types.length is 0
+      calculated = 'unknown'
+    else if JSON.stringify(types).toLowerCase().includes '"hybrid"'
+      calculated = await @src.oadoi.hybrid issns
+    else if types[1].count / types[0].count > .001
+      calculated = types[0].term
+    else
+      calculated = 'unknown'
+    return issn: issns, calculated: calculated, types: types
+  else
+    return issn: issns, calculated: '', types: []
+
 # if we ever decide to use title search on oadoi (only covers crossref anyway so no additional benefit to us at the moment):
 # https://support.unpaywall.org/support/solutions/articles/44001977396-how-do-i-use-the-title-search-api-
 

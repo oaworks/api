@@ -68,6 +68,29 @@ P.src.openalex.works.title = (title) ->
   else
     return
 
+P.src.openalex.oa = type: (issns) ->
+  issns ?= @params.type ? @params.issn ? @params.issns
+  if typeof issns is 'string' and issns.startsWith('10.') and rec = await @src.openalex.works.doi issns
+    issns = rec.primary_location?.source?.issn
+  if typeof issns is 'object' and not Array.isArray issns
+    issns = issns.journal_issns ? issns.ISSN ? issns.primary_location?.source?.issn
+  issns = issns.replace(/\s/g, '').split(',') if typeof issns is 'string'
+  if Array.isArray(issns) and issns.length
+    types = await @src.openalex.works.terms 'open_access.oa_status.keyword', 'locations.source.issn.keyword:"' + issns.join('" OR locations.source.issn.keyword:') + '"'
+    if types.length is 1
+      calculated = types[0].term
+    else if types.length is 0
+      calculated = 'unknown'
+    else if JSON.stringify(types).toLowerCase().includes '"hybrid"'
+      calculated = await @src.openalex.hybrid issns
+    else if types[1].count / types[0].count > .001
+      calculated = types[0].term
+    else
+      calculated = 'unknown'
+    return issn: issns, calculated: calculated, types: types
+  else
+    return issn: issns, calculated: '', types: []
+
 P.src.openalex.manifest = ->
   what = @params.manifest ? @params.openalex ? 'works'
   return false if what not in ['works']

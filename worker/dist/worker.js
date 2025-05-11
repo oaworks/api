@@ -7503,7 +7503,7 @@ P.permissions.journals.oa = async function(issn, oadoi) {
 P.permissions.journals.oa._log = false;
 
 P.permissions.journals.oa.type = async function(issns, doajrnl, oadoi, crossref) {
-  var js, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8;
+  var calc, js, ref, ref1, ref10, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9;
   if (issns == null) {
     issns = (ref = (ref1 = (ref2 = (ref3 = (ref4 = (ref5 = oadoi != null ? oadoi.journal_issns : void 0) != null ? ref5 : crossref != null ? crossref.ISSN : void 0) != null ? ref4 : this.params.journals) != null ? ref3 : this.params.journal) != null ? ref2 : this.params.type) != null ? ref1 : this.params.issn) != null ? ref : this.params.issns;
   }
@@ -7524,6 +7524,7 @@ P.permissions.journals.oa.type = async function(issns, doajrnl, oadoi, crossref)
   if (typeof issns === 'string') {
     issns = issns.split(',');
   }
+  //console.log oadoi, crossref, issns
   js = 'unknown';
   if (((crossref != null ? crossref.type : void 0) != null) && crossref.type !== 'journal-article') {
     js = 'not applicable';
@@ -7537,9 +7538,16 @@ P.permissions.journals.oa.type = async function(issns, doajrnl, oadoi, crossref)
     } else if (issns) {
       if (issns && (await this.permissions.journals.transformative.count('issn:"' + issns.join('" OR issn:"') + '"'))) {
         js = 'transformative';
-      } else if (js === 'closed' && (await this.src.oadoi.hybrid(issns))) {
-        // check if it really is closed because sometimes OADOI says it is for one particular DOI but really it isn't (or was at time of publication of that article, but isn't now)
-        js = 'hybrid';
+      } else if (js === 'closed') {
+        if ((await this.src.oadoi.hybrid(issns))) {
+          // check if it really is closed because sometimes OADOI says it is for one particular DOI but really it isn't (or was at time of publication of that article, but isn't now)
+          js = 'hybrid';
+        } else if ((ref9 = oadoi != null ? oadoi.oa_status : void 0) !== 'closed' && ref9 !== 'bronze' && ref9 !== 'green') {
+          calc = (await this.src.oadoi.oa.type(issns));
+          if (calc.calculated && ((ref10 = calc.calculated) !== 'closed' && ref10 !== 'bronze' && ref10 !== 'green')) {
+            js = calc.calculated;
+          }
+        }
       }
     }
   }
@@ -8218,7 +8226,7 @@ P.permissions.journals.oa._log = false`;
 
 P.permissions_new.journals.oa = {
   type: async function(issns, doajrnl, openalex, crossref) {
-    var i, is_in_doaj, j, js, len, len1, ll, oi, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9;
+    var calc, i, is_in_doaj, j, js, len, len1, ll, oi, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9;
     if (issns == null) {
       issns = (ref = (ref1 = (ref2 = (ref3 = (ref4 = this.params.journals) != null ? ref4 : this.params.journal) != null ? ref3 : this.params.type) != null ? ref2 : this.params.issn) != null ? ref1 : this.params.issns) != null ? ref : [];
     }
@@ -8281,8 +8289,15 @@ P.permissions_new.journals.oa = {
         } else if (issns) {
           if ((await this.permissions.journals.transformative.count('issn:"' + issns.join('" OR issn:"') + '"'))) {
             js = 'transformative';
-          } else if (js === 'closed' && (await this.src.openalex.hybrid(issns))) {
-            js = 'hybrid';
+          } else if (js === 'closed') {
+            if ((await this.src.openalex.hybrid(issns))) {
+              js = 'hybrid';
+            } else if ((ref16 = openalex != null ? (ref17 = openalex.open_access) != null ? ref17.oa_status : void 0 : void 0) !== 'closed' && ref16 !== 'bronze' && ref16 !== 'green') {
+              calc = (await this.src.openalex.oa.type(issns));
+              if (calc.calculated && ((ref18 = calc.calculated) !== 'closed' && ref18 !== 'bronze' && ref18 !== 'green')) {
+                js = calc.calculated;
+              }
+            }
           }
         }
       }
@@ -9683,7 +9698,7 @@ P.report.works.process = async function(cr, openalex, refresh, everything, actio
     }
     if ((refresh || !(exists != null ? exists.oadoi : void 0)) && rec.DOI) {
       rec.oadoi = true;
-      oadoi = (await this.src.oadoi(rec.DOI));
+      oadoi = (await this.src.oadoi.doi(rec.DOI));
       ref41 = (ref40 = oadoi != null ? oadoi.oa_locations : void 0) != null ? ref40 : [];
       for (z = 0, len11 = ref41.length; z < len11; z++) {
         loc = ref41[z];
@@ -10356,7 +10371,7 @@ P.report.works.load._auth = '@oa.works';
 
 P.report.works.load.mains = async function() {
   var j, len, org, orgs;
-  orgs = this.params.orgs ? this.params.orgs.split(',') : ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Howard Hughes Medical Institute', 'Templeton World Charity Foundation'];
+  orgs = this.params.orgs ? this.params.orgs.split(',') : ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Howard Hughes Medical Institute', 'Templeton World Charity Foundation', 'Michael J. Fox Foundation', 'Parkinson’s Progression Markers Initiative'];
   for (j = 0, len = orgs.length; j < len; j++) {
     org = orgs[j];
     await this.report.works.load(void 0, org);
@@ -10549,29 +10564,81 @@ P.report.fixcroa._bg = true
 P.report.fixcroa._async = true
 P.report.fixcroa._auth = '@oa.works'`;
 
-P.report.removeobq = async function() {
-  var checked, rec, ref, ref1, ref2;
+P.report.fixoatype = async function() {
+  var batch, checked, count, fixes, issns, noissn, q, rec, ref, ref1, tp, types;
+  fixes = 0;
   checked = 0;
-  ref = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', 'orgs_by_query:*', {
-    scroll: '30m',
-    include: ['DOI', 'openalex', 'PMCID']
+  noissn = 0;
+  issns = {};
+  types = {};
+  batch = [];
+  q = 'journal_oa_type.keyword:"closed" AND issn:* AND orgs:*';
+  count = (await this.report.works.count(q));
+  console.log('check oa type expecting', count);
+  ref = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', q, {
+    scroll: '30m'
   });
   for await (rec of ref) {
     checked += 1;
-    this.report.queue((ref1 = (ref2 = rec.DOI) != null ? ref2 : rec.openalex) != null ? ref1 : rec.PMCID, void 0, true);
+    if (!rec.issn) {
+      noissn += 1;
+    }
     if (checked % 100 === 0) {
-      console.log('fix orgs by query', checked);
+      console.log('check oa type checked', checked, fixes, noissn);
+    }
+    if (rec.issn && issns[rec.issn[0]]) {
+      if (issns[rec.issn[0]] !== 'closed') {
+        types[issns[rec.issn[0]]] += 1;
+        fixes += 1;
+        rec.journal_oa_type = issns[rec.issn[0]];
+      }
+    } else if ((rec.issn || rec.DOI) && (tp = (await this.permissions.journals.oa.type((ref1 = rec.issn) != null ? ref1 : rec.DOI)))) {
+      if (rec.issn) {
+        issns[rec.issn[0]] = tp;
+      }
+      if (tp && (tp !== 'closed' && tp !== 'unknown')) {
+        if (types[tp] == null) {
+          types[tp] = 0;
+        }
+        types[tp] += 1;
+        fixes += 1;
+        rec.journal_oa_type = tp;
+        batch.push(rec);
+      }
+    }
+    if (batch.length === 20000) {
+      await this.report.works(batch);
+      batch = [];
     }
   }
-  console.log('fix orgs by query completed with', checked);
-  return checked;
+  if (batch.length) {
+    await this.report.works(batch);
+  }
+  console.log('check oa type completed with', checked, fixes, noissn, count);
+  console.log(types);
+  try {
+    console.log(Object.keys(issns).length);
+  } catch (error) {}
+  return fixes;
 };
 
-P.report.removeobq._bg = true;
+P.report.fixoatype._bg = true;
 
-P.report.removeobq._async = true;
+P.report.fixoatype._async = true;
 
-P.report.removeobq._auth = '@oa.works';
+P.report.fixoatype._auth = '@oa.works';
+
+`P.report.removeobq = ->
+  checked = 0
+  for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'orgs_by_query:*', scroll: '30m', include: ['DOI', 'openalex', 'PMCID']
+    checked += 1
+    @report.queue (rec.DOI ? rec.openalex ? rec.PMCID), undefined, true
+    console.log('fix orgs by query', checked) if checked % 100 is 0
+  console.log 'fix orgs by query completed with', checked
+  return checked
+P.report.removeobq._bg = true
+P.report.removeobq._async = true
+P.report.removeobq._auth = '@oa.works'`;
 
 `P.report.fixtype = ->
   fixes = 0
@@ -13358,6 +13425,49 @@ P.src.oadoi.hybrid = async function(issns) {
   }
 };
 
+P.src.oadoi.oa = {
+  type: async function(issns) {
+    var calculated, rec, ref, ref1, ref2, types;
+    if (issns == null) {
+      issns = (ref = (ref1 = this.params.type) != null ? ref1 : this.params.issn) != null ? ref : this.params.issns;
+    }
+    if (typeof issns === 'string' && issns.startsWith('10.') && (rec = (await this.src.oadoi.doi(issns)))) {
+      issns = rec.journal_issns;
+    }
+    if (issns && typeof issns === 'object' && !Array.isArray(issns)) {
+      issns = (ref2 = issns.journal_issns) != null ? ref2 : issns.ISSN;
+    }
+    if (typeof issns === 'string') {
+      issns = issns.replace(/\s/g, '').split(',');
+    }
+    if (Array.isArray(issns) && issns.length) {
+      types = (await this.src.oadoi.terms('oa_status.keyword', 'journal_issns.keyword:*' + issns.join('* OR journals_issns.keyword:*') + '*'));
+      if (types.length === 1) {
+        calculated = types[0].term;
+      } else if (types.length === 0) {
+        calculated = 'unknown';
+      } else if (JSON.stringify(types).toLowerCase().includes('"hybrid"')) {
+        calculated = (await this.src.oadoi.hybrid(issns));
+      } else if (types[1].count / types[0].count > .001) {
+        calculated = types[0].term;
+      } else {
+        calculated = 'unknown';
+      }
+      return {
+        issn: issns,
+        calculated: calculated,
+        types: types
+      };
+    } else {
+      return {
+        issn: issns,
+        calculated: '',
+        types: []
+      };
+    }
+  }
+};
+
 // if we ever decide to use title search on oadoi (only covers crossref anyway so no additional benefit to us at the moment):
 // https://support.unpaywall.org/support/solutions/articles/44001977396-how-do-i-use-the-title-search-api-
 
@@ -13928,6 +14038,49 @@ P.src.openalex.works.title = async function(title) {
     return (await this.src.openalex.works('title:"' + title + '"', 1));
   } else {
 
+  }
+};
+
+P.src.openalex.oa = {
+  type: async function(issns) {
+    var calculated, rec, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, types;
+    if (issns == null) {
+      issns = (ref = (ref1 = this.params.type) != null ? ref1 : this.params.issn) != null ? ref : this.params.issns;
+    }
+    if (typeof issns === 'string' && issns.startsWith('10.') && (rec = (await this.src.openalex.works.doi(issns)))) {
+      issns = (ref2 = rec.primary_location) != null ? (ref3 = ref2.source) != null ? ref3.issn : void 0 : void 0;
+    }
+    if (typeof issns === 'object' && !Array.isArray(issns)) {
+      issns = (ref4 = (ref5 = issns.journal_issns) != null ? ref5 : issns.ISSN) != null ? ref4 : (ref6 = issns.primary_location) != null ? (ref7 = ref6.source) != null ? ref7.issn : void 0 : void 0;
+    }
+    if (typeof issns === 'string') {
+      issns = issns.replace(/\s/g, '').split(',');
+    }
+    if (Array.isArray(issns) && issns.length) {
+      types = (await this.src.openalex.works.terms('open_access.oa_status.keyword', 'locations.source.issn.keyword:"' + issns.join('" OR locations.source.issn.keyword:') + '"'));
+      if (types.length === 1) {
+        calculated = types[0].term;
+      } else if (types.length === 0) {
+        calculated = 'unknown';
+      } else if (JSON.stringify(types).toLowerCase().includes('"hybrid"')) {
+        calculated = (await this.src.openalex.hybrid(issns));
+      } else if (types[1].count / types[0].count > .001) {
+        calculated = types[0].term;
+      } else {
+        calculated = 'unknown';
+      }
+      return {
+        issn: issns,
+        calculated: calculated,
+        types: types
+      };
+    } else {
+      return {
+        issn: issns,
+        calculated: '',
+        types: []
+      };
+    }
   }
 };
 
@@ -20142,7 +20295,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Thu Apr 24 2025 12:07:54 GMT+0100";
+S.built = "Wed May 07 2025 22:00:46 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
