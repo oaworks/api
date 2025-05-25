@@ -234,7 +234,9 @@ P.src.openalex.load = (what, changes, clear, sync, last, toalias) ->
     await fs.writeFile infiles + '/manifestprevious', pm
   ended = await @epoch()
   ret = started: started, took: ended - started, expected: expectedfiles, processed: processedfiles, total: total, sync: sync, last: last, lasth: lasth, changes: changes
-  await @mail to: @S.log?.notify, subject: 'Openalex works load or changes ' + total, text: JSON.stringify ret
+  if total > 0 or (new Date()).getDay() is 1
+    dt = await @datetime()
+    await @mail to: @S.log?.logs, subject: 'Openalex works load or changes ' + total + ' at ' + dt, text: JSON.stringify ret
   console.log ret
   return ret
 

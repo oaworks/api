@@ -928,7 +928,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
             rec.data_availability_url.push(dor) if dor not in rec.data_availability_url
       rec.submitted_date ?= await @src.epmc.submitted rec.PMCID, epmc
 
-    rec.has_repository_copy = true if rec.PMCID
+    rec.has_repository_copy = true if rec.PMCID or rec.openalx?.open_access?.any_repository_has_fulltext
     rec.is_oa = rec.oadoi_is_oa or rec.crossref_is_oa or rec.journal_oa_type in ['gold']
     rec.has_data_availability_statement = if rec.pmc_has_data_availability_statement or mturk_has_data_availability_statement or (rec.DOI and (rec.DOI.startsWith('10.1186') or rec.DOI.startsWith('10.12688') or rec.DOI.startsWith('10.1371'))) then true else rec.pmc_has_data_availability_statement ? mturk_has_data_availability_statement
     '''for qo in rec.orgs
