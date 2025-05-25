@@ -953,16 +953,18 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
               if (tot > 100000) {
                 await this.mail({
                   to: (ref12 = S.log) != null ? ref12.notify : void 0,
+                  subject: (this.S.dev ? 'Dev' : 'Live') + ' oa.report creating large csv of size ' + tot,
                   text: 'Someone is creating a large csv of size ' + tot + '\n\n' + eurl
                 });
               }
               out = this.S.static.folder + '/export';
               try {
                 filecount = ((await fs.readdir(out))).length;
-                if (filecount > 900 && filecount % 20 === 0) {
+                if (filecount > 970 && filecount % 20 === 0) {
                   this.mail({
-                    to: (ref13 = S.log) != null ? ref13.alert : void 0,
-                    text: 'Warning, export file count is ' + filecount + ' they will be deleted at 1000'
+                    to: (ref13 = S.log) != null ? ref13.logs : void 0,
+                    subject: (this.S.dev ? 'Dev' : 'Live') + ' oa.report export file count ' + filecount + '/1000',
+                    text: 'Info, export file count is ' + filecount + ' they will be deleted at 1000'
                   });
                 }
               } catch (error) {
@@ -979,6 +981,7 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
                   }
                   this.mail({
                     to: (ref15 = S.log) != null ? ref15.notify : void 0,
+                    subject: (this.S.dev ? 'Dev' : 'Live') + ' oa.report export file count limit reached, files deleted',
                     text: 'Export files had reached 1000 so have been deleted '
                   });
                 }
@@ -9358,7 +9361,7 @@ P.report.works = {
 };
 
 P.report.works.process = async function(cr, openalex, refresh, everything, action, replaced, queued) {
-  var _rsup, a, ad, ass, assl, atp, best_initial, best_name, best_score, brd, c, cid, corresponding_author_ids, crv, dodgy, dor, dord, email, epmc, err, exists, f, flc, givenpmcid, i, i1, j, j1, k, k1, l, l1, lc, len, len1, len10, len11, len12, len13, len14, len15, len16, len17, len18, len19, len2, len20, len21, len22, len23, len24, len25, len3, len4, len5, len6, len7, len8, len9, lic, ll, loc, lvs, m, m1, mturk_has_data_availability_statement, n, n1, o1, oadoi, ok, ox, p, p1, permissions, poaa, poac, por, port, potfr, pp, pt, pub, publ, pubmed, q1, r, r1, ran, rec, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref45, ref46, ref47, ref48, ref49, ref5, ref50, ref51, ref52, ref53, ref54, ref55, ref56, ref57, ref58, ref59, ref6, ref60, ref61, ref62, ref63, ref64, ref65, ref66, ref67, ref68, ref69, ref7, ref70, ref71, ref72, ref73, ref74, ref75, ref76, ref77, ref78, ref79, ref8, ref80, ref81, ref82, ref83, ref84, ref85, ref86, ref87, ref9, ren, rn, rp, rpa, s1, score, sd, soad, sqq, started, sup, t1, u, u1, ud, ude, urlordois, v, v1, w, x, xref, y, z;
+  var _rsup, a, ad, ass, assl, atp, best_initial, best_name, best_score, brd, c, cid, corresponding_author_ids, crv, dodgy, dor, dord, email, epmc, err, exists, f, flc, givenpmcid, i, i1, j, j1, k, k1, l, l1, lc, len, len1, len10, len11, len12, len13, len14, len15, len16, len17, len18, len19, len2, len20, len21, len22, len23, len24, len25, len3, len4, len5, len6, len7, len8, len9, lic, ll, loc, lvs, m, m1, mturk_has_data_availability_statement, n, n1, o1, oadoi, ok, ox, p, p1, permissions, poaa, poac, por, port, potfr, pp, pt, pub, publ, pubmed, q1, r, r1, ran, rec, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref45, ref46, ref47, ref48, ref49, ref5, ref50, ref51, ref52, ref53, ref54, ref55, ref56, ref57, ref58, ref59, ref6, ref60, ref61, ref62, ref63, ref64, ref65, ref66, ref67, ref68, ref69, ref7, ref70, ref71, ref72, ref73, ref74, ref75, ref76, ref77, ref78, ref79, ref8, ref80, ref81, ref82, ref83, ref84, ref85, ref86, ref87, ref88, ref89, ref9, ren, rn, rp, rpa, s1, score, sd, soad, sqq, started, sup, t1, u, u1, ud, ude, urlordois, v, v1, w, x, xref, y, z;
   try {
     started = (await this.epoch());
     if (cr == null) {
@@ -10096,11 +10099,11 @@ P.report.works.process = async function(cr, openalex, refresh, everything, actio
         rec.submitted_date = (await this.src.epmc.submitted(rec.PMCID, epmc));
       }
     }
-    if (rec.PMCID) {
+    if (rec.PMCID || ((ref86 = rec.openalx) != null ? (ref87 = ref86.open_access) != null ? ref87.any_repository_has_fulltext : void 0 : void 0)) {
       rec.has_repository_copy = true;
     }
-    rec.is_oa = rec.oadoi_is_oa || rec.crossref_is_oa || ((ref86 = rec.journal_oa_type) === 'gold');
-    rec.has_data_availability_statement = rec.pmc_has_data_availability_statement || mturk_has_data_availability_statement || (rec.DOI && (rec.DOI.startsWith('10.1186') || rec.DOI.startsWith('10.12688') || rec.DOI.startsWith('10.1371'))) ? true : (ref87 = rec.pmc_has_data_availability_statement) != null ? ref87 : mturk_has_data_availability_statement;
+    rec.is_oa = rec.oadoi_is_oa || rec.crossref_is_oa || ((ref88 = rec.journal_oa_type) === 'gold');
+    rec.has_data_availability_statement = rec.pmc_has_data_availability_statement || mturk_has_data_availability_statement || (rec.DOI && (rec.DOI.startsWith('10.1186') || rec.DOI.startsWith('10.12688') || rec.DOI.startsWith('10.1371'))) ? true : (ref89 = rec.pmc_has_data_availability_statement) != null ? ref89 : mturk_has_data_availability_statement;
     `for qo in rec.orgs
 try
   qrc = await @report.orgs.queries qo, (rec.DOI ? rec.openalex ? rec.PMCID)
@@ -11791,7 +11794,7 @@ P.src.crossref.load._async = true
 P.src.crossref.load._auth = 'root'`;
 
 P.src.crossref.changes = async function(startday, endday, created) {
-  var batch, batchsize, cursor, days, dn, fr, fromthisday, j, last, len, loaded, queued, rec, ref, ref1, ref2, retries, searchtype, thisdays, totalthisday;
+  var batch, batchsize, cursor, days, dn, dt, fr, fromthisday, j, last, len, loaded, queued, rec, ref, ref1, ref2, retries, searchtype, thisdays, totalthisday;
   if (startday == null) {
     startday = this.params.changes;
   }
@@ -11906,11 +11909,14 @@ queued.push(doq) if doq`;
     }
     //await @report.queue(queued, undefined, undefined, undefined, 'changes') if queued.length
     console.log('crossref works changes completed', loaded, days, queued.length);
-    await this.mail({
-      to: (ref2 = this.S.log) != null ? ref2.notify : void 0,
-      subject: 'Crossref works load or changes ' + loaded,
-      text: 'loaded ' + loaded
-    });
+    if (loaded > 0 || (new Date()).getDay() === 1) {
+      dt = (await this.datetime());
+      await this.mail({
+        to: (ref2 = this.S.log) != null ? ref2.logs : void 0,
+        subject: 'Crossref works load or changes ' + loaded + ' at ' + dt,
+        text: 'loaded ' + loaded
+      });
+    }
   }
   return loaded;
 };
@@ -14120,7 +14126,7 @@ P.src.openalex.manifest = async function() {
 };
 
 P.src.openalex.load = async function(what, changes, clear, sync, last, toalias) {
-  var _dofile, caughtup, change, de, ended, entry, esd, expectedfiles, flo, i, inf, infiles, j, k, l, lasth, len, len1, len2, len3, len4, maxrunners, o, oe, onlyinfo, pm, processedfiles, ref, ref1, ref10, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, ret, running, started, stats, synced, total, updated;
+  var _dofile, caughtup, change, de, dt, ended, entry, esd, expectedfiles, flo, i, inf, infiles, j, k, l, lasth, len, len1, len2, len3, len4, maxrunners, o, oe, onlyinfo, pm, processedfiles, ref, ref1, ref10, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, ret, running, started, stats, synced, total, updated;
   started = (await this.epoch());
   if (what == null) {
     what = (ref = (ref1 = this.params.load) != null ? ref1 : this.params.openalex) != null ? ref : 'works';
@@ -14312,11 +14318,14 @@ P.src.openalex.load = async function(what, changes, clear, sync, last, toalias) 
     lasth: lasth,
     changes: changes
   };
-  await this.mail({
-    to: (ref10 = this.S.log) != null ? ref10.notify : void 0,
-    subject: 'Openalex works load or changes ' + total,
-    text: JSON.stringify(ret)
-  });
+  if (total > 0 || (new Date()).getDay() === 1) {
+    dt = (await this.datetime());
+    await this.mail({
+      to: (ref10 = this.S.log) != null ? ref10.logs : void 0,
+      subject: 'Openalex works load or changes ' + total + ' at ' + dt,
+      text: JSON.stringify(ret)
+    });
+  }
   console.log(ret);
   return ret;
 };
@@ -20296,7 +20305,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Sun May 11 2025 20:25:46 GMT+0100";
+S.built = "Sun May 25 2025 20:41:56 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
