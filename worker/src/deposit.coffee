@@ -142,8 +142,7 @@ P.deposit = (params, file, dev) ->
     await @deposits dep
 
     if (dep.type isnt 'review' or file?) and dep.archivable?.archivable isnt false and (not exists?.zenodo?.already or dev)
-      bcc = [@S.log?.notify, 'shared@oa.works']
-      #bcc.push('mark+notifications@oa.works') if dev
+      bcc = [@S.log?.logs, 'shared@oa.works']
       tos = []
       if typeof uc?.owner is 'string' and uc.owner.includes('@') and not dep.error
         tos.push uc.owner

@@ -980,7 +980,7 @@ P._wrapper = function(f, n) { // the function to wrap and the string name of the
                     await fs.unlink(out + '/' + fl);
                   }
                   this.mail({
-                    to: (ref15 = S.log) != null ? ref15.notify : void 0,
+                    to: (ref15 = S.log) != null ? ref15.logs : void 0,
                     subject: (this.S.dev ? 'Dev' : 'Live') + ' oa.report export file count limit reached, files deleted',
                     text: 'Export files had reached 1000 so have been deleted '
                   });
@@ -2286,8 +2286,7 @@ P.deposit = async function(params, file, dev) {
     dep.url = typeof params.redeposit === 'string' ? params.redeposit : params.url ? params.url : void 0;
     await this.deposits(dep);
     if ((dep.type !== 'review' || (file != null)) && ((ref35 = dep.archivable) != null ? ref35.archivable : void 0) !== false && (!(typeof exists !== "undefined" && exists !== null ? (ref36 = exists.zenodo) != null ? ref36.already : void 0 : void 0) || dev)) {
-      bcc = [(ref37 = this.S.log) != null ? ref37.notify : void 0, 'shared@oa.works'];
-      //bcc.push('mark+notifications@oa.works') if dev
+      bcc = [(ref37 = this.S.log) != null ? ref37.logs : void 0, 'shared@oa.works'];
       tos = [];
       if (typeof (uc != null ? uc.owner : void 0) === 'string' && uc.owner.includes('@') && !dep.error) {
         tos.push(uc.owner);
@@ -4664,7 +4663,7 @@ P.availability = async function(params, v2) {
 var indexOf = [].indexOf;
 
 P.ill = async function(opts) { // only worked on POST with optional auth
-  var a, atidy, ats, authors, config, first, i, j, len, len1, m, o, ordered, r, ref, ref1, ref2, ref3, ref4, su, tmpl, vars;
+  var a, atidy, ats, authors, config, first, i, j, len, len1, m, o, ordered, r, ref, ref1, ref2, ref3, ref4, ref5, su, tmpl, tos, vars;
   if (opts == null) {
     opts = this.copy(this.params);
     if (opts.ill) {
@@ -4775,13 +4774,17 @@ P.ill = async function(opts) { // only worked on POST with optional auth
     }));
   }
   tmpl = tmpl.replace(/Dear.*?\,/, 'Dear Joe, here is a copy of what was just sent:');
+  tos = ['joe+notifications@oa.works'];
+  if ((ref5 = this.S.log) != null ? ref5.logs : void 0) {
+    tos.push(this.S.log.logs);
+  }
   this.waitUntil(this.mail({
     svc: 'oaworks',
     vars: vars,
     template: tmpl,
     from: "InstantILL <InstantILL@openaccessbutton.org>",
     subject: "ILL CREATED " + opts._id,
-    to: 'joe+notifications@oa.works'
+    to: tos
   }));
   return opts;
 };
@@ -9457,7 +9460,7 @@ P.report.works.process = async function(cr, openalex, refresh, everything, actio
     }
     if (refresh !== true) {
       if ((exists != null) && !everything) {
-        if (exists.PMCID != null) {
+        if ((exists.PMCID != null) && exists.PMCID !== 'PMC') {
           rec.PMCID = exists.PMCID;
         }
         if (exists.pubtype != null) {
@@ -9469,7 +9472,7 @@ P.report.works.process = async function(cr, openalex, refresh, everything, actio
         if (exists.epmc_licence != null) {
           rec.epmc_licence = exists.epmc_licence;
         }
-        if (exists.pmc_has_data_availability_statement != null) {
+        if (exists.pmc_has_data_availability_statement) {
           rec.pmc_has_data_availability_statement = exists.pmc_has_data_availability_statement;
         }
         if (exists.data_availability_statement != null) {
@@ -9719,7 +9722,7 @@ P.report.works.process = async function(cr, openalex, refresh, everything, actio
         if (loc.host_type === 'repository') {
           if (loc.url && loc.url.toLowerCase().includes('pmc')) {
             if (!rec.PMCID) {
-              pp = loc.url.toLowerCase().split('pmc')[1].split('/')[0].split('?')[0].split('#')[0].split('.')[0].replace(/[^0-9]/g, '');
+              pp = loc.url.toLowerCase().split('pmc').pop().split('articles/').pop().split('/')[0].split('?')[0].split('#')[0].split('.')[0].replace(/[^0-9]/g, '');
               if (pp.length && !isNaN(parseInt(pp))) {
                 rec.PMCID = 'PMC' + pp;
               }
@@ -9741,7 +9744,7 @@ P.report.works.process = async function(cr, openalex, refresh, everything, actio
       }
       if (rec.repository_url && (rec.repository_url.toLowerCase().includes('europepmc.') || rec.repository_url.toLowerCase().includes('ncbi.'))) {
         if (rec.PMCID == null) {
-          rec.PMCID = 'PMC' + rec.repository_url.toLowerCase().split('pmc').pop().split('/')[0].split('#')[0].split('?')[0].split('.')[0].replace(/[^0-9]/g, '');
+          rec.PMCID = 'PMC' + rec.repository_url.toLowerCase().split('pmc').pop().split('articles/').pop().split('/')[0].split('#')[0].split('?')[0].split('.')[0].replace(/[^0-9]/g, '');
         }
         rec.repository_url_in_pmc = true;
       }
@@ -9847,14 +9850,14 @@ P.report.works.process = async function(cr, openalex, refresh, everything, actio
           rec.author_email_name = exists.author_email_name;
         }
         for (k in exists) {
-          if (k !== 'orgs_by_query') {
+          if (k !== 'orgs_by_query' && k !== 'PMCID') {
             if (rec[k] == null) {
               rec[k] = exists[k];
             }
           }
         }
       }
-      if (rec.PMCID == null) {
+      if ((!rec.PMCID || rec.PMCID === 'PMC') && (exists.PMCID != null) && exists.PMCID !== 'PMC') {
         rec.PMCID = exists.PMCID;
       }
     }
@@ -10069,7 +10072,7 @@ P.report.works.process = async function(cr, openalex, refresh, everything, actio
       lic = (await this.src.epmc.licence(rec.PMCID, epmc, void 0, refresh));
       rec.epmc_licence = lic != null ? lic.licence : void 0;
     }
-    if (rec.pmc_has_data_availability_statement == null) {
+    if (!rec.pmc_has_data_availability_statement) {
       rec.pmc_has_data_availability_statement = rec.PMCID && (await this.src.pubmed.availability(rec.PMCID));
     }
     if (everything && rec.PMCID && (refresh || !rec.data_availability_statement || !rec.submitted_date)) { // restrict to everything?
@@ -10410,6 +10413,148 @@ P.report.works.changes._bg = true;
 P.report.works.changes._async = true;
 
 P.report.works.changes._auth = '@oa.works';
+
+P.report.rs = {
+  _index: true
+};
+
+P.report.rs.retrieve = async function() {
+  var article, batch, empty, err, exists, j, k, l, len, len1, limit, local, max, ok, plus, q, rec, ref, ref1, ref2, ref3, ref4, refresh, res, retrieve, rsapi, rsid, rsurl, save, started;
+  max = this.params.max;
+  retrieve = this.params.retrieve;
+  save = this.params.save;
+  refresh = this.params.refresh;
+  plus = this.params.plus;
+  limit = (ref = this.params.limit) != null ? ref : 1000;
+  empty = this.params.empty;
+  if (empty) {
+    await this.report.rs('');
+  }
+  q = (ref1 = this.params.q) != null ? ref1 : 'prefix.keyword:"10.21203" AND DOI:"v1" AND type.keyword:"posted-content"';
+  started = Date.now();
+  rsapi = 'https://www.researchsquare.com/api/'; // with search/ or article/
+  res = {
+    started: started,
+    ended: void 0,
+    took: void 0,
+    limit: limit,
+    empty: empty,
+    q: q,
+    expected: 0,
+    total: 0,
+    refresh: refresh,
+    existed: void 0,
+    existing: 0,
+    local: 0,
+    tried: 0,
+    retrieved: 0,
+    max: max,
+    save: save,
+    saved: 0,
+    confirm: 0
+  };
+  res.expected = (await this.src.crossref.works.count(q));
+  res.existed = (await this.report.works.count('DOI:"10.21203" AND DOI:"v1"'));
+  batch = [];
+  ref2 = this.index._for('src_crossref_works', q, {
+    include: ['DOI'],
+    scroll: '30m'
+  });
+  for await (rec of ref2) {
+    if ((max && res.tried >= max) || (retrieve && res.tried >= retrieve)) {
+      break;
+    }
+    res.total += 1;
+    rsid = rec.DOI.split('.').pop();
+    if (!rsid.startsWith('rs-')) { // RS API expects rs- prefix but some do not have them
+      rsid = 'rs-' + rsid;
+    }
+    rsurl = rsapi + 'article/' + rsid;
+    if (res.total % 100 === 0) {
+      res.took = Date.now() - started;
+      console.log(rsurl);
+      console.log(res);
+    } else if (max <= 10) {
+      console.log(rsurl);
+    }
+    if (!refresh && !plus && (exists = (await this.report.works(rec.DOI)))) {
+      if (max <= 10) {
+        console.log(rec.DOI, 'already exists in report/works');
+      }
+      res.existing += 1;
+    } else if (!refresh && !empty && (local = (await this.report.rs(rec.DOI)))) {
+      if (max <= 10) {
+        console.log(rec.DOI, 'already exists in local RS');
+      }
+      res.local += 1;
+    } else {
+      res.tried += 1;
+      if (article = (await this.fetch(rsurl))) {
+        await this.sleep(res.limit);
+        if (article.identity === rsid.split('/')[0]) {
+          try {
+            article = JSON.parse(JSON.stringify(article).replace(/""/g, 'null')); // research square defaults any key to "" but that causes type matching issues so null them
+          } catch (error) {
+            err = error;
+            console.log(article);
+            console.log(err, typeof article);
+          }
+          ref3 = ['nonDraftVersions'];
+          // fix things we see type issues with - in this case the editorialEvents.content is sometimes 0 and sometimes a string
+          for (j = 0, len = ref3.length; j < len; j++) {
+            k = ref3[j];
+            article[k] = JSON.stringify(article[k]);
+          }
+          ref4 = ['declarations'];
+          // and some things need to be an object but may be an empty string (or something)
+          for (l = 0, len1 = ref4.length; l < len1; l++) {
+            ok = ref4[l];
+            if (typeof article[ok] !== 'object') {
+              delete article[ok];
+            }
+          }
+          res.retrieved += 1;
+          article.DOI = rec.DOI.toLowerCase();
+          article._id = article.DOI.replace(/\//g, '_');
+          batch.push(article);
+        }
+      }
+    }
+    if (batch.length >= 50) {
+      if (save !== false) {
+        await this.report.rs(batch);
+      }
+      res.saved += batch.length;
+      batch = [];
+    }
+  }
+  if (batch.length) {
+    if (save !== false) {
+      await this.report.rs(batch);
+    }
+    res.saved += batch.length;
+    batch = [];
+  }
+  await this.sleep(5000);
+  res.confirm = (await this.report.rs.count());
+  res.ended = Date.now();
+  res.took = res.ended - started;
+  console.log(res);
+  await this.mail({
+    to: this.S.log.notify,
+    subject: 'Report RS retrieved ' + res.retrieved,
+    text: JSON.stringify(res, '', 2)
+  });
+  return res;
+};
+
+P.report.rs.retrieve._log = false;
+
+P.report.rs.retrieve._bg = true;
+
+P.report.rs.retrieve._async = true;
+
+P.report.rs.retrieve._auth = '@oa.works';
 
 `P.report.works.check = (year) ->
   year ?= @params.check ? @params.year ? '2023'
@@ -11157,19 +11302,20 @@ P.svc.rscvd.overdue = async function() {
 };
 
 P.test = async function(sid, max) {
-  var base, c, d, diff, dl, err, expect, gt, i, j, len, len1, lt, n, nt, part, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, res, resd, resp, row, specd, t;
-  row = this.params.row;
+  var anoname, base, c, d, diff, dl, err, expect, gt, i, j, len, len1, lt, n, nt, part, ref, ref1, ref10, ref11, ref12, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, resd, resp, row, specd, t;
+  row = (ref = this.params.row) != null ? ref : this.params.id;
   if (max == null) {
-    max = (ref = this.params.max) != null ? ref : (row ? 1 : 5);
+    max = (ref1 = this.params.max) != null ? ref1 : (row ? 1 : 1000);
   }
   res = {
     stats: {
       ran: 0,
       max: max,
-      row: row,
+      id: row,
       responded: 0,
       errors: 0,
       diffs: 0,
+      diff: (ref2 = this.params.diff) != null ? ref2 : true,
       anomalous: 0
     },
     anomalies: {},
@@ -11177,18 +11323,19 @@ P.test = async function(sid, max) {
     specs: {}
   };
   res.sheet = {
-    id: (ref1 = sid != null ? sid : this.params.sheet) != null ? ref1 : '1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8/Permissions'
+    id: (ref3 = sid != null ? sid : this.params.sheet) != null ? ref3 : '1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8/tests'
   };
   if ((base = res.sheet).url == null) {
-    base.url = 'https://docs.google.com/spreadsheets/d/' + res.sheet.id;
+    base.url = 'https://docs.google.com/spreadsheets/d/' + res.sheet.id.split('/')[0];
   }
   res.sheet.content = (await this.src.google.sheets(res.sheet.id));
   res.responses = [];
   res.diffs = [];
-  ref2 = res.sheet.content;
   //traversed = 1 # first row will be column names, so the sheet user would start counting rows from 2
-  for (i = 0, len = ref2.length; i < len; i++) {
-    t = ref2[i];
+  console.log(res.sheet.content.length, 'tests found to run in', res.sheet.id);
+  ref4 = res.sheet.content;
+  for (i = 0, len = ref4.length; i < len; i++) {
+    t = ref4[i];
     if (res.stats.ran === max) {
       //traversed += 1
       break;
@@ -11206,20 +11353,24 @@ P.test = async function(sid, max) {
         // or comma separated strings, or JSON object/list. Note also this must still be a string representation 
         // for the results object below. It may also be empty, in which case what will uniquely identify the result?
         if (t.ENDPOINT.startsWith('http')) {
-          resp = (await this.fetch(t.ENDPOINT + (!t.ENDPOINT.endsWith('/') && !((ref3 = t.PARAMS) != null ? ref3 : '').startsWith('/') ? '/' : '') + ((ref4 = t.PARAMS) != null ? ref4 : '')));
+          resp = (await this.fetch(t.ENDPOINT + (!t.ENDPOINT.endsWith('/') && !((ref5 = t.PARAMS) != null ? ref5 : '').startsWith('/') ? '/' : '') + ((ref6 = t.PARAMS) != null ? ref6 : '')));
         } else {
           resp = (await this[t.ENDPOINT](t.PARAMS));
         }
         res.stats.responded++;
         for (c in t) {
+          anoname = ((ref7 = (ref8 = (ref9 = t.NAME) != null ? ref9 : t.ID) != null ? ref8 : t.ENDPOINT) != null ? ref7 : '') + (t.PARAMS ? ' (' + t.PARAMS + ')' : '');
+          if (anoname === '') {
+            anoname = 'UNIDENTIFIED_TEST_' + res.stats.ran;
+          }
           if ((c !== 'ID' && c !== 'ENDPOINT' && c !== 'DIFF' && c !== 'PARAMS' && c !== 'NAME' && c !== 'SPEC') && !c.startsWith('OPTIONS.')) {
             expect = t[c];
-            if (expect != null) {
+            if ((expect != null) && expect !== '') {
               part = (await this.dot(resp, c));
               gt = false;
               lt = false;
               nt = false;
-              console.log(part, expect, t[c]);
+              console.log(res.stats.ran, part, expect, t[c]);
               if (typeof part === 'object') {
                 if (typeof expect === 'string' && Array.isArray(part)) {
                   expect = expect.split(',');
@@ -11231,14 +11382,11 @@ P.test = async function(sid, max) {
               } else {
                 //try
                 n = parseFloat(part); // what about dates?
-                console.log(n, typeof n);
                 if (typeof n === 'number' && !isNaN(n)) {
                   part = n;
                   if (expect.startsWith('>')) {
                     gt = true;
-                    console.log('gt is true', expect);
                     expect = parseFloat(expect.slice(1));
-                    console.log(expect, typeof expect);
                   } else if (expect.startsWith('<')) {
                     lt = true;
                     expect = parseFloat(expect.slice(1));
@@ -11248,13 +11396,13 @@ P.test = async function(sid, max) {
                   }
                 }
               }
-              console.log(part, expect, t[c], gt, lt, nt);
+              console.log(res.stats.ran, part, expect, t[c], gt, lt, nt);
               if ((part == null) || (nt && part === expect) || (gt && part <= expect) || (lt && part >= expect) || (!gt && !lt && !nt && expect !== '*' && part !== expect)) {
-                if (res.anomalies[t.PARAMS] == null) {
+                if (res.anomalies[anoname] == null) {
                   res.stats.anomalous++;
-                  res.anomalies[t.PARAMS] = {};
+                  res.anomalies[anoname] = {};
                 }
-                res.anomalies[t.PARAMS][c] = {
+                res.anomalies[anoname][c] = {
                   expected: t[c],
                   actual: part
                 };
@@ -11266,7 +11414,7 @@ P.test = async function(sid, max) {
         if (t.DIFF && this.params.diff !== false) {
           try {
             if (t.DIFF.startsWith('http')) {
-              resd = (await this.fetch(t.DIFF + (!t.DIFF.endsWith('/') && !((ref5 = t.PARAMS) != null ? ref5 : '').startsWith('/') ? '/' : '') + ((ref6 = t.PARAMS) != null ? ref6 : '')));
+              resd = (await this.fetch(t.DIFF + (!t.DIFF.endsWith('/') && !((ref10 = t.PARAMS) != null ? ref10 : '').startsWith('/') ? '/' : '') + ((ref11 = t.PARAMS) != null ? ref11 : '')));
             } else {
               resd = (await this[t.DIFF](t.PARAMS));
             }
@@ -11280,7 +11428,7 @@ P.test = async function(sid, max) {
             res.diffs.push(diff);
             if (diff.diff.length) {
               res.stats.diffs += 1;
-              res.differences[t.ENDPOINT + '_' + t.PARAMS] = diff.diff;
+              res.differences[anoname] = diff.diff;
             }
           } catch (error) {}
         }
@@ -11309,14 +11457,13 @@ P.test = async function(sid, max) {
         res.differences[d] = res.differences[d].length;
       }
     } catch (error) {}
-    ref7 = ['responses', 'diffs'];
-    for (j = 0, len1 = ref7.length; j < len1; j++) {
-      dl = ref7[j];
+    ref12 = ['responses', 'diffs'];
+    for (j = 0, len1 = ref12.length; j < len1; j++) {
+      dl = ref12[j];
       delete res[dl];
     }
-    try {
-      res.sheet.content = res.sheet.content.length;
-    } catch (error) {}
+    //try res.sheet.content = res.sheet.content.length
+    delete res.sheet.content; // for now this is not wanted as adding new tests changes the value and fails the test
   }
   return res;
 };
@@ -20305,7 +20452,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Sun May 25 2025 20:41:56 GMT+0100";
+S.built = "Wed Jun 11 2025 20:58:28 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
