@@ -599,11 +599,11 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
     exists = undefined if exists?.DOI and exists.DOI.toLowerCase() isnt (if typeof cr is 'string' then cr else if typeof cr is 'object' and cr.DOI then cr.DOI else '').toLowerCase()
     if refresh isnt true
       if exists? and not everything
-        rec.PMCID = exists.PMCID if exists.PMCID?
+        rec.PMCID = exists.PMCID if exists.PMCID? and exists.PMCID isnt 'PMC'
         rec.pubtype = exists.pubtype if exists.pubtype?
         rec.tried_epmc_licence = exists.tried_epmc_licence if exists.tried_epmc_licence?
         rec.epmc_licence = exists.epmc_licence if exists.epmc_licence?
-        rec.pmc_has_data_availability_statement = exists.pmc_has_data_availability_statement if exists.pmc_has_data_availability_statement?
+        rec.pmc_has_data_availability_statement = exists.pmc_has_data_availability_statement if exists.pmc_has_data_availability_statement
         rec.data_availability_statement = exists.data_availability_statement if exists.data_availability_statement?
         rec.data_availability_url = exists.data_availability_url if exists.data_availability_url?
         rec.data_availability_doi = exists.data_availability_doi if exists.data_availability_doi?      
@@ -713,7 +713,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
         if loc.host_type is 'repository'
           if loc.url and loc.url.toLowerCase().includes 'pmc'
             if not rec.PMCID
-              pp = loc.url.toLowerCase().split('pmc')[1].split('/')[0].split('?')[0].split('#')[0].split('.')[0].replace(/[^0-9]/g, '')
+              pp = loc.url.toLowerCase().split('pmc').pop().split('articles/').pop().split('/')[0].split('?')[0].split('#')[0].split('.')[0].replace(/[^0-9]/g, '')
               rec.PMCID = 'PMC' + pp if pp.length and not isNaN parseInt pp
             if loc.license and not rec.epmc_licence
               rec.epmc_licence = loc.license
@@ -721,7 +721,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
             for ok in ['license', 'url_for_pdf', 'url', 'version']
               rec['repository_' + ok] = loc[ok] if loc[ok]
       if rec.repository_url and (rec.repository_url.toLowerCase().includes('europepmc.') or rec.repository_url.toLowerCase().includes('ncbi.'))
-        rec.PMCID ?= 'PMC' + rec.repository_url.toLowerCase().split('pmc').pop().split('/')[0].split('#')[0].split('?')[0].split('.')[0].replace(/[^0-9]/g, '')
+        rec.PMCID ?= 'PMC' + rec.repository_url.toLowerCase().split('pmc').pop().split('articles/').pop().split('/')[0].split('#')[0].split('?')[0].split('.')[0].replace(/[^0-9]/g, '')
         rec.repository_url_in_pmc = true
       if oadoi?
         rec.best_oa_location_url = oadoi.best_oa_location?.url
@@ -774,8 +774,8 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
     if exists?
       if not refresh?
         rec.author_email_name = exists.author_email_name if not rec.author_email_name and exists.author_email_name and exists.email and rec.email and rec.email.toLowerCase() is exists.email.toLowerCase()
-        rec[k] ?= exists[k] for k of exists when k not in ['orgs_by_query']
-      rec.PMCID ?= exists.PMCID
+        rec[k] ?= exists[k] for k of exists when k not in ['orgs_by_query', 'PMCID']
+      rec.PMCID = exists.PMCID if (not rec.PMCID or rec.PMCID is 'PMC') and exists.PMCID? and exists.PMCID isnt 'PMC'
 
     #if rec.DOI and not refresh?
     #  for await o from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs', 'paid:true', scroll: '10m'
@@ -914,7 +914,8 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
       rec.tried_epmc_licence = true
       lic = await @src.epmc.licence rec.PMCID, epmc, undefined, refresh
       rec.epmc_licence = lic?.licence
-    rec.pmc_has_data_availability_statement ?= rec.PMCID and await @src.pubmed.availability rec.PMCID
+    if not rec.pmc_has_data_availability_statement
+      rec.pmc_has_data_availability_statement = rec.PMCID and await @src.pubmed.availability rec.PMCID
     if everything and rec.PMCID and (refresh or not rec.data_availability_statement or not rec.submitted_date) # restrict to everything?
       rec.data_availability_statement = await @src.epmc.statement rec.PMCID, epmc, refresh
       if rec.data_availability_statement and urlordois = await @src.epmc.statement.url rec.PMCID, epmc, rec.data_availability_statement
@@ -1092,6 +1093,82 @@ P.report.works.changes._log = false
 P.report.works.changes._bg = true
 P.report.works.changes._async = true
 P.report.works.changes._auth = '@oa.works'
+
+
+
+P.report.rs = _index: true
+P.report.rs.retrieve = () ->
+  max = @params.max
+  retrieve = @params.retrieve
+  save = @params.save
+  refresh = @params.refresh
+  plus = @params.plus
+  limit = @params.limit ? 1000
+  empty = @params.empty
+  await @report.rs('') if empty
+  q = @params.q ? 'prefix.keyword:"10.21203" AND DOI:"v1" AND type.keyword:"posted-content"'
+  started = Date.now()
+  rsapi = 'https://www.researchsquare.com/api/' # with search/ or article/
+  res = started: started, ended: undefined, took: undefined, limit: limit, empty: empty, q: q, expected: 0, total: 0, refresh: refresh, existed: undefined, existing: 0, local: 0, tried: 0, retrieved: 0, max: max, save: save, saved: 0, confirm: 0
+  res.expected = await @src.crossref.works.count q
+  res.existed = await @report.works.count 'DOI:"10.21203" AND DOI:"v1"'
+  batch = []
+  for await rec from @index._for 'src_crossref_works', q, include: ['DOI'], scroll: '30m'
+    break if (max and res.tried >= max) or (retrieve and res.tried >= retrieve)
+    res.total += 1
+    rsid = rec.DOI.split('.').pop()
+    rsid = 'rs-' + rsid if not rsid.startsWith 'rs-' # RS API expects rs- prefix but some do not have them
+    rsurl = rsapi + 'article/' + rsid
+    if res.total % 100 is 0
+      res.took = Date.now() - started
+      console.log rsurl
+      console.log res
+    else if max <= 10
+      console.log rsurl
+    if not refresh and not plus and exists = await @report.works rec.DOI
+      console.log(rec.DOI, 'already exists in report/works') if max <= 10
+      res.existing += 1
+    else if not refresh and not empty and local = await @report.rs rec.DOI
+      console.log(rec.DOI, 'already exists in local RS') if max <= 10
+      res.local += 1
+    else 
+      res.tried += 1
+      if article = await @fetch rsurl
+        await @sleep res.limit
+        if article.identity is rsid.split('/')[0]
+          try
+            article = JSON.parse JSON.stringify(article).replace /""/g, 'null' # research square defaults any key to "" but that causes type matching issues so null them
+          catch err
+            console.log article
+            console.log err, typeof article
+          for k in ['nonDraftVersions'] # fix things we see type issues with - in this case the editorialEvents.content is sometimes 0 and sometimes a string
+            article[k] = JSON.stringify article[k]
+          for ok in ['declarations'] # and some things need to be an object but may be an empty string (or something)
+            delete article[ok] if typeof article[ok] isnt 'object'
+          res.retrieved += 1
+          article.DOI = rec.DOI.toLowerCase()
+          article._id = article.DOI.replace /\//g, '_'
+          batch.push article
+    if batch.length >= 50
+      await @report.rs(batch) if save isnt false
+      res.saved += batch.length
+      batch = []
+  if batch.length
+    await @report.rs(batch) if save isnt false
+    res.saved += batch.length
+    batch = []
+  await @sleep 5000
+  res.confirm = await @report.rs.count()
+  res.ended = Date.now()
+  res.took = res.ended - started
+  console.log res
+  await @mail to: @S.log.notify, subject: 'Report RS retrieved ' + res.retrieved, text: JSON.stringify res, '', 2
+  return res
+P.report.rs.retrieve._log = false
+P.report.rs.retrieve._bg = true
+P.report.rs.retrieve._async = true
+P.report.rs.retrieve._auth = '@oa.works'
+
 
 
 
