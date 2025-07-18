@@ -1,6 +1,9 @@
 
 # https://ror.readme.io/docs/rest-api
-    
+
+# NOTE, TODO, ROR will update their API in 2025:
+# https://ror.org/blog/2025-06-11-v1-sunset/
+
 P.src.ror = _index: true, _prefix: false
 
 P.src.ror.query = (q) ->

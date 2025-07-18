@@ -9702,9 +9702,9 @@ P.report.works.process = async function(cr, openalex, refresh, everything, actio
     if (givenpmcid && !rec.PMCID) {
       rec.PMCID = givenpmcid;
     }
-    if ((refresh || !(exists != null ? exists.oadoi : void 0)) && rec.DOI) {
-      rec.oadoi = true;
-      oadoi = (await this.src.oadoi.doi(rec.DOI));
+    if (rec.DOI) { //and (refresh or not exists?.oadoi) # or (exists? and exists.updated < (Date.now() - 604800000)))
+      oadoi = (await this.src.oadoi.doi(rec.DOI, 2419200000)); // adding the refresh here to force some 2025 updates to anything over 4 weeks old but prob don't do long term because of rate limits
+      rec.oadoi = oadoi != null;
       ref41 = (ref40 = oadoi != null ? oadoi.oa_locations : void 0) != null ? ref40 : [];
       for (z = 0, len11 = ref41.length; z < len11; z++) {
         loc = ref41[z];
@@ -10418,8 +10418,8 @@ P.report.rs = {
   _index: true
 };
 
-P.report.rs.retrieve = async function() {
-  var article, batch, empty, err, exists, j, k, l, len, len1, limit, local, max, ok, plus, q, rec, ref, ref1, ref2, ref3, ref4, refresh, res, retrieve, rsapi, rsid, rsurl, save, started;
+P.report.rs.retrieve = async function(since) {
+  var article, batch, empty, err, exists, j, k, l, len, len1, limit, local, max, ok, opts, plus, q, rec, ref, ref1, ref2, ref3, ref4, refresh, res, retrieve, rsapi, rsid, rsurl, save, started;
   max = this.params.max;
   retrieve = this.params.retrieve;
   save = this.params.save;
@@ -10431,6 +10431,18 @@ P.report.rs.retrieve = async function() {
     await this.report.rs('');
   }
   q = (ref1 = this.params.q) != null ? ref1 : 'prefix.keyword:"10.21203" AND DOI:"v1" AND type.keyword:"posted-content"';
+  opts = {
+    include: ['DOI'],
+    scroll: '30m'
+  };
+  // TODO see changes function below, this could actually be done by pulling from RS, but for now we do by searching our crossref.
+  if (since && (!this.params.q || this.params.since)) {
+    if (typeof since === 'string' && since.includes(' ')) { // RS uses createdAt dates like 2025-06-11 05:08:20
+      since = (await this.epoch(since.replace(' ', 'T')));
+    }
+    q += ' AND created.timestamp:>' + since;
+  }
+  //opts.sort = 'created.timestamp:desc'
   started = Date.now();
   rsapi = 'https://www.researchsquare.com/api/'; // with search/ or article/
   res = {
@@ -10439,6 +10451,7 @@ P.report.rs.retrieve = async function() {
     took: void 0,
     limit: limit,
     empty: empty,
+    since: since,
     q: q,
     expected: 0,
     total: 0,
@@ -10456,10 +10469,7 @@ P.report.rs.retrieve = async function() {
   res.expected = (await this.src.crossref.works.count(q));
   res.existed = (await this.report.works.count('DOI:"10.21203" AND DOI:"v1"'));
   batch = [];
-  ref2 = this.index._for('src_crossref_works', q, {
-    include: ['DOI'],
-    scroll: '30m'
-  });
+  ref2 = this.index._for('src_crossref_works', q, opts);
   for await (rec of ref2) {
     if ((max && res.tried >= max) || (retrieve && res.tried >= retrieve)) {
       break;
@@ -10482,7 +10492,7 @@ P.report.rs.retrieve = async function() {
         console.log(rec.DOI, 'already exists in report/works');
       }
       res.existing += 1;
-    } else if (!refresh && !empty && (local = (await this.report.rs(rec.DOI)))) {
+    } else if (!refresh && !empty && (local = (await this.report.rs('identity.keyword:"' + rsid + '"')))) { // rec.DOI
       if (max <= 10) {
         console.log(rec.DOI, 'already exists in local RS');
       }
@@ -10555,6 +10565,85 @@ P.report.rs.retrieve._bg = true;
 P.report.rs.retrieve._async = true;
 
 P.report.rs.retrieve._auth = '@oa.works';
+
+P.report.rs.changes = async function(since) {
+  var last, ref, res;
+  // can get from RS API since a date using
+  // https://www.researchsquare.com/api/search?postedAfter=2025-06-10
+  // and would need to paginate - but for now, just triggering based on our local crossref index
+  if (since == null) {
+    since = (ref = this.params.changes) != null ? ref : this.params.since;
+  }
+  if (!since) {
+    last = (await this.report.rs('*', {
+      sort: 'createdAt.keyword:desc',
+      size: 1
+    }));
+    since = last.createdAt;
+  }
+  console.log('Running report RS retrieve for new crossref records since', since);
+  res = false; //await @report.rs.retrieve since
+  return res;
+};
+
+P.report.rs.changes._log = false;
+
+P.report.rs.changes._bg = true;
+
+P.report.rs.changes._async = true;
+
+P.report.rs.changes._auth = '@oa.works';
+
+P.report.rs.check = async function() {
+  var doi, doid, dois, exists, id, j, len, max, ref, res;
+  res = {
+    rows: 0,
+    checked: 0,
+    failed: [],
+    found: 0,
+    not_found: [],
+    dups: 0,
+    ids: []
+  };
+  max = this.params.max;
+  ref = dois = ((await fs.readFile(this.S.static.folder + '/rscheck.csv', 'utf8'))).split('\n');
+  for (j = 0, len = ref.length; j < len; j++) {
+    doi = ref[j];
+    if (max && res.rows >= max) {
+      break;
+    }
+    res.rows += 1;
+    if (doi) {
+      id = doi.replace('10.21203/', '').split('/v')[0].split('.').pop();
+      if (id && !id.startsWith('rs-')) {
+        id = 'rs-' + id;
+      }
+      doid = doi + '_(' + id + ')';
+      if (max || res.rows % 50 === 0) {
+        console.log(res.rows, doi, id);
+      }
+      if (id) {
+        if (indexOf.call(res.ids, doid) >= 0) {
+          res.dups += 1;
+        } else {
+          res.ids.push(doid);
+        }
+        res.checked += 1;
+        exists = false;
+        if (exists = (await this.report.rs('identity.keyword:"' + id + '"'))) {
+          console.log(exists.identity, 'exists in report/rs');
+          res.found += 1;
+        } else {
+          res.not_found.push('(' + res.rows + ')_' + doid);
+          console.log(doid, 'not found in report/rs');
+        }
+      } else {
+        res.failed.push('(' + res.rows + ')_' + doid);
+      }
+    }
+  }
+  return res;
+};
 
 `P.report.works.check = (year) ->
   year ?= @params.check ? @params.year ? '2023'
@@ -11301,11 +11390,14 @@ P.svc.rscvd.overdue = async function() {
   return counter;
 };
 
+var indexOf = [].indexOf;
+
 P.test = async function(sid, max) {
-  var anoname, base, c, d, diff, dl, err, expect, gt, i, j, len, len1, lt, n, nt, part, ref, ref1, ref10, ref11, ref12, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, resd, resp, row, specd, t;
+  var anoname, anything, base, c, d, diff, dl, ends, err, expect, group, gt, i, includes, j, len, len1, lt, n, nt, part, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, resd, resp, row, specd, starts, t;
   row = (ref = this.params.row) != null ? ref : this.params.id;
+  group = (ref1 = this.params.test) != null ? ref1 : this.params.group;
   if (max == null) {
-    max = (ref1 = this.params.max) != null ? ref1 : (row ? 1 : 1000);
+    max = (ref2 = this.params.max) != null ? ref2 : (row ? 1 : 1000);
   }
   res = {
     stats: {
@@ -11315,7 +11407,7 @@ P.test = async function(sid, max) {
       responded: 0,
       errors: 0,
       diffs: 0,
-      diff: (ref2 = this.params.diff) != null ? ref2 : true,
+      diff: (ref3 = this.params.diff) != null ? ref3 : true,
       anomalous: 0
     },
     anomalies: {},
@@ -11323,8 +11415,9 @@ P.test = async function(sid, max) {
     specs: {}
   };
   res.sheet = {
-    id: (ref3 = sid != null ? sid : this.params.sheet) != null ? ref3 : '1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8/tests'
+    id: (ref4 = sid != null ? sid : this.params.sheet) != null ? ref4 : '1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8/tests'
   };
+  // https://docs.google.com/spreadsheets/d/1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8
   if ((base = res.sheet).url == null) {
     base.url = 'https://docs.google.com/spreadsheets/d/' + res.sheet.id.split('/')[0];
   }
@@ -11333,15 +11426,15 @@ P.test = async function(sid, max) {
   res.diffs = [];
   //traversed = 1 # first row will be column names, so the sheet user would start counting rows from 2
   console.log(res.sheet.content.length, 'tests found to run in', res.sheet.id);
-  ref4 = res.sheet.content;
-  for (i = 0, len = ref4.length; i < len; i++) {
-    t = ref4[i];
+  ref5 = res.sheet.content;
+  for (i = 0, len = ref5.length; i < len; i++) {
+    t = ref5[i];
     if (res.stats.ran === max) {
       //traversed += 1
       break;
     }
     //if t.ENDPOINT and (not row? or traversed is row)
-    if (t.ENDPOINT && t.ID && ((row == null) || t.ID.toString().toLowerCase() === row.toString().toLowerCase())) {
+    if (t.ENDPOINT && t.ID && ((row == null) || t.ID.toString().toLowerCase() === row.toString().toLowerCase()) && (!group || (ref6 = group.toString().toLowerCase(), indexOf.call(t.GROUP.toString().toLowerCase().replace(/ /g, '').split(';'), ref6) >= 0))) {
       try {
         t.PARAMS = t.PARAMS.trim(); // clean it?
       } catch (error) {}
@@ -11353,17 +11446,17 @@ P.test = async function(sid, max) {
         // or comma separated strings, or JSON object/list. Note also this must still be a string representation 
         // for the results object below. It may also be empty, in which case what will uniquely identify the result?
         if (t.ENDPOINT.startsWith('http')) {
-          resp = (await this.fetch(t.ENDPOINT + (!t.ENDPOINT.endsWith('/') && !((ref5 = t.PARAMS) != null ? ref5 : '').startsWith('/') ? '/' : '') + ((ref6 = t.PARAMS) != null ? ref6 : '')));
+          resp = (await this.fetch(t.ENDPOINT + (!t.ENDPOINT.endsWith('/') && !((ref7 = t.PARAMS) != null ? ref7 : '').startsWith('/') ? '/' : '') + ((ref8 = t.PARAMS) != null ? ref8 : '')));
         } else {
           resp = (await this[t.ENDPOINT](t.PARAMS));
         }
         res.stats.responded++;
         for (c in t) {
-          anoname = ((ref7 = (ref8 = (ref9 = t.NAME) != null ? ref9 : t.ID) != null ? ref8 : t.ENDPOINT) != null ? ref7 : '') + (t.PARAMS ? ' (' + t.PARAMS + ')' : '');
+          anoname = ((ref9 = (ref10 = (ref11 = t.NAME) != null ? ref11 : t.ID) != null ? ref10 : t.ENDPOINT) != null ? ref9 : '') + (t.PARAMS ? ' (' + t.PARAMS + ')' : '');
           if (anoname === '') {
             anoname = 'UNIDENTIFIED_TEST_' + res.stats.ran;
           }
-          if ((c !== 'ID' && c !== 'ENDPOINT' && c !== 'DIFF' && c !== 'PARAMS' && c !== 'NAME' && c !== 'SPEC') && !c.startsWith('OPTIONS.')) {
+          if ((c !== 'ID' && c !== 'GROUP' && c !== 'ENDPOINT' && c !== 'DIFF' && c !== 'PARAMS' && c !== 'NAME' && c !== 'SPEC') && !c.startsWith('OPTIONS.')) {
             expect = t[c];
             if ((expect != null) && expect !== '') {
               part = (await this.dot(resp, c));
@@ -11380,31 +11473,47 @@ P.test = async function(sid, max) {
                   expect = JSON.stringify(expect);
                 }
               } else {
-                //try
-                n = parseFloat(part); // what about dates?
-                if (typeof n === 'number' && !isNaN(n)) {
-                  part = n;
-                  if (expect.startsWith('>')) {
-                    gt = true;
-                    expect = parseFloat(expect.slice(1));
-                  } else if (expect.startsWith('<')) {
-                    lt = true;
-                    expect = parseFloat(expect.slice(1));
-                  } else if (expect.startsWith('!')) {
-                    nt = true;
-                    expect = parseFloat(expect.slice(1));
+                try {
+                  n = parseFloat(part); // what about dates?
+                  if (typeof n === 'number' && n.toString().trim().length === part.toString().trim().length && !isNaN(n)) {
+                    part = n;
+                    if (expect.startsWith('>')) {
+                      gt = true;
+                      expect = parseFloat(expect.slice(1));
+                    } else if (expect.startsWith('<')) {
+                      lt = true;
+                      expect = parseFloat(expect.slice(1));
+                    } else if (expect.startsWith('!')) {
+                      nt = true;
+                      expect = parseFloat(expect.slice(1));
+                    } else {
+                      expect = parseFloat(expect);
+                    }
                   }
-                }
+                } catch (error) {}
               }
-              console.log(res.stats.ran, part, expect, t[c], gt, lt, nt);
-              if ((part == null) || (nt && part === expect) || (gt && part <= expect) || (lt && part >= expect) || (!gt && !lt && !nt && expect !== '*' && part !== expect)) {
+              if (typeof expect === 'boolean' || typeof part === 'boolean') {
+                try {
+                  expect = expect.toString().trim().toLowerCase();
+                  part = part.toString().trim().toLowerCase();
+                } catch (error) {}
+              }
+              anything = expect === '*';
+              includes = !anything && typeof expect === 'string' && (expect.startsWith('*') || expect.endsWith('*'));
+              starts = includes && !expect.startsWith('*');
+              ends = includes && !expect.endsWith('*');
+              if (includes) {
+                expect = expect.replace(/\*/g, '');
+              }
+              console.log(res.stats.ran, part, expect, t[c], gt, lt, nt, includes, starts, ends);
+              if ((part == null) || (starts && !part.startsWith(expect)) || (ends && !part.endsWith(expect)) || (!starts && !ends && includes && !part.includes(expect)) || (nt && part === expect) || (gt && part <= expect) || (lt && part >= expect) || (!gt && !lt && !nt && !anything && part !== expect)) {
                 if (res.anomalies[anoname] == null) {
                   res.stats.anomalous++;
                   res.anomalies[anoname] = {};
                 }
                 res.anomalies[anoname][c] = {
                   expected: t[c],
-                  actual: part
+                  actual: (part == null ? 'UNDEFINED' : part)
                 };
               }
             }
@@ -11414,7 +11523,7 @@ P.test = async function(sid, max) {
         if (t.DIFF && this.params.diff !== false) {
           try {
             if (t.DIFF.startsWith('http')) {
-              resd = (await this.fetch(t.DIFF + (!t.DIFF.endsWith('/') && !((ref10 = t.PARAMS) != null ? ref10 : '').startsWith('/') ? '/' : '') + ((ref11 = t.PARAMS) != null ? ref11 : '')));
+              resd = (await this.fetch(t.DIFF + (!t.DIFF.endsWith('/') && !((ref12 = t.PARAMS) != null ? ref12 : '').startsWith('/') ? '/' : '') + ((ref13 = t.PARAMS) != null ? ref13 : '')));
             } else {
               resd = (await this[t.DIFF](t.PARAMS));
             }
@@ -11457,9 +11566,9 @@ P.test = async function(sid, max) {
         res.differences[d] = res.differences[d].length;
       }
     } catch (error) {}
-    ref12 = ['responses', 'diffs'];
-    for (j = 0, len1 = ref12.length; j < len1; j++) {
-      dl = ref12[j];
+    ref14 = ['responses', 'diffs'];
+    for (j = 0, len1 = ref14.length; j < len1; j++) {
+      dl = ref14[j];
       delete res[dl];
     }
     //try res.sheet.content = res.sheet.content.length
@@ -13490,19 +13599,10 @@ try {
   S.src.oadoi = JSON.parse(SECRETS_OADOI);
 } catch (error) {}
 
-`P.src.oadoi = (doi) ->
-doi ?= @params?.oadoi ? @params?.doi
-if typeof doi is 'string' and doi.startsWith '10.'
-  await @sleep 900
-  url = 'https://api.oadoi.org/v2/' + doi + '?email=' + S.mail.to
-  return @fetch url
-else
-  return`;
-
 P.src.oadoi = {
   _index: {
     settings: {
-      number_of_shards: 15
+      number_of_shards: 9
     }
   }
 };
@@ -13525,26 +13625,33 @@ P.src.oadoi.search = async function(doi) {
   }
 };
 
-P.src.oadoi.doi = async function(doi) {
+P.src.oadoi.doi = async function(doi, refresh) {
   var exists, res, url;
   if (doi == null) {
     doi = this.params.doi;
   }
+  if ((refresh == null) && this.fn === 'src.oadoi.doi') {
+    refresh = this.refresh;
+  }
   if (typeof doi === 'string' && doi.startsWith('10.')) {
-    if (exists = (await this.src.oadoi(doi))) {
-      return exists;
-    } else {
-      try {
-        await this.sleep(500);
-        url = 'https://api.oadoi.org/v2/' + doi + '?email=' + S.mail.to;
-        if (res = (await this.fetch(url))) {
-          if (res.doi) {
-            await this.src.oadoi(res);
-            return res;
-          }
-        }
-      } catch (error) {}
+    if (refresh !== true && (exists = (await this.src.oadoi(doi)))) {
+      if (typeof refresh !== 'number' || ((exists.updated != null) && (new Date(exists.updated).valueOf()) > (Date.now() - refresh))) {
+        return exists;
+      }
     }
+    try {
+      console.log('getting from OADOI', doi);
+      await this.sleep(500);
+      url = 'https://api.oadoi.org/v2/' + doi + '?email=' + S.mail.to;
+      if (res = (await this.fetch(url))) {
+        if (res.doi) {
+          try {
+            await this.src.oadoi((await this.src.oadoi._format(res)));
+          } catch (error) {}
+          return res;
+        }
+      }
+    } catch (error) {}
   }
 };
 
@@ -13627,10 +13734,13 @@ P.src.oadoi.oa = {
 
 // https://support.unpaywall.org/support/solutions/articles/44001867302-unpaywall-change-notes
 // https://unpaywall.org/products/data-feed/changefiles
-P.src.oadoi.load = async function() {
-  var batch, complete, ended, infile, lines, resp, started, stats, strm, total, wstr;
+P.src.oadoi.load = async function(url, tgt, toalias, clear, esurl) {
+  var _batch, batch, batches, batchsize, complete, ended, infile, lines, ref, resp, started, stats, strm, total, wstr;
+  if (url == null) {
+    url = (ref = this.params.url) != null ? ref : 'https://api.unpaywall.org/feed/snapshot';
+  }
   started = (await this.epoch());
-  //batchsize = 10000 # how many records to batch upload at a time - 20k ran smooth, took about 6 hours.
+  batchsize = 30000; // how many records to batch upload at a time - 20k ran smooth, took about 6 hours.
   //howmany = @params.howmany ? -1 # max number of lines to process. set to -1 to keep going
   infile = this.S.directory + '/import/oadoi/snapshot.jsonl'; // where the lines should be read from
   try {
@@ -13640,7 +13750,11 @@ P.src.oadoi.load = async function() {
     stats = (await fs.stat(infile)); // check if file exists in async fs promises which does not have .exists
   } catch (error) {
     console.log('OADOI downloading snapshot');
-    resp = (await fetch('https://api.unpaywall.org/feed/snapshot?api_key=' + this.S.src.oadoi.apikey));
+    if (!url.includes('api_key=')) {
+      url += (url.includes('?') ? '&' : '?') + 'api_key=' + this.S.src.oadoi.apikey;
+    }
+    console.log(url);
+    resp = (await fetch(url));
     wstr = fs.createWriteStream(infile);
     await new Promise((resolve, reject) => {
       resp.body.pipe(wstr);
@@ -13649,30 +13763,53 @@ P.src.oadoi.load = async function() {
     });
     console.log('snapshot downloaded');
   }
-  if (this.params.clear) { //if not lastrecord
-    //lastfile = @S.directory + '/import/oadoi/last' # where to record the ID of the last item read from the file
-    //try lastrecord = (await fs.readFile lastfile).toString() if not @refresh
-    await this.src.oadoi('');
+  //lastfile = @S.directory + '/import/oadoi/last' # where to record the ID of the last item read from the file
+  //try lastrecord = (await fs.readFile lastfile).toString() if not @refresh
+  if (tgt == null) {
+    tgt = 'src_oadoi';
+  }
+  if (toalias == null) {
+    toalias = this.params.toalias;
+  }
+  if (typeof toalias === 'number') {
+    toalias += '';
+  }
+  if (clear == null) {
+    clear = this.params.clear;
+  }
+  //esurl = ''
+  console.log('loading oadoi', tgt, toalias, esurl);
+  if (clear) { //if not lastrecord
+    try {
+      await this.index._send(tgt, '', void 0, false, toalias, esurl);
+      console.log('cleared');
+      await this.sleep(20000);
+    } catch (error) {}
+    await this.index._send(tgt, {
+      settings: {
+        number_of_shards: 9
+      }
+    }, void 0, false, toalias, esurl);
+    console.log('mapped');
+    await this.sleep(5000);
   }
   total = 0;
+  batches = [];
   batch = [];
   lines = '';
   complete = false;
+  _batch = async() => {
+    var pb;
+    if (batches.length) {
+      pb = batches.shift();
+      total += pb.length;
+      console.log('OADOI bulk loading', pb.length, total, batches.length);
+      return (await this.index._bulk(tgt, pb, void 0, void 0, false, toalias, esurl));
+    }
+  };
   `# it appears it IS gz compressed even if they provide it without the .gz file extension
-for await line from readline.createInterface input: fs.createReadStream(infile).pipe zlib.createGunzip() #, crlfDelay: Infinity
-  break if total is howmany
-  rec = JSON.parse line.trim().replace /\,$/, ''
-  if not lastrecord or lastrecord.toLowerCase() is rec.doi.toLowerCase()
-    lastrecord = undefined
-    total += 1
-    rec._id = rec.doi.replace /\//g, '_'
-    batch.push rec
-    if batch.length is batchsize
-      console.log 'OADOI bulk loading', batch.length, total
-      await @src.oadoi batch
-      batch = []
-      await fs.writeFile lastfile, rec.doi`;
-  strm = fs.createReadStream(infile).pipe(zlib.createGunzip());
+for await line from readline.createInterface input: fs.createReadStream(infile).pipe zlib.createGunzip() #, crlfDelay: Infinity`;
+  strm = fs.createReadStream(infile); //.pipe zlib.createGunzip() # 2025 reload had a Z_BUF_ERROR so tried manually decompressing first
   strm.on('data', async(chunk) => {
     var line, lp, rec;
     line = chunk.toString('utf8');
@@ -13686,15 +13823,15 @@ for await line from readline.createInterface input: fs.createReadStream(infile).
         rec = JSON.parse(lp); //.trim().replace /\,$/, ''
       } catch (error) {}
       if (rec != null ? rec.doi : void 0) {
+        rec = (await this.src.oadoi._format(rec));
         batch.push(rec);
       } else {
         console.log('oadoi load failed to parse record from string', lp);
       }
-      if (batch.length >= 10000) {
-        total += batch.length;
-        console.log('OADOI bulk loading', batch.length, total);
-        await this.src.oadoi(batch);
+      if (batch.length === batchsize) {
+        batches.push(batch);
         batch = [];
+        _batch();
       }
     }
     return lines != null ? lines : lines = '';
@@ -13710,8 +13847,8 @@ for await line from readline.createInterface input: fs.createReadStream(infile).
     console.log('oadoi load streaming file', lines.length, total, Math.floor((Date.now() - started) / 1000 / 60) + 'm');
     await this.sleep(30000);
   }
-  if (batch.length) {
-    await this.src.oadoi(batch);
+  while (batches.length) {
+    await _batch();
   }
   ended = Date.now();
   console.log('oadoi load complete', total, started, ended, Math.floor((ended - started) / 1000 / 60) + 'm');
@@ -13724,14 +13861,50 @@ P.src.oadoi.load._async = true;
 
 P.src.oadoi.load._log = false;
 
-//P.src.oadoi.load._auth = 'root'
-P.src.oadoi.changes = async function(oldest) {
-  var batch, batchsize, changes, counter, days, i, last, lc, len, lfl, line, lm, lr, rec, ref, ref1, resp, upto, uptofile, wstr;
+P.src.oadoi.load._auth = 'root';
+
+// https://groups.google.com/g/unpaywall/c/0nEpQ-ImE-4
+P.src.oadoi.load2025 = function() {
+  // use the full file to rebuild
+  // https://api.unpaywall.org/full-snapshot?api_key=myapikey
+  // 2025 was a single 36G jsonl.gz file, manually downloaded and unzipped
+  return this.src.oadoi.load(void 0, void 0, '2025', true, (this.S.dev ? 'http://10.108.0.3:9200' : void 0));
+};
+
+P.src.oadoi.load2025._bg = true;
+
+P.src.oadoi.load2025._async = true;
+
+P.src.oadoi.load2025._log = false;
+
+P.src.oadoi.load2025._auth = 'root';
+
+P.src.oadoi['2025'] = {
+  _index: true
+};
+
+P.src.oadoi['2025']._key = 'doi';
+
+P.src.oadoi['2025']._prefix = false;
+
+P.src.oadoi.changes = async function(oldest, tgt, toalias, esurl) {
+  var batch, batchsize, changes, counter, days, i, last, lc, len, lfl, line, lm, lr, q, rec, ref, ref1, resp, upto, uptofile, wstr;
   batchsize = 30000;
   // the 2021-08-19 file was very large, 139M compressed and over 1.2GB uncompressed, and trying to stream it kept resulting in zlib unexpected end of file error
   // suspect it can't all be streamed before timing out. So write file locally then import then delete, and write 
   // error file dates to a list file, and manually load them separately if necessary
-  uptofile = this.S.directory + '/import/oadoi/upto'; // where to record the ID of the most recent change day file that's been processed up to
+  if (tgt == null) {
+    tgt = 'src_oadoi';
+  }
+  if (toalias == null) {
+    toalias = this.params.toalias;
+  }
+  if (typeof toalias === 'number') {
+    toalias += '';
+  }
+  toalias = '2025';
+  // where to record the ID of the most recent change day file that's been processed up to
+  uptofile = this.S.directory + '/import/oadoi/upto' + (toalias ? '_' + toalias : '');
   //errorfile = @S.directory + '/import/oadoi/errors'
   if (oldest == null) {
     oldest = this.params.changes;
@@ -13743,7 +13916,8 @@ P.src.oadoi.changes = async function(oldest) {
   }
   if (!oldest) {
     try {
-      last = (await this.src.oadoi('*', {
+      //last = await @src.oadoi '*', size: 1, sort: updated: order: 'desc'
+      q = (await this.index.translate('*', {
         size: 1,
         sort: {
           updated: {
@@ -13751,6 +13925,7 @@ P.src.oadoi.changes = async function(oldest) {
           }
         }
       }));
+      last = (await this.index._send(tgt, q, void 0, false, toalias, esurl));
       oldest = (new Date(last.updated)).valueOf();
     } catch (error) {}
   }
@@ -13793,17 +13968,17 @@ P.src.oadoi.changes = async function(oldest) {
         upto = lm; // if upto is false
         lc += 1;
         rec = JSON.parse(line.trim().replace(/\,$/, ''));
-        rec._id = rec.doi.replace(/\//g, '_');
+        rec = (await this.src.oadoi._format(rec));
         batch.push(rec);
         counter += 1;
         if (batch.length >= batchsize) {
           console.log('OADOI bulk loading changes', days, batch.length, lc); //, seen.length, dups
-          await this.src.oadoi(batch);
+          await this.index._bulk(tgt, batch, void 0, void 0, false, toalias, esurl);
           batch = [];
         }
       }
       if (batch.length) {
-        await this.src.oadoi(batch);
+        await this.index._bulk(tgt, batch, void 0, void 0, false, toalias, esurl);
       }
       fs.unlink(lfl);
     }
@@ -13826,6 +14001,37 @@ P.src.oadoi.changes._log = false;
 P.src.oadoi.changes._auth = 'root';
 
 P.src.oadoi.changes._notify = false;
+
+P.src.oadoi._format = function(rec) {
+  var fixes, i, j, k, l, len, len1, len2, len3, loc, m, ol, ref, ref1, ref2;
+  // given a record direct from oadoi fix it so that it can be indexed.
+  // known issues - they use "deprecated" string in values that used to be dates, which breaks date typing.
+  fixes = ['updated', 'evidence'];
+  ref1 = (ref = rec.oa_locations) != null ? ref : [];
+  for (i = 0, len = ref1.length; i < len; i++) {
+    loc = ref1[i];
+    for (j = 0, len1 = fixes.length; j < len1; j++) {
+      k = fixes[j];
+      if (loc[k] && typeof loc[k] === 'string' && loc[k].includes('deprecated')) {
+        loc[k] = void 0;
+      }
+    }
+  }
+  ref2 = ['best_oa_location', 'first_oa_location'];
+  for (l = 0, len2 = ref2.length; l < len2; l++) {
+    ol = ref2[l];
+    if (rec[ol] != null) {
+      for (m = 0, len3 = fixes.length; m < len3; m++) {
+        k = fixes[m];
+        if (rec[ol][k] && typeof rec[ol][k] === 'string' && rec[ol][k].includes('deprecated')) {
+          rec[ol][k] = void 0;
+        }
+      }
+    }
+  }
+  rec._id = rec.doi.replace(/\//g, '_').toLowerCase();
+  return rec;
+};
 
 var base;
 
@@ -15278,6 +15484,9 @@ P; //.src.pubmed.changes._auth = 'root'
 P.src.pubmed.changes._notify = false;
 
 // https://ror.readme.io/docs/rest-api
+
+// NOTE, TODO, ROR will update their API in 2025:
+// https://ror.org/blog/2025-06-11-v1-sunset/
 P.src.ror = {
   _index: true,
   _prefix: false
@@ -18153,7 +18362,7 @@ P.index.mapping = async function(route, map) {
 // NOTE the extra await required when attached to an endpoint
 // see index._each below for example of how to call this for/yield generator
 P.index._for = async function*(route, q, opts, prefix, alias, url) {
-  var counter, dtp, max, prs, qy, r, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, ret, rso, scroll;
+  var counter, dtp, max, prs, qy, r, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, ret, rrso, rso, scroll;
   if (typeof opts === 'number') {
     opts = {
       until: opts
@@ -18217,8 +18426,9 @@ P.index._for = async function*(route, q, opts, prefix, alias, url) {
     }
   }
   // have to work out URL here as well as in _send because when we call _send below it will only know the route is /_search/scroll, so can't check the settings for a different URL for the real route for the data to bulk
+  rrso = rso.startsWith(this.S.index.name + '_') ? rso.replace(this.S.index.name + '_', '') : rso;
   if (url == null) {
-    url = (ref6 = (ref7 = (ref8 = this.S.route) != null ? ref8[rso.startsWith(this.S.index.name + '_') ? rso.replace(this.S.index.name + '_', '') : rso] : void 0) != null ? ref7 : dtp != null ? dtp._route : void 0) != null ? ref6 : ((this != null ? (ref9 = this.S) != null ? (ref10 = ref9.index) != null ? ref10.url : void 0 : void 0 : void 0) ? this.S.index.url : (ref11 = S.index) != null ? ref11.url : void 0);
+    url = (ref6 = (ref7 = (ref8 = (ref9 = this.S.route) != null ? ref9[rrso + alias] : void 0) != null ? ref8 : (ref10 = this.S.route) != null ? ref10[rrso] : void 0) != null ? ref7 : dtp != null ? dtp._route : void 0) != null ? ref6 : ((this != null ? (ref11 = this.S) != null ? (ref12 = ref11.index) != null ? ref12.url : void 0 : void 0 : void 0) ? this.S.index.url : (ref13 = S.index) != null ? ref13.url : void 0);
   }
   if (Array.isArray(url)) {
     url = url[Math.floor(Math.random() * url.length)];
@@ -18227,22 +18437,22 @@ P.index._for = async function*(route, q, opts, prefix, alias, url) {
   if (res != null ? res._scroll_id : void 0) {
     prs = res._scroll_id.replace(/==$/, '');
   }
-  if ((res != null ? (ref12 = res.hits) != null ? ref12.total : void 0 : void 0) && ((max == null) || max > res.hits.total)) {
+  if ((res != null ? (ref14 = res.hits) != null ? ref14.total : void 0 : void 0) && ((max == null) || max > res.hits.total)) {
     max = res.hits.total;
   }
   counter = 0;
   while (true) {
-    if ((!(res != null ? (ref13 = res.hits) != null ? ref13.hits : void 0 : void 0) || res.hits.hits.length === 0) && (res != null ? res._scroll_id : void 0)) { // get more if possible
+    if ((!(res != null ? (ref15 = res.hits) != null ? ref15.hits : void 0 : void 0) || res.hits.hits.length === 0) && (res != null ? res._scroll_id : void 0)) { // get more if possible
       res = (await this.index._send('/_search/scroll?scroll=' + scroll + '&scroll_id=' + res._scroll_id, void 0, void 0, prefix, alias, url));
       if ((res != null ? res._scroll_id : void 0) !== prs) {
         await this.index._send('/_search/scroll?scroll_id=' + prs, '', void 0, prefix, alias, url);
         prs = res != null ? res._scroll_id : void 0;
       }
     }
-    if (counter !== max && ((res != null ? (ref14 = res.hits) != null ? ref14.hits : void 0 : void 0) != null) && res.hits.hits.length) {
+    if (counter !== max && ((res != null ? (ref16 = res.hits) != null ? ref16.hits : void 0 : void 0) != null) && res.hits.hits.length) {
       counter += 1;
       r = res.hits.hits.shift();
-      ret = (ref15 = r._source) != null ? ref15 : r.fields;
+      ret = (ref17 = r._source) != null ? ref17 : r.fields;
       if (ret._id == null) {
         ret._id = r._id;
       }
@@ -18317,7 +18527,7 @@ P.index._each = async function(route, q, opts, fn, prefix, alias) {
 };
 
 P.index._bulk = async function(route, data, action = 'index', bulk = 50000, prefix, alias, url) {
-  var counter, dtp, errorcount, errors, it, j, len, meta, pkg, r, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rid, row, rows, rs, rso;
+  var counter, dtp, errorcount, errors, it, j, len, meta, pkg, r, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rid, row, rows, rrso, rs, rso;
   if (action === true) {
     action = 'index';
   }
@@ -18350,8 +18560,9 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000, pref
     }
   }
   // have to work out URL here as well as in _send because when we call _send below it will only know the route is /_bulk, so can't check the settings for a different URL for the real route for the data to bulk
+  rrso = rso.startsWith(this.S.index.name + '_') ? rso.replace(this.S.index.name + '_', '') : rso;
   if (url == null) {
-    url = (ref5 = (ref6 = (ref7 = this.S.route) != null ? ref7[rso.startsWith(this.S.index.name + '_') ? rso.replace(this.S.index.name + '_', '') : rso] : void 0) != null ? ref6 : dtp != null ? dtp._route : void 0) != null ? ref5 : ((this != null ? (ref8 = this.S) != null ? (ref9 = ref8.index) != null ? ref9.url : void 0 : void 0 : void 0) ? this.S.index.url : (ref10 = S.index) != null ? ref10.url : void 0);
+    url = (ref5 = (ref6 = (ref7 = (ref8 = this.S.route) != null ? ref8[rrso + alias] : void 0) != null ? ref7 : (ref9 = this.S.route) != null ? ref9[rrso] : void 0) != null ? ref6 : dtp != null ? dtp._route : void 0) != null ? ref5 : ((this != null ? (ref10 = this.S) != null ? (ref11 = ref10.index) != null ? ref11.url : void 0 : void 0 : void 0) ? this.S.index.url : (ref12 = S.index) != null ? ref12.url : void 0);
   }
   if (Array.isArray(url)) {
     url = url[Math.floor(Math.random() * url.length)];
@@ -18369,7 +18580,7 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000, pref
     }, void 0, prefix, alias, url); // new ES 7.x requires this rather than text/plain
     return true;
   } else {
-    rows = typeof data === 'object' && !Array.isArray(data) && ((data != null ? (ref11 = data.hits) != null ? ref11.hits : void 0 : void 0) != null) ? data.hits.hits : data;
+    rows = typeof data === 'object' && !Array.isArray(data) && ((data != null ? (ref13 = data.hits) != null ? ref13.hits : void 0 : void 0) != null) ? data.hits.hits : data;
     if (!Array.isArray(rows)) {
       rows = [rows];
     }
@@ -18380,7 +18591,7 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000, pref
       row = rows[r];
       counter += 1;
       if (typeof row === 'object') {
-        rid = (ref12 = (ref13 = row._id) != null ? ref13 : (ref14 = row._source) != null ? ref14._id : void 0) != null ? ref12 : (await this.uid());
+        rid = (ref14 = (ref15 = row._id) != null ? ref15 : (ref16 = row._source) != null ? ref16._id : void 0) != null ? ref14 : (await this.uid());
         if (typeof rid === 'string') {
           rid = rid.replace(/\//g, '_');
         }
@@ -18393,7 +18604,7 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000, pref
       meta[action] = {
         "_index": route
       };
-      meta[action]._id = action === 'delete' && ((ref15 = typeof row) === 'string' || ref15 === 'number') ? row : rid; // what if action is delete but can't set an ID?
+      meta[action]._id = action === 'delete' && ((ref17 = typeof row) === 'string' || ref17 === 'number') ? row : rid; // what if action is delete but can't set an ID?
       pkg += JSON.stringify(meta) + '\n';
       if (action === 'create' || action === 'index') {
         pkg += JSON.stringify(row) + '\n';
@@ -18410,13 +18621,13 @@ P.index._bulk = async function(route, data, action = 'index', bulk = 50000, pref
             'Content-Type': 'application/x-ndjson'
           }
         }, void 0, prefix, alias, url));
-        if ((this != null ? (ref16 = this.S) != null ? ref16.dev : void 0 : void 0) && (this != null ? (ref17 = this.S) != null ? ref17.bg : void 0 : void 0) === true && (rs != null ? rs.errors : void 0)) {
+        if ((this != null ? (ref18 = this.S) != null ? ref18.dev : void 0 : void 0) && (this != null ? (ref19 = this.S) != null ? ref19.bg : void 0 : void 0) === true && (rs != null ? rs.errors : void 0)) {
           errors = [];
-          ref18 = rs.items;
-          for (j = 0, len = ref18.length; j < len; j++) {
-            it = ref18[j];
+          ref20 = rs.items;
+          for (j = 0, len = ref20.length; j < len; j++) {
+            it = ref20[j];
             try {
-              if ((ref19 = it[action].status) !== 200 && ref19 !== 201) {
+              if ((ref21 = it[action].status) !== 200 && ref21 !== 201) {
                 errors.push(it[action]);
                 errorcount += 1;
               }
@@ -18814,37 +19025,36 @@ P.index.translate = function(q, opts) {
 
 P.index.translate._auth = false;
 
-`P.index._locate = (route) -> # INCOMPLETE - since calculating route alias prefix etc relative to calling function is useful in more than just _send, it's probably worth separating it out, but haven't bothered doing so yet.
-route = route.split('?')[0]
-route = route.toLowerCase() # force lowercase on all IDs so that can deal with users giving incorrectly cased IDs for things like DOIs which are defined as case insensitive
-route = route.replace('/','') if route.startsWith '/' # gets added back in when combined with the url
-route = route.replace(/\/$/,'') if route.endsWith '/'
-try route = route.replace(/#/g, '%23') if route.split('/').pop().includes '#'
-if not route.startsWith 'http' # which it probably doesn't
-  rso = route.split('/')[0]
-  if not route.startsWith '_'
+`P.index._locate = (route, url) -> # is prefix required as well?
+# force lowercase string on all IDs so that can deal with users giving incorrectly cased IDs for things like DOIs which are defined as case insensitive
+rt = (route + '').split('?')[0].toLowerCase()
+rt = rt.replace('/','') if rt.startsWith '/' # gets added back in when combined with the url
+rt = rt.replace(/\/$/,'') if rt.endsWith '/'
+try rt = rt.replace(/#/g, '%23') if rt.split('/').pop().includes '#'
+if not rt.startsWith 'http' # which it probably doesn't
+  rso = rt.split('/')[0]
+  if not rt.startsWith '_'
     dtp = await @dot P, rso.replace /_/g, '.'
     alias ?= @params._alias ? @S.alias?[if rso.startsWith(@S.index.name + '_') then rso.replace(@S.index.name + '_', '') else rso] ? dtp?._alias
     if typeof alias is 'string'
+      # TODO add check for alias of daily, weekly, monthly, yearly. If so calculate the current value and check for existence. If it does not exist, do not use the alias, or check the previous day/week etc?
       alias = '_' + alias if not alias.startsWith '_'
       alias = alias.replace /\//g, '_'
-      route = route.replace(rso, rso + alias) if not rso.endsWith alias
+      rt = rt.replace(rso, rso + alias) if not rso.endsWith alias
     prefix ?= dtp?._prefix ? @S.index.name
     prefix = @S.index.name if prefix is true
     if typeof prefix is 'string'
       prefix += '_' if prefix.length and not prefix.endsWith '_'
-      route = prefix + route if not route.startsWith prefix # TODO could allow prefix to be a list of names, and if index name is in the list, alias the index into those namespaces, to share indexes between specific instances rather than just one or global
-  url ?= @S.route?[if rso.startsWith(@S.index.name + '_') then rso.replace(@S.index.name + '_', '') else rso] ? dtp?._route ? (if this?.S?.index?.url then @S.index.url else S.index?.url)
+      rt = prefix + rt if not rt.startsWith prefix # TODO could allow prefix to be a list of names, and if index name is in the list, alias the index into those namespaces, to share indexes between specific instances rather than just one or global
+  rrso = if rso.startsWith(@S.index.name + '_') then rso.replace(@S.index.name + '_', '') else rso
+  url ?= @S.route?[rrso + alias] ? @S.route?[rrso] ? dtp?._route ? (if this?.S?.index?.url then @S.index.url else S.index?.url)
   url = url[Math.floor(Math.random()*url.length)] if Array.isArray url
-  if typeof url isnt 'string'
-    return undefined
-  route = url + '/' + route
-return route`;
+return [url, rt]`;
 
 // calling this should be given a correct URL route for ES7.x, domain part of the URL is optional though.
 // call the above to have the route constructed. method is optional and will be inferred if possible (may be removed)
 P.index._send = async function(route, data, method, prefix, alias, url) {
-  var dtp, opts, provided_scroll_id, ref1, ref10, ref11, ref12, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, rqp, rso;
+  var dtp, opts, provided_scroll_id, ref1, ref10, ref11, ref12, ref13, ref14, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, rqp, rrso, rso;
   if (route.includes('?')) {
     [route, rqp] = route.split('?');
     rqp = '?' + rqp;
@@ -18901,8 +19111,9 @@ P.index._send = async function(route, data, method, prefix, alias, url) {
         }
       }
     }
+    rrso = rso.startsWith(this.S.index.name + '_') ? rso.replace(this.S.index.name + '_', '') : rso;
     if (url == null) {
-      url = (ref6 = (ref7 = (ref8 = this.S.route) != null ? ref8[rso.startsWith(this.S.index.name + '_') ? rso.replace(this.S.index.name + '_', '') : rso] : void 0) != null ? ref7 : dtp != null ? dtp._route : void 0) != null ? ref6 : ((this != null ? (ref9 = this.S) != null ? (ref10 = ref9.index) != null ? ref10.url : void 0 : void 0 : void 0) ? this.S.index.url : (ref11 = S.index) != null ? ref11.url : void 0);
+      url = (ref6 = (ref7 = (ref8 = (ref9 = this.S.route) != null ? ref9[rrso + alias] : void 0) != null ? ref8 : (ref10 = this.S.route) != null ? ref10[rrso] : void 0) != null ? ref7 : dtp != null ? dtp._route : void 0) != null ? ref6 : ((this != null ? (ref11 = this.S) != null ? (ref12 = ref11.index) != null ? ref12.url : void 0 : void 0 : void 0) ? this.S.index.url : (ref13 = S.index) != null ? ref13.url : void 0);
     }
     if (Array.isArray(url)) {
       url = url[Math.floor(Math.random() * url.length)];
@@ -18924,7 +19135,7 @@ P.index._send = async function(route, data, method, prefix, alias, url) {
     if (typeof data.scroll === 'number' || (typeof data.scroll === 'string' && !data.scroll.endsWith('m'))) {
       data.scroll += 'm';
     }
-    route += (route.indexOf('?') === -1 ? '?' : '&') + 'scroll=' + ((ref12 = data.scroll) != null ? ref12 : '2m');
+    route += (route.indexOf('?') === -1 ? '?' : '&') + 'scroll=' + ((ref14 = data.scroll) != null ? ref14 : '2m');
     if (data.scroll_id) {
       provided_scroll_id = data.scroll_id;
       route = route.split('://')[0] + '://' + route.split('://')[1].split('/')[0] + '/_search/scroll' + (route.includes('?') ? '?' + route.split('?')[1] : '');
@@ -20452,7 +20663,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Wed Jun 11 2025 20:58:28 GMT+0100";
+S.built = "Fri Jul 18 2025 16:53:03 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
