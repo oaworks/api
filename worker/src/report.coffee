@@ -309,6 +309,12 @@ P.report.orgs.key = (org) ->
 P.report.orgs.key._log = false
 P.report.orgs.key._auth = '@oa.works'
 
+P.report.orgs.fixgates = ->
+  rec = await @report.orgs.orgkeys 'org:"gates foundation"', 1
+  rec.org = 'Gates Foundation'
+  await @report.orgs.orgkeys rec
+  return rec
+
 P.report.orgs.supplements = _index: true, _auth: '@oa.works'
 P.report.orgs.supplements.load = (orgname, sheetname, clear) ->
   started = await @epoch()
@@ -534,9 +540,9 @@ P.report.email = (doi) ->
     if typeof ok?.org is 'string' and ok.org.length
       rol = []
       rol.push(rou.toLowerCase()) for rou in rec.orgs
-      if 'gates foundation' in rol and ok.org.includes 'gates foundation'
+      if 'gates foundation' in rol and ok.org.toLowerCase().includes 'gates foundation'
         return @decrypt email # a special case for gates due to a name change issue caused in the data https://github.com/oaworks/discussion/issues/3328
-      if ok.org in rol
+      if ok.org.toLowerCase() in rol
         return @decrypt email
   return
 P.report.email._log = false

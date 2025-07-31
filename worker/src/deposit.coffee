@@ -149,7 +149,7 @@ P.deposit = (params, file, dev) ->
       else if uc?.email
         tos.push uc.email
       if tos.length is 0
-        tos = @copy bcc
+        tos = await @copy bcc
         bcc = []
     
       as = []
