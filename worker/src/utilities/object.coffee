@@ -21,8 +21,11 @@ P.copy = (obj) ->
 P.copy._log = false
 
 P.dot = (o, k, v, d, ae) -> # ae will attempt to recurse into the last object element of an array rather than return undefined for failing to match a key on the list element
+  #console.log 'dot', o, k
   if typeof k is 'string'
     return P.dot o, k.split('.'), v, d, ae
+  else if k.length is 0
+    return o
   else if k.length is 1 and (v? or d?)
     if d?
       if o instanceof Array
@@ -37,8 +40,6 @@ P.dot = (o, k, v, d, ae) -> # ae will attempt to recurse into the last object el
       else
         o[k[0]] = v
       return true
-  else if k.length is 0
-    return o
   else
     if not o[k[0]]?
       if v?
@@ -46,6 +47,8 @@ P.dot = (o, k, v, d, ae) -> # ae will attempt to recurse into the last object el
         return P.dot o[k[0]], k.slice(1), v, d, ae
       else if ae and Array.isArray(o) and o.length and oo = o[o.length-1] and typeof oo is 'object' and oo[k[0]]?
         return P.dot oo[k[0]], k.slice(1), v, d, ae
+      else if Array.isArray(o) and o.length and typeof o[0] is 'object'
+        return P.dot o.flatMap((x) -> if x[k[0]]? then x[k[0]] else []), k.slice(1), v, d, ae
       else
         return undefined
     else

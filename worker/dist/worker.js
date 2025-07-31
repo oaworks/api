@@ -2294,7 +2294,7 @@ P.deposit = async function(params, file, dev) {
         tos.push(uc.email);
       }
       if (tos.length === 0) {
-        tos = this.copy(bcc);
+        tos = (await this.copy(bcc));
         bcc = [];
       }
       as = [];
@@ -8909,6 +8909,14 @@ P.report.orgs.key._log = false;
 
 P.report.orgs.key._auth = '@oa.works';
 
+P.report.orgs.fixgates = async function() {
+  var rec;
+  rec = (await this.report.orgs.orgkeys('org:"gates foundation"', 1));
+  rec.org = 'Gates Foundation';
+  await this.report.orgs.orgkeys(rec);
+  return rec;
+};
+
 P.report.orgs.supplements = {
   _index: true,
   _auth: '@oa.works'
@@ -9340,10 +9348,10 @@ P.report.email = async function(doi) {
         rou = ref3[j];
         rol.push(rou.toLowerCase());
       }
-      if (indexOf.call(rol, 'gates foundation') >= 0 && ok.org.includes('gates foundation')) {
+      if (indexOf.call(rol, 'gates foundation') >= 0 && ok.org.toLowerCase().includes('gates foundation')) {
         return this.decrypt(email); // a special case for gates due to a name change issue caused in the data https://github.com/oaworks/discussion/issues/3328
       }
-      if (ref4 = ok.org, indexOf.call(rol, ref4) >= 0) {
+      if (ref4 = ok.org.toLowerCase(), indexOf.call(rol, ref4) >= 0) {
         return this.decrypt(email);
       }
     }
@@ -11393,29 +11401,28 @@ P.svc.rscvd.overdue = async function() {
 var indexOf = [].indexOf;
 
 P.test = async function(sid, max) {
-  var anoname, anything, base, c, d, diff, dl, ends, err, expect, group, gt, i, includes, j, len, len1, lt, n, nt, part, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, resd, resp, row, specd, starts, t;
+  var anoname, anything, base, c, contained, contains, d, diff, dl, ends, err, expect, group, gt, i, includes, j, len, len1, lt, n, nothing, nt, part, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, resd, resp, row, starts, t;
   row = (ref = this.params.row) != null ? ref : this.params.id;
   group = (ref1 = this.params.test) != null ? ref1 : this.params.group;
   if (max == null) {
     max = (ref2 = this.params.max) != null ? ref2 : (row ? 1 : 1000);
   }
   res = {
-    stats: {
+    summary: {
       ran: 0,
       max: max,
       id: row,
       responded: 0,
       errors: 0,
-      diffs: 0,
-      diff: (ref3 = this.params.diff) != null ? ref3 : true,
+      differences: 0,
+      difference: (ref3 = (ref4 = this.params.diff) != null ? ref4 : this.params.difference) != null ? ref3 : true,
       anomalous: 0
     },
     anomalies: {},
-    differences: {},
-    specs: {}
+    differences: {} //, specs: {}
   };
   res.sheet = {
-    id: (ref4 = sid != null ? sid : this.params.sheet) != null ? ref4 : '1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8/tests'
+    id: (ref5 = sid != null ? sid : this.params.sheet) != null ? ref5 : '1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8/tests'
   };
   // https://docs.google.com/spreadsheets/d/1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8
   if ((base = res.sheet).url == null) {
@@ -11426,51 +11433,63 @@ P.test = async function(sid, max) {
   res.diffs = [];
   //traversed = 1 # first row will be column names, so the sheet user would start counting rows from 2
   console.log(res.sheet.content.length, 'tests found to run in', res.sheet.id);
-  ref5 = res.sheet.content;
-  for (i = 0, len = ref5.length; i < len; i++) {
-    t = ref5[i];
-    if (res.stats.ran === max) {
+  ref6 = res.sheet.content;
+  for (i = 0, len = ref6.length; i < len; i++) {
+    t = ref6[i];
+    if (res.summary.ran === max) {
       //traversed += 1
       break;
     }
+    if ((t.PARAMS == null) && (t.QUERY != null)) {
+      t.PARAMS = t.QUERY;
+    }
+    if ((t.ENDPOINT == null) && (t.ENDPOINT_PRIMARY != null)) {
+      t.ENDPOINT = t.ENDPOINT_PRIMARY;
+    }
+    if ((t.DIFF == null) && (t.ENDPOINT_SECONDARY != null)) {
+      t.DIFF = t.ENDPOINT_SECONDARY;
+    }
     //if t.ENDPOINT and (not row? or traversed is row)
-    if (t.ENDPOINT && t.ID && ((row == null) || t.ID.toString().toLowerCase() === row.toString().toLowerCase()) && (!group || (ref6 = group.toString().toLowerCase(), indexOf.call(t.GROUP.toString().toLowerCase().replace(/ /g, '').split(';'), ref6) >= 0))) {
+    if (t.ENDPOINT && t.ID && ((row == null) || t.ID.toString().toLowerCase() === row.toString().toLowerCase()) && (!group || (ref7 = group.toString().toLowerCase(), indexOf.call(t.GROUP.toString().toLowerCase().replace(/ /g, '').split(';'), ref7) >= 0))) {
       try {
         t.PARAMS = t.PARAMS.trim(); // clean it?
       } catch (error) {}
       //t.ignore ?= []
       //t.ignore = t.ignore.split() if typeof t.ignore is 'string'
-      res.stats.ran++;
+      res.summary.ran++;
       try {
         // handle if params are a URL extension such as /blah and possibly inline params, or a string, 
         // or comma separated strings, or JSON object/list. Note also this must still be a string representation 
         // for the results object below. It may also be empty, in which case what will uniquely identify the result?
         if (t.ENDPOINT.startsWith('http')) {
-          resp = (await this.fetch(t.ENDPOINT + (!t.ENDPOINT.endsWith('/') && !((ref7 = t.PARAMS) != null ? ref7 : '').startsWith('/') ? '/' : '') + ((ref8 = t.PARAMS) != null ? ref8 : '')));
+          resp = (await this.fetch(t.ENDPOINT + (!t.ENDPOINT.endsWith('/') && !((ref8 = t.PARAMS) != null ? ref8 : '').startsWith('/') ? '/' : '') + ((ref9 = t.PARAMS) != null ? ref9 : '')));
         } else {
           resp = (await this[t.ENDPOINT](t.PARAMS));
         }
-        res.stats.responded++;
+        res.summary.responded++;
         for (c in t) {
-          anoname = ((ref9 = (ref10 = (ref11 = t.NAME) != null ? ref11 : t.ID) != null ? ref10 : t.ENDPOINT) != null ? ref9 : '') + (t.PARAMS ? ' (' + t.PARAMS + ')' : '');
+          anoname = ((ref10 = (ref11 = (ref12 = t.NAME) != null ? ref12 : t.ID) != null ? ref11 : t.ENDPOINT) != null ? ref10 : '') + (t.PARAMS ? ' (' + t.PARAMS + ')' : '');
           if (anoname === '') {
-            anoname = 'UNIDENTIFIED_TEST_' + res.stats.ran;
+            anoname = 'UNIDENTIFIED_TEST_' + res.summary.ran;
           }
-          if ((c !== 'ID' && c !== 'GROUP' && c !== 'ENDPOINT' && c !== 'DIFF' && c !== 'PARAMS' && c !== 'NAME' && c !== 'SPEC') && !c.startsWith('OPTIONS.')) {
+          if ((c !== 'ID' && c !== 'GROUP' && c !== 'ENDPOINT' && c !== 'ENDPOINT_PRIMARY' && c !== 'ENDPOINT_SECONDARY' && c !== 'DIFF' && c !== 'PARAMS' && c !== 'QUERY' && c !== 'NAME' && c !== 'SPEC' && c !== 'TEST_LINK' && c !== 'PRIMARY_URL' && c !== 'GROUP_MANUAL' && c !== 'ID_MANUAL' && c !== 'TEST_REQUIREMENTS_MET' && c !== '') && !c.startsWith('OPTIONS.')) {
             expect = t[c];
             if ((expect != null) && expect !== '') {
               part = (await this.dot(resp, c));
               gt = false;
               lt = false;
               nt = false;
-              console.log(res.stats.ran, part, expect, t[c]);
+              //console.log res.summary.ran, c, part, expect, t[c]
+              contains = typeof expect === 'string' && (expect.startsWith('~') || (Array.isArray(part) && (!expect.includes(',') || part.length !== expect.split(',').length))); // this is for checking if a list contains
               if (typeof part === 'object') {
-                if (typeof expect === 'string' && Array.isArray(part)) {
-                  expect = expect.split(',');
-                }
-                part = JSON.stringify(part);
-                if (typeof expect === 'object') {
-                  expect = JSON.stringify(expect);
+                if (!contains) {
+                  if (typeof expect === 'string' && Array.isArray(part)) {
+                    expect = expect.split(',');
+                  }
+                  part = JSON.stringify(part);
+                  if (typeof expect === 'object') {
+                    expect = JSON.stringify(expect);
+                  }
                 }
               } else {
                 try {
@@ -11498,32 +11517,42 @@ P.test = async function(sid, max) {
                   part = part.toString().trim().toLowerCase();
                 } catch (error) {}
               }
+              nothing = expect === '!*' || expect === 'UNDEFINED' || expect === 'NULL' || expect === 'NONE';
               anything = expect === '*';
-              includes = !anything && typeof expect === 'string' && (expect.startsWith('*') || expect.endsWith('*'));
+              includes = !anything && !nothing && typeof expect === 'string' && (expect.startsWith('*') || expect.endsWith('*'));
               starts = includes && !expect.startsWith('*');
               ends = includes && !expect.endsWith('*');
               if (includes) {
                 expect = expect.replace(/\*/g, '');
               }
-              console.log(res.stats.ran, part, expect, t[c], gt, lt, nt, includes, starts, ends);
-              if ((part == null) || (starts && !part.startsWith(expect)) || (ends && !part.endsWith(expect)) || (!starts && !ends && includes && !part.includes(expect)) || (nt && part === expect) || (gt && part <= expect) || (lt && part >= expect) || (!gt && !lt && !nt && !anything && part !== expect)) {
+              if (nothing) {
+                contains = false;
+              }
+              if (contains) {
+                if (typeof expect === 'string' && expect.startsWith('~')) {
+                  expect = expect.slice(1);
+                }
+                contained = anything || indexOf.call(part, expect) >= 0 || (ref13 = parseFloat(expect), indexOf.call(part, ref13) >= 0) || (ref14 = parseInt(expect), indexOf.call(part, ref14) >= 0) || (expect.toLowerCase() === 'true' && indexOf.call(part, true) >= 0) || (expect.toLowerCase() === 'false' && indexOf.call(part, false) >= 0);
+              }
+              console.log(res.summary.ran, c, 'part:', typeof part, part, 'expect:', typeof expect, expect, typeof t[c], t[c], 'gt:', gt, 'lt:', lt, 'nt:', nt, 'nothing:', nothing, 'anything:', anything, 'includes:', includes, 'starts:', starts, 'ends:', ends, 'contains:', contains, 'contained:', contained);
+              if (((part == null) && !nothing) || ((part != null) && ((ref15 = JSON.stringify(part)) !== '[]' && ref15 !== '{}') && nothing) || (contains && !contained) || (starts && !part.startsWith(expect)) || (ends && !part.endsWith(expect)) || (!starts && !ends && includes && !part.includes(expect)) || (nt && part === expect) || (gt && part <= expect) || (lt && part >= expect) || (!gt && !lt && !nt && !anything && !nothing && !contains && !includes && part !== expect)) {
                 if (res.anomalies[anoname] == null) {
-                  res.stats.anomalous++;
+                  res.summary.anomalous++;
                   res.anomalies[anoname] = {};
                 }
                 res.anomalies[anoname][c] = {
                   expected: t[c],
-                  actual: (part == null ? 'UNDEFINED' : part)
+                  reported: (part == null ? 'UNDEFINED' : part)
                 };
               }
             }
           }
         }
         res.responses.push(resp);
-        if (t.DIFF && this.params.diff !== false) {
+        if (t.DIFF && this.params.diff !== false && this.params.difference !== false) {
           try {
             if (t.DIFF.startsWith('http')) {
-              resd = (await this.fetch(t.DIFF + (!t.DIFF.endsWith('/') && !((ref12 = t.PARAMS) != null ? ref12 : '').startsWith('/') ? '/' : '') + ((ref13 = t.PARAMS) != null ? ref13 : '')));
+              resd = (await this.fetch(t.DIFF + (!t.DIFF.endsWith('/') && !((ref16 = t.PARAMS) != null ? ref16 : '').startsWith('/') ? '/' : '') + ((ref17 = t.PARAMS) != null ? ref17 : '')));
             } else {
               resd = (await this[t.DIFF](t.PARAMS));
             }
@@ -11536,27 +11565,20 @@ P.test = async function(sid, max) {
             }));
             res.diffs.push(diff);
             if (diff.diff.length) {
-              res.stats.diffs += 1;
+              res.summary.differences += 1;
               res.differences[anoname] = diff.diff;
             }
           } catch (error) {}
         }
-        if (false) { //t.SPEC
-          try {
-            specd = (await this.fetch('https://s.leviathan.sh/diff/ie', {
-              body: {
-                a: resp,
-                spec: t.SPEC
-              }
-            }));
-            res.specs[t.ENDPOINT + '_' + t.PARAMS] = specd.diffie;
-          } catch (error) {}
-        }
+        `if false #t.SPEC
+try
+  specd = await @fetch 'https://s.leviathan.sh/diff/ie', body: a: resp, spec: t.SPEC
+  res.specs[t.ENDPOINT + '_' + t.PARAMS] = specd.diffie`;
         await this.sleep(200);
       } catch (error) {
         err = error;
         console.log(err);
-        res.stats.errors++;
+        res.summary.errors++;
       }
     }
   }
@@ -11566,9 +11588,9 @@ P.test = async function(sid, max) {
         res.differences[d] = res.differences[d].length;
       }
     } catch (error) {}
-    ref14 = ['responses', 'diffs'];
-    for (j = 0, len1 = ref14.length; j < len1; j++) {
-      dl = ref14[j];
+    ref18 = ['responses', 'diffs'];
+    for (j = 0, len1 = ref18.length; j < len1; j++) {
+      dl = ref18[j];
       delete res[dl];
     }
     //try res.sheet.content = res.sheet.content.length
@@ -11576,6 +11598,8 @@ P.test = async function(sid, max) {
   }
   return res;
 };
+
+P.tests = P.test;
 
 // https://github.com/CrossRef/rest-api-doc/blob/master/rest_api.md
 // http://api.crossref.org/works/10.1016/j.paid.2009.02.013
@@ -13888,7 +13912,7 @@ P.src.oadoi['2025']._key = 'doi';
 P.src.oadoi['2025']._prefix = false;
 
 P.src.oadoi.changes = async function(oldest, tgt, toalias, esurl) {
-  var batch, batchsize, changes, counter, days, i, last, lc, len, lfl, line, lm, lr, q, rec, ref, ref1, resp, upto, uptofile, wstr;
+  var batch, batchsize, changes, counter, days, dt, i, last, lc, len, lfl, line, lm, lr, q, qrr, rec, ref, ref1, ref2, resp, upto, uptofile, wstr;
   batchsize = 30000;
   // the 2021-08-19 file was very large, 139M compressed and over 1.2GB uncompressed, and trying to stream it kept resulting in zlib unexpected end of file error
   // suspect it can't all be streamed before timing out. So write file locally then import then delete, and write 
@@ -13917,6 +13941,7 @@ P.src.oadoi.changes = async function(oldest, tgt, toalias, esurl) {
   if (!oldest) {
     try {
       //last = await @src.oadoi '*', size: 1, sort: updated: order: 'desc'
+      //oldest = (new Date(last.updated)).valueOf()
       q = (await this.index.translate('*', {
         size: 1,
         sort: {
@@ -13925,11 +13950,19 @@ P.src.oadoi.changes = async function(oldest, tgt, toalias, esurl) {
           }
         }
       }));
-      last = (await this.index._send(tgt, q, void 0, false, toalias, esurl));
-      oldest = (new Date(last.updated)).valueOf();
+      qrr = (await this.index._send(tgt + '/_search', q, void 0, false, toalias, esurl));
+      last = qrr.hits.hits[0]._source;
+      oldest = last.updated;
     } catch (error) {}
   }
-  if (!oldest) { // or could remove this to just allow running back through all
+  if (typeof oldest === 'string') {
+    try {
+      oldest = (new Date(oldest)).valueOf();
+    } catch (error) {
+      oldest = parseInt(oldest);
+    }
+  }
+  if (typeof oldest !== 'number') { // or could remove this to just allow running back through all
     console.log('Timestamp day to work since is required - run load first to auto-generate');
     return;
   }
@@ -13988,6 +14021,12 @@ P.src.oadoi.changes = async function(oldest, tgt, toalias, esurl) {
       } catch (error) {}
     }
   }
+  dt = (await this.datetime());
+  await this.mail({
+    to: (ref2 = this.S.log) != null ? ref2.logs : void 0,
+    subject: 'OADOI changes ' + counter + ' at ' + dt,
+    text: JSON.stringify('Changes found ' + counter + ' over ' + days + ' for ' + oldest + ' to ' + upto)
+  });
   console.log('oadoi changes complete', days, counter); //, seen.length, dups
   return counter; //seen.length
 };
@@ -19883,8 +19922,11 @@ P.copy._log = false;
 
 P.dot = function(o, k, v, d, ae) { // ae will attempt to recurse into the last object element of an array rather than return undefined for failing to match a key on the list element
   var base, name, oo;
+  //console.log 'dot', o, k
   if (typeof k === 'string') {
     return P.dot(o, k.split('.'), v, d, ae);
+  } else if (k.length === 0) {
+    return o;
   } else if (k.length === 1 && ((v != null) || (d != null))) {
     if (d != null) {
       if (o instanceof Array) {
@@ -19904,8 +19946,6 @@ P.dot = function(o, k, v, d, ae) { // ae will attempt to recurse into the last o
       }
       return true;
     }
-  } else if (k.length === 0) {
-    return o;
   } else {
     if (o[k[0]] == null) {
       if (v != null) {
@@ -19913,6 +19953,14 @@ P.dot = function(o, k, v, d, ae) { // ae will attempt to recurse into the last o
         return P.dot(o[k[0]], k.slice(1), v, d, ae);
       } else if (ae && Array.isArray(o) && o.length && (oo = o[o.length - 1] && typeof oo === 'object' && (oo[k[0]] != null))) {
         return P.dot(oo[k[0]], k.slice(1), v, d, ae);
+      } else if (Array.isArray(o) && o.length && typeof o[0] === 'object') {
+        return P.dot(o.flatMap(function(x) {
+          if (x[k[0]] != null) {
+            return x[k[0]];
+          } else {
+            return [];
+          }
+        }), k.slice(1), v, d, ae);
       } else {
         return void 0;
       }
@@ -20663,7 +20711,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Fri Jul 18 2025 16:53:03 GMT+0100";
+S.built = "Mon Jul 28 2025 12:52:34 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor

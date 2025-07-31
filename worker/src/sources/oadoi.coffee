@@ -222,10 +222,17 @@ P.src.oadoi.changes = (oldest, tgt, toalias, esurl) ->
   if not oldest
     try
       #last = await @src.oadoi '*', size: 1, sort: updated: order: 'desc'
+      #oldest = (new Date(last.updated)).valueOf()
       q = await @index.translate '*', {size: 1, sort: {updated: {order: 'desc'}}}
-      last = await @index._send tgt, q, undefined, false, toalias, esurl
-      oldest = (new Date(last.updated)).valueOf()
-  if not oldest # or could remove this to just allow running back through all
+      qrr = await @index._send tgt + '/_search', q, undefined, false, toalias, esurl
+      last = qrr.hits.hits[0]._source
+      oldest = last.updated
+  if typeof oldest is 'string'
+    try
+      oldest = (new Date(oldest)).valueOf()
+    catch
+      oldest = parseInt oldest
+  if typeof oldest isnt 'number' # or could remove this to just allow running back through all
     console.log 'Timestamp day to work since is required - run load first to auto-generate'
     return
 
@@ -274,7 +281,9 @@ P.src.oadoi.changes = (oldest, tgt, toalias, esurl) ->
 
     if upto
       try await fs.writeFile uptofile, upto
-    
+  
+  dt = await @datetime()
+  await @mail to: @S.log?.logs, subject: 'OADOI changes ' + counter + ' at ' + dt, text: JSON.stringify 'Changes found ' + counter + ' over ' + days + ' for ' + oldest + ' to ' + upto
   console.log 'oadoi changes complete', days, counter #, seen.length, dups
   return counter #seen.length
 
