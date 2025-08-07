@@ -5924,6 +5924,7 @@ P.oareport._author_display_name = async function(rec) {
 
 P.oareport.works.process = async function(ident, sup, refresh) {
   var a, ad, ass, assl, base, base1, base2, base3, c, cid, crossref, dask, dor, dord, edas, ell, epmc, err, exists, f, g, hstarted, i, i1, ik, issns, j, j1, k, k1, l, l1, len, len1, len10, len11, len12, len13, len14, len15, len16, len17, len18, len19, len2, len20, len3, len4, len5, len6, len7, len8, len9, ll, lll, m, m1, mv, n, n1, name, o1, ok, openalex, p, p1, permissions, pi, pp, pt, pub, publ, pubmed, q1, r1, rec, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref45, ref46, ref47, ref48, ref49, ref5, ref50, ref51, ref52, ref53, ref54, ref55, ref56, ref57, ref58, ref59, ref6, ref60, ref61, ref62, ref63, ref64, ref65, ref66, ref67, ref68, ref69, ref7, ref70, ref71, ref72, ref73, ref74, ref75, ref76, ref77, ref78, ref79, ref8, ref80, ref81, ref82, ref83, ref84, ref85, ref86, ref9, rp, s1, sp, started, stt, t, u, urlordois, w, y, z;
+  console.log('oareport works processing', ident, sup, refresh);
   try {
     started = (await this.epoch());
     hstarted = (await this.datetime(started));
@@ -5976,7 +5977,10 @@ P.oareport.works.process = async function(ident, sup, refresh) {
       }
       rec = exists;
     }
-    if ((refresh || (rec.openalex == null)) && (openalex != null ? openalex : openalex = ident.startsWith('w') ? (await this.src.openalex.works('id.keyword:"https://openalex.org/' + ident + '"', 1)) : (await this.src.openalex.works(ident)))) { //, refresh # can search works.doi to do remote check
+    if (refresh || (rec.openalex == null)) {
+      if (openalex == null) {
+        openalex = (await this.src.openalex.works((ident.startsWith('w') ? 'id.keyword:"https://openalex.org/' + ident + '"' : ident), ident.startsWith('w') ? 1 : void 0)); //, refresh # can search works.doi to do remote check
+      }
       try {
         if (rec.DOI == null) {
           rec.DOI = openalex.ids.doi.split('doi.org/').pop();
@@ -6428,33 +6432,31 @@ P.oareport.works.process = async function(ident, sup, refresh) {
 P.oareport.works.process._log = false;
 
 P.oareport.works.load = async function(idents, timestamp, org, year) {
-  var _byqry, id, j, len, o, ot, ref, ref1, ref10, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, started, sw;
+  var _byqry, id, j, len, o, ot, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, started, sw, tid;
   started = (await this.epoch());
   year = (ref = this.params.load) != null ? ref : ((await this.date())).split('-')[0];
   org = (ref1 = (ref2 = this.params.org) != null ? ref2 : this.params.orgs) != null ? ref1 : this.params.load === 'orgs';
   if (idents == null) {
     idents = [];
   }
-  if ((idents == null) && typeof this.params.load === 'string' && (this.params.load.startsWith('10.') || this.params.load.toLowerCase().startsWith('pmc') || this.params.load.toLowerCase().startsWith('w'))) {
-    idents = this.params.load;
-  }
   if (typeof idents === 'string') {
-    idents = [idents];
+    idents = idents.split(',');
   }
   if (this.params.q) {
-    ref3 = (await this.oareport.works._for(this.params.q, {
+    console.log('report works load for query', this.params.q);
+    ref3 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'oareport_works', this.params.q, {
       scroll: '5m',
       include: ['ids']
-    }));
-    //['DOI', 'openalex', 'PMCID']
-    //for await sw from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'oareport_works', @params.q, scroll: '5m', include: ['DOI', 'openalex', 'PMCID']
+    });
+    // ['DOI', 'openalex', 'PMCID']
     for await (sw of ref3) {
+      //for await sw from await @oareport.works._for @params.q, scroll: '5m', include: ['ids'] #['DOI', 'openalex', 'PMCID']
       //idents.push sw.DOI ? sw.openalex ? sw.PMCID
-      idents.push((ref4 = (ref5 = sw.doi) != null ? ref5 : sw.openalex) != null ? ref4 : sw.pmcid);
+      idents.push((ref4 = (ref5 = (ref6 = sw.ids) != null ? ref6.doi : void 0) != null ? ref5 : (ref7 = sw.ids) != null ? ref7.openalex : void 0) != null ? ref4 : (ref8 = sw.ids) != null ? ref8.pmcid : void 0);
     }
-  } else if (!idents) {
+  } else if (!idents.length) {
     _byqry = async(q, cr) => {
-      var od, precount, r, ref6, ref7, results;
+      var od, precount, r, ref10, ref9, results;
       if (q == null) {
         q = (cr ? '(funder.name:* OR author.affiliation.name:*) AND year.keyword:' : 'authorships.institutions.display_name:* AND publication_year:') + year;
       }
@@ -6463,14 +6465,15 @@ P.oareport.works.load = async function(idents, timestamp, org, year) {
       }
       precount = (await this.src[cr ? 'crossref' : 'openalex'].works.count(q));
       console.log('report works load ' + (cr ? 'crossref' : 'openalex') + ' by query expects', q, precount);
-      ref6 = this.index._for((cr ? 'src_crossref_works' : 'src_openalex_works'), q, {
+      ref9 = this.index._for((cr ? 'src_crossref_works' : 'src_openalex_works'), q, {
         include: (cr ? ['DOI'] : ['id', 'ids']),
         scroll: '10m'
       });
       results = [];
-      for await (r of ref6) {
-        if (od = (r.DOI ? r.DOI : ((ref7 = r.ids) != null ? ref7.doi : void 0) ? '10.' + r.ids.doi.split('/10.')[1] : r.id.split('openalex.org/').pop()) && (timestamp || indexOf.call(idents, od) < 0)) {
-          //for await r from await @src[if cr then 'crossref' else 'openalex'].works._for q, include: (if cr then ['DOI'] else ['id', 'ids']), scroll: '10m'
+      for await (r of ref9) {
+        //for await r from await @src[if cr then 'crossref' else 'openalex'].works._for q, include: (if cr then ['DOI'] else ['id', 'ids']), scroll: '10m'
+        od = r.DOI ? r.DOI : ((ref10 = r.ids) != null ? ref10.doi : void 0) ? '10.' + r.ids.doi.split('/10.')[1] : r.id.split('openalex.org/').pop();
+        if (od && (timestamp || indexOf.call(idents, od) < 0)) {
           results.push(idents.push(od));
         } else {
           results.push(void 0);
@@ -6479,31 +6482,35 @@ P.oareport.works.load = async function(idents, timestamp, org, year) {
       return results;
     };
     if (!org && year === this.params.load) {
+      console.log('report works load for year', year);
       await Promise.all([_byqry(), _byqry(void 0, true)]);
     } else {
-      ref6 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'oareport_orgs', (typeof org === 'string' ? 'name.keyword:"' + org + '"' : '*'), {
+      console.log('report works load for org', (org ? org : 'all'), 'by source.openalex or source.crossref query presence');
+      ref9 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'oareport_orgs', (typeof org === 'string' ? 'name.keyword:"' + org + '"' : '*'), {
         scroll: '10m'
       });
-      for await (o of ref6) {
-        if ((ref7 = o.source) != null ? ref7.openalex : void 0) {
+      for await (o of ref9) {
+        if ((ref10 = o.source) != null ? ref10.openalex : void 0) {
           //for await o from await @oareport.orgs._for (if typeof org is 'string' then 'name.keyword:"' + org + '"' else '*'), scroll: '10m'
           // if an org has no known records in report/works yet, could default it here to a timestamp of start of current year, or older, to pull in all records first time round
           await _byqry(decodeURIComponent(decodeURIComponent(o.source.openalex)));
         }
-        if ((ref8 = o.source) != null ? ref8.crossref : void 0) {
+        if ((ref11 = o.source) != null ? ref11.crossref : void 0) {
           await _byqry(decodeURIComponent(decodeURIComponent(o.source.crossref)), true);
         }
       }
     }
     if (timestamp) {
-      ref9 = (await this.oareport.works._for('DOI:* AND meta.is_updated:true AND updated:<' + timestamp, {
-        include: ['DOI'],
+      console.log('report works load for updated before', timestamp, (await this.date(timestamp)));
+      ref12 = (await this.oareport.works._for('(DOI:* OR ids.doi:*) AND meta.is_updated:true AND updated:<' + timestamp, {
+        include: ['DOI', 'ids'],
         scroll: '10m'
       }));
       //for await ot from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'oareport_works', 'DOI:* AND meta.is_updated:true AND updated:<' + timestamp, include: ['DOI'], scroll: '10m'
-      for await (ot of ref9) {
-        if (ref10 = ot.DOI, indexOf.call(idents, ref10) < 0) {
-          idents.push(ot.DOI);
+      for await (ot of ref12) {
+        tid = (ref13 = (ref14 = (ref15 = ot.DOI) != null ? ref15 : ids.doi) != null ? ref14 : ids.openalex) != null ? ref13 : ids.pmcid;
+        if (tid && indexOf.call(idents, tid) < 0) {
+          idents.push(tid);
         }
       }
     }
@@ -21839,7 +21846,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Wed Aug 06 2025 16:31:35 GMT+0100";
+S.built = "Thu Aug 07 2025 12:05:12 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
