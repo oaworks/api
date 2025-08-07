@@ -309,12 +309,6 @@ P.report.orgs.key = (org) ->
 P.report.orgs.key._log = false
 P.report.orgs.key._auth = '@oa.works'
 
-P.report.orgs.fixgates = ->
-  rec = await @report.orgs.orgkeys 'org:"gates foundation"', 1
-  rec.org = 'Gates Foundation'
-  await @report.orgs.orgkeys rec
-  return rec
-
 P.report.orgs.supplements = _index: true, _auth: '@oa.works'
 P.report.orgs.supplements.load = (orgname, sheetname, clear) ->
   started = await @epoch()
@@ -1395,6 +1389,11 @@ P.report.fixcroa._async = true
 P.report.fixcroa._auth = '@oa.works'
 '''
 
+#P.report.orgs.fixgates = ->
+#  rec = await @report.orgs.orgkeys 'org:"gates foundation"', 1
+#  rec.org = 'Gates Foundation'
+#  await @report.orgs.orgkeys rec
+#  return rec
 
 P.report.fixoatype = ->
   fixes = 0
