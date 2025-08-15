@@ -34,7 +34,7 @@ P.test = (sid, max) ->
           resp = await @[t.ENDPOINT] t.PARAMS
         res.summary.responded++
         for c of t
-          anoname = (t.NAME ? t.ID ? t.ENDPOINT ? '') + (if t.PARAMS then ' (' + t.PARAMS + ')' else '')
+          anoname = (t.ID ? t.NAME ? t.ENDPOINT ? '') + (if not t.ID and not t.NAME and t.PARAMS then '(' + t.PARAMS + ')' else '')
           anoname = 'UNIDENTIFIED_TEST_' + res.summary.ran if anoname is ''
           if c not in ['ID', 'GROUP', 'ENDPOINT', 'ENDPOINT_PRIMARY', 'ENDPOINT_SECONDARY', 'DIFF', 'PARAMS', 'QUERY', 'NAME', 'SPEC', 'TEST_LINK', 'PRIMARY_URL', 'GROUP_MANUAL', 'ID_MANUAL', 'TEST_REQUIREMENTS_MET', ''] and not c.startsWith('OPTIONS.')
             expect = t[c]
