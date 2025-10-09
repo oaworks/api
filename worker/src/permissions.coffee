@@ -111,7 +111,9 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref, best) -> # oadoi and cross
   _getmeta = () =>
     psm = @copy meta
     if JSON.stringify(psm) isnt '{}'
-      for mk of rsm = (crossref ? (await @metadata(meta.doi)) ? {})
+      try rsm = crossref ? (await @metadata(meta.doi)) ? {}
+      try rsm = crossref ? (await @metadata_internal(meta.doi)) ? {}
+      for mk of rsm
         meta[mk] ?= rsm[mk]
   await _getmeta() if getmeta isnt false and meta.doi and (not meta.publisher or not meta.issn)
   meta.published = meta.year + '-01-01' if not meta.published and meta.year

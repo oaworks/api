@@ -27,11 +27,12 @@ P.src.epmc.search = (qrystr, from, size) ->
   url += '&cursorMark=' + from if from? # used to be a from pager, but now uses a cursor
   ret = {}
   await @sleep 150
-  res = await @fetch url
-  ret.total = res.hitCount
-  ret.data = res.resultList?.result ? []
-  ret.cursor = res.nextCursorMark
-  if ret.data.length
+  try
+    res = await @fetch url
+    ret.total = res.hitCount
+    ret.data = res.resultList?.result ? []
+    ret.cursor = res.nextCursorMark
+  if ret.data?.length
     @waitUntil @src.epmc ret.data
   return ret
 
@@ -50,7 +51,7 @@ P.src.epmc.doi = (ident, refresh) ->
         res.data[0].doi = ident
         @waitUntil @src.epmc res.data[0]
       return res.data[0]
-    else
+    else if res.total? # because on 21/08/2025 the whole API disappeared - we don't want to record that as not being in
       await @src.epmc.notinepmc id: ident.replace(/\//g, '_'), doi: ident, checkedAt: Date.now()
       return
 
@@ -66,7 +67,7 @@ P.src.epmc.pmid = (ident, refresh) ->
     res = await @src.epmc.search 'EXT_ID:' + ident + ' AND SRC:MED'
     if res.total
       return res.data[0]
-    else
+    else if res.total? # because on 21/08/2025 the whole API disappeared - we don't want to record that as not being in
       await @src.epmc.notinepmc id: ident, pmid: ident, checkedAt: Date.now()
       return
 
@@ -83,7 +84,7 @@ P.src.epmc.pmc = (ident, refresh) ->
     res = await @src.epmc.search 'PMCID:' + ident
     if res.total
       return res.data[0]
-    else
+    else if res.total? # because on 21/08/2025 the whole API disappeared - we don't want to record that as not being in
       await @src.epmc.notinepmc id: ident, pmcid: ident, checkedAt: Date.now()
       return
 

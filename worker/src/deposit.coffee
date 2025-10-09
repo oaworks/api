@@ -26,7 +26,8 @@ P.deposit = (params, file, dev) ->
   dep.confirmed = decodeURIComponent(params.confirmed) if params.confirmed
   dep.doi = params.doi ? params.metadata?.doi
 
-  params.metadata = await @metadata(params.doi) if not params.metadata? and params.doi
+  try params.metadata = await @metadata(params.doi) if not params.metadata? and params.doi
+  try params.metadata = await @metadata_internal(params.doi) if not params.metadata? and params.doi
   dep.metadata = params.metadata
 
   uc = params.config # should exist but may not
@@ -195,7 +196,7 @@ P.archivable = (file, url, confirmed, meta, permissions, dev) ->
 
   _check = () =>
     if typeof meta is 'string' or (not meta? and (@params.doi or @params.title))
-      meta = await @metadata meta ? @params.doi ? @params.title
+      meta = await _internal meta ? @params.doi ? @params.title
     meta ?= {}
   
     # handle different sorts of file passing

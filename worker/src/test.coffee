@@ -2,8 +2,8 @@
 P.test = (sid, max) ->
   row = @params.row ? @params.id
   group = @params.test ? @params.group
-  max ?= @params.max ? (if row then 1 else 1000)
-  res = summary: {ran: 0, max: max, id: row, responded: 0, errors: 0, differences: 0, difference: (@params.diff ? @params.difference ? true), anomalous: 0}, anomalies: {}, differences: {} #, specs: {}
+  max ?= @params.max ? (if row then 1 else 10000)
+  res = summary: {ran: 0, max: max, id: row, responded: 0, errors: 0, differences: 0, difference: (@params.diff ? @params.difference ? true), anomalous: 0}, anomalies: {}, anomalous_ids: [], errors: [], differences: {} #, specs: {}
   res.sheet = id: sid ? @params.sheet ? '1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8/tests'
   # https://docs.google.com/spreadsheets/d/1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8
   res.sheet.url ?= 'https://docs.google.com/spreadsheets/d/' + res.sheet.id.split('/')[0]
@@ -24,6 +24,8 @@ P.test = (sid, max) ->
       #t.ignore ?= []
       #t.ignore = t.ignore.split() if typeof t.ignore is 'string'
       res.summary.ran++
+      anoname = (t.ID ? t.NAME ? t.ENDPOINT ? '') + (if not t.ID and not t.NAME and t.PARAMS then '(' + t.PARAMS + ')' else '')
+      anoname = 'UNIDENTIFIED_TEST_' + res.summary.ran if anoname is ''
       try
         # handle if params are a URL extension such as /blah and possibly inline params, or a string, 
         # or comma separated strings, or JSON object/list. Note also this must still be a string representation 
@@ -34,8 +36,6 @@ P.test = (sid, max) ->
           resp = await @[t.ENDPOINT] t.PARAMS
         res.summary.responded++
         for c of t
-          anoname = (t.ID ? t.NAME ? t.ENDPOINT ? '') + (if not t.ID and not t.NAME and t.PARAMS then '(' + t.PARAMS + ')' else '')
-          anoname = 'UNIDENTIFIED_TEST_' + res.summary.ran if anoname is ''
           if c not in ['ID', 'GROUP', 'ENDPOINT', 'ENDPOINT_PRIMARY', 'ENDPOINT_SECONDARY', 'DIFF', 'PARAMS', 'QUERY', 'NAME', 'SPEC', 'TEST_LINK', 'PRIMARY_URL', 'GROUP_MANUAL', 'ID_MANUAL', 'TEST_REQUIREMENTS_MET', ''] and not c.startsWith('OPTIONS.')
             expect = t[c]
             if expect? and expect isnt ''
@@ -77,17 +77,22 @@ P.test = (sid, max) ->
               ends = includes and not expect.endsWith '*'
               expect = expect.replace(/\*/g, '') if includes
               contains = false if nothing
+              #if not nt and typeof expect is 'string' and expect.startsWith('!') and expect.length > 1
+              #  nt = true
+              #  expect = expect.slice 1
               if contains
                 expect = expect.slice(1) if typeof expect is 'string' and expect.startsWith '~'
                 contained = anything or expect in part or parseFloat(expect) in part or parseInt(expect) in part or (expect.toLowerCase() is 'true' and true in part) or (expect.toLowerCase() is 'false' and false in part)
               console.log res.summary.ran, c, 'part:', typeof part, part, 'expect:', typeof expect, expect, typeof t[c], t[c], 'gt:', gt, 'lt:', lt, 'nt:', nt, 'nothing:', nothing, 'anything:', anything, 'includes:', includes, 'starts:', starts, 'ends:', ends, 'contains:', contains, 'contained:', contained
               if (not part? and not nothing) or (part? and JSON.stringify(part) not in ['[]', '{}'] and nothing) or (contains and not contained) or (starts and not part.startsWith expect) or (ends and not part.endsWith expect) or (not starts and not ends and includes and not part.includes expect) or (nt and part is expect) or (gt and part <= expect) or (lt and part >= expect) or (not gt and not lt and not nt and not anything and not nothing and not contains and not includes and part isnt expect)
+              #if (not part? and not nothing and not nt) or (part? and JSON.stringify(part) not in ['[]', '{}'] and nothing) or (contains and not contained and not nt) or (starts and not part.startsWith expect) or (ends and not part.endsWith expect) or (not starts and not ends and includes and not part.includes expect) or (nt and (part is expect or (contains and contained))) or (gt and part <= expect) or (lt and part >= expect) or (not gt and not lt and not nt and not anything and not nothing and not contains and not includes and part isnt expect)
                 if not res.anomalies[anoname]?
+                  res.anomalous_ids.push anoname
                   res.summary.anomalous++
                   res.anomalies[anoname] = {}
-                res.anomalies[anoname][c] = expected: t[c], reported: (if not part? then 'UNDEFINED' else part)
+                res.anomalies[anoname][c] = group: t.GROUP, expected: t[c], reported: (if not part? then 'UNDEFINED' else part)
         res.responses.push resp
-        if t.DIFF and @params.diff isnt false and @params.difference isnt false
+        if t.DIFF and res.difference is true
           try
             if t.DIFF.startsWith('http')
               resd = await @fetch t.DIFF + (if not t.DIFF.endsWith('/') and not (t.PARAMS ? '').startsWith('/') then '/' else '') + (t.PARAMS ? '')
@@ -106,6 +111,7 @@ P.test = (sid, max) ->
         await @sleep 200
       catch err
         console.log err
+        res.errors.push anoname
         res.summary.errors++
 
   if not @params.verbose
