@@ -6,7 +6,7 @@ P.src.rs.retrieve = (since) ->
   save = @params.save
   refresh = @params.refresh
   plus = @params.plus ? true
-  limit = @params.limit ? 1000
+  limit = @params.limit ? 500 #1000 # 100 worked fine but was of course slow, around 5 or 6 days to get all relevant records
   empty = @params.empty
   await @src.rs('') if empty
   q = @params.q ? 'prefix.keyword:"10.21203" AND DOI:"v1" AND type.keyword:"posted-content"'
@@ -55,11 +55,12 @@ P.src.rs.retrieve = (since) ->
             article[k] = JSON.stringify article[k]
           for ok in ['declarations'] # and some things need to be an object but may be an empty string (or something)
             delete article[ok] if typeof article[ok] isnt 'object'
+          delete article.updatedAt if article.updatedAt? and not article.updatedAt # some dates exist but seem to perhaps be an empty string, causing it to not index as a date
           res.retrieved += 1
           article.DOI = rec.DOI.toLowerCase()
           article._id = article.DOI.replace /\//g, '_'
           batch.push article
-    if batch.length >= 50
+    if batch.length >= 500
       await @src.rs(batch) if save isnt false
       res.saved += batch.length
       batch = []
@@ -72,7 +73,7 @@ P.src.rs.retrieve = (since) ->
   res.ended = Date.now()
   res.took = res.ended - started
   console.log res
-  await @mail to: @S.log.notify, subject: 'Report RS retrieved ' + res.retrieved, text: JSON.stringify res, '', 2
+  await @mail to: @S.log.logs, subject: 'Report RS retrieved ' + res.retrieved, text: JSON.stringify res, '', 2
   return res
 P.src.rs.retrieve._log = false
 P.src.rs.retrieve._bg = true
@@ -88,7 +89,7 @@ P.src.rs.changes = (since) ->
     last = await @src.rs '*', sort: 'createdAt.keyword:desc', size: 1
     since = last.createdAt
   console.log 'Running report RS retrieve for new crossref records since', since
-  res = false #await @src.rs.retrieve since
+  res = await @src.rs.retrieve since
   return res
 P.src.rs.changes._log = false
 P.src.rs.changes._bg = true
