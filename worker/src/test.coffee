@@ -77,15 +77,15 @@ P.test = (sid, max) ->
               ends = includes and not expect.endsWith '*'
               expect = expect.replace(/\*/g, '') if includes
               contains = false if nothing
-              #if not nt and typeof expect is 'string' and expect.startsWith('!') and expect.length > 1
-              #  nt = true
-              #  expect = expect.slice 1
+              if not nt and typeof expect is 'string' and expect.startsWith('!') and expect.length > 1
+                nt = true
+                expect = expect.slice 1
               if contains
                 expect = expect.slice(1) if typeof expect is 'string' and expect.startsWith '~'
                 contained = anything or expect in part or parseFloat(expect) in part or parseInt(expect) in part or (expect.toLowerCase() is 'true' and true in part) or (expect.toLowerCase() is 'false' and false in part)
               console.log res.summary.ran, c, 'part:', typeof part, part, 'expect:', typeof expect, expect, typeof t[c], t[c], 'gt:', gt, 'lt:', lt, 'nt:', nt, 'nothing:', nothing, 'anything:', anything, 'includes:', includes, 'starts:', starts, 'ends:', ends, 'contains:', contains, 'contained:', contained
-              if (not part? and not nothing) or (part? and JSON.stringify(part) not in ['[]', '{}'] and nothing) or (contains and not contained) or (starts and not part.startsWith expect) or (ends and not part.endsWith expect) or (not starts and not ends and includes and not part.includes expect) or (nt and part is expect) or (gt and part <= expect) or (lt and part >= expect) or (not gt and not lt and not nt and not anything and not nothing and not contains and not includes and part isnt expect)
-              #if (not part? and not nothing and not nt) or (part? and JSON.stringify(part) not in ['[]', '{}'] and nothing) or (contains and not contained and not nt) or (starts and not part.startsWith expect) or (ends and not part.endsWith expect) or (not starts and not ends and includes and not part.includes expect) or (nt and (part is expect or (contains and contained))) or (gt and part <= expect) or (lt and part >= expect) or (not gt and not lt and not nt and not anything and not nothing and not contains and not includes and part isnt expect)
+              #if (not part? and not nothing) or (part? and JSON.stringify(part) not in ['[]', '{}'] and nothing) or (contains and not contained) or (starts and not part.startsWith expect) or (ends and not part.endsWith expect) or (not starts and not ends and includes and not part.includes expect) or (nt and part is expect) or (gt and part <= expect) or (lt and part >= expect) or (not gt and not lt and not nt and not anything and not nothing and not contains and not includes and part isnt expect)
+              if (not part? and not nothing and not nt) or (part? and JSON.stringify(part) not in ['[]', '{}'] and nothing) or (contains and not contained and not nt) or (starts and not part.startsWith expect) or (ends and not part.endsWith expect) or (not starts and not ends and includes and not part.includes expect) or (nt and (part is expect or (contains and contained))) or (gt and part <= expect) or (lt and part >= expect) or (not gt and not lt and not nt and not anything and not nothing and not contains and not includes and part isnt expect)
                 if not res.anomalies[anoname]?
                   res.anomalous_ids.push anoname
                   res.summary.anomalous++

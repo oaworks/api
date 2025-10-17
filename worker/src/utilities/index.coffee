@@ -655,10 +655,11 @@ P.index.translate = (q, opts) ->
 
   if opts.random
     fq = {function_score: {random_score: {}}}
-    fq.function_score.random_score.seed = seed if opts.seed?
+    fq.function_score.random_score.seed = opts.seed if opts.seed? # NOTE TODO seed if supplied in ES7.x now also REQUIRES field as well see https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-function-score-query#function-random
     fq.function_score.query = qry.query
-    qry.query = fq # TODO check how function_score and random seed work now in ES7.x
+    qry.query = JSON.parse JSON.stringify fq
     delete opts.random
+    delete opts.field if opts.seed and opts.field
     delete opts.seed
   if inc = opts._include ? opts.include ? opts._includes ? opts.includes
     qry._source ?= {}
@@ -718,8 +719,15 @@ P.index.translate = (q, opts) ->
   if qry.query?.bool?
     for bm of qry.query.bool
       for b of qry.query.bool[bm]
-        if typeof qry.query.bool[bm][b].query_string?.query is 'string' and qry.query.bool[bm][b].query_string.query.indexOf('/') isnt -1 and qry.query.bool[bm][b].query_string.query.indexOf('"') is -1
-          qry.query.bool[bm][b].query_string.query = '"' + qry.query.bool[bm][b].query_string.query + '"'
+        if typeof qry.query.bool[bm][b].query_string?.query is 'string'
+          if qry.query.bool[bm][b].query_string.query.indexOf('/') isnt -1 and qry.query.bool[bm][b].query_string.query.indexOf('"') is -1
+            qry.query.bool[bm][b].query_string.query = '"' + qry.query.bool[bm][b].query_string.query + '"'
+          # TODO test these, and see if they stop the error from the query, but also if they match the intended target
+          # example 10.1002_1097-0274(200008)38:2<155::aid-ajim6>3.0.co;2-7
+          #if qry.query.bool[bm][b].query_string.query.indexOf('<') > 0
+          #  qry.query.bool[bm][b].query_string.query = qry.query.bool[bm][b].query_string.query.replace(/\</g, '%2C')
+          #if qry.query.bool[bm][b].query_string.query.indexOf('>') > 0
+          #  qry.query.bool[bm][b].query_string.query = qry.query.bool[bm][b].query_string.query.replace(/\>/g, '%2E')
   delete qry._source if qry._source? and qry.fields?
   #console.log JSON.stringify qry
   return qry
