@@ -8,6 +8,8 @@
 
 P.deposits = _index: true, _auth: '@oa.works' # store a record of all deposits. This used to filter to only those for the logged in user, that should be changed to deposited endpoint
 
+#P.undep = -> return @deposits ''
+
 P.deposit = (params, file, dev) ->
   params ?= @copy @params
   params.doi = params.metadata.doi if params.metadata?.doi and not params.doi
