@@ -27,7 +27,7 @@ fs.createWriteStream = createWriteStream
 import OpenAI from 'openai'
 
 server = http.createServer (req, res) ->
-  try console.log req.url
+  #try console.log req.url
   try
     ct = req.headers?['content-type'] ? req.headers?['Content-Type'] ? ''
     if ct.includes 'form'
