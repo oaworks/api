@@ -310,7 +310,7 @@ P.src.crossref.changes = (startday, endday, created) ->
   # but it does not work, because created records may be created on different days to the day they were created, and do not show up as updated either
   searchtype = 'indexed' #if created then 'created' else 'updated'
 
-  batchsize = 10000
+  batchsize = 20000
   dn = endday ? Date.now()
   dn = await @epoch await @date dn
   loaded = 0
@@ -359,6 +359,7 @@ P.src.crossref.changes = (startday, endday, created) ->
           if batch.length >= batchsize
             console.log 'Crossref bulk load', startday, days, totalthisday, fromthisday, loaded, queued.length
             await @src.crossref.works batch
+            await @sleep 5000
             batch = []
           if totalthisday is false
             totalthisday = thisdays.total ? 0

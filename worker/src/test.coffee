@@ -92,7 +92,7 @@ P.test = (sid, max) ->
                   res.anomalies[anoname] = {}
                 res.anomalies[anoname][c] = group: t.GROUP, expected: t[c], reported: (if not part? then 'UNDEFINED' else part)
         res.responses.push resp
-        if t.DIFF and res.difference is true
+        if t.DIFF and res.summary.difference is true
           try
             if t.DIFF.startsWith('http')
               resd = await @fetch t.DIFF + (if not t.DIFF.endsWith('/') and not (t.PARAMS ? '').startsWith('/') then '/' else '') + (t.PARAMS ? '')
