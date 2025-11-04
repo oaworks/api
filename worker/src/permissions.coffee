@@ -111,7 +111,7 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref, best) -> # oadoi and cross
   _getmeta = () =>
     psm = @copy meta
     if JSON.stringify(psm) isnt '{}'
-      try rsm = crossref ? (await @metadata(meta.doi)) ? {}
+      #try rsm = crossref ? (await @metadata(meta.doi)) ? {}
       try rsm = crossref ? (await @metadata_internal(meta.doi)) ? {}
       for mk of rsm
         meta[mk] ?= rsm[mk]
