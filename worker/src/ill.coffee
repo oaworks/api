@@ -3,6 +3,8 @@
 # this should default to a search of ILLs as well... with a restrict
 # restrict = @auth.role('openaccessbutton.admin') and this.queryParams.all then [] else [{term:{from:@user?._id}}]
 P.ill = (opts) -> # only worked on POST with optional auth
+  if @S.dev
+    return status: 410, body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
   if @S.shutdown and @fn is 'ill' # 2025-10-14 13:00:00 UTC
     console.log '***SHUTDOWN***', @fn, @request.url, @S.shutdown
     return status: 503, body: 'This API will be permanently shut down on November 18, 2025. This brownout will end at ' + @S.shutdown + '. Please migrate your usage as soon as possible to avoid service disruption. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
@@ -80,9 +82,13 @@ P.ill = (opts) -> # only worked on POST with optional auth
   return opts
 
 P.ills = _index: true
+if S.dev
+  P.ills = -> return status: 410, body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
 
 
 P.ill.collect = (params) ->
+  if @S.dev
+    return status: 410, body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
   if @S.shutdown and @fn is 'ill.collect' # 2025-10-14 13:00:00 UTC
     console.log '***SHUTDOWN***', @fn, @request.url, @S.shutdown
     return status: 503, body: 'This API will be permanently shut down on November 18, 2025. This brownout will end at ' + @S.shutdown + '. Please migrate your usage as soon as possible to avoid service disruption. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
@@ -99,6 +105,8 @@ P.ill.collect = (params) ->
   return true
 
 P.ill.openurl = (config, meta) ->
+  if @S.dev
+    return status: 410, body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
   if @S.shutdown and @fn is 'ill.openurl' # 2025-10-14 13:00:00 UTC
     console.log '***SHUTDOWN***', @fn, @request.url, @S.shutdown
     return status: 503, body: 'This API will be permanently shut down on November 18, 2025. This brownout will end at ' + @S.shutdown + '. Please migrate your usage as soon as possible to avoid service disruption. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
@@ -150,6 +158,8 @@ P.ill.openurl = (config, meta) ->
 
 
 P.ill.subscription = (config, meta) ->
+  if @S.dev
+    return status: 410, body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
   if @S.shutdown and @fn is 'ill.subscription' # 2025-10-14 13:00:00 UTC
     console.log '***SHUTDOWN***', @fn, @request.url, @S.shutdown
     return status: 503, body: 'This API will be permanently shut down on November 18, 2025. This brownout will end at ' + @S.shutdown + '. Please migrate your usage as soon as possible to avoid service disruption. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'

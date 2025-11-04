@@ -17,6 +17,11 @@ P.deposit = (params, file, dev) ->
   file = file[0] if Array.isArray file
   dev ?= @S.dev
 
+  file_checks = {}
+  try file_checks.filename = file.filename ? file.name
+  try file_checks.length = file.data.length
+  console.log file_checks
+
   dep = createdAt: Date.now()
   dep.created_date = await @datetime dep.createdAt
   dep[k] = params[k] for k in ['embedded', 'demo', 'pilot', 'live', 'email', 'plugin']
@@ -28,16 +33,17 @@ P.deposit = (params, file, dev) ->
   dep.confirmed = decodeURIComponent(params.confirmed) if params.confirmed
   dep.doi = params.doi ? params.metadata?.doi
 
-  try params.metadata = await @metadata(params.doi) if not params.metadata? and params.doi
+  #try params.metadata = await @metadata(params.doi) if not params.metadata? and params.doi
   try params.metadata = await @metadata_internal(params.doi) if not params.metadata? and params.doi
   dep.metadata = params.metadata
 
   uc = params.config # should exist but may not
   uc = JSON.parse(params.config) if typeof params.config is 'string'
   if not params.config and params.from
-    uc = await @fetch 'https://' + (if dev then 'dev.' else '') + 'api.cottagelabs.com/service/oab/deposit/config?uid=' + params.from
-    uc.owner = @S.log.logs if @S.log?.logs and uc.owner is 'mark+instantilldemo@cottagelabs.com'
-    uc.email = @S.log.logs if @S.log?.logs and uc.email is 'mark+instantilldemo@cottagelabs.com'
+    try
+      uc = await @fetch 'https://' + (if dev then 'dev.' else '') + 'api.cottagelabs.com/service/oab/deposit/config?uid=' + params.from
+      uc.owner = @S.log.logs if @S.log?.logs and uc.owner is 'mark+instantilldemo@cottagelabs.com'
+      uc.email = @S.log.logs if @S.log?.logs and uc.email is 'mark+instantilldemo@cottagelabs.com'
 
   dep.permissions = params.permissions ? await @permissions params.metadata ? params.doi # SYP only works on DOI so far, so deposit only works if permissions can work, which requires a DOI if about a specific article
   if not params.redeposit
@@ -49,6 +55,12 @@ P.deposit = (params, file, dev) ->
   if dep.archivable?.archivable and (not dep.confirmed or dep.confirmed is dep.archivable.checksum) # if the depositor confirms we don't deposit, we manually review - only deposit on admin confirmation (but on dev allow it)
     zn = content: file.data, name: dep.archivable.name
     zn.publish = true
+    file_checks.archivablename = dep.archivable.name
+    file_checks.zn = {}
+    try file_checks.zn.name = zn.name
+    try file_checks.zn.length = zn.content.length
+    try file_checks.zn.publish = zn.publish
+    console.log file_checks
     creators = []
     for a in params.metadata?.author ? []
       if a.family?
@@ -114,18 +126,25 @@ P.deposit = (params, file, dev) ->
     if tk = (if dev or dep.demo then @S.src.zenodo?.sandbox else @S.src.zenodo?.token)
       if not dep.zenodo?.already
         z = await @src.zenodo.deposition.create meta, zn, tk, dev
+        try file_checks.uploaded = z.uploaded
         if z.id
           dep.zenodo = 
             id: z.id
             url: 'https://' + (if dev or dep.demo then 'sandbox.' else '') + 'zenodo.org/record/' + z.id
             doi: z.metadata.prereserve_doi.doi if z.metadata?.prereserve_doi?.doi?
-            file: z.uploaded?.links?.download ? z.uploaded?.links?.download
+            file: z.uploaded?.links?.download
           dep.doi ?= dep.zenodo.doi
           dep.type = 'zenodo'
         else
           dep.error = 'Deposit to Zenodo failed'
           try dep.error += ': ' + JSON.stringify z
           dep.type = 'review'
+        if z.id and dep.zenodo? and not dep.zenodo.file # we have intermittent problems with files just not appearing
+          file_checks.succeeded = false
+          dep.error = 'Deposit to Zenodo succeeded but file upload appears to have failed'
+          dep.type = 'review'
+        else
+          file_checks.succeeded = true
     else
       dep.error = 'No Zenodo credentials available'
       dep.type = 'review'
@@ -137,6 +156,13 @@ P.deposit = (params, file, dev) ->
   dep.version = dep.archivable?.version
   if not dep.type and params.from and (not dep.embedded or (not dep.embedded.includes('oa.works') and not dep.embedded.includes('openaccessbutton.org') and not dep.embedded.includes('shareyourpaper.org')))
     dep.type = if params.redeposit then 'redeposit' else if file then 'forward' else 'dark'
+
+  try
+    console.log 'Deposit file to zenodo monitoring'
+    console.log file_checks
+    dep.file_checks = file_checks
+    rv = if dep.type is 'review' then 'REVIEW ' + Date.now() else 'OK'
+    await @mail to: (if rv isnt 'OK' then @S.log?.alert else @S.log?.logs), subject: (if @S.dev then '(dev) ' else '') + 'Deposit file to zenodo result monitoring ' + rv, text: JSON.stringify file_checks, null, 2
 
   if dep.doi
     dep.type ?= 'review'

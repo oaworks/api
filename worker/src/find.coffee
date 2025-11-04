@@ -5,6 +5,8 @@
 # find will also give info of any open ILLs
 
 P.metadata = (doi) ->
+  if @S.dev
+    return status: 410, body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
   if @S.shutdown and @fn is 'metadata' # 2025-10-14 13:00:00 UTC
     console.log '***SHUTDOWN***', @fn, @request.url, @S.shutdown
     return status: 503, body: 'This API will be permanently shut down on November 18, 2025. This brownout will end at ' + @S.shutdown + '. Please migrate your usage as soon as possible to avoid service disruption. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
@@ -14,6 +16,8 @@ P.metadata = (doi) ->
 P.metadata._log = false
 
 P.find = (options, metadata={}, content) ->
+  if @S.dev
+    return status: 410, body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
   if @S.shutdown and @fn is 'find' # 2025-10-14 13:00:00 UTC
     console.log '***SHUTDOWN***', @fn, @request.url, @S.shutdown
     return status: 503, body: 'This API will be permanently shut down on November 18, 2025. This brownout will end at ' + @S.shutdown + '. Please migrate your usage as soon as possible to avoid service disruption. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
@@ -148,6 +152,8 @@ P.find = (options, metadata={}, content) ->
 # Yi-Jeng Chen. (2016). Young Children's Collaboration on the Computer with Friends and Acquaintances. Journal of Educational Technology & Society, 19(1), 158-170. Retrieved November 19, 2020, from http://www.jstor.org/stable/jeductechsoci.19.1.158
 # Baker, T. S., Eisenberg, D., & Eiserling, F. (1977). Ribulose Bisphosphate Carboxylase: A Two-Layered, Square-Shaped Molecule of Symmetry 422. Science, 196(4287), 293-295. doi:10.1126/science.196.4287.293
 P.citation = (citation) ->  
+  if @S.dev
+    return status: 410, body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
   if @S.shutdown and @fn is 'citation' # 2025-10-14 13:00:00 UTC
     console.log '***SHUTDOWN***', @fn, @request.url, @S.shutdown
     return status: 503, body: 'This API will be permanently shut down on November 18, 2025. This brownout will end at ' + @S.shutdown + '. Please migrate your usage as soon as possible to avoid service disruption. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'

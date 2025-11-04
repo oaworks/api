@@ -2040,7 +2040,7 @@ P.deposits = {
 
 //P.undep = -> return @deposits ''
 P.deposit = async function(params, file, dev) {
-  var a, as, at, author, bcc, ccm, com, creators, dep, description, ee, i, in_zenodo, j, k, len, len1, len2, len3, len4, meta, ml, n, o, p, parts, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref45, ref46, ref5, ref6, ref7, ref8, ref9, tk, tmpl, tos, uc, z, zn, zs;
+  var a, as, at, author, bcc, ccm, com, creators, dep, description, ee, file_checks, i, in_zenodo, j, k, len, len1, len2, len3, len4, meta, ml, n, o, p, parts, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref45, ref46, ref5, ref6, ref7, ref8, ref9, rv, tk, tmpl, tos, uc, z, zn, zs;
   if (params == null) {
     params = this.copy(this.params);
   }
@@ -2058,13 +2058,21 @@ P.deposit = async function(params, file, dev) {
   if (dev == null) {
     dev = this.S.dev;
   }
+  file_checks = {};
+  try {
+    file_checks.filename = (ref1 = file.filename) != null ? ref1 : file.name;
+  } catch (error) {}
+  try {
+    file_checks.length = file.data.length;
+  } catch (error) {}
+  console.log(file_checks);
   dep = {
     createdAt: Date.now()
   };
   dep.created_date = (await this.datetime(dep.createdAt));
-  ref1 = ['embedded', 'demo', 'pilot', 'live', 'email', 'plugin'];
-  for (i = 0, len = ref1.length; i < len; i++) {
-    k = ref1[i];
+  ref2 = ['embedded', 'demo', 'pilot', 'live', 'email', 'plugin'];
+  for (i = 0, len = ref2.length; i < len; i++) {
+    k = ref2[i];
     dep[k] = params[k];
   }
   if (dep.pilot === true) {
@@ -2073,7 +2081,7 @@ P.deposit = async function(params, file, dev) {
   if (dep.live === true) {
     dep.live = Date.now();
   }
-  dep.name = (ref2 = file != null ? file.filename : void 0) != null ? ref2 : file != null ? file.name : void 0;
+  dep.name = (ref3 = file != null ? file.filename : void 0) != null ? ref3 : file != null ? file.name : void 0;
   if (params.from !== 'anonymous') {
     dep.from = params.from;
   }
@@ -2081,14 +2089,10 @@ P.deposit = async function(params, file, dev) {
     // if confirmed is true the submitter has confirmed this is the right file (and decode saves it as a "true" string, not bool, so doesn't clash in ES). If confirmed is the checksum this is a resubmit by an admin
     dep.confirmed = decodeURIComponent(params.confirmed);
   }
-  dep.doi = (ref3 = params.doi) != null ? ref3 : (ref4 = params.metadata) != null ? ref4.doi : void 0;
+  dep.doi = (ref4 = params.doi) != null ? ref4 : (ref5 = params.metadata) != null ? ref5.doi : void 0;
   try {
     if ((params.metadata == null) && params.doi) {
-      params.metadata = (await this.metadata(params.doi));
-    }
-  } catch (error) {}
-  try {
-    if ((params.metadata == null) && params.doi) {
+      //try params.metadata = await @metadata(params.doi) if not params.metadata? and params.doi
       params.metadata = (await this.metadata_internal(params.doi));
     }
   } catch (error) {}
@@ -2098,35 +2102,49 @@ P.deposit = async function(params, file, dev) {
     uc = JSON.parse(params.config);
   }
   if (!params.config && params.from) {
-    uc = (await this.fetch('https://' + (dev ? 'dev.' : '') + 'api.cottagelabs.com/service/oab/deposit/config?uid=' + params.from));
-    if (((ref5 = this.S.log) != null ? ref5.logs : void 0) && uc.owner === 'mark+instantilldemo@cottagelabs.com') {
-      uc.owner = this.S.log.logs;
-    }
-    if (((ref6 = this.S.log) != null ? ref6.logs : void 0) && uc.email === 'mark+instantilldemo@cottagelabs.com') {
-      uc.email = this.S.log.logs;
-    }
+    try {
+      uc = (await this.fetch('https://' + (dev ? 'dev.' : '') + 'api.cottagelabs.com/service/oab/deposit/config?uid=' + params.from));
+      if (((ref6 = this.S.log) != null ? ref6.logs : void 0) && uc.owner === 'mark+instantilldemo@cottagelabs.com') {
+        uc.owner = this.S.log.logs;
+      }
+      if (((ref7 = this.S.log) != null ? ref7.logs : void 0) && uc.email === 'mark+instantilldemo@cottagelabs.com') {
+        uc.email = this.S.log.logs;
+      }
+    } catch (error) {}
   }
-  dep.permissions = (ref7 = params.permissions) != null ? ref7 : (await this.permissions((ref8 = params.metadata) != null ? ref8 : params.doi)); // SYP only works on DOI so far, so deposit only works if permissions can work, which requires a DOI if about a specific article
+  dep.permissions = (ref8 = params.permissions) != null ? ref8 : (await this.permissions((ref9 = params.metadata) != null ? ref9 : params.doi)); // SYP only works on DOI so far, so deposit only works if permissions can work, which requires a DOI if about a specific article
   if (!params.redeposit) {
     if ((file == null) && params.email && (params.metadata != null)) {
       dep.type = 'dark';
     } else {
       dep.archivable = (await this.archivable(file, void 0, dep.confirmed, params.metadata, dep.permissions, dev));
-      if (((ref9 = dep.archivable) != null ? ref9.metadata : void 0) != null) {
+      if (((ref10 = dep.archivable) != null ? ref10.metadata : void 0) != null) {
         delete dep.archivable.metadata;
       }
     }
   }
-  if (((ref10 = dep.archivable) != null ? ref10.archivable : void 0) && (!dep.confirmed || dep.confirmed === dep.archivable.checksum)) { // if the depositor confirms we don't deposit, we manually review - only deposit on admin confirmation (but on dev allow it)
+  if (((ref11 = dep.archivable) != null ? ref11.archivable : void 0) && (!dep.confirmed || dep.confirmed === dep.archivable.checksum)) { // if the depositor confirms we don't deposit, we manually review - only deposit on admin confirmation (but on dev allow it)
     zn = {
       content: file.data,
       name: dep.archivable.name
     };
     zn.publish = true;
+    file_checks.archivablename = dep.archivable.name;
+    file_checks.zn = {};
+    try {
+      file_checks.zn.name = zn.name;
+    } catch (error) {}
+    try {
+      file_checks.zn.length = zn.content.length;
+    } catch (error) {}
+    try {
+      file_checks.zn.publish = zn.publish;
+    } catch (error) {}
+    console.log(file_checks);
     creators = [];
-    ref13 = (ref11 = (ref12 = params.metadata) != null ? ref12.author : void 0) != null ? ref11 : [];
-    for (j = 0, len1 = ref13.length; j < len1; j++) {
-      a = ref13[j];
+    ref14 = (ref12 = (ref13 = params.metadata) != null ? ref13.author : void 0) != null ? ref12 : [];
+    for (j = 0, len1 = ref14.length; j < len1; j++) {
+      a = ref14[j];
       if (a.family != null) {
         at = {
           name: a.family + (a.given ? ', ' + a.given : '')
@@ -2152,7 +2170,7 @@ P.deposit = async function(params, file, dev) {
       ];
     }
     description = params.metadata.abstract ? params.metadata.abstract + '<br><br>' : '';
-    description += (ref14 = (ref15 = dep.permissions.best_permission) != null ? ref15.deposit_statement : void 0) != null ? ref14 : (params.metadata.doi != null ? 'The publisher\'s final version of this work can be found at https://doi.org/' + params.metadata.doi : '');
+    description += (ref15 = (ref16 = dep.permissions.best_permission) != null ? ref16.deposit_statement : void 0) != null ? ref15 : (params.metadata.doi != null ? 'The publisher\'s final version of this work can be found at https://doi.org/' + params.metadata.doi : '');
     description = description.trim();
     if (description.lastIndexOf('.') !== description.length - 1) {
       description += '.';
@@ -2162,7 +2180,7 @@ P.deposit = async function(params, file, dev) {
     }
     description += '<br><br>Deposited by shareyourpaper.org and openaccessbutton.org. We\'ve taken reasonable steps to ensure this content doesn\'t violate copyright. However, if you think it does you can request a takedown by emailing help@openaccessbutton.org.';
     meta = {
-      title: (ref16 = params.metadata.title) != null ? ref16 : 'Unknown',
+      title: (ref17 = params.metadata.title) != null ? ref17 : 'Unknown',
       description: description.trim(),
       creators: creators,
       version: dep.archivable.version === 'submittedVersion' ? 'Submitted Version' : dep.archivable.version === 'acceptedVersion' ? 'Accepted Version' : dep.archivable.version === 'publishedVersion' ? 'Published Version' : 'Accepted Version',
@@ -2173,7 +2191,7 @@ P.deposit = async function(params, file, dev) {
     };
     if (params.doi) {
       zs = (await this.src.zenodo.records.search('"' + params.doi + '"', dev));
-      if (zs != null ? (ref17 = zs.hits) != null ? ref17.total : void 0 : void 0) {
+      if (zs != null ? (ref18 = zs.hits) != null ? ref18.total : void 0 : void 0) {
         in_zenodo = zs.hits.hits[0];
       }
       if (in_zenodo && dep.confirmed !== dep.archivable.checksum && !dev) {
@@ -2191,7 +2209,7 @@ P.deposit = async function(params, file, dev) {
     }
     meta.prereserve_doi = true;
     meta['access_right'] = 'open';
-    meta.license = (ref18 = (ref19 = dep.permissions.best_permission) != null ? ref19.licence : void 0) != null ? ref18 : 'cc-by'; // zenodo also accepts other-closed and other-nc, possibly more
+    meta.license = (ref19 = (ref20 = dep.permissions.best_permission) != null ? ref20.licence : void 0) != null ? ref19 : 'cc-by'; // zenodo also accepts other-closed and other-nc, possibly more
     if (meta.license.includes('other') && meta.license.includes('closed')) {
       meta.license = 'other-closed';
     }
@@ -2202,7 +2220,7 @@ P.deposit = async function(params, file, dev) {
       meta.license += '-4.0';
     }
     try {
-      if ((ref20 = dep.permissions.best_permission) != null ? ref20.embargo_end : void 0) {
+      if ((ref21 = dep.permissions.best_permission) != null ? ref21.embargo_end : void 0) {
         ee = (await this.epoch(dep.permissions.best_permission.embargo_end));
         if (ee > Date.now()) {
           meta['access_right'] = 'embargoed';
@@ -2225,9 +2243,9 @@ P.deposit = async function(params, file, dev) {
         if (uc.communities == null) {
           uc.communities = [];
         }
-        ref21 = (typeof uc.community === 'string' ? uc.community.split(',') : uc.community);
-        for (n = 0, len2 = ref21.length; n < len2; n++) {
-          ccm = ref21[n];
+        ref22 = (typeof uc.community === 'string' ? uc.community.split(',') : uc.community);
+        for (n = 0, len2 = ref22.length; n < len2; n++) {
+          ccm = ref22[n];
           uc.communities.push({
             identifier: ccm
           });
@@ -2241,9 +2259,9 @@ P.deposit = async function(params, file, dev) {
           uc.communities = [uc.communities];
         }
         meta.communities = [];
-        ref22 = uc.communities;
-        for (o = 0, len3 = ref22.length; o < len3; o++) {
-          com = ref22[o];
+        ref23 = uc.communities;
+        for (o = 0, len3 = ref23.length; o < len3; o++) {
+          com = ref23[o];
           meta.communities.push(typeof com === 'string' ? {
             identifier: com
           } : com);
@@ -2253,15 +2271,18 @@ P.deposit = async function(params, file, dev) {
         dep.community = meta.communities[0].identifier;
       }
     }
-    if (tk = (dev || dep.demo ? (ref23 = this.S.src.zenodo) != null ? ref23.sandbox : void 0 : (ref24 = this.S.src.zenodo) != null ? ref24.token : void 0)) {
-      if (!((ref25 = dep.zenodo) != null ? ref25.already : void 0)) {
+    if (tk = (dev || dep.demo ? (ref24 = this.S.src.zenodo) != null ? ref24.sandbox : void 0 : (ref25 = this.S.src.zenodo) != null ? ref25.token : void 0)) {
+      if (!((ref26 = dep.zenodo) != null ? ref26.already : void 0)) {
         z = (await this.src.zenodo.deposition.create(meta, zn, tk, dev));
+        try {
+          file_checks.uploaded = z.uploaded;
+        } catch (error) {}
         if (z.id) {
           dep.zenodo = {
             id: z.id,
             url: 'https://' + (dev || dep.demo ? 'sandbox.' : '') + 'zenodo.org/record/' + z.id,
-            doi: ((ref26 = z.metadata) != null ? (ref27 = ref26.prereserve_doi) != null ? ref27.doi : void 0 : void 0) != null ? z.metadata.prereserve_doi.doi : void 0,
-            file: (ref28 = (ref29 = z.uploaded) != null ? (ref30 = ref29.links) != null ? ref30.download : void 0 : void 0) != null ? ref28 : (ref31 = z.uploaded) != null ? (ref32 = ref31.links) != null ? ref32.download : void 0 : void 0
+            doi: ((ref27 = z.metadata) != null ? (ref28 = ref27.prereserve_doi) != null ? ref28.doi : void 0 : void 0) != null ? z.metadata.prereserve_doi.doi : void 0,
+            file: (ref29 = z.uploaded) != null ? (ref30 = ref29.links) != null ? ref30.download : void 0 : void 0
           };
           if (dep.doi == null) {
             dep.doi = dep.zenodo.doi;
@@ -2274,20 +2295,38 @@ P.deposit = async function(params, file, dev) {
           } catch (error) {}
           dep.type = 'review';
         }
+        if (z.id && (dep.zenodo != null) && !dep.zenodo.file) { // we have intermittent problems with files just not appearing
+          file_checks.succeeded = false;
+          dep.error = 'Deposit to Zenodo succeeded but file upload appears to have failed';
+          dep.type = 'review';
+        } else {
+          file_checks.succeeded = true;
+        }
       }
     } else {
       dep.error = 'No Zenodo credentials available';
       dep.type = 'review';
     }
   }
-  if ((ref33 = dep.archivable) != null ? ref33.timeout : void 0) {
+  if ((ref31 = dep.archivable) != null ? ref31.timeout : void 0) {
     dep.error = 'Archivable timeout';
     dep.type = 'review';
   }
-  dep.version = (ref34 = dep.archivable) != null ? ref34.version : void 0;
+  dep.version = (ref32 = dep.archivable) != null ? ref32.version : void 0;
   if (!dep.type && params.from && (!dep.embedded || (!dep.embedded.includes('oa.works') && !dep.embedded.includes('openaccessbutton.org') && !dep.embedded.includes('shareyourpaper.org')))) {
     dep.type = params.redeposit ? 'redeposit' : file ? 'forward' : 'dark';
   }
+  try {
+    console.log('Deposit file to zenodo monitoring');
+    console.log(file_checks);
+    dep.file_checks = file_checks;
+    rv = dep.type === 'review' ? 'REVIEW ' + Date.now() : 'OK';
+    await this.mail({
+      to: (rv !== 'OK' ? (ref33 = this.S.log) != null ? ref33.alert : void 0 : (ref34 = this.S.log) != null ? ref34.logs : void 0),
+      subject: (this.S.dev ? '(dev) ' : '') + 'Deposit file to zenodo result monitoring ' + rv,
+      text: JSON.stringify(file_checks, null, 2)
+    });
+  } catch (error) {}
   if (dep.doi) {
     if (dep.type == null) {
       dep.type = 'review';
@@ -2775,6 +2814,12 @@ var indexOf = [].indexOf;
 
 P.metadata = async function(doi) {
   var res;
+  if (this.S.dev) {
+    return {
+      status: 410,
+      body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
+    };
+  }
   if (this.S.shutdown && this.fn === 'metadata') { // 2025-10-14 13:00:00 UTC
     console.log('***SHUTDOWN***', this.fn, this.request.url, this.S.shutdown);
     return {
@@ -2790,6 +2835,12 @@ P.metadata._log = false;
 
 P.find = async function(options, metadata = {}, content) {
   var _ill, _metadata, _permissions, cr, dd, dps, epmc, i, len, openalex, pi, ref, ref1, ref10, ref11, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, uo;
+  if (this.S.dev) {
+    return {
+      status: 410,
+      body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
+    };
+  }
   if (this.S.shutdown && this.fn === 'find') { // 2025-10-14 13:00:00 UTC
     console.log('***SHUTDOWN***', this.fn, this.request.url, this.S.shutdown);
     return {
@@ -3038,6 +3089,12 @@ P.find = async function(options, metadata = {}, content) {
 // Baker, T. S., Eisenberg, D., & Eiserling, F. (1977). Ribulose Bisphosphate Carboxylase: A Two-Layered, Square-Shaped Molecule of Symmetry 422. Science, 196(4287), 293-295. doi:10.1126/science.196.4287.293
 P.citation = async function(citation) {
   var a, aff, ak, au, authors, bt, cf, clc, cn, i, id, j, k, key, kw, l, len, len1, len10, len11, len12, len2, len3, len4, len5, len6, len7, len8, len9, m, mn, n, o, p, pt, pts, q, r, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref45, ref46, ref47, ref48, ref49, ref5, ref50, ref51, ref52, ref53, ref54, ref55, ref56, ref57, ref58, ref59, ref6, ref60, ref61, ref62, ref63, ref64, ref65, ref66, ref67, ref68, ref69, ref7, ref70, ref71, ref72, ref73, ref74, ref75, ref76, ref77, ref78, ref79, ref8, ref80, ref81, ref82, ref83, ref84, ref85, ref86, ref87, ref88, ref89, ref9, ref90, ref91, ref92, ref93, ref94, ref95, ref96, res, rmn, rt, s, sy, t, u, v, w, x, y;
+  if (this.S.dev) {
+    return {
+      status: 410,
+      body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
+    };
+  }
   if (this.S.shutdown && this.fn === 'citation') { // 2025-10-14 13:00:00 UTC
     console.log('***SHUTDOWN***', this.fn, this.request.url, this.S.shutdown);
     return {
@@ -6305,6 +6362,11 @@ P.citation_old = async function(citation) {
 // that page should be moved to use the new embed, like shareyourpaper
 P.availability = async function(params, v2) {
   var afnd, base, qry, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref3, ref4, ref5, ref6, ref7, ref8, ref9, request, resp, rq;
+  if (this.S.dev) {
+    return {
+      status: 404
+    };
+  }
   if (this.S.shutdown && this.fn === 'availability') { // 2025-10-14 13:00:00 UTC
     console.log('***SHUTDOWN***', this.fn, this.request.url, this.S.shutdown);
     return {
@@ -6421,6 +6483,12 @@ var indexOf = [].indexOf;
 
 P.ill = async function(opts) { // only worked on POST with optional auth
   var a, atidy, ats, authors, config, first, i, j, len, len1, m, o, ordered, r, ref, ref1, ref2, ref3, ref4, ref5, su, tmpl, tos, vars;
+  if (this.S.dev) {
+    return {
+      status: 410,
+      body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
+    };
+  }
   if (this.S.shutdown && this.fn === 'ill') { // 2025-10-14 13:00:00 UTC
     console.log('***SHUTDOWN***', this.fn, this.request.url, this.S.shutdown);
     return {
@@ -6557,8 +6625,23 @@ P.ills = {
   _index: true
 };
 
+if (S.dev) {
+  P.ills = function() {
+    return {
+      status: 410,
+      body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
+    };
+  };
+}
+
 P.ill.collect = async function(params) {
   var q, sid, url;
+  if (this.S.dev) {
+    return {
+      status: 410,
+      body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
+    };
+  }
   if (this.S.shutdown && this.fn === 'ill.collect') { // 2025-10-14 13:00:00 UTC
     console.log('***SHUTDOWN***', this.fn, this.request.url, this.S.shutdown);
     return {
@@ -6587,6 +6670,12 @@ P.ill.collect = async function(params) {
 
 P.ill.openurl = async function(config, meta) {
   var author, d, defaults, i, k, len, nfield, ref, ref1, ref2, url, v;
+  if (this.S.dev) {
+    return {
+      status: 410,
+      body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
+    };
+  }
   if (this.S.shutdown && this.fn === 'ill.openurl') { // 2025-10-14 13:00:00 UTC
     console.log('***SHUTDOWN***', this.fn, this.request.url, this.S.shutdown);
     return {
@@ -6666,6 +6755,12 @@ P.ill.openurl = async function(config, meta) {
 
 P.ill.subscription = async function(config, meta) {
   var err, error, fnd, npg, openurl, pg, ref, ref1, ref2, res, s, spg, sub, subtype, surl, tid, url;
+  if (this.S.dev) {
+    return {
+      status: 410,
+      body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
+    };
+  }
   if (this.S.shutdown && this.fn === 'ill.subscription') { // 2025-10-14 13:00:00 UTC
     console.log('***SHUTDOWN***', this.fn, this.request.url, this.S.shutdown);
     return {
@@ -10238,14 +10333,12 @@ P.permissions = async function(meta, ror, getmeta, oadoi, crossref, best) { // o
   // NOTE later will want to find affiliations related to the authors of the paper, but for now only act on affiliation provided as a ror
   // we now always try to get the metadata because joe wants to serve a 501 if the doi is not a journal article
   _getmeta = async() => {
-    var mk, psm, ref, ref1, results, rsm;
+    var mk, psm, ref, results, rsm;
     psm = this.copy(meta);
     if (JSON.stringify(psm) !== '{}') {
       try {
-        rsm = (ref = crossref != null ? crossref : (await this.metadata(meta.doi))) != null ? ref : {};
-      } catch (error) {}
-      try {
-        rsm = (ref1 = crossref != null ? crossref : (await this.metadata_internal(meta.doi))) != null ? ref1 : {};
+        //try rsm = crossref ? (await @metadata(meta.doi)) ? {}
+        rsm = (ref = crossref != null ? crossref : (await this.metadata_internal(meta.doi))) != null ? ref : {};
       } catch (error) {}
       results = [];
       for (mk in rsm) {
@@ -24082,7 +24175,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Tue Nov 04 2025 12:40:47 GMT+0000";
+S.built = "Tue Nov 04 2025 16:11:59 GMT+0000";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
