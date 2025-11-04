@@ -475,6 +475,10 @@ P.citation_old = (citation) ->
 # legacy wrapper for old site front page availability check
 # that page should be moved to use the new embed, like shareyourpaper
 P.availability = (params, v2) ->
+  if @S.shutdown and @fn is 'availability' # 2025-10-14 13:00:00 UTC
+    console.log '***SHUTDOWN***', @fn, @request.url, @S.shutdown
+    return status: 404, body: 'This API will be permanently shut down on November 18, 2025. This brownout will end at ' + @S.shutdown + '. Please migrate your usage as soon as possible to avoid service disruption. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
+
   params ?= @copy @params
   delete @params.dom
   if params.availability
