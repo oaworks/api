@@ -127,6 +127,13 @@ P.deposit = (params, file, dev) ->
       if not dep.zenodo?.already
         z = await @src.zenodo.deposition.create meta, zn, tk, dev
         try file_checks.uploaded = z.uploaded
+        tries = 0
+        while z.uploaded?.status is 403 and tries < 3
+          tries += 1
+          await @sleep 2000 + (tries * 1000)
+          try
+            z.uploaded = await @src.zenodo.deposition.upload z.id, zn.content, undefined, zn.name, undefined, tk, dev
+            file_checks['uploaded_' + tries] = z.uploaded
         if z.id
           dep.zenodo = 
             id: z.id
