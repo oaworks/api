@@ -109,7 +109,12 @@ P.src.openalex.manifest = ->
   try res.previous = await _ls JSON.parse (await fs.readFile @S.directory + '/import/openalex/data/' + what + '/manifest').toString()
   return res
 
+_openalex_load_running = false
 P.src.openalex.load = (what, changes, clear, sync, last, toalias) ->
+  if _openalex_load_running
+    console.log 'Openalex load already running, skipping'
+    return false
+  _openalex_load_running = true
   started = await @epoch()
   what ?= @params.load ? @params.openalex ? 'works'
   return false if what not in ['works'] #, 'venues', 'authors', 'institutions', 'concepts']
@@ -203,11 +208,11 @@ P.src.openalex.load = (what, changes, clear, sync, last, toalias) ->
     return true
 
   for updated in await fs.readdir infiles # folder names are like updated_date=2022-04-30
-    if not updated.startsWith('manifest') and (not changes? or updated.split('=')[1] in changes)
+    if not updated.startsWith('manifest') and (not changes? or updated.split('=')[1] in changes) # run any file that exists, and delete once done so not re-used
       for inf in await fs.readdir infiles + '/' + updated
         if not caughtup
           console.log 'awaiting catch up', updated, inf, caughtup
-          caughtup = true if updated.includes(caughtup[0]) and (caughtup.length is 1 or  inf.includes caughtup[1])
+          caughtup = true if updated.includes(caughtup[0]) and (caughtup.length is 1 or inf.includes caughtup[1])
         else
           oe = false #parseInt(inf.split('_')[1]) % 2
           if oe is false or (oe is 0 and S.port is 4006) or (oe is 1 and S.port is 4003)
@@ -226,7 +231,7 @@ P.src.openalex.load = (what, changes, clear, sync, last, toalias) ->
 
       while running.length isnt 0
         await @sleep 5000
-      await fs.rmdir infiles + '/' + updated
+      try await fs.rmdir infiles + '/' + updated
 
   if onlyinfo
     try await fs.unlink infiles + '/manifestinfo'
@@ -234,10 +239,11 @@ P.src.openalex.load = (what, changes, clear, sync, last, toalias) ->
     await fs.writeFile infiles + '/manifestprevious', pm
   ended = await @epoch()
   ret = started: started, took: ended - started, expected: expectedfiles, processed: processedfiles, total: total, sync: sync, last: last, lasth: lasth, changes: changes
-  if total > 0 or (new Date()).getDay() is 1
+  if (total > 0 or (new Date()).getDay() is 1) and not onlyinfo
     dt = await @datetime()
     await @mail to: @S.log?.logs, subject: 'Openalex works load or changes ' + total + ' at ' + dt, text: JSON.stringify ret
   console.log ret
+  _openalex_load_running = false
   return ret
 
 P.src.openalex.load._bg = true
@@ -252,7 +258,7 @@ P.src.openalex.changes = (what) ->
 
   ended = await @epoch() # schedule this to loop, and run at most every hour
   took = ended - started
-  if @fn isnt 'src.openalex.changes'
+  if @fn isnt 'src.openalex.changes' and P.src.openalex.changes._schedule is 'loop'
     while took < 3600000
       remaining = 3600000 - took
       console.log 'Openalex changes waiting', remaining, 'to loop'
