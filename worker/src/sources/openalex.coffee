@@ -208,7 +208,7 @@ P.src.openalex.load = (what, changes, clear, sync, last, toalias) ->
     return true
 
   for updated in await fs.readdir infiles # folder names are like updated_date=2022-04-30
-    if not updated.startsWith('manifest') and (not changes? or updated.split('=')[1] in changes) # run any file that exists, and delete once done so not re-used
+    if not updated.startsWith('manifest') #and (not changes? or updated.split('=')[1] in changes) # run any file that exists, and delete once done so not re-used
       for inf in await fs.readdir infiles + '/' + updated
         if not caughtup
           console.log 'awaiting catch up', updated, inf, caughtup
