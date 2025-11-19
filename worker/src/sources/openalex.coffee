@@ -42,7 +42,11 @@ P.src.openalex.works._format = (rec) ->
     rec._id = '10.' + rec._id.split('/10.').pop() if rec._id.includes('http') and rec._id.includes '/10.'
     rec._id = rec.id.split('/').pop() if not rec._id or not rec._id.startsWith '10.'
   catch
-    rec._id = rec.id.split('/').pop()
+    try
+      rec._id = rec.id.split('/').pop()
+    catch
+      rec._id = await @uuid()
+      console.log 'Openalex work with no DOI or ID, assigned', rec._id
   try
     abs = []
     for word of rec.abstract_inverted_index
