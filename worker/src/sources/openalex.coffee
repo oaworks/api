@@ -45,7 +45,7 @@ P.src.openalex.works._format = (rec) ->
     try
       rec._id = rec.id.split('/').pop()
     catch
-      rec._id = await @uuid()
+      rec._id = await @uid()
       console.log 'Openalex work with no DOI or ID, assigned', rec._id
   try
     abs = []
