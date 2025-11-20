@@ -128,9 +128,9 @@ P.deposit = (params, file, dev) ->
         z = await @src.zenodo.deposition.create meta, zn, tk, dev
         try file_checks.uploaded = z.uploaded
         tries = 0
-        while z.uploaded?.status is 403 and tries < 3
+        while z.uploaded?.status is 403 and tries < 4
           tries += 1
-          await @sleep 2000 + (tries * 1000)
+          await @sleep 3000 + ((tries + tries) * 2000)
           try
             z.uploaded = await @src.zenodo.deposition.upload z.id, zn.content, undefined, zn.name, undefined, tk, dev
             file_checks['uploaded_' + tries] = z.uploaded
@@ -165,11 +165,12 @@ P.deposit = (params, file, dev) ->
     dep.type = if params.redeposit then 'redeposit' else if file then 'forward' else 'dark'
 
   try
-    console.log 'Deposit file to zenodo monitoring'
-    console.log file_checks
-    dep.file_checks = file_checks
-    rv = if dep.type is 'review' then 'REVIEW ' + Date.now() else 'OK'
-    await @mail to: (if rv isnt 'OK' then @S.log?.alert else @S.log?.logs), subject: (if @S.dev then '(dev) ' else '') + 'Deposit file to zenodo result monitoring ' + rv, text: JSON.stringify file_checks, null, 2
+    if JSON.stringify(file_checks) isnt '{}'
+      console.log 'Deposit file to zenodo monitoring'
+      console.log file_checks
+      dep.file_checks = file_checks
+      rv = if dep.type is 'review' then 'REVIEW ' + Date.now() else 'OK'
+      await @mail to: (if rv isnt 'OK' then @S.log?.alert else @S.log?.logs), subject: (if @S.dev then '(dev) ' else '') + 'Deposit file to zenodo result monitoring ' + rv, text: JSON.stringify file_checks, null, 2
 
   if dep.doi
     dep.type ?= 'review'

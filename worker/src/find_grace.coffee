@@ -104,7 +104,8 @@ P.find_grace = (options, metadata={}, content) ->
         await _metadata(epmc) if epmc isnt false
 
   await _metadata(openalex) if metadata.doi and openalex = await @src.openalex.works.doi metadata.doi # run this even if ran openalex title search above, because may since have gotten DOI and could get better
-  res.doi_not_in_openalex = true if metadata.doi and not openalex?.type_crossref
+  #res.doi_not_in_openalex = true if metadata.doi and not openalex?.type_crossref
+  res.doi_not_in_openalex = true if metadata.doi and not openalex?.type_crossref and 'crossref' not in (openalex?.indexed_in ? []) #and openalex?.type not in ['article']
 
   # temporary until publishers in permissions are re-keyed to match openalex publisher names (which differ from crossref which is what we originally keyed them to)
   # https://github.com/oaworks/discussion/issues/3192#issuecomment-2314515904

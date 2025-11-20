@@ -127,7 +127,7 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref, best) -> # oadoi and cross
       meta.doi ?= await @permissions.journals.example issns
     if not haddoi and meta.doi
       await _getmeta()
-  if haddoi and meta.type not in ['journal-article']
+  if haddoi and meta.type not in ['journal-article', 'article']
     return
       body: 'DOI is not a journal article'
       status: 501
