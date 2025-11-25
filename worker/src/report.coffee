@@ -1020,8 +1020,9 @@ P.report.works.load = (timestamp, org, idents, year, clear, supplements, everyth
 
   if Array.isArray idents
     console.log 'report works queueing identifiers batch', idents.length
-    await @report.queue idents, undefined, (timestamp ? refresh), everything
-    total += idents.length
+    while si = idents.splice 0, 50000
+      await @report.queue si, undefined, (timestamp ? refresh), everything
+      total += si.length
   else
     _crossref = (cq, action) =>
       cq ?= '(funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year
