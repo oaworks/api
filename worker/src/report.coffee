@@ -36,6 +36,7 @@ _processed_batch_last = false
 
 P.report._handle_queue = ->
   _queue_batch_last = Date.now() if _queue_batch_last is false
+  console.log 'handle queue checking for queued values to handle', _queue_batch.length, _queue_batch_last
   if _queue_batch.length > 3000 or (_queue_batch.length and Date.now() > (_queue_batch_last + 30000))
     console.log 'handle queue saving batch', _queue_batch.length
     batch = []
@@ -77,6 +78,10 @@ P.report.queue = (idents, openalex, refresh, everything, action = 'default') -> 
   idents ?= @params.queue ? @params.doi ? @params.openalex ? @params.pmcid
   refresh ?= @refresh
   everything ?= @params.everything
+  try console.log _queue_batch_last
+  try console.log idents.length
+  if _queue_batch_last is false
+    @report._handle_queue() 
   if idents # can be list of DOI strings and/or openalex strings, or objects with DOI and/or openalex, plus optional refresh, everything, action
     for ident in (if not Array.isArray(idents) then [idents] else idents)
       try
@@ -90,7 +95,6 @@ P.report.queue = (idents, openalex, refresh, everything, action = 'default') -> 
             rf = if typeof ident is 'object' and ident.refresh? then ident.refresh else (refresh ? inq?.refresh)
             rf = if rf is true then 0 else if rf is false then undefined else rf
             _queue_batch.push identifier: theid, refresh: rf, everything: (if typeof ident is 'object' and ident.everything? then ident.everything else (everything ? inq?.everything)), action: (if typeof ident is 'object' and ident.action? then ident.action else action)
-  @report._handle_queue() if _queue_batch_last is false
   return queue: _queue_batch.length
 P.report.queue._bg = true
 P.report.queue._log = false
@@ -144,21 +148,9 @@ P.report._doqueue = -> return @report._runqueue()
 P.report._doqueue._log = false
 P.report._doqueue._bg = true
 
-P.report._domidqueue = -> return @report._runqueue undefined, undefined, undefined, true
-P.report._domidqueue._log = false
-P.report._domidqueue._bg = true
-
-P.report._domidreversequeue = -> return @report._runqueue undefined, undefined, 'asc', true
-P.report._domidreversequeue._log = false
-P.report._domidreversequeue._bg = true
-
 P.report._doreversequeue = -> return @report._runqueue undefined, undefined, 'asc'
 P.report._doreversequeue._log = false
 P.report._doreversequeue._bg = true
-
-P.report._dochangesqueue = -> return @report._runqueue undefined, 'action:"changes" OR action:"years"'
-P.report._dochangesqueue._log = false
-P.report._dochangesqueue._bg = true
 
 
 P.report.dev2live = (reverse) ->
@@ -706,7 +698,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
     rec.PMCID = givenpmcid if givenpmcid and not rec.PMCID
 
     if rec.DOI #and (refresh or not exists?.oadoi) # or (exists? and exists.updated < (Date.now() - 604800000)))
-      oadoi = await @src.oadoi.doi rec.DOI, 2419200000 # adding the refresh here to force some 2025 updates to anything over 4 weeks old but prob don't do long term because of rate limits
+      oadoi = await @src.oadoi.doi rec.DOI, (if rec.published_year and rec.published_year > 2023 then 4838400000 else undefined) # adding the refresh here to force some 2025 updates to anything over 8 weeks old but prob don't do long term because of rate limits
       rec.oadoi = oadoi?
       for loc in oadoi?.oa_locations ? []
         if loc.host_type is 'publisher'
@@ -762,7 +754,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
         rec.has_data_availability_statement = false if rec.has_data_availability_statement isnt true and sup.has_data_availability_statement_ic is false
         rec.has_data_availability_statement = true if sup.mturk_has_data_availability_statement
         rec.has_data_availability_statement = false if rec.has_data_availability_statement isnt true and sup.mturk_has_data_availability_statement is false
-        #rec.pmc_has_data_availability_statement = sup.pmc_has_data_availability_statement if sup.pmc_has_data_availability_statement?
+        rec.pmc_has_data_availability_statement = sup.pmc_has_data_availability_statement if sup.pmc_has_data_availability_statement?
         if sup.corresponding_author_ids
           for cid in (if typeof sup.corresponding_author_ids is 'string' then sup.corresponding_author_ids.split(',') else sup.corresponding_author_ids)
             corresponding_author_ids.push(cid) if cid not in corresponding_author_ids
@@ -922,9 +914,9 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
       rec.tried_epmc_licence = true
       lic = await @src.epmc.licence rec.PMCID, epmc, undefined, refresh
       rec.epmc_licence = lic?.licence
-    if not rec.pmc_has_data_availability_statement # TODO comment these out once Joe happy to go ahead with removing
-      rec.pmc_has_data_availability_statement = rec.PMCID and await @src.pubmed.availability rec.PMCID
-      rec.has_data_availability_statement = true if rec.pmc_has_data_availability_statement
+    #if not rec.pmc_has_data_availability_statement # TODO comment these out once Joe happy to go ahead with removing
+    #  rec.pmc_has_data_availability_statement = rec.PMCID and await @src.pubmed.availability rec.PMCID
+    #  rec.has_data_availability_statement = true if rec.pmc_has_data_availability_statement
     if everything and rec.PMCID and (refresh or not rec.data_availability_statement or not rec.submitted_date) # restrict to everything?
       rec.data_availability_statement = await @src.epmc.statement rec.PMCID, epmc, refresh
       rec.has_data_availability_statement = true  if rec.data_availability_statement
@@ -1005,7 +997,7 @@ P.report.works.load = (timestamp, org, idents, year, clear, supplements, everyth
     idents ?= []
     for await sw from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', @params.q, scroll: '5m', include: ['DOI', 'openalex', 'PMCID']
       idents.push sw.DOI ? sw.openalex ? sw.PMCID
-      console.log('report works preparing to load from query', idents.length) if idents.length % 1000 is 0
+      console.log('report works preparing to load from query', idents.length) if idents.length % 10000 is 0
     console.log 'report works supplements to load from query', @params.q
   else if @params.load is 'supplements'
     idents ?= []
@@ -1020,9 +1012,8 @@ P.report.works.load = (timestamp, org, idents, year, clear, supplements, everyth
 
   if Array.isArray idents
     console.log 'report works queueing identifiers batch', idents.length
-    while si = idents.splice 0, 50000
-      await @report.queue si, undefined, (timestamp ? refresh), everything
-      total += si.length
+    await @report.queue idents, undefined, (timestamp ? refresh), everything
+    total += idents.length
   else
     _crossref = (cq, action) =>
       cq ?= '(funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year
@@ -1109,7 +1100,7 @@ P.report.works.changes._async = true
 P.report.works.changes._auth = '@oa.works'
 
 
-P.report.rs = _index: true # TODO remove this once happy with src.rs
+#P.report.rs = _index: true # TODO remove this once happy with src.rs
 
 
 
