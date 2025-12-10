@@ -29,8 +29,9 @@ P.src.oadoi.doi = (doi, refresh) ->
       url = 'https://api.oadoi.org/v2/' + doi + '?email=' + S.mail.to
       if res = await @fetch url
         if res.doi
-          try await @src.oadoi await @src.oadoi._format res
-          return res
+          ft = await @src.oadoi._format res
+          try await @src.oadoi ft
+          return ft
   return
 
 P.src.oadoi.hybrid = (issns) ->
