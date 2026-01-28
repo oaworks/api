@@ -16,6 +16,15 @@ try S.src.openalex = JSON.parse SECRETS_OPENALEX
 # note for resizing storage volume:
 # sudo resize2fs /dev/sdv (or whatever the identity of the volume is)
 
+# querying openalex
+# https://docs.openalex.org/api-entities/works/filter-works
+# https://docs.openalex.org/how-to-use-the-api/get-lists-of-entities/filter-entity-lists
+
+# rate limits
+# https://docs.openalex.org/how-to-use-the-api/rate-limits-and-authentication
+# public tier is 10r/s max 100k per day, requires mailto: param
+# premium limits just says "as needed"
+
 P.src.openalex = () ->
   return true
 
@@ -63,6 +72,7 @@ P.src.openalex.works.doi = (doi, refresh, save) ->
     if found = await @fetch 'https://api.openalex.org/works/https://doi.org/' + doi + (if @S.src.openalex?.apikey then '?api_key=' + @S.src.openalex.apikey else '')
       if found.id
         found = await @src.openalex.works._format found
+        found.retrievedAt = Date.now()
         await @src.openalex.works(found) if save
   return found
 
@@ -80,7 +90,7 @@ P.src.openalex.oa = type: (issns) ->
     issns = issns.journal_issns ? issns.ISSN ? issns.primary_location?.source?.issn
   issns = issns.replace(/\s/g, '').split(',') if typeof issns is 'string'
   if Array.isArray(issns) and issns.length
-    types = await @src.openalex.works.terms 'open_access.oa_status.keyword', 'locations.source.issn.keyword:"' + issns.join('" OR locations.source.issn.keyword:') + '"'
+    types = await @src.openalex.works.terms 'open_access.oa_status.keyword', 'locations.source.issn.keyword:"' + issns.join('" OR locations.source.issn.keyword:"') + '"'
     if types.length is 1
       calculated = types[0].term
     else if types.length is 0
@@ -197,7 +207,9 @@ P.src.openalex.load = (what, changes, clear, sync, last, toalias) ->
       #    for xc in rec.x_concepts
       #      xc.score = Math.floor(xc.score) if xc.score?
       #else if what is 'works'
-      batch.push await @src.openalex.works._format rec
+      rec = await @src.openalex.works._format rec
+      rec.retrievedAt = Date.now()
+      batch.push rec
       if batch.length >= 20000
         console.log 'Openalex ' + what + ' ' + toalias + ' bulk loading', flo, batch.length, total
         await @index._bulk 'src_openalex_' + what, batch, undefined, undefined, false, toalias

@@ -2,6 +2,13 @@
 # https://github.com/CrossRef/rest-api-doc/blob/master/rest_api.md
 # http://api.crossref.org/works/10.1016/j.paid.2009.02.013
 
+# new crossref rate limits since 05/11/2025
+# https://www.crossref.org/blog/announcing-changes-to-rest-api-rate-limits/
+# if in public pool, single record request e.g. to DOI is 5 per second, one at a time. Query requests are 1 per second, 1 at a time.
+# polite pool, single record requests are 10 per second 3 at a time, query requests are 3 per second 3 at a time.
+# polite pool examples appear to require &mailto=my@email.com as a param - check we are doing that rather than a header, just in case headers not checked any more
+# so at most we could send 864000 single record requests per day (if each one responded fast enough)
+
 P.src.crossref = () ->
   return 'Crossref API wrapper'
 
@@ -36,6 +43,7 @@ P.src.crossref.works.doi = (doi, refresh, save) ->
       res = await @fetch 'https://api.crossref.org/works/' + doi, {headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works'), 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
       if res?.message?.DOI?
         found = await @src.crossref.works._format res.message
+        found.retrievedAt = Date.now()
         await @src.crossref.works(found) if save
   return found
 
@@ -339,6 +347,7 @@ P.src.crossref.changes = (startday, endday, created) ->
         else
           for rec in thisdays.data
             fr = await @src.crossref.works._format rec
+            fr.retrievedAt = Date.now()
             fr.srcday = startday
             batch.push fr
             loaded += 1
@@ -398,8 +407,97 @@ P.src.crossref.plus.load = ->
 
   if @params.clear
     await @src.crossref.works ''
-    map = {properties: {}} # add any specific field mappings necessary to avoid collisions e.g. assertion.value can be text or date or number etc, so force to text
-    map.properties.assertion = { # note whole object has to be provided otherwise updating mapping with extra values in the object (or saving a record with extra values) overwrites it
+    await @src.crossref.works.mapping _crossref_mapping
+  else
+    try last = (await @src.crossref.works 'srcfile:*', size: 1, sort: srcfile: 'desc').srcfile
+
+  fn = @S.directory + '/import/crossref/all.json.tar.gz'
+  try
+    stats = await fs.stat fn # check if file exists in async fs promises which does not have .exists
+  catch
+    console.log 'crossref downloading snapshot'
+    hds = {}
+    hds['Crossref-Plus-API-Token'] = 'Bearer ' + @S.crossref
+    resp = await fetch 'https://api.crossref.org/snapshots/monthly/latest/all.json.tar.gz', headers: hds
+    wstr = fs.createWriteStream fn
+    await new Promise (resolve, reject) =>
+      resp.body.pipe wstr
+      resp.body.on 'error', reject
+      wstr.on 'finish', resolve
+    console.log 'snapshot downloaded'
+
+  total = 0
+  srcfile = 0
+  lines = ''
+  complete = false
+
+  '''for await line from readline.createInterface input: fs.createReadStream(fn).pipe zlib.createGunzip()
+    if not line.startsWith(' ') and line.endsWith('{') and line.includes('.json') and not isNaN (scf = parseInt line.split('.json')[0].replace(/[^0-9]/g, ''))
+      console.log total, srcfile, scf, lines.length
+      if lines.length
+        # on large file readline streams across multiple hours, definitely saw this issue. Not sure why pause/resume would help in this context, but trying it anyway
+        # https://github.com/nodejs/node/issues/42454
+        # https://stackoverflow.com/questions/71588045/javascript-async-sleep-function-somehow-leads-to-silent-exiting-of-program/71589103#71589103
+        # lr.pause() # did not make any difference
+        await _batch()
+        #lr.resume()
+      srcfile = scf
+      lines = '{'
+    else
+      lines += line
+  await _batch(true) if lines.length or batch.length'''
+
+  strm = fs.createReadStream(fn).pipe zlib.createGunzip()
+  prevline = ''
+  strm.on 'data', (chunk) =>
+    line = chunk.toString 'utf8'
+    lines += line
+    if (prevline + line).includes '\n  "items" : [' # just a shorter space to check than all of lines, and use prevline just in case the inclusion criteria straddled a chunk
+      while lines.includes '\n  "items" : ['
+        [lp, lines] = lines.replace('\n  "items" : [', 'X0X0X0X0X0X0X0X0X0X0X0').split('X0X0X0X0X0X0X0X0X0X0X0') # cheap split on first occurrence
+        if lp.includes '\n  } ]'
+          lps = lp.split('\n  } ]')
+          scf = parseInt lps.pop().split('.json')[0].replace(/[^0-9]/g, '')
+          if srcfile < last
+            console.log 'crossref plus load waiting for file', srcfile, last
+          else
+            recs = []
+            for rec in rp = JSON.parse '[' + lps.join(']') + '}]'
+              rec = await @src.crossref.works._format rec
+              rec.retrievedAt = Date.now()
+              if rec?.DOI
+                rec.srcfile = srcfile
+                recs.push rec
+            console.log 'crossref plus load', rp.length, recs.length
+            total += recs.length
+            await @src.crossref.works(recs) if recs.length
+
+          srcfile = scf
+    prevline = line
+
+  strm.on 'error', (err) => console.log 'crossref plus load file stream error', JSON.stringify err
+  strm.on 'end', () =>
+    console.log 'stream complete for crossref plus load'
+    complete = true
+  while not complete
+    console.log 'crossref plus load streaming file', lines.length, srcfile, total, Math.floor((Date.now()-started)/1000/60) + 'm'
+    await @sleep 30000
+  ended = Date.now()
+  console.log 'crossref plus load complete', srcfile, total, started, ended, Math.floor((ended-started)/1000/60) + 'm'
+  return total
+
+P.src.crossref.plus.load._log = false
+P.src.crossref.plus.load._bg = true
+P.src.crossref.plus.load._async = true
+#P.src.crossref.plus.load._auth = 'root'
+
+
+
+# add any specific field mappings necessary to avoid collisions e.g. assertion.value can be text or date or number etc, so force to text
+# note whole object has to be provided otherwise updating mapping with extra values in the object (or saving a record with extra values) overwrites it
+_crossref_mapping = {
+  "properties": { 
+    "assertion": { 
       "properties": {
         "URL": {
           "type": "text",
@@ -477,85 +575,5 @@ P.src.crossref.plus.load = ->
         }
       }
     }
-    await @src.crossref.works.mapping map
-  else
-    try last = (await @src.crossref.works 'srcfile:*', size: 1, sort: srcfile: 'desc').srcfile
-
-  fn = @S.directory + '/import/crossref/all.json.tar.gz'
-  try
-    stats = await fs.stat fn # check if file exists in async fs promises which does not have .exists
-  catch
-    console.log 'crossref downloading snapshot'
-    hds = {}
-    hds['Crossref-Plus-API-Token'] = 'Bearer ' + @S.crossref
-    resp = await fetch 'https://api.crossref.org/snapshots/monthly/latest/all.json.tar.gz', headers: hds
-    wstr = fs.createWriteStream fn
-    await new Promise (resolve, reject) =>
-      resp.body.pipe wstr
-      resp.body.on 'error', reject
-      wstr.on 'finish', resolve
-    console.log 'snapshot downloaded'
-
-  total = 0
-  srcfile = 0
-  lines = ''
-  complete = false
-
-  '''for await line from readline.createInterface input: fs.createReadStream(fn).pipe zlib.createGunzip()
-    if not line.startsWith(' ') and line.endsWith('{') and line.includes('.json') and not isNaN (scf = parseInt line.split('.json')[0].replace(/[^0-9]/g, ''))
-      console.log total, srcfile, scf, lines.length
-      if lines.length
-        # on large file readline streams across multiple hours, definitely saw this issue. Not sure why pause/resume would help in this context, but trying it anyway
-        # https://github.com/nodejs/node/issues/42454
-        # https://stackoverflow.com/questions/71588045/javascript-async-sleep-function-somehow-leads-to-silent-exiting-of-program/71589103#71589103
-        # lr.pause() # did not make any difference
-        await _batch()
-        #lr.resume()
-      srcfile = scf
-      lines = '{'
-    else
-      lines += line
-  await _batch(true) if lines.length or batch.length'''
-
-  strm = fs.createReadStream(fn).pipe zlib.createGunzip()
-  prevline = ''
-  strm.on 'data', (chunk) =>
-    line = chunk.toString 'utf8'
-    lines += line
-    if (prevline + line).includes '\n  "items" : [' # just a shorter space to check than all of lines, and use prevline just in case the inclusion criteria straddled a chunk
-      while lines.includes '\n  "items" : ['
-        [lp, lines] = lines.replace('\n  "items" : [', 'X0X0X0X0X0X0X0X0X0X0X0').split('X0X0X0X0X0X0X0X0X0X0X0') # cheap split on first occurrence
-        if lp.includes '\n  } ]'
-          lps = lp.split('\n  } ]')
-          scf = parseInt lps.pop().split('.json')[0].replace(/[^0-9]/g, '')
-          if srcfile < last
-            console.log 'crossref plus load waiting for file', srcfile, last
-          else
-            recs = []
-            for rec in rp = JSON.parse '[' + lps.join(']') + '}]'
-              rec = await @src.crossref.works._format rec
-              if rec?.DOI
-                rec.srcfile = srcfile
-                recs.push rec
-            console.log 'crossref plus load', rp.length, recs.length
-            total += recs.length
-            await @src.crossref.works(recs) if recs.length
-
-          srcfile = scf
-    prevline = line
-
-  strm.on 'error', (err) => console.log 'crossref plus load file stream error', JSON.stringify err
-  strm.on 'end', () =>
-    console.log 'stream complete for crossref plus load'
-    complete = true
-  while not complete
-    console.log 'crossref plus load streaming file', lines.length, srcfile, total, Math.floor((Date.now()-started)/1000/60) + 'm'
-    await @sleep 30000
-  ended = Date.now()
-  console.log 'crossref plus load complete', srcfile, total, started, ended, Math.floor((ended-started)/1000/60) + 'm'
-  return total
-
-P.src.crossref.plus.load._log = false
-P.src.crossref.plus.load._bg = true
-P.src.crossref.plus.load._async = true
-#P.src.crossref.plus.load._auth = 'root'
+  }
+}

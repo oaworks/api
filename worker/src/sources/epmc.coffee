@@ -5,6 +5,9 @@
 # https://www.ebi.ac.uk/europepmc/webservices/rest/search/
 # https://europepmc.org/Help#fieldsearch
 
+# EBI rate limit appears to be 10r/s and 500/min. So 8r/s would do.
+# https://groups.google.com/a/ebi.ac.uk/g/epmc-webservices/c/x3PLL09mels/m/0CNRHdbfAwAJ
+
 # GET https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=DOI:10.1007/bf00197367&resulttype=core&format=json
 # default page is 1 and default pageSize is 25
 # resulttype lite is smaller, lacks so much metadata, no mesh, terms, etc
@@ -28,7 +31,7 @@ P.src.epmc.search = (qrystr, from, size) ->
   ret = {}
   await @sleep 150
   try
-    res = await @fetch url
+    res = await @fetch url, rate: ['ebi', 8]
     ret.total = res.hitCount
     ret.data = res.resultList?.result ? []
     ret.cursor = res.nextCursorMark
@@ -42,7 +45,7 @@ P.src.epmc.doi = (ident, refresh) ->
   exists = await @src.epmc 'doi:"' + ident + '"'
   if exists?.hits?.total
     return exists.hits.hits[0]._source
-  else if not refresh and Date.now() - ((await @src.epmc.notinepmc ident)?.checkedAt ? 0) < 2419200000 # 1000*60*60*24*14 # if we checked in the last 28 days, don't check again
+  else if not refresh and Date.now() - ((await @src.epmc.notinepmc ident)?.checkedAt ? 0) < 2419200000 # 1000*60*60*24*28 # if we checked in the last 28 days, don't check again
     return
   else
     res = await @src.epmc.search 'DOI:' + ident
@@ -74,29 +77,31 @@ P.src.epmc.pmid = (ident, refresh) ->
 P.src.epmc.pmc = (ident, refresh) ->
   refresh ?= @refresh if not ident
   ident ?= @params.pmc ? @params.pmcid
-  ident = 'PMC' + ident.toLowerCase().replace 'pmc', ''
-  exists = await @src.epmc 'pmcid:"' + ident + '"'
-  if exists?.hits?.total
-    return exists.hits.hits[0]._source
-  else if not refresh and Date.now() - ((await @src.epmc.notinepmc ident)?.checkedAt ? 0) < 2419200000
-    return
-  else
-    res = await @src.epmc.search 'PMCID:' + ident
-    if res.total
-      return res.data[0]
-    else if res.total? # because on 21/08/2025 the whole API disappeared - we don't want to record that as not being in
-      await @src.epmc.notinepmc id: ident, pmcid: ident, checkedAt: Date.now()
+  if ident
+    ident = 'PMC' + ident.toLowerCase().replace 'pmc', ''
+    exists = await @src.epmc 'pmcid:"' + ident + '"'
+    if exists?.hits?.total
+      return exists.hits.hits[0]._source
+    else if not refresh and Date.now() - ((await @src.epmc.notinepmc ident)?.checkedAt ? 0) < 2419200000
       return
+    else
+      res = await @src.epmc.search 'PMCID:' + ident
+      if res.total
+        return res.data[0]
+      else if res.total? # because on 21/08/2025 the whole API disappeared - we don't want to record that as not being in
+        await @src.epmc.notinepmc id: ident, pmcid: ident, checkedAt: Date.now()
+  return
 
 P.src.epmc.title = (title) ->
   title ?= @params.title
-  try title = title.toLowerCase().replace(/(<([^>]+)>)/g,'').replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' ')
-  exists = await @src.epmc 'title:"' + title + '"'
-  if exists?.hits?.total
-    return exists.hits.hits[0]._source
-  else
-    res = await @src.epmc.search 'title:"' + title + '"'
-    return if res.total then res.data[0] else undefined
+  if title
+    try title = title.toLowerCase().replace(/(<([^>]+)>)/g,'').replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' ')
+    exists = await @src.epmc 'title:"' + title + '"'
+    if exists?.hits?.total
+      return exists.hits.hits[0]._source
+    else
+      res = await @src.epmc.search 'title:"' + title + '"'
+      return if res.total then res.data[0] else undefined
 
 P.src.epmc.licence = (pmcid, rec, fulltext, refresh) ->
   refresh ?= @refresh if not pmcid
@@ -156,22 +161,29 @@ P.src.epmc.xml = (pmcid, rec, refresh) ->
 
     #rec ?= await @src.epmc.pmc pmcid, refresh
     if refresh #or not rec?.no_ft
-      ncdl = Date.now() - _last_ncbi
-      console.log 'ncbi eutils for epmc xml', _ncbi_running, _last_ncbi, ncdl
-      while ncdl < 1100 or _ncbi_running >= 2 # should be able to hit 3r/s although it's possible we call from other workers on same server. This will have to do for now
-        await @sleep 500 #(500 - ncdl)
-        ncdl = Date.now() - _last_ncbi
-      _last_ncbi = Date.now()
-      _ncbi_running += 1
+      #ncdl = Date.now() - _last_ncbi
+      #console.log 'ncbi eutils for epmc xml', _ncbi_running, _last_ncbi, ncdl
+      #while ncdl < 1100 or _ncbi_running >= 2 # should be able to hit 3r/s although it's possible we call from other workers on same server. This will have to do for now
+      #  await @sleep 500 #(500 - ncdl)
+      #  ncdl = Date.now() - _last_ncbi
+      #_last_ncbi = Date.now()
+      #_ncbi_running += 1
       #await @sleep 2200 # we still got rate limited even below 2s so set a higher sleep
       # without sleep (and at 150, 300, 400) threw rate limit error on ncbi and ebi - this does not guarantee it because other calls could be made, but is a quick fix
       # try ncbi first as it is faster but it does not have everything in epmc - however when present the xml files are the same
-      url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=' + pmcid
-      ft = await @fetch url
-      _ncbi_running -= 1
-      if (typeof ft isnt 'string' or not ft.length) and rec? # if it is in epmc, can try getting from there instead
-        url = 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML'
-        ft = await @fetch url
+      #url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=' + pmcid
+      #ft = await @fetch url, rate: ['ncbi', 3]
+      #_ncbi_running -= 1
+      #if (typeof ft isnt 'string' or not ft.length) and rec? # if it is in epmc, can try getting from there instead
+      #  url = 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML'
+      #  ft = await @fetch url, rate: ['ebi', 8]
+
+      # because ncbi rate limit is lower and we were calling it more, switch to checking ebi first instead
+      if rec?
+        ft = await @fetch 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML', rate: ['ebi', 8]
+      if typeof ft isnt 'string' or not ft.length
+        ft = await @fetch 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=' + pmcid, rate: ['ncbi', 3]
+
       if typeof ft is 'string' and ft.length
         try await fs.writeFile @S.directory + '/epmc/fulltext/' + pmcid + '.xml', ft
         return ft
@@ -184,7 +196,7 @@ P.src.epmc.fulltext = (pmcid) -> # check fulltext exists in epmc explicitly
   pmcid ?= @params.fulltext ? @params.pmcid ? @params.epmc
   if pmcid
     await @sleep 150
-    exists = await @fetch 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML', method: 'HEAD'
+    exists = await @fetch 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML', method: 'HEAD', rate: ['ebi', 8]
     return exists?.status is 200
   else
     return
@@ -206,7 +218,7 @@ P.src.epmc.aam = (pmcid, rec, fulltext, refresh) ->
         await @sleep 1000
         url = 'https://europepmc.org/articles/PMC' + pmcid.toLowerCase().replace 'pmc', ''
         #pg = await @puppet url
-        pg = await @fetch url
+        pg = await @fetch url # just sleep 1000 this instead of rate limit, as a direct web page call prob not same as API call
         if not pg
           return aam: false, info: 'not in EPMC (404)'
         else if typeof pg is 'string'

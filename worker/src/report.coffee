@@ -597,11 +597,12 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
         rec.pubtype = exists.pubtype if exists.pubtype?
         rec.tried_epmc_licence = exists.tried_epmc_licence if exists.tried_epmc_licence?
         rec.epmc_licence = exists.epmc_licence if exists.epmc_licence?
-        rec.pmc_has_data_availability_statement = exists.pmc_has_data_availability_statement if exists.pmc_has_data_availability_statement
+        # this has to be checked every time from the supps, so don't set it again
+        #rec.pmc_has_data_availability_statement = exists.pmc_has_data_availability_statement if exists.pmc_has_data_availability_statement
         rec.data_availability_statement = exists.data_availability_statement if exists.data_availability_statement?
         rec.data_availability_url = exists.data_availability_url if exists.data_availability_url?
         rec.data_availability_doi = exists.data_availability_doi if exists.data_availability_doi?      
-        rec.has_data_availability_statement = true if exists.has_data_availability_statement or exists.data_availability_statement
+        rec.has_data_availability_statement = true if exists.data_availability_statement #or exists.has_data_availability_statement
       refresh = true if not exists?.updated or (refresh and refresh isnt true and exists and exists.updated < refresh)
 
     openalex = await @src.openalex.works.doi((if typeof cr is 'object' then cr.DOI else cr), (@params.refresh_sources ? false)) if cr? and not openalex?
@@ -919,7 +920,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
     #  rec.has_data_availability_statement = true if rec.pmc_has_data_availability_statement
     if everything and rec.PMCID and (refresh or not rec.data_availability_statement or not rec.submitted_date) # restrict to everything?
       rec.data_availability_statement = await @src.epmc.statement rec.PMCID, epmc, refresh
-      rec.has_data_availability_statement = true  if rec.data_availability_statement
+      rec.has_data_availability_statement = true if rec.data_availability_statement
       if rec.data_availability_statement and urlordois = await @src.epmc.statement.url rec.PMCID, epmc, rec.data_availability_statement
         for dor in urlordois
           if dor.includes 'doi.org/'
@@ -933,6 +934,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
 
     rec.has_repository_copy = true if rec.PMCID or rec.openalx?.open_access?.any_repository_has_fulltext
     rec.is_oa = rec.oadoi_is_oa or rec.crossref_is_oa or rec.journal_oa_type in ['gold']
+    rec.pmc_has_data_availability_statement = false if rec.PMCID and rec.pmc_has_data_availability_statement isnt true # when there is a PMCID, explicitly default to false if there was no supplement to specify it
     #rec.has_data_availability_statement = if rec.data_availability_statement or rec.pmc_has_data_availability_statement or has_data_availability_statement_ic or mturk_has_data_availability_statement or (rec.DOI and (rec.DOI.startsWith('10.1186') or rec.DOI.startsWith('10.12688') or rec.DOI.startsWith('10.1371'))) then true else rec.pmc_has_data_availability_statement ? has_data_availability_statement_ic ? mturk_has_data_availability_statement
     rec.has_data_availability_statement = true if rec.data_availability_statement # probably unnecessary
     rec.has_data_availability_statement = true if rec.DOI and (rec.DOI.startsWith('10.1186') or rec.DOI.startsWith('10.12688') or rec.DOI.startsWith('10.1371'))

@@ -10,6 +10,9 @@
 # then scrape the QueryKey and WebEnv values from it and use like so:
 # http://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&query_key=1&WebEnv=NCID_1_54953983_165.112.9.28_9001_1461227951_1012752855_0MetA0_S_MegaStore_F_1
 
+# NCBI rate limit appears to be 3 per second without an API key
+# https://www.ncbi.nlm.nih.gov/books/NBK25497/
+
 # NOTE: interestingly there are things in pubmed with PMC IDs that are NOT in EPMC, they return 
 # nothing in the epmc website or API. For example PMID 33685375 has PMC7987225 and DOI 10.2989/16085906.2021.1872664
 # (the crossref record has no PMID or PMC in it, but the pubmed record has all)
@@ -43,7 +46,7 @@ P.src.pubmed.entrez.summary = (qk, webenv, id) ->
   else
     url += '&query_key=' + qk + '&WebEnv=' + webenv
   try
-    md = await @convert.xml2json await @fetch url
+    md = await @convert.xml2json await @fetch url, rate: ['ncbi', 3]
     recs = []
     md.eSummaryResult.DocSum = [md.eSummaryResult.DocSum] if not Array.isArray md.eSummaryResult.DocSum
     for rec in md.eSummaryResult.DocSum
@@ -72,8 +75,8 @@ P.src.pubmed.entrez.pmid = (pmid) ->
   # https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=PMC9206389
   url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/epost.fcgi?db=pubmed&id=' + pmid
   try
-    await @sleep 200
-    res = await @fetch url
+    #await @sleep 200
+    res = await @fetch url, rate: ['ncbi', 3]
     result = await @convert.xml2json res
     return @src.pubmed.entrez.summary result.ePostResult.QueryKey, result.ePostResult.WebEnv
     # switch this to use the code in pubmed.load as a formatter for records? Or have load call format
@@ -88,8 +91,8 @@ P.src.pubmed.search = (str, full, size=10, ids=false) ->
     if Array.isArray ids
       res = {total: ids.length, data: []}
     else
-      await @sleep 200
-      res = await @fetch url
+      #await @sleep 200
+      res = await @fetch url, rate: ['ncbi', 3]
       result = await @convert.xml2json res
       res = {total: result.eSearchResult.Count[0], data: []}
       if ids is true
@@ -122,8 +125,8 @@ P.src.pubmed.aheadofprint = (pmid) ->
   try
     # should switch this for an efetch
     # https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=35717313
-    await @sleep 100
-    res = await @fetch 'https://www.ncbi.nlm.nih.gov/pubmed/' + pmid + '?report=xml'
+    #await @sleep 100
+    res = await @fetch 'https://www.ncbi.nlm.nih.gov/pubmed/' + pmid + '?report=xml', rate: ['ncbi', 3]
     return res.includes 'PublicationStatus&gt;aheadofprint&lt;/PublicationStatus' # would these be url encoded or proper characters?
   catch
     return
@@ -184,7 +187,7 @@ P.src.pubmed.load = (changes) ->
   addr = if changes then 'https://ftp.ncbi.nlm.nih.gov/pubmed/updatefiles/' else 'https://ftp.ncbi.nlm.nih.gov/pubmed/baseline/'
   fls = []
   fnumber = if typeof @params.load is 'number' then @params.load else if typeof @params.changes is 'number' then @params.changes else undefined
-  listing = await @fetch addr
+  listing = await @fetch addr # ftp endpoint prob does not count for rate limmit as it is not the API?
   for a in listing.split 'href="'
     f = a.split('"')[0]
     if (f.endsWith('.gz') and f.includes(fnumber + '.xml')) or (not fnumber and f.startsWith('pubmed') and f.endsWith('.gz') and (@params.load in ['baseline'] or (@refresh and not changes) or not exists = await @src.pubmed.count 'srcfile:"' + addr + f + '"'))
