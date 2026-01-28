@@ -3,6 +3,96 @@
 
 # NOTE TODO for getting certain file content, adding encoding: null to headers (or correct encoding required) can be helpful
 
+# implement a rate limit option, where "rate" param can be passed. It should be a list [group,10,100000,86400] meaning group name to rate within, 10 requests per second, max 100k per 86400 seconds (1 day)
+# if rate is true, the above will be the default. If rate is just a number it is assumed to be the r/s value.
+# If no group name is provided it will be discerned from the url endpoint being called
+# when rate is provided, check the system settings for a rate limit endpoint, and forward the requests to it (so that rates can be co-ordinated across a pool)
+# if no system setting for where to call, then this is the master one, run it here - keep an in-memory track for each group
+# make sure the "where to call" can be passed all the necessary params, and is accessible (e.g with system auth token)
+_rates = {}
+
+P.rate = (rate, blocked, ms) ->
+  ms ?= @params.ms ? false
+  s = 0
+  if S.limiter and S.limiter.startsWith('http') and @params.rated isnt true and JSON.stringify(_rates) is '{}'
+    headers = {}
+    headers['x-' + S.name.toLowerCase() + '-system'] = S.system
+    rs = S.limiter + '/rate?rated' + (if blocked then '&blocked' else '')
+    if rate? and rate.length >= 2
+      rs += '&group=' + encodeURIComponent rate[0]
+      rs += '&rate=' + encodeURIComponent rate[1]
+      rs += ('&max=' + encodeURIComponent rate[2]) if rate[2]
+      rs += ('&per=' + encodeURIComponent rate[3]) if rate[3]
+    if not res = await @fetch rs, headers:  headers # on first attempt this will call itself if it was already on the rate manager, but after that, it won't
+      await @sleep 800 # in case of timeout on the rate limiter endpoint - send a warning here?
+      res = await @fetch rs, headers:  headers
+    return res
+  else
+    rate ?= [@params.group, @params.rate, @params.max, @params.per]
+    blocked ?= @params.blocked ? false
+    if blocked
+      _rates.blocked ?= 0
+      _rates.blocked += 1
+    if rate[0]
+      _rates[rate[0]] ?= started: Date.now(), last: undefined, rates: rate, count: 0, blocked: 0
+      if blocked
+        console.log('*** FETCH RATE BLOCKED ***', rate[0]) if S.dev and S.bg is true
+        _rates[rate[0]].blocked += 1
+        s = 30000 # see if there is a standard way (or few ways) to detect a specific blocking amount
+      if rate[3]
+        _rates[rate[0]].ends ?= _rates[rate[0]].started + (rate[3] * 1000)
+        _rates[rate[0]].remaining = _rates[rate[0]].ends - Date.now()
+        if _rates[rate[0]].ends < Date.now() # but should this be a rolling window? Can't know for sure how different remotes will implement it
+          _rates[rate[0]].ends = _rates[rate[0]].started + (rate[3] * 1000)
+          _rates[rate[0]].started = Date.now()
+          _rates[rate[0]].count = 0
+        if rate[2] and _rates[rate[0]].count >= rate[2] # would it be better to abort here, as the wait could be long?
+          console.log('FETCH RATE MAXED', rate, _rates[rate[0]].remaining) if S.dev and S.bg is true
+          s = _rates[rate[0]].remaining + 1
+      if s is 0 and _rates[rate[0]].last and rate[1]
+        console.log('FETCH RATE LIMITING', rate[0], 'max ' + rate[1] + 'r/s', 'avg ' + _rates[rate[0]].average + 'r/s', _rates[rate[0]].count) if S.dev and S.bg is true
+        s = Math.round (1000 / rate[1]) - (Date.now() - _rates[rate[0]].last)
+      _rates[rate[0]].last = Date.now() + s
+      _rates[rate[0]].count += 1
+      _rates[rate[0]].average = Math.round 1000 / ((_rates[rate[0]].last - _rates[rate[0]].started) / _rates[rate[0]].count)
+  return if ms then s else Date.now() + s
+
+P.rates = ->
+  if S.limiter and S.limiter.startsWith('http') and @params.rated isnt true and JSON.stringify(_rates) is '{}'
+    headers = {}
+    headers['x-' + S.name.toLowerCase() + '-system'] = S.system
+    rs = await @fetch S.limiter + '/rates?rated', headers:  headers # on first attempt this will call itself if it was already on the rate manager, but after that, it won't
+    rs.master = false
+    return rs
+  else
+    _rates.master = true
+    return _rates
+#P.rates._auth = 'system'
+
+P.rates.check = (url, group, rate, max, per, amount) ->
+  started = Date.now()
+  url ?= @params.url
+  headers = {}
+  if not url?
+    url = 'https://bg.beta.oa.works/rates'
+    headers['x-' + S.name.toLowerCase() + '-system'] = S.system
+  group ?= @params.group ? 'check'
+  rate ?= @params.rate ? 2
+  max ?= @params.max ? 5
+  per ?= @params.per ? 10
+  amount ?= @params.amount ? 16
+  times = []
+  waits = []
+  ret = []
+  for r in [0..amount]
+    times.push Date.now()
+    ret.push await @fetch url, rate: [group, rate, max, per], headers: headers # 2r/s, max 5 per 10s
+    if times.length > 1
+      waits.push times[times.length - 1] - times[times.length - 2]
+  ended = Date.now()
+  return started: started, ended: ended, took: (ended-started), local: (JSON.stringify(_rates) isnt '{}'), url: url, group: group, rate: rate + 'r/s', max: (if max then (max + (if per then ' per ' + per + 's' else '')) else undefined), amount: amount, times: times, waits: waits, results: ret
+P.rates.check._auth = 'root'
+
 P.fetch = (url, params) ->
   if not url? and not params?
     try params = @copy @params
@@ -145,12 +235,21 @@ P.fetch = (url, params) ->
         if response.status is 404
           return
         else if response.status >= 400
-          console.log(params, JSON.stringify(r), 'FETCH ERROR', response.status) if S.dev and S.bg is true
-          return status: response.status
+          console.log(params, JSON.stringify(r), 'FETCH ERROR', response.method, response.status, url) if S.dev and S.bg is true
+          return status: response.status, body: r
         else
           return r
 
     try
+      _rate = false
+      if params.rate?
+        _rate = true
+        params.rate = [undefined, params.rate] if typeof params.rate is 'number'
+        params.rate.unshift(undefined) if typeof params.rate[0] isnt 'string'
+        params.rate[0] ?= url.split('/')[2] # use the domain as the default group name
+        if waitto = await @rate params.rate
+          await @sleep waitto - Date.now()
+        delete params.rate
       if params.timeout and this?._timeout?
         pt = if params.timeout is true then 30000 else params.timeout
         delete params.timeout
@@ -160,6 +259,9 @@ P.fetch = (url, params) ->
       try
         res = res.trim()
         res = JSON.parse(res) if res.startsWith('[') or res.startsWith('{')
+      try
+        if response.status is 429 and _rate
+          @rate params.rate, true
       return res
     catch err
       console.log('ERROR TRYING TO CALL FETCH', url, err, JSON.stringify(err)) if S.dev and S.bg is true

@@ -43,7 +43,8 @@ P.src.google.sheets = (opts) ->
     # an API key is now NECESSARY even though this is still only for sheets that are published public. Further auth required to do more.
     url = 'https://sheets.googleapis.com/v4/spreadsheets/' + opts.sheetid + '/values/' + opts.sheet + '?alt=json&key=' + (@S.src.google?.secrets?.serverkey ? @S.src.google?.secrets?.apikey)
 
-  g = await @fetch url, headers: 'Cache-Control': 'no-cache'
+  # google sheets rate limit is 60 per minute per project per user
+  g = await @fetch url, rate: ['sheets', 1], headers: 'Cache-Control': 'no-cache'
   if opts.values is false
     return g
   else if opts.headers is false
