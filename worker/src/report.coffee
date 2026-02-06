@@ -6,6 +6,102 @@ P.report = () -> return 'OA.Works report'
 
 
 
+
+P.report.suggestables = _index: true
+P.report.suggestions = ->
+  org = @params.org
+  field = @params.field
+  if org and field
+    res = []
+    fieldname = field.toLowerCase().replace('.keyword','').replace /[^a-z0-9]/g, '' # sort on fieldname may require .keyword when field is textual
+    q = @params.q ? '*'
+    max = @params.max ? @params.size ? 1000
+    exact = @params.exact ? true
+    keyword = if q is '*' then false else @params.keyword ? true
+    wildcard = if q is '*' then false else @params.wildcard ? true
+    suffix = if not wildcard then false else @params.suffix ? true
+    prefix = if not wildcard then false else @params.prefix ? false
+    fuzzy = @params.fuzzy ? false
+    sort = @params.sort # asc or desc, or fieldname:asc etc
+    sort = fieldname + ':' + sort if sort and not sort.includes ':'
+    _find = (fq) =>
+      try
+        console.log fq
+        for await rec from @index._for 'paradigm' + (if S.dev then '_b' else '') + '_report_suggestables', 'org.keyword:"' + org + '" AND field.keyword:"' + field + '" AND ' + fq, max: max, sort: sort
+          res.push(rec[fieldname]) if rec[fieldname] and rec[fieldname] not in res
+    if exact
+      await _find(fieldname + '.keyword:' + q) if keyword
+      await _find(fieldname + ':' + q.split(' ').join(' AND ' + fieldname + ':')) if not res.length
+    if wildcard
+      await _find(fieldname + ':' + q.split(' ').join(' AND ' + fieldname + ':') + '*') if not res.length or suffix
+      await _find(fieldname + ':' + q.split(' ').join('~ AND ' + fieldname + ':') + '~') if not res.length and fuzzy
+      await _find((fieldname + ':' + q.split(' ').join(' AND ' + fieldname + ':') + '*').replace(/:([^:]*)$/, ':*$1')) if not res.length and prefix
+    return res
+  else
+    res = total: await @report.suggestables.count()
+    res.options = org: 'Org name (required)', field: 'Field name (required)', q: 'search term, default *', size: 'How many to return, default 1000', exact: 'Do exact match, default true, will try matching an entire keyword (Gates Foundation), then tries partials (Foundation)', keyword: 'Default true, if false then exact match will not try keyword first', wildcard: 'Default true, enables wildcard searches after exact searches', suffix: 'The default wildcard search, appends * to the query, unless set to false', fuzzy: 'Default false, if true will try fuzzy match ONLY if previous searches fail (slower)', prefix: 'Default false, if true will try *query* wildcard match ONLY if previous searches fail (slowest)'
+    # sort: 'Order, asc/desc, default asc', 
+    res.field = {}
+    res.field[f.term] = f.count for f in await @report.suggestables.terms 'field'      
+    res.org = await @report.suggestables.terms 'org'
+    for o in res.org
+      o.works = await @report.works.count 'orgs.keyword:"' + o.term + '"'
+      o.field = {}
+      o.field[f.term] = f.count for f in await @report.suggestables.terms 'field', 'org.keyword:"' + o.term + '"'
+    return res
+P.report.suggestify = (orgs, fields, clear) ->
+  started = Date.now()
+  orgs = @params.orgs.split(',') if @params.orgs
+  orgs ?= ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Michael J. Fox Foundation', 'Wellcome Trust', 'Templeton World Charity Foundation', 'Howard Hughes Medical Institute', 'Parkinson’s Progression Markers Initiative']
+  fields = @params.fields.split(',') if @params.fields
+  fields ?= ['journal', 'authorships.institutions.display_name', 'authorships.author.orcid', 'authorships.author.display_name', 'concepts.display_name', 'supplements.publisher_simple', 'supplements.host_venue.display_name', 'supplements.grantid__bmgf', 'supplements.program__bmgf', 'supplements.grantid__rwjf', 'supplements.program__rwjf', 'supplements.grantid__mjff', 'supplements.grantid__twcf', 'supplements.program__twcf']
+  fields = (f.replace('.keyword', '') for f in fields)
+  # an example, PPMI for authorships.author.display_name, with only about 7.5k records has over 80k author name strings (some could be dups)
+  #merge = @params.merge ? false # it takes 90 minutes to build Gates with merging. 30 minutes without
+  batch = []
+  total = 0
+  clear ?= @params.clear ? false
+  await @report.suggestables('') if clear # may need to clear by org - which is harder for merged records
+
+  console.log 'suggestify starting for orgs and fields:'
+  console.log orgs
+  console.log fields
+
+  for o in orgs
+    console.log 'building suggestables for org', o
+    uniques = {}
+    batches = {}
+    for await rec from @index._for 'paradigm' + (if S.dev then '_b' else '') + '_report_works', 'orgs.keyword:"' + o + '"', include: fields
+      for field in fields
+        vals = await @dot rec, field
+        vals = [vals] unless Array.isArray vals
+        uniques[field] ?= []
+        batches[field] ?= []
+        for v in vals
+          if v and (v = v.replace('https://orcid.org/', '')) and v not in uniques[field]
+            uniques[field].push v
+            vr = org: o, field: field
+            vr[field.toLowerCase().replace /[^a-z0-9]/g, ''] = v
+            batches[field].push vr
+    for b of batches
+      if batches[b].length
+        console.log 'suggestify saving batch', o, b, batches[b].length
+        await @report.suggestables batches[b]
+        total += batches[b].length
+        console.log 'suggestify saved batch', o, b, batches[b].length, total
+
+  console.log orgs
+  console.log fields
+  console.log 'suggestify total saved', total, 'in', (Date.now() - started)/1000, 'seconds'
+  return total
+P.report.suggestify._bg = true
+P.report.suggestify._async = true
+P.report.suggestify._log = false
+P.report.suggestify._auth = '@oa.works'
+
+
+
+
 P.report.chat = (prompt, role, id, text) ->
   pmcid = @params.pmcid
   if pmcid
