@@ -3,6 +3,336 @@ try S.report = JSON.parse SECRETS_REPORT
 S.report ?= {}
 
 P.report = () -> return 'OA.Works report'
+P.report.works = _index: true
+
+
+
+P.report.works.orgs_queries = (orgs, verbose, missed, save, compare, crossref, openalex, process, supplements, clear, refresh) ->
+  orgs = @params.orgs.split(',') if @params.orgs
+  orgs ?= ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Michael J. Fox Foundation', 'Wellcome Trust', 'Templeton World Charity Foundation', 'Howard Hughes Medical Institute', 'Parkinson’s Progression Markers Initiative']
+  verbose ?= @params.verbose ? false
+  missed ?= @params.missed ? false
+  save ?= @params.save ? false
+  compare ?= @params.compare ? false
+  crossref ?= @params.crossref ? true
+  openalex ?= @params.openalex ? true
+  process ?= @params.process ? false
+  supplements ?= @params.supplements ? true
+  verbose = true if process
+  ret = []
+  dois = []
+  batch = []
+  processed = 0
+  saved = 0
+
+  #if clear or @params.clear
+  #  await @report.works ''
+  refresh ?= @refresh
+
+  for o in orgs
+    console.log 'orgs queries doing org', o
+    ret.push(await @report.works.orgs_queries.crossref o, undefined, verbose, missed, save) if crossref
+    ret.push(await @report.works.orgs_queries.openalex o, undefined, verbose, missed, save, compare) if openalex
+    if process
+      lens = if crossref and openalex then 2 else if crossref or openalex then 1 else 0
+      while lens > 0
+        lens -= 1
+        for d in (ret[ret.length - 1 - lens].found ? [])
+          dois.push(d) if d and d.startsWith('10.') and d not in dois            
+        ret[ret.length - 1 - lens][t] = ret[ret.length - 1 - lens][t].length for t in ['local', 'found', 'missed'] when Array.isArray ret[ret.length - 1 - lens][t]
+    if supplements
+      for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'org.keyword:"' + o + '"'
+        dois.push(sup.DOI ? sup.pmcid ? sup.openalex) if (sup.DOI and sup.DOI not in dois) or (sup.pmcid and sup.pmcid not in dois) or (sup.openalex and sup.openalex not in dois)
+
+  console.log 'orgs queries total dois to process', dois.length
+  for d in dois
+    if refresh or not exists = await @report.works d
+      batch.push(d) if d not in batch
+      if batch.length >= 5000
+        await @report.queue batch, undefined, refresh
+        saved += batch.length
+        console.log 'orgs queries sent to queue', batch.length, saved
+        batch = []
+      processed += 1
+
+  if batch.length
+    await @report.queue batch, undefined, refresh
+    saved += batch.length
+    console.log 'orgs queries sent to queue', batch.length, saved
+    batch = []
+  console.log 'orgs queries total processed', processed, saved
+  return if process then {dois: dois.length, processed: processed, results: ret} else ret
+
+P.report.works.orgs_queries._async = true
+P.report.works.orgs_queries._log = false
+P.report.works.orgs_queries._bg = true
+P.report.works.orgs_queries._auth = '@oa.works'
+
+P.report.works.orgs_queries.crossref = (org, queries, verbose, missed, save) ->
+  # all queries except Gates had a year:>1979 restriction as well, but that may not be necessary - check the differences
+  # for RWJF 70 come up for funder.name that do not have funder.DOI
+  # all except Gates may need author affiliation ID or name checks. HHMI has alternative names, could maybe search for them. Also try direct searches for all full names
+  qs = 
+    'Gates Foundation': ['funder:10.13039/100000865,funder:10.13039/501100005370', 'container-title:Gates%20Open%20Research', 'issn:2572-4754,issn:3029-0988']
+    'Robert Wood Johnson Foundation': ['funder:10.13039/100000867', 'ror-id:02ymmdj85']
+    'Michael J. Fox Foundation': ['funder:10.13039/100000864', 'ror-id:03arq3225']
+    'Wellcome Trust': ['funder:10.13039/100010269,funder:10.13039/100004440', 'ror-id:029chgv08']
+    'Templeton World Charity Foundation': ['funder:10.13039/501100011730', 'ror-id:00x0z1472']
+    'Howard Hughes Medical Institute': ['funder:10.13039/100000011']
+    #'Robert Wood Johnson Foundation': "(year:>1979 AND (funder.DOI:(%2210.13039/100000867%22) OR funder.name:(%22Robert Wood Johnson Foundation%22) OR author.affiliation.id.id:(%2202ymmdj85%22) OR author.affiliation.name:(%22Robert Wood Johnson Foundation%22)))"
+    #'Michael J. Fox Foundation': "(year:>1979 AND (funder.DOI:(%2210.13039/100000864%22) OR funder.name:(%22Michael J. Fox Foundation%22) OR author.affiliation.id.id:(%2203arq3225%22) OR author.affiliation.name:(%22Michael J. Fox Foundation%22)))"
+    #'Wellcome Trust': "(year:>1979 AND (funder.DOI:(%2210.13039/100010269%22 OR %2210.13039/100004440%22) OR funder.name:(%22Wellcome Trust%22) OR author.affiliation.id.id:(%22029chgv08%22) OR author.affiliation.name:(%22Wellcome Trust%22)))"
+    #'Templeton World Charity Foundation': "(year:>1979 AND (funder.DOI:(%2210.13039/501100011730%22) OR funder.name:(%22Templeton World Charity Foundation%22) OR author.affiliation.id.id:(%2200x0z1472%22) OR author.affiliation.name:(%22Templeton World Charity Foundation%22)))"
+    #'Howard Hughes Medical Institute': "(year:>1979 AND (funder.DOI:(%2210.13039/100000011%22) OR funder.name:(%22Howard Hughes Medical Institute%22 OR %22Janelia Research Campus%22 OR %22Freeman Hrabowski%22) OR author.affiliation.id.id:(%22006w34k90%22 OR %22013sk6x84%22) OR author.affiliation.name:(%22Howard Hughes Medical Institute%22 OR %22Janelia Research Campus%22 OR %22Freeman Hrabowski%22)))"
+
+  org ?= @params.org ? 'Gates Foundation'
+  queries ?= qs[org] ? (@params.queries ? '').split ','
+  verbose ?= @params.verbose ? false
+  missed ?= @params.missed ? false
+  save ?= @params.save ? false
+  batch = []
+  # https://api.crossref.org/swagger-ui/index.html
+  # https://www.crossref.org/documentation/retrieve-metadata/rest-api/rest-api-filters/#75200
+  # "crossref": "(DOI:%2210.12688/verixiv%22 OR container-title:%22gates open research%22 OR (funder.DOI:(%2210.13039/100000865%22 OR %2210.13039/501100005370%22 OR %2210.13039/100009053%22) OR funder.name:(%22melinda gates foundation%22 OR %22gates cambridge trust%22 OR %22gates ventures%22) OR author.affiliation.id.id:(%220456r8d26%22 OR %22033sn5p83%22) OR author.affiliation.name:(%22melinda gates foundation%22 OR %22gates cambridge trust%22 OR %22gates ventures%22)))",
+
+  # DOI:%2210.12688/verixiv%22 467
+  # container-title:%22gates open research%22 863
+  # (funder.DOI:(%2210.13039/100000865%22 OR %2210.13039/501100005370%22 OR %2210.13039/100009053%22) 26650
+  # funder.name:(%22melinda gates foundation%22 OR %22gates cambridge trust%22 OR %22gates ventures%22) 26995
+  # author.affiliation.id.id:(%220456r8d26%22 OR %22033sn5p83%22) 3
+  # author.affiliation.name:(%22melinda gates foundation%22 OR %22gates cambridge trust%22 OR %22gates ventures%22) 1043
+
+  # https://api.crossref.org/works?filter=container-title:Gates%20Open%20Research 862 - NOTE case sensitive
+  # https://api.crossref.org/works?filter=funder:10.13039/100000865,funder:10.13039/501100005370 26698
+  # https://api.crossref.org/works?filter=issn:2572-4754,issn:3029-0988 864 - is this same as container-title though? Do either cover the verixiv doi prefix?
+
+  # can filter by prefix (e.g part of DOI 10.12688) but can't do 10.12688/verixiv
+  # https://api.crossref.org/works?filter=prefix:10.12688 - returns 29407, could get them all and check which are really verixiv
+  # using the other DOI prefixes that seem "special" as they are used on report/works for PMC DAS stuff:
+  # https://api.crossref.org/works?filter=prefix:10.12688,prefix:10.1186,prefix:10.1371 returns 5673600 - maybe too many? (4737232 are 10.1371, 906966 for 10.1186 - with possible overlap)
+  # there is a has-affiliation prefix which returns about 26m records, that would be too many to page through I guess
+  # there is query= and query.bibliographic but verixiv returns 2 and gates open research returns over 9m, so does not seem useful
+
+  # only 21 show for verixiv DOI form with nothing else: 
+  # https://bg.beta.oa.works/src/crossref/works?q=DOI:%2210.12688/verixiv%22%20AND%20NOT%20funder.DOI.keyword:(%2210.13039/100000865%22%20OR%20%2210.13039/501100005370%22%20OR%20%2210.13039/100009053%22)%20AND%20NOT%20container-title.keyword:%22Gates%20Open%20Research%22%20AND%20NOT%20funder.name:(%22melinda%20gates%20foundation%22%20OR%20%22gates%20cambridge%20trust%22%20OR%20%22gates%20ventures%22)%20AND%20NOT%20author.affiliation.id.id:(%220456r8d26%22%20OR%20%22033sn5p83%22)%20AND%20NOT%20author.affiliation.name:(%22melinda%20gates%20foundation%22%20OR%20%22gates%20cambridge%20trust%22%20OR%20%22gates%20ventures%22)
+  # or 194 for verixiv anywhere:
+  # https://bg.beta.oa.works/src/crossref/works?q=verixiv%20AND%20NOT%20funder.DOI.keyword:(%2210.13039/100000865%22%20OR%20%2210.13039/501100005370%22%20OR%20%2210.13039/100009053%22)%20AND%20NOT%20container-title.keyword:%22Gates%20Open%20Research%22%20AND%20NOT%20funder.name:(%22melinda%20gates%20foundation%22%20OR%20%22gates%20cambridge%20trust%22%20OR%20%22gates%20ventures%22)%20AND%20NOT%20author.affiliation.id.id:(%220456r8d26%22%20OR%20%22033sn5p83%22)%20AND%20NOT%20author.affiliation.name:(%22melinda%20gates%20foundation%22%20OR%20%22gates%20cambridge%20trust%22%20OR%20%22gates%20ventures%22)
+
+  res = org: org, queries: queries, started: 0, took: 0, saved: 0, missing: (if missed then 0 else undefined), missed: (if missed then [] else undefined), local: 0, requests: 0, found: [], duplicates: 0
+  org = await @report.orgs 'name.keyword:"' + org + '"', 1
+  if org?.source?.crossref
+    try org.source.crossref = decodeURIComponent(decodeURIComponent(org.source.crossref)) if org.source.crossref.includes '%'
+    if verbose or missed
+      res.local = []
+      res.local.push(w.DOI) for await w from @index._for 'src_crossref_works', org.source.crossref, include: ['DOI']
+      console.log res.local.length
+    else
+      try res.local = await @src.crossref.works.count org.source.crossref
+      console.log res.local # this is currently 28732 (and 26650 are found just by the funder.DOI check)
+  last = Date.now()
+  res.started = last
+
+  # first run got 26867 from remote, vs the expected 28732 - took about 3 mins
+  # adding 'prefix:10.12688' found a lot more mostly unique, and rendered container-title and issn redundant, but far more false than true matches
+  # so filtering would definitely be needed on all of those - and the total missed was still about the same at 1976
+  # total missed after running this then openalex comes down to 553
+
+  for o in queries
+    rg = o.split(':')[0]
+    res[rg] = found: [], unique: []
+    cursor = '*'
+    # test without our API key and stick to rate limit
+    while cursor? and ans = await @fetch ('https://api.crossref.org/works?mailto=sysadmin@oa.works&filter=' + o + '&rows=1000&cursor=' + encodeURIComponent cursor), {rate: ['crossrefFilter', 3], headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works')}} #, 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
+      cursor = ans.message?['next-cursor'] # will be null if there are no more to get
+      cursor = undefined if not ans.message?.items or ans.message.items.length < 1000 # crossref does not auto remove the last cursor on the last page so need to check for shortness
+      console.log rg, res.requests, res.found.length, res.duplicates, Date.now() - res.started, cursor
+      res.requests += 1
+      for r in (ans.message?.items ? [])
+        rid = r.DOI.toLowerCase()
+        res[rg].found.push(rid) if rid not in res[rg].found
+        res[rg].unique.push(rid) if rid not in res[rg].unique and rid not in res.found
+        if rid in res.found
+          res.duplicates += 1
+        else
+          res.found.push rid
+          if save
+            ft = await @src.crossref.works._format r
+            batch.push ft
+          if batch.length >= 5000
+            await @report.works.crossref batch
+            res.saved += batch.length
+            console.log 'crossref orgs queries saved batch', res.saved
+            batch = []
+      if Date.now() - last < 100
+        await @sleep 100 - (Date.now() - last)
+      last = Date.now()
+    res[rg].found = res[rg].found.length unless verbose
+    res[rg].unique = res[rg].unique.length unless verbose
+  if batch.length
+    await @report.works.crossref batch
+    res.saved += batch.length
+    console.log 'crossref orgs queries saved final batch', res.saved
+    batch = []
+  console.log res.found.length, if typeof res.local is 'number' then res.local else res.local.length
+  if missed and Array.isArray res.local
+    res.missed.push(ld) for ld in res.local when ld not in res.found
+    res.missing = res.missed.length
+  res.local = res.local.length if not verbose and Array.isArray res.local
+  res.found = res.found.length unless verbose or missed
+  res.took = Date.now() - res.started
+  console.log(res) if not verbose
+  return res
+
+#P.report.works.orgs_queries.crossref._async = true
+
+
+P.report.works.orgs_queries.openalex = (org, queries, verbose, missed, save, compare) ->
+  # all but gates had publication_year:>1979
+  # for RWJF it makes no difference, and also searching in institutions.display_name returns no more than raw_affiliation_strings, but DOES find more than just the ROR search
+  # for Wellcome 1979 made a 3k difference out of about 79k. So not enough to worry about.
+  # RWJF misses 41 over crossref and openalex, but also finds a few extra. MJFF misses 17, Wellcome misses X, HHMI misses X, Templeton misses X
+  qs = 
+    'Gates Foundation': ['funders.id:F4320306137|F4320323264|F4320310978', 'authorships.institutions.ror:0456r8d26|033sn5p83', 'raw_affiliation_strings.search:melinda%20gates%20foundation|gates%20cambridge%20trust|gates%20ventures', 'locations.source.issn:2572-4754|3029-0988']
+    'Robert Wood Johnson Foundation': ['funders.id:F4320306139|F4320309038', 'authorships.institutions.ror:02ymmdj85', 'raw_affiliation_strings.search:Robert Wood Johnson Foundation']
+    'Michael J. Fox Foundation': ['funders.id:F4320306136', 'authorships.institutions.ror:03arq3225', 'raw_affiliation_strings.search:Michael J. Fox Foundation']
+    'Wellcome Trust': ['funders.id:F4320311904', 'authorships.institutions.ror:029chgv08', 'raw_affiliation_strings.search:Wellcome Trust']
+    'Templeton World Charity Foundation': ['funders.id:F4320327239', 'authorships.institutions.ror:00x0z1472', 'raw_affiliation_strings.search:Templeton World Charity Foundation']
+    'Howard Hughes Medical Institute': ['funders.id:F4320306082', 'authorships.institutions.ror:006w34k90|013sk6x84', 'raw_affiliation_strings.search:Howard Hughes Medical Institute|Janelia Research Campus|Freeman Hrabowski']
+    #'Robert Wood Johnson Foundation': "(publication_year:>1979 AND (grants.funder:(%22F4320306139%22 OR %22F4320309038%22) OR authorships.institutions.ror:(%2202ymmdj85%22) OR authorships.institutions.display_name:(%22Robert Wood Johnson Foundation%22) OR authorships.raw_affiliation_strings:(%22Robert Wood Johnson Foundation%22)))",
+    #'Michael J. Fox Foundation': "(publication_year:>1979 AND (grants.funder:(%22F4320306136%22) OR authorships.institutions.ror:(%2203arq3225%22) OR authorships.institutions.display_name:(%22Michael J. Fox Foundation%22) OR authorships.raw_affiliation_strings:(%22Michael J. Fox Foundation%22)))"
+    #'Wellcome Trust': "(publication_year:>1979 AND (grants.funder:(%22F4320311904%22) OR authorships.institutions.ror:(%22029chgv08%22) OR authorships.institutions.display_name:(%22Wellcome Trust%22) OR authorships.raw_affiliation_strings:(%22Wellcome Trust%22)))"
+    #'Templeton World Charity Foundation': "(publication_year:>1979 AND (grants.funder:(%22F4320327239%22) OR authorships.institutions.ror:(%2200x0z1472%22) OR authorships.institutions.display_name:(%22Templeton World Charity Foundation%22) OR authorships.raw_affiliation_strings:(%22Templeton World Charity Foundation%22)))"
+    #'Howard Hughes Medical Institute': "(publication_year:>1979 AND (grants.funder:(%22F4320306082%22) OR authorships.institutions.ror:(%22006w34k90%22 OR %22013sk6x84%22) OR authorships.institutions.display_name:(%22Howard Hughes Medical Institute%22 OR %22Janelia Research Campus%22 OR %22Freeman Hrabowski%22) OR authorships.raw_affiliation_strings:(%22Howard Hughes Medical Institute%22 OR %22Janelia Research Campus%22 OR %22Freeman Hrabowski%22)))"
+
+  org ?= @params.org ? 'Gates Foundation'
+  queries ?= qs[org] ? (@params.queries ? '').split ','
+  verbose ?= @params.verbose ? false
+  missed ?= @params.missed ? false
+  save ?= @params.save ? false
+  compare ?= @params.compare ? false
+  batch = []
+  # "openalex": "(locations.source.display_name:(%22Gates%20Open%20Research%22%20OR%20%22verixiv%22) OR (grants.funder:(%22F4320306137%22 OR %22F4320323264%22 OR %22F4320310978%22) OR authorships.institutions.ror:(%220456r8d26%22 OR %22033sn5p83%22) OR authorships.institutions.display_name:(%22melinda gates foundation%22 OR %22gates cambridge trust%22 OR %22gates ventures%22) OR authorships.raw_affiliation_strings:(%22melinda gates foundation%22 OR %22gates cambridge trust%22 OR %22gates ventures%22)))",
+  # openalex cannot search locations.source.display_name but CAN search .issn
+  # openalex cannot search authorships.institutions.display_name but CAN search .id (which is the openalex ID of the institution)
+  # openalex cannot search authorships.raw_affiliation_strings but CAN search raw_affiliation_strings.search
+
+  # Note locations.source.display_name verixiv finds 9 on our openalex, and searching the matching ISSN finds 9 as well:
+  # BUT searching directly on openalex for issn or even the openalex source ID only returns 4 records
+  # AND for at least one of those records, our local version looks BETTER than their more recently updated version, which seems to be missing the locations.source object altogether
+  # A default.search for verixiv on openalex can find 6 results.
+  # https://bg.beta.oa.works/src/openalex/works/10.12688/verixiv.77.1 vs https://api.openalex.org/works/W4402608277
+  # https://bg.beta.oa.works/src/openalex/works?q=locations.source.display_name:%22Verixiv%22
+  # https://bg.beta.oa.works/src/openalex/works?q=locations.source.issn.keyword:%223029-0988%22
+
+  # our locations.source.display_name openalex search for Gates Open Research finds 873
+  # the issn is 2572-4754 which also finds 873 locally
+  # on remote openalex the ISSN search finds 880 so at least this one looks good.
+
+  # awards.funder_id returns 16474 - https://api.openalex.org/works?filter=awards.funder_id:F4320306137|F4320323264|F4320310978
+  # authorships.institutions.ror returns 3744 - https://api.openalex.org/works?filter=authorships.institutions.ror:0456r8d26|033sn5p83
+  # raw_affiliation_strings.search returns 3561 - https://api.openalex.org/works?filter=raw_affiliation_strings.search:melinda%20gates%20foundation|gates%20cambridge%20trust|gates%20ventures
+  # locations.source.issn returns 884 - https://api.openalex.org/works?filter=locations.source.issn:2572-4754|3029-0988
+
+  # alternatively funders.id gets 27473 - https://api.openalex.org/works?filter=funders.id:F4320306137|F4320323264|F4320310978
+
+  # basic openalex paging returns up to 200 per page, and up to 10000 results regardless of paging count - so will need cursor to get them all
+
+  # rate limit is 10r/s and 100k per day, IF not using premium API key. And need to send a contact email param to get into the polite pool (which processes faster)
+  # roughly 25k records indicated by the above queries, 200 per request, at least 125 requests or so. 
+  # Took 4 mins at first attempt, 127 requests, 20k found, 4k dups
+  # BUT our local query finds about 28k
+  # we are up to better coverage with funders.id instead of awards.funder_id. we still miss 553
+  # 'awards.funder_id:F4320306137|F4320323264|F4320310978' NOT NEEDED for gates, confirmed, all within funders.id which also returns much more.
+
+  res = org: org, queries: queries, started: 0, took: 0, saved: 0, nodoi: 0, missing: (if missed then 0 else undefined), missed: (if missed then [] else undefined), local: 0, requests: 0, found: [], duplicates: 0
+  if compare
+    res.cd = 0
+    res.crossref = await @report.works.orgs_queries.crossref org, undefined, verbose, missed
+  org = await @report.orgs 'name.keyword:"' + org + '"', 1
+  if org?.source?.openalex
+    try org.source.openalex = decodeURIComponent(decodeURIComponent(org.source.openalex)) if org.source.openalex.includes '%'
+    if verbose or missed
+      res.local = []
+      res.local.push((if w.ids?.doi or w.doi then (w.ids?.doi ? w.doi).split('.org/').pop() else w.id).toLowerCase()) for await w from @index._for 'src_openalex_works', org.source.openalex, include: ['id', 'doi', 'ids']
+      console.log res.local.length
+    else
+      try res.local = await @src.openalex.works.count org.source.openalex
+      console.log res.local
+  last = Date.now()
+  res.started = last
+
+  for o in queries
+    rg = o.split(':')[0]
+    res[rg] = found: [], unique: []
+    cursor = '*'
+    o += ',publication_year:>' + (parseInt((await @date()).split('-')[0]) - 3) # to avoid openalex deep cursoring errors
+    while cursor? and ans = await @fetch ('https://api.openalex.org/works?mailto=sysadmin@oa.works' + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '') + '&filter=' + o + '&per-page=200&cursor=' + encodeURIComponent cursor), {rate: ['openalexFilter', 20, 10000, 86400]}
+      console.log(ans) if ans?.status and typeof ans.status is 'number' # look out for 429 or other errors - break or log? No errors on first attempt
+      cursor = ans.meta.next_cursor # will be null if there are no more to get
+      console.log rg, res.requests, res.found.length, res.duplicates, Date.now() - res.started, cursor
+      res.requests += 1
+      for r in ans.results
+        if r.ids?.doi or r.doi
+          rid = (r.ids?.doi ? r.doi).split('.org/').pop().toLowerCase()
+        else
+          res.nodoi += 1
+          rid = r.id.toLowerCase()
+        res[rg].found.push(rid) if rid not in res[rg].found
+        res[rg].unique.push(rid) if rid not in res[rg].unique and rid not in res.found
+        if rid in res.found
+          res.duplicates += 1
+        else if compare and rid in res.crossref.found
+          res.cd += 1
+        else
+          res.found.push rid
+          if save
+            ft = await @src.openalex.works._format r
+            batch.push ft
+          if batch.length >= 5000
+            await @src.openalex.works batch
+            res.saved += batch.length
+            console.log 'openalex orgs queries saved batch', res.saved
+            batch = []
+      if Date.now() - last < 100
+        await @sleep 100 - (Date.now() - last)
+      last = Date.now()
+    res[rg].found = res[rg].found.length unless verbose
+    res[rg].unique = res[rg].unique.length unless verbose
+  if batch.length
+    await @src.openalex.works batch
+    res.saved += batch.length
+    console.log 'openalex orgs queries saved final batch', res.saved
+    batch = []
+  console.log res.found.length, if typeof res.local is 'number' then res.local else res.local.length
+  if missed and Array.isArray res.local
+    res.missed.push(ld) for ld in res.local when ld not in res.found and (not compare or ld not in res.crossref.found)
+    res.missing = res.missed.length
+  res.crossref.found = res.crossref.found.length if compare and not verbose and Array.isArray res.crossref.found
+  res.crossref.missed = res.crossref.missed.length if compare and missed and not verbose and Array.isArray res.crossref.missed
+  res.local = res.local.length if not verbose and Array.isArray res.local
+  res.found = res.found.length if not verbose and Array.isArray res.found
+  res.took = Date.now() - res.started
+  console.log(res) if not verbose
+  return res
+
+#P.report.works.orgs_queries.openalex._async = true
+
+P.report.works.crossref = _index: true, _prefix: false, _key: 'DOI'
+P.report.works.crossref.doi = (doi, refresh, local) ->
+  doi ?= @params.doi
+  refresh = @refresh if not refresh? and @fn is 'report.works.crossref.doi'
+  refresh = true if refresh is 0
+  local ?= @params.local ? true # rely on local index for now, if it exists there
+  if refresh isnt true
+    found = await @report.works.crossref doi
+    found = await @src.crossref.works(doi) if not found and local
+    if found and (typeof refresh isnt 'number' or not found.retrievedAt or (Date.now() - refresh) <= found.retrievedAt)
+      return found
+  res = await @fetch 'https://api.crossref.org/works/' + doi + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works'), {rate: ['crossref', 7], headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works')}} #, 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
+  if typeof res is 'object' and res.message?.DOI?
+    found = await @src.crossref.works._format res.message
+    await @report.works.crossref found
+  return found
 
 
 
@@ -14,14 +344,14 @@ P.report.suggestions = ->
   if org and field
     res = []
     fieldname = field.toLowerCase().replace('.keyword','').replace /[^a-z0-9]/g, '' # sort on fieldname may require .keyword when field is textual
-    q = @params.q ? '*'
+    q = (@params.q ? '*').toString()
     max = @params.max ? @params.size ? 1000
     exact = @params.exact ? true
     keyword = if q is '*' then false else @params.keyword ? true
     wildcard = if q is '*' then false else @params.wildcard ? true
     suffix = if not wildcard then false else @params.suffix ? true
-    prefix = if not wildcard then false else @params.prefix ? false
-    fuzzy = @params.fuzzy ? false
+    prefix = if not wildcard then false else @params.prefix ? true
+    fuzzy = @params.fuzzy ? true
     sort = @params.sort # asc or desc, or fieldname:asc etc
     sort = fieldname + ':' + sort if sort and not sort.includes ':'
     _find = (fq) =>
@@ -29,13 +359,15 @@ P.report.suggestions = ->
         console.log fq
         for await rec from @index._for 'paradigm' + (if S.dev then '_b' else '') + '_report_suggestables', 'org.keyword:"' + org + '" AND field.keyword:"' + field + '" AND ' + fq, max: max, sort: sort
           res.push(rec[fieldname]) if rec[fieldname] and rec[fieldname] not in res
+    cq = q.replace /[\,\.\!\;\?\/\:\-]/g, ' '
+    console.log cq
     if exact
       await _find(fieldname + '.keyword:' + q) if keyword
-      await _find(fieldname + ':' + q.split(' ').join(' AND ' + fieldname + ':')) if not res.length
+      await _find(fieldname + ':' + cq.split(' ').join(' AND ' + fieldname + ':')) if not res.length
     if wildcard
-      await _find(fieldname + ':' + q.split(' ').join(' AND ' + fieldname + ':') + '*') if not res.length or suffix
-      await _find(fieldname + ':' + q.split(' ').join('~ AND ' + fieldname + ':') + '~') if not res.length and fuzzy
-      await _find((fieldname + ':' + q.split(' ').join(' AND ' + fieldname + ':') + '*').replace(/:([^:]*)$/, ':*$1')) if not res.length and prefix
+      await _find(fieldname + ':' + cq.split(' ').join(' AND ' + fieldname + ':') + '*') if not res.length or suffix
+      await _find(fieldname + ':' + cq.split(' ').join('~ AND ' + fieldname + ':') + '~') if not res.length and fuzzy
+      await _find((fieldname + ':' + cq.split(' ').join(' AND ' + fieldname + ':') + '*').replace(/:([^:]*)$/, ':*$1')) if not res.length and prefix
     return res
   else
     res = total: await @report.suggestables.count()
@@ -45,7 +377,7 @@ P.report.suggestions = ->
     res.field[f.term] = f.count for f in await @report.suggestables.terms 'field'      
     res.org = await @report.suggestables.terms 'org'
     for o in res.org
-      o.works = await @report.works.count 'orgs.keyword:"' + o.term + '"'
+      o.works = await @report.works.count 'orgs.keyword:"' + o.term + '" AND NOT orgs_by_query:*'
       o.field = {}
       o.field[f.term] = f.count for f in await @report.suggestables.terms 'field', 'org.keyword:"' + o.term + '"'
     return res
@@ -61,7 +393,16 @@ P.report.suggestify = (orgs, fields, clear) ->
   batch = []
   total = 0
   clear ?= @params.clear ? false
-  await @report.suggestables('') if clear # may need to clear by org - which is harder for merged records
+  if clear is true
+    if @params.orgs and not @params.fields
+      for o in orgs
+        console.log 'clearing suggestables for org', o
+        bd = []
+        for await rec from @index._for 'paradigm' + (if S.dev then '_b' else '') + '_report_suggestables', 'org.keyword:"' + o + '"', include: ['_id']
+          bd.push rec._id
+        await @index._bulk 'paradigm' + (if S.dev then '_b' else '') + '_report_suggestables', bd, 'delete'
+    else
+      await @report.suggestables ''
 
   console.log 'suggestify starting for orgs and fields:'
   console.log orgs
@@ -71,7 +412,7 @@ P.report.suggestify = (orgs, fields, clear) ->
     console.log 'building suggestables for org', o
     uniques = {}
     batches = {}
-    for await rec from @index._for 'paradigm' + (if S.dev then '_b' else '') + '_report_works', 'orgs.keyword:"' + o + '"', include: fields
+    for await rec from @index._for 'paradigm' + (if S.dev then '_b' else '') + '_report_works', 'orgs.keyword:"' + o + '" AND NOT orgs_by_query:*', include: fields
       for field in fields
         vals = await @dot rec, field
         vals = [vals] unless Array.isArray vals
@@ -636,7 +977,6 @@ try P.oareport.email = P.report.email # temporary for oareport development
 # curl -X PUT http://localhost:9200/paradigm_b_report_works/_settings -H 'Content-Type: application/json' -d '{"index.mapping.total_fields.limit": 2000}'
 # put in opensearch.yml: indices.query.bool.max_clause_count: 20000
 
-P.report.works = _index: true
 P.report.works.process = (cr, openalex, refresh, everything, action, replaced, queued) ->
   try
     started = await @epoch()
@@ -651,7 +991,8 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
     if typeof cr is 'string' and cr.toLowerCase().startsWith 'pmc'
       givenpmcid = cr.toLowerCase().replace('pmc', 'PMC')
       cr = undefined
-      openalex ?= await @src.openalex.works 'ids.pmcid:"' + givenpmcid.toLowerCase().replace('pmc', '') + '"', 1 # openalex does not store them with the PMC prefix, they are in URL format without it
+      #openalex ?= await @src.openalex.works 'ids.pmcid:"' + givenpmcid.toLowerCase().replace('pmc', '') + '"', 1 # openalex does not store them with the PMC prefix, they are in URL format without it
+      openalex ?= await @src.openalex.works.find undefined, undefined, givenpmcid
       if not openalex? and epmc = await @src.epmc.pmc givenpmcid, refresh
         cr = epmc.doi
 
@@ -668,8 +1009,9 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
         cr ?= openalex
       if openalex.startsWith('W') or openalex.startsWith '10.'
         try
-          ox = if openalex.startsWith('W') then await @src.openalex.works('id.keyword:"https://openalex.org/' + openalex + '"') else await @src.openalex.works.doi openalex, (@params.refresh_sources ? false)
-          try ox = ox.hits.hits[0]._source if ox?.hits?.hits?.length
+          #ox = if openalex.startsWith('W') then await @src.openalex.works('id.keyword:"https://openalex.org/' + openalex + '"') else await @src.openalex.works.doi openalex, (@params.refresh_sources ? false)
+          #try ox = ox.hits.hits[0]._source if ox?.hits?.hits?.length
+          ox = await @src.openalex.works.find (if openalex.startsWith('10.') then openalex else undefined), (if openalex.startsWith('10.') then undefined else openalex)
           openalex = ox if ox?.id
     if (typeof openalex is 'object' and openalex.ids?.doi) or (typeof openalex is 'string' and openalex.startsWith '10.')
       soad = (if typeof openalex is 'string' then openalex else openalex.ids.doi.split('.org/')[1]).toLowerCase()
@@ -682,7 +1024,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
     cr = cr.split('doi.org/').pop() if typeof cr is 'string' and cr.includes 'doi.org/'
     cr = undefined if typeof cr is 'string' and not cr.startsWith '10.'
     cr = cr.toLowerCase() if typeof cr is 'string'
-    cr = xref if typeof cr is 'string' and xref = await @src.crossref.works.doi cr, (@params.refresh_sources ? false) # not exists? and 
+    cr = xref if typeof cr is 'string' and xref = await @src.crossref.works.doi cr, @params.refresh
     cr = undefined if typeof cr is 'object' and not cr.DOI
 
     exists = await @report.works(if typeof cr is 'string' then cr else cr.DOI) if cr? and not exists?
@@ -701,7 +1043,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
         rec.has_data_availability_statement = true if exists.data_availability_statement #or exists.has_data_availability_statement
       refresh = true if not exists?.updated or (refresh and refresh isnt true and exists and exists.updated < refresh)
 
-    openalex = await @src.openalex.works.doi((if typeof cr is 'object' then cr.DOI else cr), (@params.refresh_sources ? false)) if cr? and not openalex?
+    openalex = await @src.openalex.works.find(if typeof cr is 'object' then cr.DOI else cr) if cr? and not openalex?
     openalex = undefined if typeof openalex is 'string' or not openalex?.id
 
     if typeof cr is 'object' and cr.DOI
@@ -1132,8 +1474,6 @@ P.report.works.load = (timestamp, org, idents, year, clear, supplements, everyth
       console.log 'report works load openalex by query expects', oq, precount
       for await ol from @index._for 'src_openalex_works', oq, include: ['id', 'ids'], scroll: '30m'
         oodoi = if ol.ids?.doi then '10.' + ol.ids.doi.split('/10.')[1] else ol.id.split('openalex.org/').pop()
-        #if ol.id and ol.id.includes('/') and (not oodoi or (oodoi not in oo and oodoi not in cc))
-        #  await @report.queue undefined, (oodoi ? ol.id.split('/').pop()), (timestamp ? refresh), everything
         if oodoi
           if org or year isnt @params.load or not oodoi.startsWith('10.') or not ae = await @report.works oodoi
             total += 1
@@ -1176,7 +1516,7 @@ P.report.works.load._async = true
 P.report.works.load._auth = '@oa.works'
 
 P.report.works.load.mains = ->
-  orgs = if @params.orgs then @params.orgs.split(',') else ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Howard Hughes Medical Institute', 'Templeton World Charity Foundation', 'Michael J. Fox Foundation', 'Parkinson’s Progression Markers Initiative']
+  orgs = if @params.orgs then @params.orgs.split(',') else ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Wellcome Trust']
   for org in orgs
     await @report.works.load undefined, org
   return true
