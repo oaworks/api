@@ -12,22 +12,6 @@
 P.src.crossref = () ->
   return 'Crossref API wrapper'
 
-'''P.src.crossref.works = (doi) ->
-  doi ?= @params.works ? @params.doi ? @params.title ? @params.q
-  if typeof doi is 'string'
-    if doi.indexOf('10.') isnt 0
-      res = await @src.crossref.works.title doi
-    else
-      # a search of an index of works - and remainder of route is a DOI to return one record
-      doi = doi.split('//')[1] if doi.indexOf('http') is 0
-      doi = '10.' + doi.split('/10.')[1] if doi.indexOf('10.') isnt 0 and doi.indexOf('/10.') isnt -1
-      url = 'https://api.crossref.org/works/' + doi
-      res = await @fetch url, {headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works'), 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
-
-    if res?.message?.DOI?
-      return @src.crossref.works._format res.message
-  return'''
-
 P.src.crossref.works = _index: settings: number_of_shards: 15
 P.src.crossref.works._key = 'DOI'
 P.src.crossref.works._prefix = false
@@ -40,10 +24,9 @@ P.src.crossref.works.doi = (doi, refresh, save) ->
     doi = doi.split('//')[1] if doi.indexOf('http') is 0
     doi = '10.' + doi.split('/10.')[1] if doi.indexOf('10.') isnt 0 and doi.indexOf('/10.') isnt -1
     if refresh or not found = await @src.crossref.works doi
-      res = await @fetch 'https://api.crossref.org/works/' + doi, {headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works'), 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
+      res = await @fetch 'https://api.crossref.org/works/' + doi, {rate: ['crossref', 7], headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works')}} #, 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
       if res?.message?.DOI?
         found = await @src.crossref.works._format res.message
-        found.retrievedAt = Date.now()
         await @src.crossref.works(found) if save
   return found
 
@@ -103,6 +86,7 @@ P.src.crossref.works._format = (rec) ->
     try parseInt rec.year
     try rec.publishedAt = await @epoch rec.published
 
+  rec.retrievedAt = Date.now()
   return rec
 
 P.src.crossref.works.published = (rec) ->
@@ -172,7 +156,7 @@ P.src.crossref.works.search = (qrystr, from, size, filter, start, end, sort, ord
   url += 'filter=' + encodeURIComponent(filter) + '&' if filter
   url = url.replace('?&','?').replace(/&$/,'') # tidy any params coming immediately after the start of search query param signifier, as it makes crossref error out
   try
-    res = await @fetch url, {headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works'), 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
+    res = await @fetch url, {rate: ['crossrefFilter', 3], headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works')}} #, 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
     return total: res.message['total-results'], cursor: res.message['next-cursor'], data: res.message.items, facets: res.message.facets
   catch
     return
@@ -186,7 +170,7 @@ P.src.crossref.journals.load = () ->
   cursor = '*'
   while cursor and (counter is 0 or counter < total)
     url = 'https://api.crossref.org/journals?cursor=' + cursor + '&rows=' + 1000
-    res = await @fetch url, {headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works'), 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
+    res = await @fetch url, {rate: ['crossrefFilter', 3], headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works')}} #, 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
     total = res.message['total-results'] if total is 0
     cursor = res.message['next-cursor']
     for rec in res.message.items
@@ -347,7 +331,6 @@ P.src.crossref.changes = (startday, endday, created) ->
         else
           for rec in thisdays.data
             fr = await @src.crossref.works._format rec
-            fr.retrievedAt = Date.now()
             fr.srcday = startday
             batch.push fr
             loaded += 1
@@ -417,7 +400,7 @@ P.src.crossref.plus.load = ->
   catch
     console.log 'crossref downloading snapshot'
     hds = {}
-    hds['Crossref-Plus-API-Token'] = 'Bearer ' + @S.crossref
+    hds['Crossref-Plus-API-Token'] = 'Bearer ' + @S.crossref # NOTE we no longer have a token for this
     resp = await fetch 'https://api.crossref.org/snapshots/monthly/latest/all.json.tar.gz', headers: hds
     wstr = fs.createWriteStream fn
     await new Promise (resolve, reject) =>
@@ -464,7 +447,6 @@ P.src.crossref.plus.load = ->
             recs = []
             for rec in rp = JSON.parse '[' + lps.join(']') + '}]'
               rec = await @src.crossref.works._format rec
-              rec.retrievedAt = Date.now()
               if rec?.DOI
                 rec.srcfile = srcfile
                 recs.push rec

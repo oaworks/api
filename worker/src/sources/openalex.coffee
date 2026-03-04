@@ -25,8 +25,19 @@ try S.src.openalex = JSON.parse SECRETS_OPENALEX
 # public tier is 10r/s max 100k per day, requires mailto: param
 # premium limits just says "as needed"
 
-P.src.openalex = () ->
-  return true
+# rate limits were CHANGED again:
+# https://docs.openalex.org/how-to-use-the-api/rate-limits-and-authentication
+# now direct GETs of individual records have no "cost"
+# filter queries "cost" means that we can make 10k filter queries per day on the free plan
+# overall rate limit is 100r/s with no day cap
+# this will require some changes to our rate limiting to manage a 10k cap on filters but not on GETS, whilst also maintaining 100r/s overall
+# for now split it 80/20 across two types and hope it works
+
+P.src.openalex = -> return true
+
+P.src.openalex.rates = ->
+  return @fetch 'https://api.openalex.org/rate-limit?api_key=' + @S.src.openalex.apikey, {rate: ['openalex', 80]}
+
 
 P.src.openalex.works = _index: {settings: {number_of_shards: 15}}, _prefix: false
 #P.src.openalex.authors = _index: {settings: {number_of_shards: 15}}, _prefix: false
@@ -62,19 +73,69 @@ P.src.openalex.works._format = (rec) ->
       abs[n] = word for n in rec.abstract_inverted_index[word]
     rec.abstract = abs.join(' ') if abs.length
   try delete rec.abstract_inverted_index
+  rec.retrievedAt = Date.now()
   return rec
 
-P.src.openalex.works.doi = (doi, refresh, save) ->
-  doi ?= @params.doi
-  refresh = @refresh if not refresh? and @fn is 'src.openalex.works.doi'
-  save ?= @params.save ? true
-  if refresh or not found = await @src.openalex.works 'ids.doi.keyword:"https://doi.org/' + doi + '"', 1
-    if found = await @fetch 'https://api.openalex.org/works/https://doi.org/' + doi + (if @S.src.openalex?.apikey then '?api_key=' + @S.src.openalex.apikey else '')
-      if found.id
-        found = await @src.openalex.works._format found
-        found.retrievedAt = Date.now()
-        await @src.openalex.works(found) if save
+P.src.openalex.works.find = (doi, openalex, pmcid, pmid, refresh) -> # ident can be DOI, openalex ID, or PMCID
+  if not doi and not openalex and not pmcid and not pmid and (ident = @params.find)
+    if ident.startsWith '10.'
+      doi = ident
+    else if ident.toLowerCase().startsWith 'w'
+      openalex = ident
+    else if ident.toLowerCase().startsWith 'pmc'
+      pmcid = ident
+    else
+      pmid = ident
+  refresh = @refresh if not refresh? and @fn is 'src.openalex.works.find'
+  refresh = true if refresh is 0
+  if refresh isnt true
+    qr = if doi then  'ids.doi.keyword:"https://doi.org/' + doi + '" OR doi.keyword:"https://doi.org/' + doi + '"' else ''
+    qr += (if qr then ' OR ' else '') + 'id.keyword:"https://openalex.org/' + openalex + '"' if openalex
+    if pmcid
+      pml = pmcid.toLowerCase().replace 'pmc', ''
+      qr += (if qr then ' OR ' else '') + 'ids.pmcid.keyword:"https://www.ncbi.nlm.nih.gov/pmc/articles/' + pml + '"'
+      qr += ' OR locations.landing_page_url.keyword:"https://www.ncbi.nlm.nih.gov/pmc/articles/' + pml + '" OR locations.landing_page_url.keyword:"https://europepmc.org/articles/pmc' + pml + '"'
+    if pmid
+      qr += (if qr then ' OR ' else '') + 'ids.pmid.keyword:"https://pubmed.ncbi.nlm.nih.gov/' + pmid + '"'
+      qr += ' OR locations.landing_page_url.keyword:"https://pubmed.ncbi.nlm.nih.gov/' + pmid + '"'
+    found = await @src.openalex.works(doi) if doi
+    found = await @src.openalex.works(qr, 1) if not found
+    if found and (typeof refresh isnt 'number' or not found.retrievedAt or (Date.now() - refresh) <= found.retrievedAt)
+      return found
+
+  if doi
+    res = await @fetch ('https://api.openalex.org/works/https://doi.org/' + doi + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '')), {rate: ['openalex', 80]}
+  if not res and openalex
+    res = await @fetch ('https://api.openalex.org/works/' + openalex + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '')), {rate: ['openalex', 80]}
+  if not res and pmid
+    res = await @fetch ('https://api.openalex.org/works/pmid:' + pmid + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '')), {rate: ['openalex', 80]}
+
+  if false #not res and pmcid # using filters for pmcid searches is too "expensive"
+    # openalex does not appear to have ids.pmcid on records now, even though ids.pmcid is still a searchable field, and the locations does contain it
+    # example see https://api.openalex.org/works?filter=locations.landing_page_url:https://www.ncbi.nlm.nih.gov/pmc/articles/4306759
+    #if res = await @fetch ('https://api.openalex.org/works?filter=ids.pmcid:https://www.ncbi.nlm.nih.gov/pmc/articles/' + ident.toLowerCase().replace('pmc', '') + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works')), {rate: ['openalexFilter', 20, 10000, 86400]}
+    # landing page can have other relevant formats, see: https://api.openalex.org/works/W4387299001
+    # https://europepmc.org/articles/pmc1078728
+    # this one on openalex currently has PMID but NOT PMCID, but does still have pubmed and ncbi (pmcid) links:
+    # https://api.openalex.org/works/W1964326751
+    # whereas our copy (older) had pmcid too: https://bg.beta.oa.works/src/openalex/works/10.1073/pnas.30.11.362
+    # can also check locations.landing_page_url for PMID: https://pubmed.ncbi.nlm.nih.gov/37788887
+    pml = pmcid.toLowerCase().replace('pmc', '')
+    res = await @fetch ('https://api.openalex.org/works?filter=locations.landing_page_url:https://www.ncbi.nlm.nih.gov/pmc/articles/' + pml + '|https://europepmc.org/articles/pmc' + pml + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '')), {rate: ['openalexFilter', 20, 10000, 86400]}
+    try res = res.results[0]
+    try res = undefined if not res?.id
+    res ?= await @fetch ('https://api.openalex.org/works?filter=ids.pmcid:https://www.ncbi.nlm.nih.gov/pmc/articles/' + pml + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '')), {rate: ['openalexFilter', 20, 10000, 86400]}
+    try res = res.results[0]
+    try res = undefined if not res?.id
+  if typeof res is 'object' and res.id
+    found = await @src.openalex.works._format res
+    await @src.openalex.works found
   return found
+
+P.src.openalex.works.doi = (doi, refresh) ->
+  refresh = @refresh if not refresh? and @fn is 'src.openalex.works.doi'
+  doi ?= @params.doi
+  return @src.openalex.works.find doi, undefined, undefined, undefined, refresh
 
 P.src.openalex.works.title = (title) ->
   if title ?= @params.title
@@ -137,9 +198,9 @@ P.src.openalex.load = (what, changes, clear, sync, last, toalias) ->
   changes ?= @params.changes
   infiles = @S.directory + '/import/openalex/data/' + what
 
-  toalias ?= @params.toalias
+  toalias ?= @params.toalias ? '15032024'
   toalias += '' if typeof toalias is 'number'
-  toalias = '15032024'
+  #toalias = '15032024'
 
   clear ?= @params.clear
   if clear
@@ -208,7 +269,6 @@ P.src.openalex.load = (what, changes, clear, sync, last, toalias) ->
       #      xc.score = Math.floor(xc.score) if xc.score?
       #else if what is 'works'
       rec = await @src.openalex.works._format rec
-      rec.retrievedAt = Date.now()
       batch.push rec
       if batch.length >= 20000
         console.log 'Openalex ' + what + ' ' + toalias + ' bulk loading', flo, batch.length, total
@@ -263,7 +323,7 @@ P.src.openalex.load = (what, changes, clear, sync, last, toalias) ->
   return ret
 
 P.src.openalex.load._bg = true
-#P.src.openalex.load._async = true
+P.src.openalex.load._async = true
 P.src.openalex.load._log = false
 P.src.openalex.load._auth = 'root'
 

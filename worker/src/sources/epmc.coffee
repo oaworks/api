@@ -20,6 +20,56 @@
 P.src.epmc = _index: true, _prefix: false, _key: 'id' # id will be the pubmed ID from the looks of it
 P.src.epmc.notinepmc = _index: true, _prefix: false, _key: 'id', _hide: true # keep track of ones we already looked up
 
+P.src.epmc.notinepmc.years = ->
+  checked = 0
+  updated = 0
+  batch = []
+  for await rec from @index._for 'src_epmc_notinepmc', 'NOT year:*'
+    present = rec.year?
+    checked += 1
+    console.log checked, updated + batch.length, rec.id
+    if batch.length >= 20000
+      updated += batch.length
+      console.log 'not in epmc checking and updating', checked, updated
+      await @src.epmc.notinepmc batch
+      batch = []
+    if not rec.checkedAt or (@params.removenoyears and not rec.year)
+      present = true
+      console.log 'deleting as no checked date', rec.id
+      await @src.epmc.notinepmc rec.id.split('#')[0], ''
+    if not present and ((rec.doi and exists = await @report.works rec.doi) or (rec.pmid and exists = await @report.works 'PMID.keyword:"' + rec.pmid + '"', 1) or (rec.pmcid and exists = await @report.works 'PMCID.keyword:"' + rec.pmcid + '"', 1))
+      if exists?.PMCID
+        check = await @src.epmc 'pmcid:"' + exists.PMCID + '"'
+        if check?.hits?.total
+          present = true
+          console.log 'deleting as in local epmc', rec.id
+          await @src.epmc.notinepmc rec.id, ''
+      if not present and exists?.published_year
+        rec.year = exists.published_year
+        batch.push rec
+    if not present
+      if not rec.year and rec.doi and exists = await @src.crossref.works rec.doi
+        if exists.year
+          rec.year = exists.year
+          batch.push rec
+      if not rec.year and rec.pmid and exists = await @src.pubmed rec.pmid
+        rec.year = exists.dates?.PubDate?.year ? exists.dates?.DateCompleted?.year
+        batch.push(rec) if rec.year
+      if not rec.year and rec.pmcid and exists = await @src.pubmed.pmc rec.pmcid
+        rec.year = exists.dates?.PubDate?.year ? exists.dates?.DateCompleted?.year
+        batch.push(rec) if rec.year
+      # check report works for pmcid or pmid if no doi?
+  if batch.length
+    updated += batch.length
+    await @src.epmc.notinepmc batch
+    batch = []
+  console.log checked, updated
+  return updated
+P.src.epmc.notinepmc.years._bg = true
+P.src.epmc.notinepmc.years._log = false
+P.src.epmc.notinepmc.years._async = true
+P.src.epmc.notinepmc.years._auth = '@oa.works'
+
 P.src.epmc.search = (qrystr, from, size) ->
   qrystr ?= @params.search ? @params.epmc ? @params.doi ? ''
   qrystr = 'DOI:' + qrystr if qrystr.startsWith('10.') and not qrystr.includes(' ') and qrystr.split('/').length >= 2
@@ -29,7 +79,6 @@ P.src.epmc.search = (qrystr, from, size) ->
   url += '&pageSize=' + size if size? #can handle 1000, have not tried more, docs do not say
   url += '&cursorMark=' + from if from? # used to be a from pager, but now uses a cursor
   ret = {}
-  await @sleep 150
   try
     res = await @fetch url, rate: ['ebi', 8]
     ret.total = res.hitCount
@@ -39,57 +88,65 @@ P.src.epmc.search = (qrystr, from, size) ->
     @waitUntil @src.epmc ret.data
   return ret
 
-P.src.epmc.doi = (ident, refresh) ->
+P.src.epmc.doi = (ident, refresh, year) ->
   refresh ?= @refresh if not ident
   ident ?= @params.doi
-  exists = await @src.epmc 'doi:"' + ident + '"'
-  if exists?.hits?.total
-    return exists.hits.hits[0]._source
-  else if not refresh and Date.now() - ((await @src.epmc.notinepmc ident)?.checkedAt ? 0) < 2419200000 # 1000*60*60*24*28 # if we checked in the last 28 days, don't check again
-    return
-  else
-    res = await @src.epmc.search 'DOI:' + ident
-    if res.total
-      if not res.data[0].doi
-        res.data[0].doi = ident
-        @waitUntil @src.epmc res.data[0]
-      return res.data[0]
-    else if res.total? # because on 21/08/2025 the whole API disappeared - we don't want to record that as not being in
-      await @src.epmc.notinepmc id: ident.replace(/\//g, '_'), doi: ident, checkedAt: Date.now()
-      return
-
-P.src.epmc.pmid = (ident, refresh) ->
-  refresh ?= @refresh if not ident
-  ident ?= @params.pmid
-  exists = await @src.epmc 'pmid:"' + ident + '"'
-  if exists?.hits?.total
-    return exists.hits.hits[0]._source
-  else if not refresh and Date.now() - ((await @src.epmc.notinepmc ident)?.checkedAt ? 0) < 2419200000
-    return
-  else
-    res = await @src.epmc.search 'EXT_ID:' + ident + ' AND SRC:MED'
-    if res.total
-      return res.data[0]
-    else if res.total? # because on 21/08/2025 the whole API disappeared - we don't want to record that as not being in
-      await @src.epmc.notinepmc id: ident, pmid: ident, checkedAt: Date.now()
-      return
-
-P.src.epmc.pmc = (ident, refresh) ->
-  refresh ?= @refresh if not ident
-  ident ?= @params.pmc ? @params.pmcid
-  if ident
-    ident = 'PMC' + ident.toLowerCase().replace 'pmc', ''
-    exists = await @src.epmc 'pmcid:"' + ident + '"'
+  if ident and ident.startsWith('10.') and ident.split('/').length >= 2 and ident.split(' ').length is 1
+    exists = await @src.epmc 'doi:"' + ident + '"'
+    ly = parseInt((await @date()).split('-')[0]) - 3 # don't check again if already more than 3 years old, it is unlikely to turn up
     if exists?.hits?.total
       return exists.hits.hits[0]._source
-    else if not refresh and Date.now() - ((await @src.epmc.notinepmc ident)?.checkedAt ? 0) < 2419200000
+    #else if not refresh and Date.now() - ((await @src.epmc.notinepmc ident)?.checkedAt ? 0) < 2419200000 # 1000*60*60*24*28 # if we checked in the last 28 days, don't check again
+    else if not refresh and (ne = await @src.epmc.notinepmc ident) and (ne.year ? ly) < ly and Date.now() - (ne.checkedAt ? 0) < 2419200000 # don't check again within 28 days
       return
     else
-      res = await @src.epmc.search 'PMCID:' + ident
+      res = await @src.epmc.search 'DOI:' + ident
+      if res.total
+        if not res.data[0].doi
+          res.data[0].doi = ident
+          @waitUntil @src.epmc res.data[0]
+        return res.data[0]
+      else if res.total? # because on 21/08/2025 the whole API disappeared - we don't want to record that as not being in
+        await @src.epmc.notinepmc id: ident.replace(/\//g, '_'), doi: ident, year: year, checkedAt: Date.now()
+  return
+
+P.src.epmc.pmid = (ident, refresh, year) ->
+  refresh ?= @refresh if not ident
+  ident ?= @params.pmid
+  if ident and (typeof ident is 'number' or (typeof parseInt(ident) is 'number' and ident.split('.').length is 1 and ident.split(' ').length is 1))
+    exists = await @src.epmc 'pmid:"' + ident + '"'
+    ly = parseInt((await @date()).split('-')[0]) - 3 # don't check again if already more than 3 years old, it is unlikely to turn up
+    if exists?.hits?.total
+      return exists.hits.hits[0]._source
+    else if not refresh and (ne = await @src.epmc.notinepmc ident) and (ne.year ? ly) < ly and Date.now() - (ne.checkedAt ? 0) < 2419200000 # don't check again within 28 days
+      return
+    else
+      res = await @src.epmc.search 'EXT_ID:' + ident + ' AND SRC:MED'
       if res.total
         return res.data[0]
       else if res.total? # because on 21/08/2025 the whole API disappeared - we don't want to record that as not being in
-        await @src.epmc.notinepmc id: ident, pmcid: ident, checkedAt: Date.now()
+        await @src.epmc.notinepmc id: ident, pmid: ident, year: year, checkedAt: Date.now()
+  return
+
+P.src.epmc.pmc = (ident, refresh, year) ->
+  refresh ?= @refresh if not ident
+  ident ?= @params.pmc ? @params.pmcid
+  if ident
+    ident = ident.toLowerCase().replace('pmc', '') if typeof ident is 'string'
+    if ident and (typeof ident is 'number' or (typeof parseInt(ident) is 'number' and ident.split('.').length is 1 and ident.split(' ').length is 1))
+      ident = 'PMC' + ident
+      exists = await @src.epmc 'pmcid:"' + ident + '"'
+      ly = parseInt((await @date()).split('-')[0]) - 3 # don't check again if already more than 3 years old, it is unlikely to turn up
+      if exists?.hits?.total
+        return exists.hits.hits[0]._source
+      else if not refresh and (ne = await @src.epmc.notinepmc ident) and (ne.year ? ly) < ly and Date.now() - (ne.checkedAt ? 0) < 2419200000 # don't check again within 28 days
+        return
+      else
+        res = await @src.epmc.search 'PMCID:' + ident
+        if res.total
+          return res.data[0]
+        else if res.total? # because on 21/08/2025 the whole API disappeared - we don't want to record that as not being in
+          await @src.epmc.notinepmc id: ident, pmcid: ident, year: year, checkedAt: Date.now()
   return
 
 P.src.epmc.title = (title) ->
@@ -150,6 +207,8 @@ P.src.epmc.licence = (pmcid, rec, fulltext, refresh) ->
 _last_ncbi = Date.now()
 _ncbi_running = 0
 P.src.epmc.xml = (pmcid, rec, refresh) ->
+  # TODO do a bulk download of all the xml to save getting them one by one, at least sometimes, if we can already have it
+  # https://europepmc.org/downloads
   pmcid ?= @params.xml ? @params.pmcid ? @params.epmc
   pmcid = 'PMC' + pmcid.toLowerCase().replace('pmc','') if pmcid
   refresh ?= @refresh
@@ -195,7 +254,6 @@ P.src.epmc.xml = (pmcid, rec, refresh) ->
 P.src.epmc.fulltext = (pmcid) -> # check fulltext exists in epmc explicitly
   pmcid ?= @params.fulltext ? @params.pmcid ? @params.epmc
   if pmcid
-    await @sleep 150
     exists = await @fetch 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML', method: 'HEAD', rate: ['ebi', 8]
     return exists?.status is 200
   else
