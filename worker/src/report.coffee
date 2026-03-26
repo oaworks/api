@@ -7,336 +7,6 @@ P.report.works = _index: true
 
 
 
-P.report.works.orgs_queries = (orgs, verbose, missed, save, compare, crossref, openalex, process, supplements, clear, refresh) ->
-  orgs = @params.orgs.split(',') if @params.orgs
-  orgs ?= ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Michael J. Fox Foundation', 'Wellcome Trust', 'Templeton World Charity Foundation', 'Howard Hughes Medical Institute', 'Parkinson’s Progression Markers Initiative']
-  verbose ?= @params.verbose ? false
-  missed ?= @params.missed ? false
-  save ?= @params.save ? false
-  compare ?= @params.compare ? false
-  crossref ?= @params.crossref ? true
-  openalex ?= @params.openalex ? true
-  process ?= @params.process ? false
-  supplements ?= @params.supplements ? true
-  verbose = true if process
-  ret = []
-  dois = []
-  batch = []
-  processed = 0
-  saved = 0
-
-  #if clear or @params.clear
-  #  await @report.works ''
-  refresh ?= @refresh
-
-  for o in orgs
-    console.log 'orgs queries doing org', o
-    ret.push(await @report.works.orgs_queries.crossref o, undefined, verbose, missed, save) if crossref
-    ret.push(await @report.works.orgs_queries.openalex o, undefined, verbose, missed, save, compare) if openalex
-    if process
-      lens = if crossref and openalex then 2 else if crossref or openalex then 1 else 0
-      while lens > 0
-        lens -= 1
-        for d in (ret[ret.length - 1 - lens].found ? [])
-          dois.push(d) if d and d.startsWith('10.') and d not in dois            
-        ret[ret.length - 1 - lens][t] = ret[ret.length - 1 - lens][t].length for t in ['local', 'found', 'missed'] when Array.isArray ret[ret.length - 1 - lens][t]
-    if supplements
-      for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'org.keyword:"' + o + '"'
-        dois.push(sup.DOI ? sup.pmcid ? sup.openalex) if (sup.DOI and sup.DOI not in dois) or (sup.pmcid and sup.pmcid not in dois) or (sup.openalex and sup.openalex not in dois)
-
-  console.log 'orgs queries total dois to process', dois.length
-  for d in dois
-    if refresh or not exists = await @report.works d
-      batch.push(d) if d not in batch
-      if batch.length >= 5000
-        await @report.queue batch, undefined, refresh
-        saved += batch.length
-        console.log 'orgs queries sent to queue', batch.length, saved
-        batch = []
-      processed += 1
-
-  if batch.length
-    await @report.queue batch, undefined, refresh
-    saved += batch.length
-    console.log 'orgs queries sent to queue', batch.length, saved
-    batch = []
-  console.log 'orgs queries total processed', processed, saved
-  return if process then {dois: dois.length, processed: processed, results: ret} else ret
-
-P.report.works.orgs_queries._async = true
-P.report.works.orgs_queries._log = false
-P.report.works.orgs_queries._bg = true
-P.report.works.orgs_queries._auth = '@oa.works'
-
-P.report.works.orgs_queries.crossref = (org, queries, verbose, missed, save) ->
-  # all queries except Gates had a year:>1979 restriction as well, but that may not be necessary - check the differences
-  # for RWJF 70 come up for funder.name that do not have funder.DOI
-  # all except Gates may need author affiliation ID or name checks. HHMI has alternative names, could maybe search for them. Also try direct searches for all full names
-  qs = 
-    'Gates Foundation': ['funder:10.13039/100000865,funder:10.13039/501100005370', 'container-title:Gates%20Open%20Research', 'issn:2572-4754,issn:3029-0988']
-    'Robert Wood Johnson Foundation': ['funder:10.13039/100000867', 'ror-id:02ymmdj85']
-    'Michael J. Fox Foundation': ['funder:10.13039/100000864', 'ror-id:03arq3225']
-    'Wellcome Trust': ['funder:10.13039/100010269,funder:10.13039/100004440', 'ror-id:029chgv08']
-    'Templeton World Charity Foundation': ['funder:10.13039/501100011730', 'ror-id:00x0z1472']
-    'Howard Hughes Medical Institute': ['funder:10.13039/100000011']
-    #'Robert Wood Johnson Foundation': "(year:>1979 AND (funder.DOI:(%2210.13039/100000867%22) OR funder.name:(%22Robert Wood Johnson Foundation%22) OR author.affiliation.id.id:(%2202ymmdj85%22) OR author.affiliation.name:(%22Robert Wood Johnson Foundation%22)))"
-    #'Michael J. Fox Foundation': "(year:>1979 AND (funder.DOI:(%2210.13039/100000864%22) OR funder.name:(%22Michael J. Fox Foundation%22) OR author.affiliation.id.id:(%2203arq3225%22) OR author.affiliation.name:(%22Michael J. Fox Foundation%22)))"
-    #'Wellcome Trust': "(year:>1979 AND (funder.DOI:(%2210.13039/100010269%22 OR %2210.13039/100004440%22) OR funder.name:(%22Wellcome Trust%22) OR author.affiliation.id.id:(%22029chgv08%22) OR author.affiliation.name:(%22Wellcome Trust%22)))"
-    #'Templeton World Charity Foundation': "(year:>1979 AND (funder.DOI:(%2210.13039/501100011730%22) OR funder.name:(%22Templeton World Charity Foundation%22) OR author.affiliation.id.id:(%2200x0z1472%22) OR author.affiliation.name:(%22Templeton World Charity Foundation%22)))"
-    #'Howard Hughes Medical Institute': "(year:>1979 AND (funder.DOI:(%2210.13039/100000011%22) OR funder.name:(%22Howard Hughes Medical Institute%22 OR %22Janelia Research Campus%22 OR %22Freeman Hrabowski%22) OR author.affiliation.id.id:(%22006w34k90%22 OR %22013sk6x84%22) OR author.affiliation.name:(%22Howard Hughes Medical Institute%22 OR %22Janelia Research Campus%22 OR %22Freeman Hrabowski%22)))"
-
-  org ?= @params.org ? 'Gates Foundation'
-  queries ?= qs[org] ? (@params.queries ? '').split ','
-  verbose ?= @params.verbose ? false
-  missed ?= @params.missed ? false
-  save ?= @params.save ? false
-  batch = []
-  # https://api.crossref.org/swagger-ui/index.html
-  # https://www.crossref.org/documentation/retrieve-metadata/rest-api/rest-api-filters/#75200
-  # "crossref": "(DOI:%2210.12688/verixiv%22 OR container-title:%22gates open research%22 OR (funder.DOI:(%2210.13039/100000865%22 OR %2210.13039/501100005370%22 OR %2210.13039/100009053%22) OR funder.name:(%22melinda gates foundation%22 OR %22gates cambridge trust%22 OR %22gates ventures%22) OR author.affiliation.id.id:(%220456r8d26%22 OR %22033sn5p83%22) OR author.affiliation.name:(%22melinda gates foundation%22 OR %22gates cambridge trust%22 OR %22gates ventures%22)))",
-
-  # DOI:%2210.12688/verixiv%22 467
-  # container-title:%22gates open research%22 863
-  # (funder.DOI:(%2210.13039/100000865%22 OR %2210.13039/501100005370%22 OR %2210.13039/100009053%22) 26650
-  # funder.name:(%22melinda gates foundation%22 OR %22gates cambridge trust%22 OR %22gates ventures%22) 26995
-  # author.affiliation.id.id:(%220456r8d26%22 OR %22033sn5p83%22) 3
-  # author.affiliation.name:(%22melinda gates foundation%22 OR %22gates cambridge trust%22 OR %22gates ventures%22) 1043
-
-  # https://api.crossref.org/works?filter=container-title:Gates%20Open%20Research 862 - NOTE case sensitive
-  # https://api.crossref.org/works?filter=funder:10.13039/100000865,funder:10.13039/501100005370 26698
-  # https://api.crossref.org/works?filter=issn:2572-4754,issn:3029-0988 864 - is this same as container-title though? Do either cover the verixiv doi prefix?
-
-  # can filter by prefix (e.g part of DOI 10.12688) but can't do 10.12688/verixiv
-  # https://api.crossref.org/works?filter=prefix:10.12688 - returns 29407, could get them all and check which are really verixiv
-  # using the other DOI prefixes that seem "special" as they are used on report/works for PMC DAS stuff:
-  # https://api.crossref.org/works?filter=prefix:10.12688,prefix:10.1186,prefix:10.1371 returns 5673600 - maybe too many? (4737232 are 10.1371, 906966 for 10.1186 - with possible overlap)
-  # there is a has-affiliation prefix which returns about 26m records, that would be too many to page through I guess
-  # there is query= and query.bibliographic but verixiv returns 2 and gates open research returns over 9m, so does not seem useful
-
-  # only 21 show for verixiv DOI form with nothing else: 
-  # https://bg.beta.oa.works/src/crossref/works?q=DOI:%2210.12688/verixiv%22%20AND%20NOT%20funder.DOI.keyword:(%2210.13039/100000865%22%20OR%20%2210.13039/501100005370%22%20OR%20%2210.13039/100009053%22)%20AND%20NOT%20container-title.keyword:%22Gates%20Open%20Research%22%20AND%20NOT%20funder.name:(%22melinda%20gates%20foundation%22%20OR%20%22gates%20cambridge%20trust%22%20OR%20%22gates%20ventures%22)%20AND%20NOT%20author.affiliation.id.id:(%220456r8d26%22%20OR%20%22033sn5p83%22)%20AND%20NOT%20author.affiliation.name:(%22melinda%20gates%20foundation%22%20OR%20%22gates%20cambridge%20trust%22%20OR%20%22gates%20ventures%22)
-  # or 194 for verixiv anywhere:
-  # https://bg.beta.oa.works/src/crossref/works?q=verixiv%20AND%20NOT%20funder.DOI.keyword:(%2210.13039/100000865%22%20OR%20%2210.13039/501100005370%22%20OR%20%2210.13039/100009053%22)%20AND%20NOT%20container-title.keyword:%22Gates%20Open%20Research%22%20AND%20NOT%20funder.name:(%22melinda%20gates%20foundation%22%20OR%20%22gates%20cambridge%20trust%22%20OR%20%22gates%20ventures%22)%20AND%20NOT%20author.affiliation.id.id:(%220456r8d26%22%20OR%20%22033sn5p83%22)%20AND%20NOT%20author.affiliation.name:(%22melinda%20gates%20foundation%22%20OR%20%22gates%20cambridge%20trust%22%20OR%20%22gates%20ventures%22)
-
-  res = org: org, queries: queries, started: 0, took: 0, saved: 0, missing: (if missed then 0 else undefined), missed: (if missed then [] else undefined), local: 0, requests: 0, found: [], duplicates: 0
-  org = await @report.orgs 'name.keyword:"' + org + '"', 1
-  if org?.source?.crossref
-    try org.source.crossref = decodeURIComponent(decodeURIComponent(org.source.crossref)) if org.source.crossref.includes '%'
-    if verbose or missed
-      res.local = []
-      res.local.push(w.DOI) for await w from @index._for 'src_crossref_works', org.source.crossref, include: ['DOI']
-      console.log res.local.length
-    else
-      try res.local = await @src.crossref.works.count org.source.crossref
-      console.log res.local # this is currently 28732 (and 26650 are found just by the funder.DOI check)
-  last = Date.now()
-  res.started = last
-
-  # first run got 26867 from remote, vs the expected 28732 - took about 3 mins
-  # adding 'prefix:10.12688' found a lot more mostly unique, and rendered container-title and issn redundant, but far more false than true matches
-  # so filtering would definitely be needed on all of those - and the total missed was still about the same at 1976
-  # total missed after running this then openalex comes down to 553
-
-  for o in queries
-    rg = o.split(':')[0]
-    res[rg] = found: [], unique: []
-    cursor = '*'
-    # test without our API key and stick to rate limit
-    while cursor? and ans = await @fetch ('https://api.crossref.org/works?mailto=sysadmin@oa.works&filter=' + o + '&rows=1000&cursor=' + encodeURIComponent cursor), {rate: ['crossrefFilter', 3], headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works')}} #, 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
-      cursor = ans.message?['next-cursor'] # will be null if there are no more to get
-      cursor = undefined if not ans.message?.items or ans.message.items.length < 1000 # crossref does not auto remove the last cursor on the last page so need to check for shortness
-      console.log rg, res.requests, res.found.length, res.duplicates, Date.now() - res.started, cursor
-      res.requests += 1
-      for r in (ans.message?.items ? [])
-        rid = r.DOI.toLowerCase()
-        res[rg].found.push(rid) if rid not in res[rg].found
-        res[rg].unique.push(rid) if rid not in res[rg].unique and rid not in res.found
-        if rid in res.found
-          res.duplicates += 1
-        else
-          res.found.push rid
-          if save
-            ft = await @src.crossref.works._format r
-            batch.push ft
-          if batch.length >= 5000
-            await @report.works.crossref batch
-            res.saved += batch.length
-            console.log 'crossref orgs queries saved batch', res.saved
-            batch = []
-      if Date.now() - last < 100
-        await @sleep 100 - (Date.now() - last)
-      last = Date.now()
-    res[rg].found = res[rg].found.length unless verbose
-    res[rg].unique = res[rg].unique.length unless verbose
-  if batch.length
-    await @report.works.crossref batch
-    res.saved += batch.length
-    console.log 'crossref orgs queries saved final batch', res.saved
-    batch = []
-  console.log res.found.length, if typeof res.local is 'number' then res.local else res.local.length
-  if missed and Array.isArray res.local
-    res.missed.push(ld) for ld in res.local when ld not in res.found
-    res.missing = res.missed.length
-  res.local = res.local.length if not verbose and Array.isArray res.local
-  res.found = res.found.length unless verbose or missed
-  res.took = Date.now() - res.started
-  console.log(res) if not verbose
-  return res
-
-#P.report.works.orgs_queries.crossref._async = true
-
-
-P.report.works.orgs_queries.openalex = (org, queries, verbose, missed, save, compare) ->
-  # all but gates had publication_year:>1979
-  # for RWJF it makes no difference, and also searching in institutions.display_name returns no more than raw_affiliation_strings, but DOES find more than just the ROR search
-  # for Wellcome 1979 made a 3k difference out of about 79k. So not enough to worry about.
-  # RWJF misses 41 over crossref and openalex, but also finds a few extra. MJFF misses 17, Wellcome misses X, HHMI misses X, Templeton misses X
-  qs = 
-    'Gates Foundation': ['funders.id:F4320306137|F4320323264|F4320310978', 'authorships.institutions.ror:0456r8d26|033sn5p83', 'raw_affiliation_strings.search:melinda%20gates%20foundation|gates%20cambridge%20trust|gates%20ventures', 'locations.source.issn:2572-4754|3029-0988']
-    'Robert Wood Johnson Foundation': ['funders.id:F4320306139|F4320309038', 'authorships.institutions.ror:02ymmdj85', 'raw_affiliation_strings.search:Robert Wood Johnson Foundation']
-    'Michael J. Fox Foundation': ['funders.id:F4320306136', 'authorships.institutions.ror:03arq3225', 'raw_affiliation_strings.search:Michael J. Fox Foundation']
-    'Wellcome Trust': ['funders.id:F4320311904', 'authorships.institutions.ror:029chgv08', 'raw_affiliation_strings.search:Wellcome Trust']
-    'Templeton World Charity Foundation': ['funders.id:F4320327239', 'authorships.institutions.ror:00x0z1472', 'raw_affiliation_strings.search:Templeton World Charity Foundation']
-    'Howard Hughes Medical Institute': ['funders.id:F4320306082', 'authorships.institutions.ror:006w34k90|013sk6x84', 'raw_affiliation_strings.search:Howard Hughes Medical Institute|Janelia Research Campus|Freeman Hrabowski']
-    #'Robert Wood Johnson Foundation': "(publication_year:>1979 AND (grants.funder:(%22F4320306139%22 OR %22F4320309038%22) OR authorships.institutions.ror:(%2202ymmdj85%22) OR authorships.institutions.display_name:(%22Robert Wood Johnson Foundation%22) OR authorships.raw_affiliation_strings:(%22Robert Wood Johnson Foundation%22)))",
-    #'Michael J. Fox Foundation': "(publication_year:>1979 AND (grants.funder:(%22F4320306136%22) OR authorships.institutions.ror:(%2203arq3225%22) OR authorships.institutions.display_name:(%22Michael J. Fox Foundation%22) OR authorships.raw_affiliation_strings:(%22Michael J. Fox Foundation%22)))"
-    #'Wellcome Trust': "(publication_year:>1979 AND (grants.funder:(%22F4320311904%22) OR authorships.institutions.ror:(%22029chgv08%22) OR authorships.institutions.display_name:(%22Wellcome Trust%22) OR authorships.raw_affiliation_strings:(%22Wellcome Trust%22)))"
-    #'Templeton World Charity Foundation': "(publication_year:>1979 AND (grants.funder:(%22F4320327239%22) OR authorships.institutions.ror:(%2200x0z1472%22) OR authorships.institutions.display_name:(%22Templeton World Charity Foundation%22) OR authorships.raw_affiliation_strings:(%22Templeton World Charity Foundation%22)))"
-    #'Howard Hughes Medical Institute': "(publication_year:>1979 AND (grants.funder:(%22F4320306082%22) OR authorships.institutions.ror:(%22006w34k90%22 OR %22013sk6x84%22) OR authorships.institutions.display_name:(%22Howard Hughes Medical Institute%22 OR %22Janelia Research Campus%22 OR %22Freeman Hrabowski%22) OR authorships.raw_affiliation_strings:(%22Howard Hughes Medical Institute%22 OR %22Janelia Research Campus%22 OR %22Freeman Hrabowski%22)))"
-
-  org ?= @params.org ? 'Gates Foundation'
-  queries ?= qs[org] ? (@params.queries ? '').split ','
-  verbose ?= @params.verbose ? false
-  missed ?= @params.missed ? false
-  save ?= @params.save ? false
-  compare ?= @params.compare ? false
-  batch = []
-  # "openalex": "(locations.source.display_name:(%22Gates%20Open%20Research%22%20OR%20%22verixiv%22) OR (grants.funder:(%22F4320306137%22 OR %22F4320323264%22 OR %22F4320310978%22) OR authorships.institutions.ror:(%220456r8d26%22 OR %22033sn5p83%22) OR authorships.institutions.display_name:(%22melinda gates foundation%22 OR %22gates cambridge trust%22 OR %22gates ventures%22) OR authorships.raw_affiliation_strings:(%22melinda gates foundation%22 OR %22gates cambridge trust%22 OR %22gates ventures%22)))",
-  # openalex cannot search locations.source.display_name but CAN search .issn
-  # openalex cannot search authorships.institutions.display_name but CAN search .id (which is the openalex ID of the institution)
-  # openalex cannot search authorships.raw_affiliation_strings but CAN search raw_affiliation_strings.search
-
-  # Note locations.source.display_name verixiv finds 9 on our openalex, and searching the matching ISSN finds 9 as well:
-  # BUT searching directly on openalex for issn or even the openalex source ID only returns 4 records
-  # AND for at least one of those records, our local version looks BETTER than their more recently updated version, which seems to be missing the locations.source object altogether
-  # A default.search for verixiv on openalex can find 6 results.
-  # https://bg.beta.oa.works/src/openalex/works/10.12688/verixiv.77.1 vs https://api.openalex.org/works/W4402608277
-  # https://bg.beta.oa.works/src/openalex/works?q=locations.source.display_name:%22Verixiv%22
-  # https://bg.beta.oa.works/src/openalex/works?q=locations.source.issn.keyword:%223029-0988%22
-
-  # our locations.source.display_name openalex search for Gates Open Research finds 873
-  # the issn is 2572-4754 which also finds 873 locally
-  # on remote openalex the ISSN search finds 880 so at least this one looks good.
-
-  # awards.funder_id returns 16474 - https://api.openalex.org/works?filter=awards.funder_id:F4320306137|F4320323264|F4320310978
-  # authorships.institutions.ror returns 3744 - https://api.openalex.org/works?filter=authorships.institutions.ror:0456r8d26|033sn5p83
-  # raw_affiliation_strings.search returns 3561 - https://api.openalex.org/works?filter=raw_affiliation_strings.search:melinda%20gates%20foundation|gates%20cambridge%20trust|gates%20ventures
-  # locations.source.issn returns 884 - https://api.openalex.org/works?filter=locations.source.issn:2572-4754|3029-0988
-
-  # alternatively funders.id gets 27473 - https://api.openalex.org/works?filter=funders.id:F4320306137|F4320323264|F4320310978
-
-  # basic openalex paging returns up to 200 per page, and up to 10000 results regardless of paging count - so will need cursor to get them all
-
-  # rate limit is 10r/s and 100k per day, IF not using premium API key. And need to send a contact email param to get into the polite pool (which processes faster)
-  # roughly 25k records indicated by the above queries, 200 per request, at least 125 requests or so. 
-  # Took 4 mins at first attempt, 127 requests, 20k found, 4k dups
-  # BUT our local query finds about 28k
-  # we are up to better coverage with funders.id instead of awards.funder_id. we still miss 553
-  # 'awards.funder_id:F4320306137|F4320323264|F4320310978' NOT NEEDED for gates, confirmed, all within funders.id which also returns much more.
-
-  res = org: org, queries: queries, started: 0, took: 0, saved: 0, nodoi: 0, missing: (if missed then 0 else undefined), missed: (if missed then [] else undefined), local: 0, requests: 0, found: [], duplicates: 0
-  if compare
-    res.cd = 0
-    res.crossref = await @report.works.orgs_queries.crossref org, undefined, verbose, missed
-  org = await @report.orgs 'name.keyword:"' + org + '"', 1
-  if org?.source?.openalex
-    try org.source.openalex = decodeURIComponent(decodeURIComponent(org.source.openalex)) if org.source.openalex.includes '%'
-    if verbose or missed
-      res.local = []
-      res.local.push((if w.ids?.doi or w.doi then (w.ids?.doi ? w.doi).split('.org/').pop() else w.id).toLowerCase()) for await w from @index._for 'src_openalex_works', org.source.openalex, include: ['id', 'doi', 'ids']
-      console.log res.local.length
-    else
-      try res.local = await @src.openalex.works.count org.source.openalex
-      console.log res.local
-  last = Date.now()
-  res.started = last
-
-  for o in queries
-    rg = o.split(':')[0]
-    res[rg] = found: [], unique: []
-    cursor = '*'
-    o += ',publication_year:>' + (parseInt((await @date()).split('-')[0]) - 3) # to avoid openalex deep cursoring errors
-    while cursor? and ans = await @fetch ('https://api.openalex.org/works?mailto=sysadmin@oa.works' + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '') + '&filter=' + o + '&per-page=200&cursor=' + encodeURIComponent cursor), {rate: ['openalexFilter', 20, 10000, 86400]}
-      console.log(ans) if ans?.status and typeof ans.status is 'number' # look out for 429 or other errors - break or log? No errors on first attempt
-      cursor = ans.meta.next_cursor # will be null if there are no more to get
-      console.log rg, res.requests, res.found.length, res.duplicates, Date.now() - res.started, cursor
-      res.requests += 1
-      for r in ans.results
-        if r.ids?.doi or r.doi
-          rid = (r.ids?.doi ? r.doi).split('.org/').pop().toLowerCase()
-        else
-          res.nodoi += 1
-          rid = r.id.toLowerCase()
-        res[rg].found.push(rid) if rid not in res[rg].found
-        res[rg].unique.push(rid) if rid not in res[rg].unique and rid not in res.found
-        if rid in res.found
-          res.duplicates += 1
-        else if compare and rid in res.crossref.found
-          res.cd += 1
-        else
-          res.found.push rid
-          if save
-            ft = await @src.openalex.works._format r
-            batch.push ft
-          if batch.length >= 5000
-            await @src.openalex.works batch
-            res.saved += batch.length
-            console.log 'openalex orgs queries saved batch', res.saved
-            batch = []
-      if Date.now() - last < 100
-        await @sleep 100 - (Date.now() - last)
-      last = Date.now()
-    res[rg].found = res[rg].found.length unless verbose
-    res[rg].unique = res[rg].unique.length unless verbose
-  if batch.length
-    await @src.openalex.works batch
-    res.saved += batch.length
-    console.log 'openalex orgs queries saved final batch', res.saved
-    batch = []
-  console.log res.found.length, if typeof res.local is 'number' then res.local else res.local.length
-  if missed and Array.isArray res.local
-    res.missed.push(ld) for ld in res.local when ld not in res.found and (not compare or ld not in res.crossref.found)
-    res.missing = res.missed.length
-  res.crossref.found = res.crossref.found.length if compare and not verbose and Array.isArray res.crossref.found
-  res.crossref.missed = res.crossref.missed.length if compare and missed and not verbose and Array.isArray res.crossref.missed
-  res.local = res.local.length if not verbose and Array.isArray res.local
-  res.found = res.found.length if not verbose and Array.isArray res.found
-  res.took = Date.now() - res.started
-  console.log(res) if not verbose
-  return res
-
-#P.report.works.orgs_queries.openalex._async = true
-
-P.report.works.crossref = _index: true, _prefix: false, _key: 'DOI'
-P.report.works.crossref.doi = (doi, refresh, local) ->
-  doi ?= @params.doi
-  refresh = @refresh if not refresh? and @fn is 'report.works.crossref.doi'
-  refresh = true if refresh is 0
-  local ?= @params.local ? true # rely on local index for now, if it exists there
-  if refresh isnt true
-    found = await @report.works.crossref doi
-    found = await @src.crossref.works(doi) if not found and local
-    if found and (typeof refresh isnt 'number' or not found.retrievedAt or (Date.now() - refresh) <= found.retrievedAt)
-      return found
-  res = await @fetch 'https://api.crossref.org/works/' + doi + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works'), {rate: ['crossref', 7], headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works')}} #, 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
-  if typeof res is 'object' and res.message?.DOI?
-    found = await @src.crossref.works._format res.message
-    await @report.works.crossref found
-  return found
-
-
-
-
 P.report.suggestables = _index: true
 P.report.suggestions = ->
   org = @params.org
@@ -515,8 +185,8 @@ P.report.queue = (idents, openalex, refresh, everything, action = 'default') -> 
   idents ?= @params.queue ? @params.doi ? @params.openalex ? @params.pmcid
   refresh ?= @refresh
   everything ?= @params.everything
-  try console.log _queue_batch_last
-  try console.log idents.length
+  #try console.log _queue_batch_last
+  #try console.log idents.length
   if _queue_batch_last is false
     @report._handle_queue() 
   if idents # can be list of DOI strings and/or openalex strings, or objects with DOI and/or openalex, plus optional refresh, everything, action
@@ -918,37 +588,6 @@ P.report.orgs.supplements.load._async = true
 P.report.orgs.supplements.load._log = false
 #P.report.orgs.supplements.load._auth = '@oa.works'
 
-P.report.orgs.queries = (org, doi) ->
-  org ?= @params.org
-  doi ?= @params.queries ? @params.doi
-  ret = {}
-  batch = []
-  processed = 0
-  for await o from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs', (if org then 'name:"' + org + '"' else 'paid:true'), scroll: '30m'
-    for an of (o.analysis ? [])
-      if o.analysis[an].query? and not o.analysis[an].make_key in [false, 'false', 'False', 'FALSE']
-        q = o.analysis[an].query
-        q = '(' + q + ') AND  DOI.keyword:"' + doi + '"' if doi
-        for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', q, scroll: '30m'
-          dv = o.analysis[an].value ? true
-          dv = [dv] if o.analysis[an].list
-          if doi
-            ret[o.analysis[an].key ? o.analysis[an].name ? an] = dv
-          else
-            # check how this would handle dot notations...
-            rec[o.analysis[an].key ? o.analysis[an].name ? an] = dv
-            batch.push rec
-            processed += 1
-            if batch.length > 20000
-              await @report.works batch
-              batch = []
-  if batch.length
-    await @report.works batch
-  return if doi then ret else processed
-P.report.orgs.queries._log = false
-P.report.orgs.queries._bg = true
-P.report.orgs.queries._async = true
-P.report.orgs.queries._auth = '@oa.works'
 
 
 
@@ -992,7 +631,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
       givenpmcid = cr.toLowerCase().replace('pmc', 'PMC')
       cr = undefined
       #openalex ?= await @src.openalex.works 'ids.pmcid:"' + givenpmcid.toLowerCase().replace('pmc', '') + '"', 1 # openalex does not store them with the PMC prefix, they are in URL format without it
-      openalex ?= await @src.openalex.works.find undefined, undefined, givenpmcid
+      openalex ?= await @src.openalex.works.find undefined, undefined, givenpmcid, undefined, true
       if not openalex? and epmc = await @src.epmc.pmc givenpmcid, refresh
         cr = epmc.doi
 
@@ -1011,7 +650,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
         try
           #ox = if openalex.startsWith('W') then await @src.openalex.works('id.keyword:"https://openalex.org/' + openalex + '"') else await @src.openalex.works.doi openalex, (@params.refresh_sources ? false)
           #try ox = ox.hits.hits[0]._source if ox?.hits?.hits?.length
-          ox = await @src.openalex.works.find (if openalex.startsWith('10.') then openalex else undefined), (if openalex.startsWith('10.') then undefined else openalex)
+          ox = await @src.openalex.works.find (if openalex.startsWith('10.') then openalex else undefined), (if openalex.startsWith('10.') then undefined else openalex), undefined, undefined, true
           openalex = ox if ox?.id
     if (typeof openalex is 'object' and openalex.ids?.doi) or (typeof openalex is 'string' and openalex.startsWith '10.')
       soad = (if typeof openalex is 'string' then openalex else openalex.ids.doi.split('.org/')[1]).toLowerCase()
@@ -1043,7 +682,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
         rec.has_data_availability_statement = true if exists.data_availability_statement #or exists.has_data_availability_statement
       refresh = true if not exists?.updated or (refresh and refresh isnt true and exists and exists.updated < refresh)
 
-    openalex = await @src.openalex.works.find(if typeof cr is 'object' then cr.DOI else cr) if cr? and not openalex?
+    openalex = await @src.openalex.works.find((if typeof cr is 'object' then cr.DOI else cr), undefined, undefined, undefined, true) if cr? and not openalex?
     openalex = undefined if typeof openalex is 'string' or not openalex?.id
 
     if typeof cr is 'object' and cr.DOI
@@ -1340,8 +979,9 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
     #        break if f.country
 
     # is it worth restricting everything any more?
-    if (rec.DOI or rec.PMCID) and (epmc? or not rec.PMCID or not rec.pubtype?) #or not rec.submitted_date or not rec.accepted_date # only thing restricted to orgs supplements for now is remote epmc lookup and epmc licence calculation below
-      if epmc? or (everything and epmc = (if rec.PMCID then await @src.epmc.pmc(rec.PMCID, refresh) else await @src.epmc.doi rec.DOI, refresh))
+    if (rec.DOI or rec.PMCID) #and (epmc? or not rec.PMCID or not rec.pubtype?) #or not rec.submitted_date or not rec.accepted_date # only thing restricted to orgs supplements for now is remote epmc lookup and epmc licence calculation below
+      #if epmc? or (everything and epmc = (if rec.PMCID then await @src.epmc.pmc(rec.PMCID, refresh) else await @src.epmc.doi rec.DOI, refresh))
+      if epmc ?= (if rec.PMCID then await @src.epmc.pmc(rec.PMCID, refresh) else await @src.epmc.doi rec.DOI, refresh)
         rec.PMCID = epmc.pmcid if not rec.PMCID and epmc.pmcid
         #rec.submitted_date ?= epmc.firstIndexDate - removed as found to be not accurate enough https://github.com/oaworks/Gates/issues/559
         #rec.accepted_date ?= epmc.firstPublicationDate
@@ -1349,14 +989,16 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
           rec.pubtype ?= []
           rec.pubtype.push(pt) if pt not in rec.pubtype
 
-    if (everything or epmc?) and rec.PMCID and not rec.epmc_licence and (refresh or not rec.tried_epmc_licence) #  and rec.repository_url_in_pmc
+    #if (everything or epmc?) and rec.PMCID and (refresh or not rec.tried_epmc_licence) #  and rec.repository_url_in_pmc
+    if epmc?
       rec.tried_epmc_licence = true
       lic = await @src.epmc.licence rec.PMCID, epmc, undefined, refresh
       rec.epmc_licence = lic?.licence
     #if not rec.pmc_has_data_availability_statement # TODO comment these out once Joe happy to go ahead with removing
     #  rec.pmc_has_data_availability_statement = rec.PMCID and await @src.pubmed.availability rec.PMCID
     #  rec.has_data_availability_statement = true if rec.pmc_has_data_availability_statement
-    if everything and rec.PMCID and (refresh or not rec.data_availability_statement or not rec.submitted_date) # restrict to everything?
+    #if everything and rec.PMCID and (refresh or not rec.data_availability_statement or not rec.submitted_date) # restrict to everything?
+    #if epmc?
       rec.data_availability_statement = await @src.epmc.statement rec.PMCID, epmc, refresh
       rec.has_data_availability_statement = true if rec.data_availability_statement
       if rec.data_availability_statement and urlordois = await @src.epmc.statement.url rec.PMCID, epmc, rec.data_availability_statement
@@ -1418,7 +1060,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
 P.report.works.process._log = false
 
 
-P.report.works.load = (timestamp, org, idents, year, clear, supplements, everything, info) ->
+P.report.works.load = (timestamp, org, idents, year, clear, supplements, everything, info, refresh) ->
   started = await @epoch()
   year ?= @params.load ? (await @date()).split('-')[0] # load could be supplements or everything but in that case year is not used anyway
   org ?= @params.org ? @params.orgs ? @params.load is 'orgs'
@@ -1426,7 +1068,7 @@ P.report.works.load = (timestamp, org, idents, year, clear, supplements, everyth
   idents = [idents] if typeof idents is 'string'
   if @fn.startsWith 'report.works.load'
     clear ?= @params.clear
-  refresh = @refresh
+  refresh ?= @refresh
   everything ?= @params.everything ? @params.load is 'everything'
 
   #await @report.works('') if clear
@@ -1518,7 +1160,7 @@ P.report.works.load._auth = '@oa.works'
 P.report.works.load.mains = ->
   orgs = if @params.orgs then @params.orgs.split(',') else ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Wellcome Trust']
   for org in orgs
-    await @report.works.load undefined, org
+    await @report.works.load undefined, org, undefined, undefined, undefined, undefined, undefined, undefined, true
   return true
 P.report.works.load.mains._log = false
 P.report.works.load.mains._bg = true
@@ -1538,414 +1180,86 @@ P.report.works.changes._async = true
 P.report.works.changes._auth = '@oa.works'
 
 
-#P.report.rs = _index: true # TODO remove this once happy with src.rs
+P.report.works.queries = (orgs) ->
+  started = Date.now()
+  orgs = @params.orgs.split(',') if @params.orgs
+  orgs ?= ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Wellcome Trust']
 
+  #if @params.clear
+  #  await @report.works ''
 
+  cqs = 
+    'Gates Foundation': ['funder:10.13039/100000865,funder:10.13039/501100005370', 'ror-id:0456r8d26,ror-id:033sn5p83', 'container-title:Gates%20Open%20Research', 'issn:2572-4754,issn:3029-0988']
+    'Robert Wood Johnson Foundation': ['funder:10.13039/100000867', 'ror-id:02ymmdj85']
+    'Michael J. Fox Foundation': ['funder:10.13039/100000864', 'ror-id:03arq3225']
+    'Wellcome Trust': ['funder:10.13039/100010269,funder:10.13039/100004440', 'ror-id:029chgv08']
+    'Templeton World Charity Foundation': ['funder:10.13039/501100011730', 'ror-id:00x0z1472']
+    'Howard Hughes Medical Institute': ['funder:10.13039/100000011,10.13039/100022388', 'ror-id:006w34k90,ror-id:013sk6x84']
+  oqs = 
+    'Gates Foundation': ['funders.id:F4320306137|F4320323264|F4320310978', 'authorships.institutions.ror:0456r8d26|033sn5p83', 'raw_affiliation_strings.search:melinda%20gates%20foundation|gates%20cambridge%20trust|gates%20ventures', 'locations.source.issn:2572-4754|3029-0988']
+    'Robert Wood Johnson Foundation': ['funders.id:F4320306139|F4320309038', 'authorships.institutions.ror:02ymmdj85', 'raw_affiliation_strings.search:Robert Wood Johnson Foundation']
+    'Michael J. Fox Foundation': ['funders.id:F4320306136', 'authorships.institutions.ror:03arq3225', 'raw_affiliation_strings.search:Michael J. Fox Foundation']
+    'Wellcome Trust': ['funders.id:F4320311904', 'authorships.institutions.ror:029chgv08', 'raw_affiliation_strings.search:Wellcome Trust']
+    'Templeton World Charity Foundation': ['funders.id:F4320327239', 'authorships.institutions.ror:00x0z1472', 'raw_affiliation_strings.search:Templeton World Charity Foundation']
+    'Howard Hughes Medical Institute': ['funders.id:F4320306082', 'authorships.institutions.ror:006w34k90|013sk6x84', 'raw_affiliation_strings.search:Howard Hughes Medical Institute|Janelia Research Campus|Freeman Hrabowski']
 
-'''
-P.report.works.check = (year) ->
-  year ?= @params.check ? @params.year ? '2023'
-  seen = []
-  not_in_works = []
-  crossref_seen_openalex = []
-  res = year: year, crossref: 0, crossref_count: 0, openalex: 0, openalex_count: 0, crossref_in_works: 0, crossref_in_works_had_openalex: 0, crossref_not_in_works_in_openalex: 0, openalex_already_seen_in_works_by_crossref: 0, openalex_in_works: 0, openalex_in_works_by_id: 0, openalex_with_doi_but_not_seen: 0, openalex_not_in_works: 0, duplicates: 0
-  await fs.writeFile @S.static.folder + '/report_check_missing_' + year + '.json', '['
+  ids = []
+  cvl = 0
+  ovl = 0
+  svl = 0
 
-  cq = '(funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year
-  res.crossref_count = await @src.crossref.works.count cq
-  await fs.writeFile @S.static.folder + '/report_check_' + year + '.json', JSON.stringify res, '', 2
-  for await cr from @index._for 'src_crossref_works', cq, include: ['DOI'], scroll: '30m'
-    console.log(res) if res.crossref % 100 is 0
-    if cr.DOI not in seen
-      seen.push cr.DOI
-    else
-      res.duplicates += 1
-    res.crossref += 1
-    res.crossref_in_works += 1 if worked = await @report.works cr.DOI
-    if not worked and cr.DOI not in not_in_works
-      await fs.appendFile @S.static.folder + '/report_check_missing_' + year + '.json', (if not_in_works.length then ',' else '') + '\n"' + cr.DOI + '"'
-      not_in_works.push cr.DOI
-    if worked?.openalex
-      res.crossref_in_works_had_openalex += 1
-      crossref_seen_openalex.push cr.DOI
-    else if olx = await @src.openalex.works.count 'ids.doi.keyword:"https://doi.org/' + cr.DOI + '"'
-      res.crossref_not_in_works_in_openalex += 1
+  for org in orgs
+    console.log 'orgs queries doing org', org
+    for o in cqs[org] ? (@params.queries ? '').split ','
+      crossref = {}
+      cursor = '*'
+      console.log 'crossref', org, o
+      while cursor? and ans = await @fetch ('https://api.crossref.org/works?mailto=sysadmin@oa.works&filter=' + o + '&rows=1000&cursor=' + encodeURIComponent cursor), {rate: ['crossrefFilter', 3], headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works')}}
+        cursor = ans.message?['next-cursor'] # will be null if there are no more to get
+        cursor = undefined if not ans.message?.items or ans.message.items.length < 1000 # crossref does not auto remove the last cursor on the last page so need to check for shortness
+        for r in (ans.message?.items ? [])
+          rid = r.DOI.toLowerCase()
+          if rid and rid not in ids
+            crossref[rid] = await @src.crossref.works._format r
+            ids.push rid
+      if cv = Object.values crossref
+        cvl += cv.length
+        console.log 'report works queries saving crossref records for org', org, cv.length, cvl
+        await @src.crossref.works cv # do these per org so the size does not get too big in memory
+        cv = undefined
+    for o in oqs[org] ? (@params.queries ? '').split ','
+      openalex = {}
+      cursor = '*'
+      #if not @params.clear
+      #  o += ',publication_year:>' + (parseInt((await @date()).split('-')[0]) - 3) # to avoid openalex deep cursoring errors
+      console.log 'openalex', org, o
+      while cursor? and ans = await @fetch ('https://api.openalex.org/works?mailto=sysadmin@oa.works' + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '') + '&filter=' + o + '&per-page=200&cursor=' + encodeURIComponent cursor), {rate: ['openalexFilter', 20, 10000, 86400]}
+        cursor = ans.meta.next_cursor # will be null if there are no more to get
+        for r in ans.results
+          rid = if r.ids?.doi or r.doi then (r.ids?.doi ? r.doi).split('.org/').pop().toLowerCase() else r.id.toLowerCase()
+          if rid and rid not in ids
+            openalex[rid] = await @src.openalex.works._format r
+            ids.push rid
+      if ov = Object.values openalex
+        ovl += ov.length
+        console.log 'report works queries saving openalex records for org', org, ov.length, ovl
+        await @src.openalex.works ov
+        ov = undefined
+    for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'org.keyword:"' + org + '"'
+      svl += 1
+      rid = sup.DOI ? sup.pmcid ? sup.openalex
+      ids.push(rid) if rid and rid not in ids
+    console.log svl
 
-  oq = 'authorships.institutions.display_name:* AND publication_year:' + year
-  res.openalex_count = await @src.openalex.works.count oq
-  await fs.writeFile @S.static.folder + '/report_check_' + year + '.json', JSON.stringify res, '', 2
-  for await ol from @index._for 'src_openalex_works', oq, include: ['id', 'ids'], scroll: '30m'
-    console.log(res) if res.openalex % 100 is 0
-    res.openalex += 1
-    oodoi = if ol.ids?.doi then '10.' + ol.ids.doi.split('/10.')[1] else undefined
-    if oodoi
-      res.openalex_already_seen_in_works_by_crossref += 1 if oodoi in crossref_seen_openalex
-      if oodoi not in seen
-        res.openalex_with_doi_but_not_seen += 1 if oodoi
-        seen.push oodoi
-      else
-        res.duplicates += 1
-    olid = ol.id.split('/').pop()
-    if oodoi and worked = await @report.works oodoi
-      res.openalex_in_works += 1
-    else if worked = await @report.works 'openalex.keyword:"' + olid + '"', 1
-      res.openalex_in_works += 1
-      res.openalex_in_works_by_id += 1
-    else
-      res.openalex_not_in_works += 1
-    if not worked and (oodoi ? olid) not in not_in_works
-      await fs.appendFile @S.static.folder + '/report_check_missing_' + year + '.json', (if not_in_works.length then ',' else '') + '\n"' + (oodoi ? olid) + '"'
-      not_in_works.push oodoi ? olid
-
-  res.seen = seen.length
-  res.not_in_works = not_in_works.length
-
-  await fs.appendFile @S.static.folder + '/report_check_missing_' + year + '.json', '\n]'
-  await fs.writeFile @S.static.folder + '/report_check_seen_' + year + '.json', JSON.stringify seen, '', 2
-  await fs.writeFile @S.static.folder + '/report_check_' + year + '.json', JSON.stringify res, '', 2
-  console.log res
-  return res
-P.report.works.check._async = true
-P.report.works.check._bg = true
-P.report.works.check._auth = '@oa.works'
-'''
-
-
-'''P.report.fixmedline = ->
-  fixes = []
-  checked = 0
-  for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'DOI:* AND submitted_date:* AND PMCID:*', scroll: '30m', include: ['DOI', 'PMID']
-    checked += 1
-    console.log('fix medline checked', checked) if checked % 1000 is 0
-    from_crossref = false
-    if cr = await @src.crossref.works rec.DOI
-      for ass in (cr.assertion ? [])
-        if (ass.label ? '').toLowerCase().includes 'received'
-          from_crossref = true
-          break
-    from_pubmed = false
-    if not from_crossref
-      if pubmed = (if rec.PMID then await @src.pubmed(rec.PMID) else await @src.pubmed.doi rec.DOI)
-        from_pubmed = true if pubmed.dates?.PubMedPubDate_received?.date
-    if not from_crossref and not from_pubmed
-      fixes.push rec.DOI
-      console.log 'fix medline found', fixes.length, 'to fix'
-  batch = []
-  if fixes.length
-    for DOI in fixes
-      if rec = await @report.works DOI
-        delete rec.submitted_date
-        delete rec.accepted_date
-        batch.push rec
-      if batch.length is 5000
-        await @report.works batch
-        batch = []
-    if batch.length
-      await @report.works batch
-  console.log 'fix medline completed with', fixes.length, 'fixed'
-  return fixes.length
-P.report.fixmedline._bg = true
-P.report.fixmedline._async = true
-P.report.fixmedline._auth = '@oa.works'
-'''
-
-
-'''
-P.report.fixtitle = ->
-  fixes = 0
-  checked = 0
-  batch = []
-  for alpha in 'abcdefghijklmnopqrstuvwxyz'.split ''
-    for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'title.keyword:"' + alpha + '" OR title.keyword:"' + alpha.toUpperCase() + '"', scroll: '30m'
-      checked += 1
-      console.log('fix title checked', alpha, checked, fixes) if checked % 1000 is 0
-      if rec.title.length is 1
-        if oadoi = await @src.oadoi rec.DOI
-          rec.title = oadoi.title if oadoi.title
-        if rec.title.length is 1 and openalex = await @src.openalex.works rec.DOI
-          rec.title = openalex.title if openalex.title
-        if rec.title.length is 1 and cr = await @src.crossref.works rec.DOI
-          rec.title = cr.title if cr.title
-          rec.title = rec.title[0] if typeof rec.title isnt 'string'
-        if rec.title.length isnt 1
-          fixes += 1
-          batch.push rec
-        if batch.length is 20000
-          await @report.works batch
-          batch = []
-  if batch.length
-    await @report.works batch
-  console.log 'fix title completed with', checked, fixes
-  return fixes
-P.report.fixtitle._bg = true
-P.report.fixtitle._async = true
-P.report.fixtitle._auth = '@oa.works'
-'''
-
-'''
-P.report.fixcroa = ->
-  fixes = 0
-  checked = 0
-  batch = []
-  for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'crossref_is_oa:true', scroll: '30m'
-    checked += 1
-    console.log('fix crossref is OA checked', checked, fixes) if checked % 100 is 0
-    if cr = await @src.crossref.works rec.DOI
-      if cr.is_oa isnt true
-        fixes += 1
-        rec.crossref_is_oa = false
-        batch.push rec
-    if batch.length is 20000
-      await @report.works batch
-      batch = []
-  if batch.length
-    await @report.works batch
-  console.log 'fix crossref is OA completed with', checked, fixes
-  return fixes
-P.report.fixcroa._bg = true
-P.report.fixcroa._async = true
-P.report.fixcroa._auth = '@oa.works'
-'''
-
-#P.report.orgs.fixgates = ->
-#  rec = await @report.orgs.orgkeys 'org:"gates foundation"', 1
-#  rec.org = 'Gates Foundation'
-#  await @report.orgs.orgkeys rec
-#  return rec
-
-P.report.fixoatype = ->
-  fixes = 0
-  checked = 0
-  noissn = 0
-  issns = {}
-  types = {}
-  batch = []
-  q = 'journal_oa_type.keyword:"closed" AND issn:* AND orgs:*'
-  count = await @report.works.count q
-  console.log 'check oa type expecting', count
-  for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', q, scroll: '30m'
-    checked += 1
-    noissn += 1 if not rec.issn
-    console.log('check oa type checked', checked, fixes, noissn) if checked % 100 is 0
-    if rec.issn and issns[rec.issn[0]]
-      if issns[rec.issn[0]] not in ['closed', 'unknown']
-        types[issns[rec.issn[0]]] += 1
-        fixes += 1
-        rec.journal_oa_type = issns[rec.issn[0]]
-        batch.push rec
-    else if (rec.issn or rec.DOI) and tp = await @permissions.journals.oa.type rec.issn ? rec.DOI
-      issns[rec.issn[0]] = tp if rec.issn
-      if tp and tp not in ['closed', 'unknown']
-        types[tp] ?= 0
-        types[tp] += 1
-        fixes += 1
-        rec.journal_oa_type = tp
-        batch.push rec
-    if batch.length >= 20000
-      await @report.works batch
-      batch = []
-  if batch.length
-    await @report.works batch
-  console.log 'check oa type completed with', checked, fixes, noissn, count
-  console.log types
-  try console.log Object.keys(issns).length
-  return fixes
-P.report.fixoatype._bg = true
-P.report.fixoatype._async = true
-P.report.fixoatype._auth = '@oa.works'
-
-
-'''
-P.report.removeobq = ->
-  checked = 0
-  for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'orgs_by_query:*', scroll: '30m', include: ['DOI', 'openalex', 'PMCID']
-    checked += 1
-    @report.queue (rec.DOI ? rec.openalex ? rec.PMCID), undefined, true
-    console.log('fix orgs by query', checked) if checked % 100 is 0
-  console.log 'fix orgs by query completed with', checked
-  return checked
-P.report.removeobq._bg = true
-P.report.removeobq._async = true
-P.report.removeobq._auth = '@oa.works'
-'''
-
-
-
-'''
-P.report.fixtype = ->
-  fixes = 0
-  fixols = 0
-  nool = 0
-  checked = 0
-  batch = []
-  for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'NOT type:*', scroll: '30m'
-    checked += 1
-    console.log('fix type checked', checked, fixes, fixols, nool, batch.length) if checked % 100 is 0
-    fixed = false
-    if ol = await @src.openalex.works rec.DOI
-      if ol.type
-        fixed = true
-        fixes += 1
-        rec.type = ol.type
-        batch.push rec
-    else
-      nool += 1
-    if not fixed and nol = await @src.openalex.works.doi rec.DOI, true
-      console.log 'report fixtype updated openalex', rec.DOI
-      fixes += 1
-      fixols += 1
-      rec.type = nol.type
-      batch.push rec
-    if batch.length is 5000
-      await @report.works batch
-      batch = []
-  if batch.length
-    await @report.works batch
-  console.log 'fix type completed with', checked, fixes, fixols, nool
-  return fixes
-P.report.fixtype._bg = true
-P.report.fixtype._async = true
-P.report.fixtype._auth = '@oa.works'
-'''
-
-
-'''
-P.report.fixsupps = ->
-  remove = @params.remove ? true
-  q = @params.q ? 'org:melinda'
-  ondev = @S.dev
-  ondev = false if @params.dev is false or @params.live is true
-  ondev = true if @params.dev is true or @params.live is false
-  checked = 0
-  removed = 0
-  if q
-    console.log 'fixing supps for', q, ondev
-    for await rec from @index._for 'paradigm_' + (if ondev then 'b_' else '') + 'report_orgs_supplements', q, undefined, false
-      checked += 1
-      if remove is true
-        await @index._send 'paradigm_' + (if ondev then 'b_' else '') + 'report_orgs_supplements/_doc/' + rec._id, '', undefined, false
-        removed += 1
-      if checked % 100 is 0
-        console.log 'fix supps checked', checked, removed
-  console.log 'fix supps completed with', checked, removed
-  return checked
-P.report.fixsupps._bg = true
-P.report.fixsupps._async = true
-P.report.fixsupps._auth = '@oa.works'
-'''
-
-
-
-'''P.report.fixmelinda = ->
-  ondev = @S.dev
-  ondev = false if @params.dev is false or @params.live is true
-  ondev = true if @params.dev is true or @params.live is false
-  checked = 0
-  updated = 0
-  idx = 'paradigm_' + (if ondev then 'b_' else '') + 'report_works' + (if ondev then '' else '_22122023')
-  for await rec from @index._for idx, 'supplements.org:melinda', undefined, false
-    checked += 1
-    os = []
-    for org in (rec.orgs ? [])
-      if not org.toLowerCase().includes 'melinda'
-        os.push org
-    if not JSON.stringify(os).toLowerCase().includes 'melinda'
-      os.push 'Gates Foundation'
-    rec.orgs = os
-    ns = []
-    for sup in (rec.supplements ? [])
-      if not sup.org.toLowerCase().includes 'melinda'
-        ns.push sup
-    rec.supplements = ns
-    updated += 1
-    rid = rec._id
-    delete rec._id
-    await @index._send idx + '/_doc/' + rid, rec, undefined, false
-    if checked % 100 is 0
-      console.log 'fix melinda checked', checked, updated
-  console.log 'fix melinda completed with', checked, updated
-  return checked
-P.report.fixmelinda._bg = true
-P.report.fixmelinda._async = true
-P.report.fixmelinda._auth = '@oa.works'
-'''
-
-
-
-'''
-P.report.fixmjff = ->
-  checked = 0
-  removed = 0
-  started = await @report.works.count 'orgs.keyword:"Michael J. Fox Foundation"'
-  for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works_14122023', 'orgs.keyword:"Michael J. Fox Foundation"' #, undefined, false, false
-    checked += 1
-    if not rec._id.startsWith '10.'
-      removed += 1
-      #await @report.works rec._id, ''
-      #await @index._send 'paradigm_report_works_14122023/_doc/' + rec._id, '', undefined, false, false
-  ended = await @report.works.count 'orgs.keyword:"Michael J. Fox Foundation"'
-  console.log 'fix mjff completed with', checked, removed, started, ended
-  return checked
-P.report.fixmjff._bg = true
-P.report.fixmjff._async = true
-P.report.fixmjff._auth = '@oa.works'
-'''
-
-'''P.exports = ->
-  for idx in ['paradigm_svc_rscvd']
-    total = 0
-    fdn = @S.directory + '/report/export_' + idx + '.jsonl'
-    try
-      out = await fs.createWriteStream fdn #, 'utf-8'
-      for await o from @index._for idx, undefined, undefined, false
-        await out.write (if total then '\n' else '') + JSON.stringify o
-        total += 1
-        console.log('exporting', total) if total % 1000 is 0
-    catch err
-      console.log 'exports error', JSON.stringify err
-    console.log idx, 'export done', total
-  return true
-P.exports._bg = true
-P.exports._async = true
-P.exports._log = false'''
-
-
-
-'''P.reloads = ->
-  for idx in ['paradigm_b_users', 'paradigm_b_report_orgs_orgkeys', 'paradigm_users', 'paradigm_report_orgs_orgkeys', 'paradigm_deposits', 'paradigm_ills', 'paradigm_svc_rscvd']
-    total = 0
+  queued = 0
+  while (batch = ids.splice(0, 10000)) and batch.length
+    queued += batch.length
+    console.log 'report works queries queueing', batch.length, queued
+    await @report.queue batch, undefined, true, true
     batch = []
-    pre = ''
-    for await line from readline.createInterface input: fs.createReadStream @S.directory + '/import/export_' + idx + '.jsonl'
-      if line.endsWith '}'
-        batch.push JSON.parse pre + line
-        pre = ''
-        total += 1
-      else
-        pre += line
-    await @index._bulk(idx, batch, undefined, undefined, false) if batch.length
-    console.log idx, 'reloaded', total
-  return true
-P.reloads._bg = true
-P.reloads._async = true'''
 
+  console.log 'report works queries complete', cvl, ovl, svl, queued, 'elapsed', Date.now() - started
+  return queued
 
-'''
-P.report.test = _index: true, _alias: 'altest2'
-P.report.test.add = ->
-  toalias = @params.toalias
-  toalias += '' if typeof toalias is 'number'
-  l = await @dot P, 'report.test._alias'
-  await @report.test hello: 'world', alias: l ? 'none'
-  await @sleep 2000
-  res = count: await @report.test.count(), ford: 0, records: []
-  t = 'report_test'
-  batch = [{hello: 'world', alias: l ? 'none', batch: 1}, {hello: 'world', alias: l ? 'none', batch: 2}]
-  await @index._bulk t, batch, undefined, undefined, undefined, toalias
-  await @sleep 2000
-  for await i from @index._for 'report_test', '*'
-    res.ford += 1
-    res.records.push i
-  return res
-'''
+P.report.works.queries._async = true
 

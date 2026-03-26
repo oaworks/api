@@ -93,11 +93,13 @@ P.src.epmc.doi = (ident, refresh, year) ->
   ident ?= @params.doi
   if ident and ident.startsWith('10.') and ident.split('/').length >= 2 and ident.split(' ').length is 1
     exists = await @src.epmc 'doi:"' + ident + '"'
-    ly = parseInt((await @date()).split('-')[0]) - 3 # don't check again if already more than 3 years old, it is unlikely to turn up
-    if exists?.hits?.total
-      return exists.hits.hits[0]._source
+    ly = parseInt((await @date()).split('-')[0]) - 3 # don't check again if already more than 3 years old, it is unlikely to change or turn up
+    if exists?.hits?.total and (rt = exists.hits.hits[0]._source)
+      yr = ((rt.pubYear ? rt.journalInfo.yearOfPublication ? rt.firstPublicationDate ? '') + '').split('-')[0]
+      if typeof yr is 'string' and yr.length is 4 and parseInt(yr) <= ly
+        return rt
     #else if not refresh and Date.now() - ((await @src.epmc.notinepmc ident)?.checkedAt ? 0) < 2419200000 # 1000*60*60*24*28 # if we checked in the last 28 days, don't check again
-    else if not refresh and (ne = await @src.epmc.notinepmc ident) and (ne.year ? ly) < ly and Date.now() - (ne.checkedAt ? 0) < 2419200000 # don't check again within 28 days
+    if not refresh and (ne = await @src.epmc.notinepmc ident) and (ne.year ? ly) < ly and Date.now() - (ne.checkedAt ? 0) < 2419200000 # don't check again within 28 days
       return
     else
       res = await @src.epmc.search 'DOI:' + ident
@@ -115,10 +117,12 @@ P.src.epmc.pmid = (ident, refresh, year) ->
   ident ?= @params.pmid
   if ident and (typeof ident is 'number' or (typeof parseInt(ident) is 'number' and ident.split('.').length is 1 and ident.split(' ').length is 1))
     exists = await @src.epmc 'pmid:"' + ident + '"'
-    ly = parseInt((await @date()).split('-')[0]) - 3 # don't check again if already more than 3 years old, it is unlikely to turn up
-    if exists?.hits?.total
-      return exists.hits.hits[0]._source
-    else if not refresh and (ne = await @src.epmc.notinepmc ident) and (ne.year ? ly) < ly and Date.now() - (ne.checkedAt ? 0) < 2419200000 # don't check again within 28 days
+    ly = parseInt((await @date()).split('-')[0]) - 3 # don't check again if already more than 3 years old, it is unlikely to change or turn up
+    if exists?.hits?.total and (rt = exists.hits.hits[0]._source)
+      yr = ((rt.pubYear ? rt.journalInfo.yearOfPublication ? rt.firstPublicationDate ? '') + '').split('-')[0]
+      if typeof yr is 'string' and yr.length is 4 and parseInt(yr) <= ly
+        return rt
+    if not refresh and (ne = await @src.epmc.notinepmc ident) and (ne.year ? ly) < ly and Date.now() - (ne.checkedAt ? 0) < 2419200000 # don't check again within 28 days
       return
     else
       res = await @src.epmc.search 'EXT_ID:' + ident + ' AND SRC:MED'
@@ -136,10 +140,12 @@ P.src.epmc.pmc = (ident, refresh, year) ->
     if ident and (typeof ident is 'number' or (typeof parseInt(ident) is 'number' and ident.split('.').length is 1 and ident.split(' ').length is 1))
       ident = 'PMC' + ident
       exists = await @src.epmc 'pmcid:"' + ident + '"'
-      ly = parseInt((await @date()).split('-')[0]) - 3 # don't check again if already more than 3 years old, it is unlikely to turn up
-      if exists?.hits?.total
-        return exists.hits.hits[0]._source
-      else if not refresh and (ne = await @src.epmc.notinepmc ident) and (ne.year ? ly) < ly and Date.now() - (ne.checkedAt ? 0) < 2419200000 # don't check again within 28 days
+      ly = parseInt((await @date()).split('-')[0]) - 3 # don't check again if already more than 3 years old, it is unlikely to change or turn up
+      if exists?.hits?.total and (rt = exists.hits.hits[0]._source)
+        yr = ((rt.pubYear ? rt.journalInfo.yearOfPublication ? rt.firstPublicationDate ? '') + '').split('-')[0]
+        if typeof yr is 'string' and yr.length is 4 and parseInt(yr) <= ly
+          return rt
+      if not refresh and (ne = await @src.epmc.notinepmc ident) and (ne.year ? ly) < ly and Date.now() - (ne.checkedAt ? 0) < 2419200000 # don't check again within 28 days
         return
       else
         res = await @src.epmc.search 'PMCID:' + ident
@@ -254,10 +260,13 @@ P.src.epmc.xml = (pmcid, rec, refresh) ->
 P.src.epmc.fulltext = (pmcid) -> # check fulltext exists in epmc explicitly
   pmcid ?= @params.fulltext ? @params.pmcid ? @params.epmc
   if pmcid
-    exists = await @fetch 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML', method: 'HEAD', rate: ['ebi', 8]
-    return exists?.status is 200
-  else
-    return
+    if pmcid.startsWith '10.'
+      rec = await @src.epmc.doi pmcid
+      pmcid = rec?.pmcid ? undefined
+    if pmcid
+      exists = await @fetch 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML', method: 'HEAD', rate: ['ebi', 8]
+      return result: exists?.status is 200
+  return error: 'no valid pmcid to map to'
 
 P.src.epmc.aam = (pmcid, rec, fulltext, refresh) ->
   pmcid ?= @params.aam ? @params.pmcid ? @params.epmc
@@ -340,9 +349,10 @@ P.src.epmc.statement = (pmcid, rec, refresh, verbose) ->
   # which also has it in "notes" but with no type and no other content <notes> but a <title> of Data Availability
   # catches most of https://www.ncbi.nlm.nih.gov/books/NBK541158/
   pmcid ?= @params.statement ? @params.pmc ? @params.pmcid ? @params.PMC ? @params.PMCID
-  if pmcid.startsWith '10.' # if a doi was provided instead
-    rec = await @src.epmc.doi pmcid, refresh
-    pmcid = rec?.pmcid
+  if pmcid and pmcid.startsWith '10.' # if a doi was provided instead
+    rec ?= await @src.epmc.doi pmcid, refresh
+    pmcid = undefined
+  pmcid ?= rec?.pmcid
   refresh ?= @refresh
   verbose ?= @params.verbose
   pres = []
