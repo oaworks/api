@@ -672,8 +672,8 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
       if exists? and not everything
         rec.PMCID = exists.PMCID if exists.PMCID? and exists.PMCID isnt 'PMC'
         rec.pubtype = exists.pubtype if exists.pubtype?
-        rec.tried_epmc_licence = exists.tried_epmc_licence if exists.tried_epmc_licence?
-        rec.epmc_licence = exists.epmc_licence if exists.epmc_licence?
+        #rec.tried_epmc_licence = exists.tried_epmc_licence if exists.tried_epmc_licence?
+        #rec.epmc_licence = exists.epmc_licence if exists.epmc_licence?
         # this has to be checked every time from the supps, so don't set it again
         #rec.pmc_has_data_availability_statement = exists.pmc_has_data_availability_statement if exists.pmc_has_data_availability_statement
         rec.data_availability_statement = exists.data_availability_statement if exists.data_availability_statement?
@@ -788,8 +788,8 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
             if not rec.PMCID
               pp = loc.url.toLowerCase().split('pmc').pop().split('articles/').pop().split('/')[0].split('?')[0].split('#')[0].split('.')[0].replace(/[^0-9]/g, '')
               rec.PMCID = 'PMC' + pp if pp.length and not isNaN parseInt pp
-            if loc.license and not rec.epmc_licence
-              rec.epmc_licence = loc.license
+            #if loc.license and not rec.epmc_licence
+            #  rec.epmc_licence = loc.license
           if not rec.repository_url or not rec.repository_url.includes('pmc') or (not rec.repository_url.includes('ncbi.') and loc.url.includes('ncbi.'))
             for ok in ['license', 'url_for_pdf', 'url', 'version']
               rec['repository_' + ok] = loc[ok] if loc[ok]
@@ -990,10 +990,15 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
           rec.pubtype.push(pt) if pt not in rec.pubtype
 
     #if (everything or epmc?) and rec.PMCID and (refresh or not rec.tried_epmc_licence) #  and rec.repository_url_in_pmc
+    rec.has_epmc_fulltext = false # it appears this should default to false in all cases https://github.com/oaworks/discussion/issues/3738#issuecomment-4134013512
     if epmc?
-      rec.tried_epmc_licence = true
-      lic = await @src.epmc.licence rec.PMCID, epmc, undefined, refresh
-      rec.epmc_licence = lic?.licence
+      rec.has_epmc_fulltext = epmc.inEPMC is 'Y'
+      delete rec.epmc_licence
+      delete rec.tried_epmc_licence
+      if rec.has_epmc_fulltext
+        rec.tried_epmc_licence = true
+        lic = await @src.epmc.licence rec.PMCID, epmc, undefined, refresh
+        rec.epmc_licence = lic?.licence
     #if not rec.pmc_has_data_availability_statement # TODO comment these out once Joe happy to go ahead with removing
     #  rec.pmc_has_data_availability_statement = rec.PMCID and await @src.pubmed.availability rec.PMCID
     #  rec.has_data_availability_statement = true if rec.pmc_has_data_availability_statement

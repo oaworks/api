@@ -75,7 +75,8 @@ P.src.epmc.search = (qrystr, from, size) ->
   qrystr = 'DOI:' + qrystr if qrystr.startsWith('10.') and not qrystr.includes(' ') and qrystr.split('/').length >= 2
   qrystr = 'PMCID:PMC' + qrystr.toLowerCase().replace('pmc','') if typeof qrystr is 'string' and not qrystr.startsWith('PMCID:') and qrystr.toLowerCase().startsWith('pmc') and not qrystr.includes ' '
   qrystr = 'PMCID:PMC' + qrystr if typeof qrystr is 'number'
-  url = 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=' + qrystr + ' sort_date:y&resulttype=core&format=json'
+  # removed sort_date:y from query due to https://github.com/oaworks/discussion/issues/3738#issuecomment-4134013512
+  url = 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=' + qrystr + '&resulttype=core&format=json'
   url += '&pageSize=' + size if size? #can handle 1000, have not tried more, docs do not say
   url += '&cursorMark=' + from if from? # used to be a from pager, but now uses a cursor
   ret = {}
@@ -257,6 +258,8 @@ P.src.epmc.xml = (pmcid, rec, refresh) ->
       #  await @src.epmc rec.id, rec
   return
 
+'''
+No longer required as per https://github.com/oaworks/discussion/issues/3738#issuecomment-4126645154
 P.src.epmc.fulltext = (pmcid) -> # check fulltext exists in epmc explicitly
   pmcid ?= @params.fulltext ? @params.pmcid ? @params.epmc
   if pmcid
@@ -267,6 +270,7 @@ P.src.epmc.fulltext = (pmcid) -> # check fulltext exists in epmc explicitly
       exists = await @fetch 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML', method: 'HEAD', rate: ['ebi', 8]
       return result: exists?.status is 200
   return error: 'no valid pmcid to map to'
+'''
 
 P.src.epmc.aam = (pmcid, rec, fulltext, refresh) ->
   pmcid ?= @params.aam ? @params.pmcid ? @params.epmc
