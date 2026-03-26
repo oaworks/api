@@ -5,7 +5,7 @@
 # new crossref rate limits since 05/11/2025
 # https://www.crossref.org/blog/announcing-changes-to-rest-api-rate-limits/
 # if in public pool, single record request e.g. to DOI is 5 per second, one at a time. Query requests are 1 per second, 1 at a time.
-# polite pool, single record requests are 10 per second 3 at a time, query requests are 3 per second 3 at a time.
+# polite pool, single record requests are 10 per second 3 at a time, query requests are 3 per second 3 at a time. Sounds like can have both, e.g 13 total.
 # polite pool examples appear to require &mailto=my@email.com as a param - check we are doing that rather than a header, just in case headers not checked any more
 # so at most we could send 864000 single record requests per day (if each one responded fast enough)
 
@@ -24,7 +24,7 @@ P.src.crossref.works.doi = (doi, refresh, save) ->
     doi = doi.split('//')[1] if doi.indexOf('http') is 0
     doi = '10.' + doi.split('/10.')[1] if doi.indexOf('10.') isnt 0 and doi.indexOf('/10.') isnt -1
     if refresh or not found = await @src.crossref.works doi
-      res = await @fetch 'https://api.crossref.org/works/' + doi, {rate: ['crossref', 7], headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works')}} #, 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
+      res = await @fetch 'https://api.crossref.org/works/' + doi, {rate: ['crossref', 10], headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works')}} #, 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
       if res?.message?.DOI?
         found = await @src.crossref.works._format res.message
         await @src.crossref.works(found) if save
