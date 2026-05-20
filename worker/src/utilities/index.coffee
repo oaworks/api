@@ -774,9 +774,28 @@ P.index._send = (route, data, method, prefix, alias, url) ->
   route = route.replace('/','') if route.startsWith '/' # gets added back in when combined with the url
   route = route.replace(/\/$/,'') if route.endsWith '/'
   try route = route.replace(/#/g, '%23') if route.split('/').pop().includes '#'
+  methodexplicit = method and typeof method is 'string'
   method ?= if data is '' then 'DELETE' else if data? and (route.indexOf('/') is -1 or route.indexOf('/_create') isnt -1 or (route.indexOf('/_doc') isnt -1 and not route.endsWith('/_doc'))) then 'PUT' else if data? or route.split('/').pop().split('?')[0] in ['_refresh', '_aliases'] then 'POST' else 'GET'
   # TODO if data is a query that also has a _delete key in it, remove that key and do a delete by query? and should that be bulked? is dbq still allowed in ES7.x?
   return false if method is 'DELETE' and route.indexOf('/_all') isnt -1 # nobody can delete all via the API
+  if method is 'DELETE' and not route.includes('_doc') and not route.includes '_search/scroll' # only allow delete by ID, not by query, to avoid accidental mass deletes. _search/scroll is allowed because that's how we do deletes by query, but it requires a scroll ID which should make it safe enough
+    console.log data
+    console.log typeof data
+    if methodexplicit or route in ['report_orgs', 'report_emails']
+      console.log 'ALLOWING DELETE BY EXPLICIT METHOD OR ALLOW LISTED ROUTE'
+      console.log route
+    else
+      console.log 'ONLY DELETE BY SPECIFIC RECORD ID (OR SCROLL) CURRENTLY ALLOWED'
+      console.log 'Change this to allow if method is explicitly stated'
+      console.log route
+      try
+        fs.appendFile '/home/oaw/deletionattempts', new Date().toISOString() + ' ' + route + ' ' + JSON.stringify(data) + '\n'
+      return false
+  if method is 'DELETE' and route.includes('_doc') and route.includes 'report_works'
+    console.log 'ALLOWING DELETE OF SPECIFIC RECORD' # log these for now
+    console.log route
+    try
+      fs.appendFile '/home/oaw/deletionbyids', new Date().toISOString() + ' ' + route + ' ' + JSON.stringify(data) + '\n'
   if not route.startsWith 'http' # which it probably doesn't
     rso = route.split('/')[0]
     if not route.startsWith '_'

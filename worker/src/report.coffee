@@ -5,7 +5,47 @@ S.report ?= {}
 P.report = () -> return 'OA.Works report'
 P.report.works = _index: true
 
+# increasing field limit
+# curl -X PUT http://localhost:9200/paradigm_b_report_works/_settings -H 'Content-Type: application/json' -d '{"index.mapping.total_fields.limit": 2000}'
+# put in opensearch.yml: indices.query.bool.max_clause_count: 20000
 
+# making a clone
+# curl -X PUT http://localhost:9200/paradigm_b_report_works/_settings -H 'Content-Type: application/json' -d '{"index.blocks.write": true}'
+# curl -X POST http://localhost:9200/paradigm_b_report_works/_clone/paradigm_b_report_works_backup
+# curl -X PUT http://localhost:9200/paradigm_b_report_works/_settings -H 'Content-Type: application/json' -d '{"index.blocks.write": false}'
+# curl -X PUT http://localhost:9200/paradigm_b_report_works_backup/_settings -H 'Content-Type: application/json' -d '{"index.blocks.write": false}'
+
+'''P.report.clone = (suffix, idx, dev) ->
+  suffix ?= new Date().toISOString().split('T')[0].replace(/-/g, '')
+  idx ?= 'report_works'
+  dev ?= @S.dev
+  target = 'paradigm_' + (if dev then 'b_' else '') + idx
+  while exists = await @index._send target + '_' + suffix
+    suffix = suffix + '_' + Math.floor(Math.random() * 1000)
+  console.log 'cloning index', target, 'to', target + '_' + suffix
+  console.log 'blocking writes to index', target
+  blocked = await @index._send target + '/_settings', {index: {blocks: {write: true}}}, 'PUT'
+  console.log blocked
+  if blocked?.acknowledged
+    console.log 'cloning...'
+    cloned = await @index._send target + '/_clone/' + target + '_' + suffix, undefined, 'POST'
+    console.log cloned
+    if cloned?.acknowledged
+      console.log 'unblocking writes to original index', target
+      unblocked = await @index._send target + '/_settings', {index: {blocks: {write: false}}}, 'PUT'
+      console.log unblocked
+      console.log 'unblocking writes to new index', target + '_' + suffix
+      newunblocked = await @index._send target + '_' + suffix + '/_settings', {index: {blocks: {write: false}}}, 'PUT'
+      console.log newunblocked
+      if unblocked?.acknowledged and newunblocked?.acknowledged
+        console.log 'clone complete', target + '_' + suffix
+        return target + '_' + suffix
+  return false
+P.report.clone._bg = true
+P.report.clone._async = true
+P.report.clone._log = false
+P.report.clone._auth = 'root'
+'''
 
 P.report.suggestables = _index: true
 P.report.suggestions = ->
@@ -181,7 +221,8 @@ P.report.queue = (idents, openalex, refresh, everything, action = 'default') -> 
       for await qp from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_queued', 'action.keyword:"' + @params.empty + '"'
         await @report.queued qp._id, ''
     else
-      await @report.queued ''
+      #await @report.queued ''
+      await @index._send 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_queued', '', 'DELETE'      
   idents ?= @params.queue ? @params.doi ? @params.openalex ? @params.pmcid
   refresh ?= @refresh
   everything ?= @params.everything
@@ -411,13 +452,15 @@ P.report.orgs.key._log = false
 P.report.orgs.key._auth = '@oa.works'
 
 P.report.orgs.supplements = _index: true, _auth: '@oa.works'
-P.report.orgs.supplements.load = (orgname, sheetname, clear) ->
+P.report.orgs.supplements.load = (orgname, sheetname, clear, immediate) ->
   started = await @epoch()
   if @fn is 'report.orgs.supplements.load'
     clear ?= @params.clear
-  await @report.orgs.supplements('') if clear
+  await @report.orgs.supplements('') if clear is true
   orgname ?= @params.org
   sheetname ?= @params.sheet
+  immediate = true if @params.immediate or @params.priority
+  refresh = @refresh
   recs = await @src.google.sheets S.report.orgs_sheet
   total = 0
   idents = []
@@ -447,7 +490,7 @@ P.report.orgs.supplements.load = (orgname, sheetname, clear) ->
         org[h] = rec[h]
     if Array.isArray org.sheets
       for s in org.sheets
-        if (not orgname or org.name is orgname) and (not sheetname or s.name is sheetname)
+        if (not orgname or org.name is orgname) and sheetname isnt false and (not sheetname or s.name is sheetname) and (orgname or org.name in ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Wellcome Trust', 'Michael J. Fox Foundation', 'all paid'])
           console.log org.name, s.name, s.url
           rc = 0
           osdids = []
@@ -556,28 +599,33 @@ P.report.orgs.supplements.load = (orgname, sheetname, clear) ->
                   total += 1
               console.log org.name, s.name, sups.length, idents.length
               await @report.orgs.supplements sups
-            await @sleep 2000
-            for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'org.keyword:"' + org.name + '" AND sheets.keyword:"' + s.name + '"', scroll: '30m', include: ['osdid', 'DOI', 'openalex', 'pmcid']
-              if sup.osdid not in osdids
-                await @report.orgs.supplements sup.osdid, ''
-                idents.push(sup.DOI ? sup.openalex ? sup.pmcid) if (sup.DOI ? sup.openalex ? sup.pmcid) not in idents # need to rerun for ones where something has been deleted too so that deleted supplements get removed from the work
+            await @sleep 1000
+            #for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'org.keyword:"' + org.name + '" AND sheets.keyword:"' + s.name + '"', scroll: '30m', include: ['osdid', 'DOI', 'openalex', 'pmcid']
+            #  if sup.osdid not in osdids
+            #    await @report.orgs.supplements sup.osdid, ''
+            #    idents.push(sup.DOI ? sup.openalex ? sup.pmcid) if (sup.DOI ? sup.openalex ? sup.pmcid) not in idents # need to rerun for ones where something has been deleted too so that deleted supplements get removed from the work
           sheets.push org: org.name, sheet: s.name, rows: rc, update: update, supplements: sups.length
           sheetnames.push s.name
 
   # check for sheets that have since been removed
-  if not clear and not orgname and not sheetname
-    for aps in await @report.works.suggest 'supplements.sheets', undefined, 5000
-      if aps not in sheetnames
-        for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'sheets.keyword:"' + aps + '"', scroll: '30m', include: ['osdid']
-          await @report.orgs.supplements sup.osdid, ''
-        for await osw from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'supplements.sheets.keyword:"' + aps + '"', scroll: '30m', include: ['DOI', 'openalex', 'pmcid']
-          idents.push(osw.DOI ? osw.openalex ? osw.pmcid) if (osw.DOI and osw.DOI not in idents) or (not osw.DOI and osw.openalex and osw.openalex not in idents) or (not osw.DOI and not osw.openalex and osw.pmcid and osw.pmcid not in idents)
+  #if not sheetname and sheetname isnt false and not orgname
+  #  for aps in await @report.works.suggest 'supplements.sheets.keyword', undefined, 5000
+  #    if aps not in sheetnames
+  #      console.log 'report orgs supplements queueing idents to clear', aps
+  #      for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'sheets.keyword:"' + aps + '"', scroll: '30m', include: ['osdid']
+  #        await @report.orgs.supplements sup.osdid, ''
+  #      for await osw from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'supplements.sheets.keyword:"' + aps + '"', scroll: '30m', include: ['DOI', 'openalex', 'pmcid']
+  #        idents.push(osw.DOI ? osw.openalex ? osw.pmcid) if (osw.DOI and osw.DOI not in idents) or (not osw.DOI and osw.openalex and osw.openalex not in idents) or (not osw.DOI and not osw.openalex and osw.pmcid and osw.pmcid not in idents)
 
-  if clear # need to check to run everything that had a supplement
-    for ptc in await @report.works 'orgs:* OR supplements.sheets:*', include: ['DOI', 'openalex', 'pmcid']
+  if clear
+    console.log 'report orgs supplements queueing idents to clear for specific sheet', clear
+    if typeof clear is 'string'
+      for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'sheets.keyword:"' + clear + '"', scroll: '30m', include: ['osdid']
+        await @report.orgs.supplements sup.osdid, ''
+    for await ptc from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'supplements.sheets' + (if typeof clear is 'string' then '.keyword:"' + clear + '"' else ':*'), include: ['DOI', 'openalex', 'pmcid']
       idents.push(ptc.DOI ? ptc.openalex) if (ptc.DOI and ptc.DOI not in idents) or (not ptc.DOI and ptc.openalex and ptc.openalex not in idents) or (not ptc.DOI and not ptc.openalex and ptc.pmcid and ptc.pmcid not in idents)
 
-  await @sleep 60000 # wait a while for the supplements index to finish building and then run the processing for identifiers
+  await @sleep 20000 # wait a while for the supplements index to finish building and then run the processing for identifiers
   console.log 'report orgs supplements load', total, idents.length, await @epoch() - started
   if idents.length
     console.log 'report orgs supplements load ready to call works load', idents.length
@@ -595,7 +643,7 @@ P.report.emails = _sheet: S.report.emails_sheet, _key: 'doi', _auth: '@oa.works'
 P.report.email = (doi) ->
   return undefined if not doi and not @params.orgkey
   doi ?= @params.email ? @params.doi
-  return undefined if not doi?
+  return undefined if not doi
   rec = await @report.works doi
   if (email = rec?.email ? rec?.outreach?.email_address)
     return email if email.includes '@'
@@ -613,10 +661,13 @@ P.report.email._log = false
 try P.oareport.email = P.report.email # temporary for oareport development
 
 
-# curl -X PUT http://localhost:9200/paradigm_b_report_works/_settings -H 'Content-Type: application/json' -d '{"index.mapping.total_fields.limit": 2000}'
-# put in opensearch.yml: indices.query.bool.max_clause_count: 20000
 
 P.report.works.process = (cr, openalex, refresh, everything, action, replaced, queued) ->
+  #try
+  #  # get rid of bad duplicates created from supplements key overwrite testing
+  #  if typeof cr is 'string' and cr.length and ((not cr.startsWith('10.') and not cr.startsWith('PMC') and not cr.startsWith('w')) or cr.startsWith('wellcome') or cr.startsWith('gates'))
+  #    await @report.works cr, ''
+  #    return
   try
     started = await @epoch()
     cr ?= @params.process
@@ -624,6 +675,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
     refresh = true if refresh is 0
     refresh ?= @refresh
     everything ?= @params.everything # if so then runs epmc and permissions, which otherwise only run for records with orgs providing supplements
+    refresh = 129600000 if refresh is true and not everything
 
     rec = {}
 
@@ -631,7 +683,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
       givenpmcid = cr.toLowerCase().replace('pmc', 'PMC')
       cr = undefined
       #openalex ?= await @src.openalex.works 'ids.pmcid:"' + givenpmcid.toLowerCase().replace('pmc', '') + '"', 1 # openalex does not store them with the PMC prefix, they are in URL format without it
-      openalex ?= await @src.openalex.works.find undefined, undefined, givenpmcid, undefined, true
+      openalex ?= await @src.openalex.works.find undefined, undefined, givenpmcid, undefined, refresh
       if not openalex? and epmc = await @src.epmc.pmc givenpmcid, refresh
         cr = epmc.doi
 
@@ -650,23 +702,24 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
         try
           #ox = if openalex.startsWith('W') then await @src.openalex.works('id.keyword:"https://openalex.org/' + openalex + '"') else await @src.openalex.works.doi openalex, (@params.refresh_sources ? false)
           #try ox = ox.hits.hits[0]._source if ox?.hits?.hits?.length
-          ox = await @src.openalex.works.find (if openalex.startsWith('10.') then openalex else undefined), (if openalex.startsWith('10.') then undefined else openalex), undefined, undefined, true
+          ox = await @src.openalex.works.find (if openalex.startsWith('10.') then openalex else undefined), (if openalex.startsWith('10.') then undefined else openalex), undefined, undefined, refresh
           openalex = ox if ox?.id
     if (typeof openalex is 'object' and openalex.ids?.doi) or (typeof openalex is 'string' and openalex.startsWith '10.')
-      soad = (if typeof openalex is 'string' then openalex else openalex.ids.doi.split('.org/')[1]).toLowerCase()
-      exists = await @report.works soad # must look up prev record in every case now, in case we need to track orgs by query
-      exists = undefined if exists?.DOI and exists.DOI.toLowerCase() isnt soad
-      refresh = true if exists?.updated or (refresh and refresh isnt true and exists and exists.updated < refresh)
+      soad = (if typeof openalex is 'string' and openalex.length then openalex else openalex.ids.doi.split('.org/')[1]).toLowerCase()
+      if soad
+        exists = await @report.works soad # must look up prev record in every case now, in case we need to track orgs by query
+        exists = undefined if exists?.DOI and exists.DOI.toLowerCase() isnt soad
+        refresh = true if exists?.updated or (refresh and refresh isnt true and exists and exists.updated < refresh)
     openalex = undefined if typeof openalex is 'string' and not (openalex.startsWith('W') or openalex.startsWith('10.'))
 
     cr = openalex.ids.doi if not cr? and typeof openalex is 'object' and openalex?.ids?.doi
     cr = cr.split('doi.org/').pop() if typeof cr is 'string' and cr.includes 'doi.org/'
     cr = undefined if typeof cr is 'string' and not cr.startsWith '10.'
     cr = cr.toLowerCase() if typeof cr is 'string'
-    cr = xref if typeof cr is 'string' and xref = await @src.crossref.works.doi cr, @params.refresh
+    cr = xref if typeof cr is 'string' and xref = await @src.crossref.works.doi cr, refresh
     cr = undefined if typeof cr is 'object' and not cr.DOI
 
-    exists = await @report.works(if typeof cr is 'string' then cr else cr.DOI) if cr? and not exists?
+    exists = await @report.works(if typeof cr is 'string' and cr.length then cr else cr.DOI) if cr? and not exists?
     exists = undefined if exists?.DOI and exists.DOI.toLowerCase() isnt (if typeof cr is 'string' then cr else if typeof cr is 'object' and cr.DOI then cr.DOI else '').toLowerCase()
     if refresh isnt true
       if exists? and not everything
@@ -682,11 +735,13 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
         rec.has_data_availability_statement = true if exists.data_availability_statement #or exists.has_data_availability_statement
       refresh = true if not exists?.updated or (refresh and refresh isnt true and exists and exists.updated < refresh)
 
-    openalex = await @src.openalex.works.find((if typeof cr is 'object' then cr.DOI else cr), undefined, undefined, undefined, true) if cr? and not openalex?
+    openalex = await @src.openalex.works.find((if typeof cr is 'object' then cr.DOI else cr), undefined, undefined, undefined, refresh) if cr? and not openalex?
     openalex = undefined if typeof openalex is 'string' or not openalex?.id
 
     if typeof cr is 'object' and cr.DOI
       refresh = true if exists?.updated and cr.indexed?.timestamp and exists.updated < cr.indexed.timestamp
+      rec.crossref ?= {}
+      rec.crossref.deposited = cr.deposited
       rec.DOI = cr.DOI.toLowerCase()
       rec.published_year = cr.year
       rec.published_date = cr.published
@@ -726,7 +781,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
         sup._id = sup.osdid = sup.osdid.split('_10.')[0] + '_' + sup.DOI.replace(/[\u{0080}-\u{FFFF}]/gu, '').toLowerCase().replace(/\//g, '_').replace(/ /g, '_')
         brd.push sup
       for ud in (cr['update-to'] ? [])
-        if ud.DOI isnt cr.DOI and ud.type and ud.type.toLowerCase() not in ['erratum', 'correction'] # some new version statements are for the same DOI, so no point changing anything
+        if ud.DOI and ud.DOI.length and ud.DOI isnt cr.DOI and ud.type and ud.type.toLowerCase() not in ['erratum', 'correction'] # some new version statements are for the same DOI, so no point changing anything
           rec.replaces = []
           rec.replaces.push DOI: ud.DOI, type: ud.type, updated: ud.updated?.timestamp
           await @report.works(ud.DOI, '') if ude = await @report.works ud.DOI
@@ -790,11 +845,18 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
               rec.PMCID = 'PMC' + pp if pp.length and not isNaN parseInt pp
             #if loc.license and not rec.epmc_licence
             #  rec.epmc_licence = loc.license
-          if not rec.repository_url or not rec.repository_url.includes('pmc') or (not rec.repository_url.includes('ncbi.') and loc.url.includes('ncbi.'))
+          if not rec.repository_url or not rec.repository_url.includes('pmc') or (not rec.repository_url.includes('ncbi.') and loc.url and loc.url.includes('ncbi.'))
             for ok in ['license', 'url_for_pdf', 'url', 'version']
               rec['repository_' + ok] = loc[ok] if loc[ok]
-      if rec.repository_url and (rec.repository_url.toLowerCase().includes('europepmc.') or rec.repository_url.toLowerCase().includes('ncbi.'))
-        rec.PMCID ?= 'PMC' + rec.repository_url.toLowerCase().split('pmc').pop().split('articles/').pop().split('/')[0].split('#')[0].split('?')[0].split('.')[0].replace(/[^0-9]/g, '')
+      if rec.repository_url and rec.repository_url.toLowerCase().includes 'europepmc.'
+        try
+          maybepmcid = rec.repository_url.toLowerCase().split('pmc').pop().split('articles/').pop().split('/')[0].split('#')[0].split('?')[0].split('.')[0].replace(/[^0-9]/g, '')
+          rec.PMCID = 'PMC' + maybepmcid if not rec.PMCID and typeof maybepmcid is 'string' and maybepmcid.length and not isNaN parseInt maybepmcid
+        rec.repository_url_in_pmc = true
+      if rec.repository_url and rec.repository_url.toLowerCase().includes 'ncbi.'
+        try
+          maybepmid = rec.repository_url.toLowerCase().replace(/\/$/g, '').split('ncbi.').pop().split('/').pop().split('#')[0].split('?')[0].split('.')[0].replace(/[^0-9]/g, '')
+          rec.PMID = maybepmid if not rec.PMID and typeof maybepmid is 'string' and maybepmid.length and not isNaN parseInt maybepmid
         rec.repository_url_in_pmc = true
       if oadoi?
         rec.best_oa_location_url = oadoi.best_oa_location?.url
@@ -836,9 +898,6 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
         if sup.corresponding_author_ids
           for cid in (if typeof sup.corresponding_author_ids is 'string' then sup.corresponding_author_ids.split(',') else sup.corresponding_author_ids)
             corresponding_author_ids.push(cid) if cid not in corresponding_author_ids
-        #for k of sup
-        #  rec[k] = sup[k] if rec[k]?
-        #  delete rec[k] if rec[k]? and sup[k] is 'NULL'
         rec.supplements.push sup
 
     for cid in (rec.openalx?.corresponding_author_ids ? [])
@@ -1008,7 +1067,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
       rec.has_data_availability_statement = true if rec.data_availability_statement
       if rec.data_availability_statement and urlordois = await @src.epmc.statement.url rec.PMCID, epmc, rec.data_availability_statement
         for dor in urlordois
-          if dor.includes 'doi.org/'
+          if typeof dor is 'string' and dor.includes 'doi.org/'
             dord = dor.split('doi.org/')[1].toLowerCase()
             rec.data_availability_doi ?= []
             rec.data_availability_doi.push(dord) if dord not in rec.data_availability_doi
@@ -1036,18 +1095,33 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
           else
             rec[qk] = qrc[qk]'''
 
+    #for sup in rec.supplements
+    #  #console.log sup
+    #  for k of sup
+    #    #console.log k
+    #    if k not in ['_id', 'updated', 'DOI', 'doi', 'email', 'has_open_data', 'is_preprint', 'openalex', 'paid', 'pmc_has_data_availability_statement', 'pmcid', 'publisher_license_crossref', 'publisher_simple']
+    #      #console.log k, rec[k], sup[k]
+    #      rec[k] = sup[k] if rec[k]?
+    #      delete rec[k] if rec[k]? and sup[k] is 'NULL'
+    #      #console.log k, rec[k], sup[k]
+
     rec._id ?= if rec.DOI then rec.DOI.toLowerCase().replace(/\//g, '_') else if rec.openalex then rec.openalex.toLowerCase() else if rec.PMCID then rec.PMCID.toLowerCase() else undefined # and if no openalex it will get a default ID
     rec.supplemented = await @epoch()
     rec.updated = rec.supplemented
     rec.took = rec.supplemented - started
     rec.supplemented_date = await @datetime rec.supplemented
     rec.updated_date = await @datetime rec.updated
+    console.log @params.process, rec.DOI
     if @params.process and @params.save isnt false and ((rec.DOI and rec.DOI.toLowerCase() is @params.process.toLowerCase()) or (rec.openalex and rec.openalex.toLowerCase() is @params.process.toLowerCase()) or (rec.PMCID and rec.PMCID.toLowerCase() is @params.process.toLowerCase()))
       await @report.works rec
     else if queued
       _done_batch.push queued.toLowerCase()
       _processed_batch.push(rec) if rec._id?
       _processing_idents.splice _processing_idents.indexOf(queued), 1
+    try
+      howmanynow = await @report.works.count()
+      if howmanynow < 2
+        await fs.appendFile '/home/oaw/deletionrecords', JSON.stringify(rec) + '\n' + new Date().toISOString() + '\n', 'utf8'
     #console.log 'report works processed', rec.DOI, rec.took
     return rec
   catch err
@@ -1064,6 +1138,84 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
     return
 P.report.works.process._log = false
 
+
+
+P.report.works._clone = (src, target, opensrc = true, opentarget, removetarget) ->
+  if not removetarget and await @index._send target, undefined, undefined, false, false
+    return error: 'Target index already exists'
+  else
+    res = source: src, target: target, procs: {pre: [], post: []}, counts: {}, closed: {}, opened: {}
+    if @S.name and @S.pm2
+      res.name = @S.name.toLowerCase()
+      procs = await @_child @S.pm2, 'status' # find the queues running for dev or live
+      res.procs.pre.push(res.name + p.split(res.name)[1].split(' ')[0]) for p in procs.split('\n') when p.includes(res.name) and p.includes('online') and p.includes 'queue'
+      console.log res
+      if exists = await @index._send src + '/_search?q=*&size=0&rest_total_hits_as_int=true', undefined, undefined, false, false
+        res.counts.src = exists.hits.total
+        for p in res.procs.pre # stop all (live or dev) queue processes that are running
+          await @_child @S.pm2, ['stop', p]
+        if res.closed.src = await @index._send src + '/_settings', {settings: {index: {blocks: {write: true}}}}, 'PUT', false, false
+          console.log res.closed
+          if res.closed.src.acknowledged
+            if removetarget
+              res.deleted = await @index._send target, undefined, 'DELETE', false, false
+            if res.cloned = await @index._send src + '/_clone/' + target, undefined, 'POST', false, false
+              if res.cloned.acknowledged
+                latest = await @index._send target + '/_search?q=*&size=0&rest_total_hits_as_int=true', undefined, undefined, false, false
+                res.counts.target = latest.hits.total
+        res.success = res.counts.src is res.counts.target
+        if opensrc and res.closed.src?.acknowledged
+          res.opened.src = await @index._send src + '/_settings', {settings: {index: {blocks: {write: false}}}}, 'PUT', false, false
+        if opentarget and res.success
+          res.opened.target = await @index._send target + '/_settings', {settings: {index: {blocks: {write: false}}}}, 'PUT', false, false
+      if res.counts.src?
+        for p in res.procs.pre # start all (live or dev) queue processes that were stopped
+          await @_child @S.pm2, ['start', p]
+        procs = await @_child @S.pm2, 'status' # check which ones are running now, should match
+        res.procs.post.push(res.name + p.split(res.name)[1].split(' ')[0]) for p in procs.split('\n') when p.includes(res.name) and p.includes('online') and p.includes 'queue'
+    return res
+
+P.report.works.backup = (target) ->
+  cur = 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works'
+  cur += '_' + @S.alias.report_works if @S.alias?.report_works and not cur.includes @S.alias.report_works
+  target ?= cur + '_' + (await @date()).replace /-/g, ''
+  counter = 0
+  console.log cur, target
+  while exists = await @index._send target, undefined, undefined, false, false
+    counter++
+    target = if counter is 1 then target + '_v' + counter else target.replace('_v' + (counter-1), '_v' + counter)
+  console.log 'backing up', cur, target
+  return @report.works._clone cur, target, true, false
+P.report.works.backup._bg = true
+P.report.works.backup._auth = '@oa.works'
+
+P.report.works.recover = (datestamp, today) ->
+  today ?= @params.confirmation
+  datestamp ?= @params.from
+  checktoday = (await @date()).replace /-/g, ''
+  procs = []
+  console.log 'recovery called', today, typeof today, checktoday, typeof checktoday, datestamp, typeof datestamp, @params.dev2live, @S.pm2?
+  if today and checktoday and today + '' is checktoday + '' and datestamp and @S.pm2
+    cur = 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works'
+    prev = cur + '_' + datestamp
+    if @S.dev and @params.dev2live is true and cur.includes 'paradigm_b_' # allow recovering if called on dev, from a dev backup, to live index
+      ps = await @_child @S.pm2, 'status' # find the queues running for dev or live
+      for p in ps.split '\n'
+        if p.includes('paradigm') and not p.includes('paradigm_b') and p.includes 'online'
+          procs.push 'paradigm' + p.split('paradigm')[1].split(' ')[0]
+          await @_child @S.pm2, ['stop', p] # dev can turn off all live processes to increase likelihood of recovery
+      cur = cur.replace 'paradigm_b_', 'paradigm_'
+    else
+      cur += '_' + @S.alias.report_works if @S.alias?.report_works and not cur.includes @S.alias.report_works # cannot know alias for live, so only set it if on dev
+    console.log prev, cur, procs
+    cloned = await @report.works._clone prev, cur, false, true, true
+    for p in procs
+      await @_child @S.pm2, ['start', p]
+    cloned.live_procs = procs
+    return cloned
+  return required: 'from param containing only date suffix of report works index to recover from, and confirmation param must match ' + checktoday
+P.report.works.recover._bg = true
+P.report.works.recover._auth = '@oa.works'
 
 P.report.works.load = (timestamp, org, idents, year, clear, supplements, everything, info, refresh) ->
   started = await @epoch()
@@ -1108,7 +1260,7 @@ P.report.works.load = (timestamp, org, idents, year, clear, supplements, everyth
       precount = await @src.crossref.works.count cq
       console.log 'report works load crossref by query expects', cq, precount
       for await cr from @index._for 'src_crossref_works', cq, include: ['DOI'], scroll: '30m'
-        if org or year isnt @params.load or not ae = await @report.works cr.DOI
+        if cr.DOI and cr.DOI.length and (org or year isnt @params.load or not ae = await @report.works cr.DOI)
           total += 1
           await @report.queue cr.DOI, undefined, (timestamp ? refresh), everything, action
 
@@ -1121,7 +1273,7 @@ P.report.works.load = (timestamp, org, idents, year, clear, supplements, everyth
       console.log 'report works load openalex by query expects', oq, precount
       for await ol from @index._for 'src_openalex_works', oq, include: ['id', 'ids'], scroll: '30m'
         oodoi = if ol.ids?.doi then '10.' + ol.ids.doi.split('/10.')[1] else ol.id.split('openalex.org/').pop()
-        if oodoi
+        if oodoi and oodoi.length
           if org or year isnt @params.load or not oodoi.startsWith('10.') or not ae = await @report.works oodoi
             total += 1
             await @report.queue oodoi, undefined, (timestamp ? refresh), everything, action
@@ -1131,11 +1283,11 @@ P.report.works.load = (timestamp, org, idents, year, clear, supplements, everyth
     for await o from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs', (if typeof org is 'string' then 'name:"' + org + '"' else 'paid:true'), scroll: '10m'
       # if an org has no known records in report/works yet, could default it here to a timestamp of start of current year, or older, to pull in all records first time round
       if o.source?.crossref
-        try o.source.crossref = decodeURIComponent(decodeURIComponent(o.source.crossref)) if o.source.crossref.includes '%'
+        try o.source.crossref = decodeURIComponent(decodeURIComponent(o.source.crossref)) if o.source?.crossref? and o.source.crossref.includes '%'
         console.log 'report works load crossref by org', o.name, o.source.crossref
         await _crossref o.source.crossref
       if o.source?.openalex
-        try o.source.openalex = decodeURIComponent(decodeURIComponent(o.source.openalex)) if o.source.openalex.includes '%'
+        try o.source.openalex = decodeURIComponent(decodeURIComponent(o.source.openalex)) if o.source?.openalex? and o.source.openalex.includes '%'
         console.log 'report works load openalex by org', o.name, o.source.openalex
         await _openalex o.source.openalex
 
@@ -1163,7 +1315,9 @@ P.report.works.load._async = true
 P.report.works.load._auth = '@oa.works'
 
 P.report.works.load.mains = ->
-  orgs = if @params.orgs then @params.orgs.split(',') else ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Wellcome Trust']
+  orgs = if @params.orgs then @params.orgs.split(',') else ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Wellcome Trust', 'Michael J. Fox Foundation']
+  if @S.works_load_mains_backup_first
+    await @report.works.backup()
   for org in orgs
     await @report.works.load undefined, org, undefined, undefined, undefined, undefined, undefined, undefined, true
   return true
@@ -1188,7 +1342,7 @@ P.report.works.changes._auth = '@oa.works'
 P.report.works.queries = (orgs) ->
   started = Date.now()
   orgs = @params.orgs.split(',') if @params.orgs
-  orgs ?= ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Wellcome Trust']
+  orgs ?= ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Wellcome Trust'] #, 'Michael J. Fox Foundation'
 
   #if @params.clear
   #  await @report.works ''
@@ -1207,6 +1361,10 @@ P.report.works.queries = (orgs) ->
     'Wellcome Trust': ['funders.id:F4320311904', 'authorships.institutions.ror:029chgv08', 'raw_affiliation_strings.search:Wellcome Trust']
     'Templeton World Charity Foundation': ['funders.id:F4320327239', 'authorships.institutions.ror:00x0z1472', 'raw_affiliation_strings.search:Templeton World Charity Foundation']
     'Howard Hughes Medical Institute': ['funders.id:F4320306082', 'authorships.institutions.ror:006w34k90|013sk6x84', 'raw_affiliation_strings.search:Howard Hughes Medical Institute|Janelia Research Campus|Freeman Hrabowski']
+
+  #for await o from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs'
+  #  if o.source?.crossref
+  #  if o.source?.openalex
 
   ids = []
   cvl = 0
@@ -1267,4 +1425,133 @@ P.report.works.queries = (orgs) ->
   return queued
 
 P.report.works.queries._async = true
+
+
+'''P.report.fixsuppdups = ->
+  checked = 0
+  dups = 0
+  for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', undefined, scroll: '5m', include: ['osdid']
+    checked += 1
+    if sup.osdid and sup.osdid.length
+      exists = await @index._send 'paradigm_b_report_works/_doc/' + sup.osdid
+      #console.log exists?._id
+      if exists?._id is sup.osdid
+        console.log 'remove', exists._id, sup.osdid
+        await @report.works sup.osdid, ''
+        dups += 1
+        console.log checked, dups
+  console.log 'fix supp dups done, checked', checked, 'dups', dups
+  return dups
+P.report.fixsuppdups._log = false
+P.report.fixsuppdups._bg = true
+P.report.fixsuppdups._async = true'''
+
+P.report.finder = ->
+  org = 'Gates Foundation'
+  sheet = ''
+  results = count: {crossref: 0, openalex: 0}, query: {crossref: 0, openalex: 0}, missing: {crossref: 0, openalex: 0}, sheets: {names: [], rows: 0, missing: 0}, breakers: []
+
+  batch = []
+
+  _crossref = (cq) =>
+    results.count.crossref = await @src.crossref.works.count cq
+    console.log 'report finder crossref by query expects', cq, results.count.crossref
+    for await cr from @index._for 'src_crossref_works', cq, include: ['DOI'], scroll: '30m'
+      console.log('report finder crossref', results.query.crossref, results.missing.crossref) if results.query.crossref % 100 is 0
+      results.query.crossref += 1
+      batch.push await @report.works.process cr.DOI
+      if batch.length >= 5
+        saved = await @report.works batch
+        counted = await @report.works.count()
+        if counted < 7
+          results.breakers = results.breakers.concat batch
+        batch = []
+
+  _openalex = (oq) =>
+    results.count.openalex = await @src.openalex.works.count oq
+    console.log 'report finder openalex by query expects', oq, results.count.openalex
+    for await ol from @index._for 'src_openalex_works', oq, include: ['id', 'ids'], scroll: '30m'
+      console.log('report finder openalex', results.query.openalex, results.missing.openalex) if results.query.openalex % 100 is 0
+      results.query.openalex += 1
+      oodoi = if ol.ids?.doi then '10.' + ol.ids.doi.split('/10.')[1] else ol.id.split('openalex.org/').pop()
+      batch.push await @report.works.process oodoi
+      if batch.length >= 5
+        saved = await @report.works batch
+        counted = await @report.works.count()
+        if counted < 7
+          results.breakers = results.breakers.concat batch
+        batch = []
+
+  # only live report orgs have the local source queries now
+  for await o from @index._for 'paradigm_report_orgs', 'name.keyword:"' + org + '"', {scroll: '10m'}, false
+    console.log 'report finder doing org', org, o.name
+    if o.source?.openalex
+      try o.source.openalex = decodeURIComponent(decodeURIComponent(o.source.openalex)) if o.source.openalex.includes '%'
+      console.log 'report finder openalex by org', o.name, o.source.openalex
+      await _openalex o.source.openalex
+    if o.source?.crossref
+      try o.source.crossref = decodeURIComponent(decodeURIComponent(o.source.crossref)) if o.source.crossref.includes '%'
+      console.log 'report finder crossref by org', o.name, o.source.crossref
+      await _crossref o.source.crossref
+
+    if batch.length >= 5
+      saved = await @report.works batch
+      batch = []
+
+    for s in [] #o.sheets
+      if not sheet or s.name is sheet
+        headers = []
+        results.sheets.names.push s.name
+        sd = await @decrypt s.url
+        console.log 'report finder checking sheet', o.name, s.name, sd
+        try rows = await @src.google.sheets sheetid: sd, sheet: 'Export', headers: false
+        if Array.isArray(rows) and rows.length
+          headers.push(header.toLowerCase().trim().replace(/ /g, '_').replace('?', '')) for header in rows.shift()
+          for row in rows
+            console.log('report finder sheets', s.name, results.sheets.rows, results.sheets.missing) if results.sheets.rows % 100 is 0
+            results.sheets.rows += 1
+            rr = {}
+            for hp of headers
+              h = headers[hp]
+              if h.toLowerCase() is 'pmcid'
+                rr[h] = row[hp]
+                rr.pmcid = 'PMC' + row[hp].toLowerCase().replace('pmc', '')
+              else if h in ['doi', 'DOI']
+                rr[h] = row[hp]
+              else
+                hpv = ''
+                if not h in ['apc_cost', 'wellcome.apc_paid_actual_currency_excluding_vat', 'wellcome.apc_paid_gbp_inc_vat_if_charged', 'wellcome.additional_publication_fees_gbp', 'wellcome.amount_of_apc_charged_to_coaf_grant_inc_vat_if_charged_in_gbp', 'wellcome.amount_of_apc_charged_to_rcuk_oa_fund_inc_vat_if_charged_in_gbp', 'wellcome.amount_of_apc_charged_to_wellcome_grant_inc_vat_in_gbp']
+                  hpv = if typeof row[hp] is 'number' then row[hp] else if not row[hp] then undefined else if row[hp].trim().toLowerCase() in ['true', 'yes'] then true else if row[hp].trim().toLowerCase() in ['false', 'no'] then false else if h.toLowerCase() in ['grant_id', 'ror'] then row[hp].replace(/\//g, ',').replace(/ /g, '').split(',') else row[hp]
+                  hpv = row[hp].split(';') if typeof row[hp] is 'string' and row[hp].includes(';')
+                if hpv? and hpv isnt ''
+                  if h.includes '.'
+                    await @dot rr, h, hpv
+                  else
+                    rr[h] = hpv
+            if not rr.doi
+              rr.doi = (rr.DOI ? '') + ''
+            else
+              rr.DOI ?= rr.doi + ''
+            try rr.DOI = '10.' + rr.DOI.split('/10.')[1] if rr.DOI.startsWith 'http'
+            try rr.DOI = rr.DOI.toLowerCase().replace('doi ', '') if rr.DOI.startsWith 'doi '
+            try rr.DOI = rr.DOI.toLowerCase().trim().split('\\')[0].replace(/\/\//g, '/').replace(/\/ /g, '/').replace(/^\//, '').split(' ')[0].split('?')[0].split('#')[0].split(' pmcid')[0].split('\n')[0].replace(/[\u{0080}-\u{FFFF}]/gu, '').trim()
+            try rr.DOI = rr.DOI.split(',http')[0] # due to dirty data
+            if (typeof rr.DOI is 'string' and rr.DOI.startsWith('10.') and not rr.DOI.includes '@') or rr.openalex or rr.pmcid
+              rr.osdid = (o.name.replace(/[^a-zA-Z0-9-_ ]/g, '') + '_' + s.name + '_' + (rr.DOI ? rr.openalex ? rr.pmcid)).replace(/[\u{0080}-\u{FFFF}]/gu, '').toLowerCase().replace(/\//g, '_').replace(/ /g, '_')
+              rr._id = rr.osdid
+            if not rr.DOI and not rr.pmcid and not rr.openalex
+              console.log rr
+              results.sheets.missing += 1
+
+  console.log results
+  return results
+P.report.finder._log = false
+P.report.finder._bg = true
+P.report.finder._async = true
+
+
+
+
+
+
 

@@ -11698,577 +11698,45 @@ P.report.works = {
   _index: true
 };
 
-P.report.works.orgs_queries = async function(orgs, verbose, missed, save, compare, crossref, openalex, process, supplements, clear, refresh) {
-  var batch, d, dois, exists, j, l, len, len1, len2, len3, lens, m, n, o, processed, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, ret, saved, sup, t;
-  if (this.params.orgs) {
-    orgs = this.params.orgs.split(',');
-  }
-  if (orgs == null) {
-    orgs = ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Michael J. Fox Foundation', 'Wellcome Trust', 'Templeton World Charity Foundation', 'Howard Hughes Medical Institute', 'Parkinson’s Progression Markers Initiative'];
-  }
-  if (verbose == null) {
-    verbose = (ref = this.params.verbose) != null ? ref : false;
-  }
-  if (missed == null) {
-    missed = (ref1 = this.params.missed) != null ? ref1 : false;
-  }
-  if (save == null) {
-    save = (ref2 = this.params.save) != null ? ref2 : false;
-  }
-  if (compare == null) {
-    compare = (ref3 = this.params.compare) != null ? ref3 : false;
-  }
-  if (crossref == null) {
-    crossref = (ref4 = this.params.crossref) != null ? ref4 : true;
-  }
-  if (openalex == null) {
-    openalex = (ref5 = this.params.openalex) != null ? ref5 : true;
-  }
-  if (process == null) {
-    process = (ref6 = this.params.process) != null ? ref6 : false;
-  }
-  if (supplements == null) {
-    supplements = (ref7 = this.params.supplements) != null ? ref7 : true;
-  }
-  if (process) {
-    verbose = true;
-  }
-  ret = [];
-  dois = [];
-  batch = [];
-  processed = 0;
-  saved = 0;
-  //if clear or @params.clear
-  //  await @report.works ''
-  if (refresh == null) {
-    refresh = this.refresh;
-  }
-  for (j = 0, len = orgs.length; j < len; j++) {
-    o = orgs[j];
-    console.log('orgs queries doing org', o);
-    if (crossref) {
-      ret.push((await this.report.works.orgs_queries.crossref(o, void 0, verbose, missed, save)));
-    }
-    if (openalex) {
-      ret.push((await this.report.works.orgs_queries.openalex(o, void 0, verbose, missed, save, compare)));
-    }
-    if (process) {
-      lens = crossref && openalex ? 2 : crossref || openalex ? 1 : 0;
-      while (lens > 0) {
-        lens -= 1;
-        ref9 = (ref8 = ret[ret.length - 1 - lens].found) != null ? ref8 : [];
-        for (l = 0, len1 = ref9.length; l < len1; l++) {
-          d = ref9[l];
-          if (d && d.startsWith('10.') && indexOf.call(dois, d) < 0) {
-            dois.push(d);
-          }
-        }
-        ref10 = ['local', 'found', 'missed'];
-        for (m = 0, len2 = ref10.length; m < len2; m++) {
-          t = ref10[m];
-          if (Array.isArray(ret[ret.length - 1 - lens][t])) {
-            ret[ret.length - 1 - lens][t] = ret[ret.length - 1 - lens][t].length;
-          }
-        }
-      }
-    }
-    if (supplements) {
-      ref11 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs_supplements', 'org.keyword:"' + o + '"');
-      for await (sup of ref11) {
-        if ((sup.DOI && (ref12 = sup.DOI, indexOf.call(dois, ref12) < 0)) || (sup.pmcid && (ref13 = sup.pmcid, indexOf.call(dois, ref13) < 0)) || (sup.openalex && (ref14 = sup.openalex, indexOf.call(dois, ref14) < 0))) {
-          dois.push((ref15 = (ref16 = sup.DOI) != null ? ref16 : sup.pmcid) != null ? ref15 : sup.openalex);
-        }
-      }
-    }
-  }
-  console.log('orgs queries total dois to process', dois.length);
-  for (n = 0, len3 = dois.length; n < len3; n++) {
-    d = dois[n];
-    if (refresh || !(exists = (await this.report.works(d)))) {
-      if (indexOf.call(batch, d) < 0) {
-        batch.push(d);
-      }
-      if (batch.length >= 5000) {
-        await this.report.queue(batch, void 0, refresh);
-        saved += batch.length;
-        console.log('orgs queries sent to queue', batch.length, saved);
-        batch = [];
-      }
-      processed += 1;
-    }
-  }
-  if (batch.length) {
-    await this.report.queue(batch, void 0, refresh);
-    saved += batch.length;
-    console.log('orgs queries sent to queue', batch.length, saved);
-    batch = [];
-  }
-  console.log('orgs queries total processed', processed, saved);
-  if (process) {
-    return {
-      dois: dois.length,
-      processed: processed,
-      results: ret
-    };
-  } else {
-    return ret;
-  }
-};
+// increasing field limit
+// curl -X PUT http://localhost:9200/paradigm_b_report_works/_settings -H 'Content-Type: application/json' -d '{"index.mapping.total_fields.limit": 2000}'
+// put in opensearch.yml: indices.query.bool.max_clause_count: 20000
 
-P.report.works.orgs_queries._async = true;
-
-P.report.works.orgs_queries._log = false;
-
-P.report.works.orgs_queries._bg = true;
-
-P.report.works.orgs_queries._auth = '@oa.works';
-
-P.report.works.orgs_queries.crossref = async function(org, queries, verbose, missed, save) {
-  var ans, batch, cursor, ft, j, l, last, ld, len, len1, len2, m, o, qs, r, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, rg, rid, w;
-  // all queries except Gates had a year:>1979 restriction as well, but that may not be necessary - check the differences
-  // for RWJF 70 come up for funder.name that do not have funder.DOI
-  // all except Gates may need author affiliation ID or name checks. HHMI has alternative names, could maybe search for them. Also try direct searches for all full names
-  qs = {
-    'Gates Foundation': ['funder:10.13039/100000865,funder:10.13039/501100005370', 'container-title:Gates%20Open%20Research', 'issn:2572-4754,issn:3029-0988'],
-    'Robert Wood Johnson Foundation': ['funder:10.13039/100000867', 'ror-id:02ymmdj85'],
-    'Michael J. Fox Foundation': ['funder:10.13039/100000864', 'ror-id:03arq3225'],
-    'Wellcome Trust': ['funder:10.13039/100010269,funder:10.13039/100004440', 'ror-id:029chgv08'],
-    'Templeton World Charity Foundation': ['funder:10.13039/501100011730', 'ror-id:00x0z1472'],
-    'Howard Hughes Medical Institute': ['funder:10.13039/100000011']
-  };
-  //'Robert Wood Johnson Foundation': "(year:>1979 AND (funder.DOI:(%2210.13039/100000867%22) OR funder.name:(%22Robert Wood Johnson Foundation%22) OR author.affiliation.id.id:(%2202ymmdj85%22) OR author.affiliation.name:(%22Robert Wood Johnson Foundation%22)))"
-  //'Michael J. Fox Foundation': "(year:>1979 AND (funder.DOI:(%2210.13039/100000864%22) OR funder.name:(%22Michael J. Fox Foundation%22) OR author.affiliation.id.id:(%2203arq3225%22) OR author.affiliation.name:(%22Michael J. Fox Foundation%22)))"
-  //'Wellcome Trust': "(year:>1979 AND (funder.DOI:(%2210.13039/100010269%22 OR %2210.13039/100004440%22) OR funder.name:(%22Wellcome Trust%22) OR author.affiliation.id.id:(%22029chgv08%22) OR author.affiliation.name:(%22Wellcome Trust%22)))"
-  //'Templeton World Charity Foundation': "(year:>1979 AND (funder.DOI:(%2210.13039/501100011730%22) OR funder.name:(%22Templeton World Charity Foundation%22) OR author.affiliation.id.id:(%2200x0z1472%22) OR author.affiliation.name:(%22Templeton World Charity Foundation%22)))"
-  //'Howard Hughes Medical Institute': "(year:>1979 AND (funder.DOI:(%2210.13039/100000011%22) OR funder.name:(%22Howard Hughes Medical Institute%22 OR %22Janelia Research Campus%22 OR %22Freeman Hrabowski%22) OR author.affiliation.id.id:(%22006w34k90%22 OR %22013sk6x84%22) OR author.affiliation.name:(%22Howard Hughes Medical Institute%22 OR %22Janelia Research Campus%22 OR %22Freeman Hrabowski%22)))"
-  if (org == null) {
-    org = (ref = this.params.org) != null ? ref : 'Gates Foundation';
-  }
-  if (queries == null) {
-    queries = (ref1 = qs[org]) != null ? ref1 : ((ref2 = this.params.queries) != null ? ref2 : '').split(',');
-  }
-  if (verbose == null) {
-    verbose = (ref3 = this.params.verbose) != null ? ref3 : false;
-  }
-  if (missed == null) {
-    missed = (ref4 = this.params.missed) != null ? ref4 : false;
-  }
-  if (save == null) {
-    save = (ref5 = this.params.save) != null ? ref5 : false;
-  }
-  batch = [];
-  // https://api.crossref.org/swagger-ui/index.html
-  // https://www.crossref.org/documentation/retrieve-metadata/rest-api/rest-api-filters/#75200
-  // "crossref": "(DOI:%2210.12688/verixiv%22 OR container-title:%22gates open research%22 OR (funder.DOI:(%2210.13039/100000865%22 OR %2210.13039/501100005370%22 OR %2210.13039/100009053%22) OR funder.name:(%22melinda gates foundation%22 OR %22gates cambridge trust%22 OR %22gates ventures%22) OR author.affiliation.id.id:(%220456r8d26%22 OR %22033sn5p83%22) OR author.affiliation.name:(%22melinda gates foundation%22 OR %22gates cambridge trust%22 OR %22gates ventures%22)))",
-
-  // DOI:%2210.12688/verixiv%22 467
-  // container-title:%22gates open research%22 863
-  // (funder.DOI:(%2210.13039/100000865%22 OR %2210.13039/501100005370%22 OR %2210.13039/100009053%22) 26650
-  // funder.name:(%22melinda gates foundation%22 OR %22gates cambridge trust%22 OR %22gates ventures%22) 26995
-  // author.affiliation.id.id:(%220456r8d26%22 OR %22033sn5p83%22) 3
-  // author.affiliation.name:(%22melinda gates foundation%22 OR %22gates cambridge trust%22 OR %22gates ventures%22) 1043
-
-  // https://api.crossref.org/works?filter=container-title:Gates%20Open%20Research 862 - NOTE case sensitive
-  // https://api.crossref.org/works?filter=funder:10.13039/100000865,funder:10.13039/501100005370 26698
-  // https://api.crossref.org/works?filter=issn:2572-4754,issn:3029-0988 864 - is this same as container-title though? Do either cover the verixiv doi prefix?
-
-  // can filter by prefix (e.g part of DOI 10.12688) but can't do 10.12688/verixiv
-  // https://api.crossref.org/works?filter=prefix:10.12688 - returns 29407, could get them all and check which are really verixiv
-  // using the other DOI prefixes that seem "special" as they are used on report/works for PMC DAS stuff:
-  // https://api.crossref.org/works?filter=prefix:10.12688,prefix:10.1186,prefix:10.1371 returns 5673600 - maybe too many? (4737232 are 10.1371, 906966 for 10.1186 - with possible overlap)
-  // there is a has-affiliation prefix which returns about 26m records, that would be too many to page through I guess
-  // there is query= and query.bibliographic but verixiv returns 2 and gates open research returns over 9m, so does not seem useful
-
-  // only 21 show for verixiv DOI form with nothing else: 
-  // https://bg.beta.oa.works/src/crossref/works?q=DOI:%2210.12688/verixiv%22%20AND%20NOT%20funder.DOI.keyword:(%2210.13039/100000865%22%20OR%20%2210.13039/501100005370%22%20OR%20%2210.13039/100009053%22)%20AND%20NOT%20container-title.keyword:%22Gates%20Open%20Research%22%20AND%20NOT%20funder.name:(%22melinda%20gates%20foundation%22%20OR%20%22gates%20cambridge%20trust%22%20OR%20%22gates%20ventures%22)%20AND%20NOT%20author.affiliation.id.id:(%220456r8d26%22%20OR%20%22033sn5p83%22)%20AND%20NOT%20author.affiliation.name:(%22melinda%20gates%20foundation%22%20OR%20%22gates%20cambridge%20trust%22%20OR%20%22gates%20ventures%22)
-  // or 194 for verixiv anywhere:
-  // https://bg.beta.oa.works/src/crossref/works?q=verixiv%20AND%20NOT%20funder.DOI.keyword:(%2210.13039/100000865%22%20OR%20%2210.13039/501100005370%22%20OR%20%2210.13039/100009053%22)%20AND%20NOT%20container-title.keyword:%22Gates%20Open%20Research%22%20AND%20NOT%20funder.name:(%22melinda%20gates%20foundation%22%20OR%20%22gates%20cambridge%20trust%22%20OR%20%22gates%20ventures%22)%20AND%20NOT%20author.affiliation.id.id:(%220456r8d26%22%20OR%20%22033sn5p83%22)%20AND%20NOT%20author.affiliation.name:(%22melinda%20gates%20foundation%22%20OR%20%22gates%20cambridge%20trust%22%20OR%20%22gates%20ventures%22)
-  res = {
-    org: org,
-    queries: queries,
-    started: 0,
-    took: 0,
-    saved: 0,
-    missing: (missed ? 0 : void 0),
-    missed: (missed ? [] : void 0),
-    local: 0,
-    requests: 0,
-    found: [],
-    duplicates: 0
-  };
-  org = (await this.report.orgs('name.keyword:"' + org + '"', 1));
-  if (org != null ? (ref6 = org.source) != null ? ref6.crossref : void 0 : void 0) {
-    try {
-      if (org.source.crossref.includes('%')) {
-        org.source.crossref = decodeURIComponent(decodeURIComponent(org.source.crossref));
-      }
-    } catch (error) {}
-    if (verbose || missed) {
-      res.local = [];
-      ref7 = this.index._for('src_crossref_works', org.source.crossref, {
-        include: ['DOI']
-      });
-      for await (w of ref7) {
-        res.local.push(w.DOI);
-      }
-      console.log(res.local.length);
-    } else {
-      try {
-        res.local = (await this.src.crossref.works.count(org.source.crossref));
-      } catch (error) {}
-      console.log(res.local); // this is currently 28732 (and 26650 are found just by the funder.DOI check)
-    }
-  }
-  last = Date.now();
-  res.started = last;
-// first run got 26867 from remote, vs the expected 28732 - took about 3 mins
-// adding 'prefix:10.12688' found a lot more mostly unique, and rendered container-title and issn redundant, but far more false than true matches
-// so filtering would definitely be needed on all of those - and the total missed was still about the same at 1976
-// total missed after running this then openalex comes down to 553
-  for (j = 0, len = queries.length; j < len; j++) {
-    o = queries[j];
-    rg = o.split(':')[0];
-    res[rg] = {
-      found: [],
-      unique: []
-    };
-    cursor = '*';
-    // test without our API key and stick to rate limit
-    while ((cursor != null) && (ans = (await this.fetch('https://api.crossref.org/works?mailto=sysadmin@oa.works&filter=' + o + '&rows=1000&cursor=' + encodeURIComponent(cursor), {
-        rate: ['crossrefFilter', 3],
-        headers: {
-          'User-Agent': ((ref13 = this.S.name) != null ? ref13 : 'OA.Works') + '; mailto:' + ((ref14 = (ref15 = this.S.mail) != null ? ref15.to : void 0) != null ? ref14 : 'sysadmin@oa.works') //, 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
-        }
-      })))) {
-      cursor = (ref8 = ans.message) != null ? ref8['next-cursor'] : void 0;
-      if (!((ref9 = ans.message) != null ? ref9.items : void 0) || ans.message.items.length < 1000) { // crossref does not auto remove the last cursor on the last page so need to check for shortness
-        cursor = void 0;
-      }
-      console.log(rg, res.requests, res.found.length, res.duplicates, Date.now() - res.started, cursor);
-      res.requests += 1;
-      ref12 = (ref10 = (ref11 = ans.message) != null ? ref11.items : void 0) != null ? ref10 : [];
-      for (l = 0, len1 = ref12.length; l < len1; l++) {
-        r = ref12[l];
-        rid = r.DOI.toLowerCase();
-        if (indexOf.call(res[rg].found, rid) < 0) {
-          res[rg].found.push(rid);
-        }
-        if (indexOf.call(res[rg].unique, rid) < 0 && indexOf.call(res.found, rid) < 0) {
-          res[rg].unique.push(rid);
-        }
-        if (indexOf.call(res.found, rid) >= 0) {
-          res.duplicates += 1;
-        } else {
-          res.found.push(rid);
-          if (save) {
-            ft = (await this.src.crossref.works._format(r));
-            batch.push(ft);
-          }
-          if (batch.length >= 5000) {
-            await this.report.works.crossref(batch);
-            res.saved += batch.length;
-            console.log('crossref orgs queries saved batch', res.saved);
-            batch = [];
-          }
-        }
-      }
-      if (Date.now() - last < 100) {
-        await this.sleep(100 - (Date.now() - last));
-      }
-      last = Date.now();
-    }
-    if (!verbose) {
-      res[rg].found = res[rg].found.length;
-    }
-    if (!verbose) {
-      res[rg].unique = res[rg].unique.length;
-    }
-  }
-  if (batch.length) {
-    await this.report.works.crossref(batch);
-    res.saved += batch.length;
-    console.log('crossref orgs queries saved final batch', res.saved);
-    batch = [];
-  }
-  console.log(res.found.length, typeof res.local === 'number' ? res.local : res.local.length);
-  if (missed && Array.isArray(res.local)) {
-    ref16 = res.local;
-    for (m = 0, len2 = ref16.length; m < len2; m++) {
-      ld = ref16[m];
-      if (indexOf.call(res.found, ld) < 0) {
-        res.missed.push(ld);
-      }
-    }
-    res.missing = res.missed.length;
-  }
-  if (!verbose && Array.isArray(res.local)) {
-    res.local = res.local.length;
-  }
-  if (!(verbose || missed)) {
-    res.found = res.found.length;
-  }
-  res.took = Date.now() - res.started;
-  if (!verbose) {
-    console.log(res);
-  }
-  return res;
-};
-
-//P.report.works.orgs_queries.crossref._async = true
-P.report.works.orgs_queries.openalex = async function(org, queries, verbose, missed, save, compare) {
-  var ans, batch, cursor, ft, j, l, last, ld, len, len1, len2, m, o, qs, r, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, rg, rid, w;
-  // all but gates had publication_year:>1979
-  // for RWJF it makes no difference, and also searching in institutions.display_name returns no more than raw_affiliation_strings, but DOES find more than just the ROR search
-  // for Wellcome 1979 made a 3k difference out of about 79k. So not enough to worry about.
-  // RWJF misses 41 over crossref and openalex, but also finds a few extra. MJFF misses 17, Wellcome misses X, HHMI misses X, Templeton misses X
-  qs = {
-    'Gates Foundation': ['funders.id:F4320306137|F4320323264|F4320310978', 'authorships.institutions.ror:0456r8d26|033sn5p83', 'raw_affiliation_strings.search:melinda%20gates%20foundation|gates%20cambridge%20trust|gates%20ventures', 'locations.source.issn:2572-4754|3029-0988'],
-    'Robert Wood Johnson Foundation': ['funders.id:F4320306139|F4320309038', 'authorships.institutions.ror:02ymmdj85', 'raw_affiliation_strings.search:Robert Wood Johnson Foundation'],
-    'Michael J. Fox Foundation': ['funders.id:F4320306136', 'authorships.institutions.ror:03arq3225', 'raw_affiliation_strings.search:Michael J. Fox Foundation'],
-    'Wellcome Trust': ['funders.id:F4320311904', 'authorships.institutions.ror:029chgv08', 'raw_affiliation_strings.search:Wellcome Trust'],
-    'Templeton World Charity Foundation': ['funders.id:F4320327239', 'authorships.institutions.ror:00x0z1472', 'raw_affiliation_strings.search:Templeton World Charity Foundation'],
-    'Howard Hughes Medical Institute': ['funders.id:F4320306082', 'authorships.institutions.ror:006w34k90|013sk6x84', 'raw_affiliation_strings.search:Howard Hughes Medical Institute|Janelia Research Campus|Freeman Hrabowski']
-  };
-  //'Robert Wood Johnson Foundation': "(publication_year:>1979 AND (grants.funder:(%22F4320306139%22 OR %22F4320309038%22) OR authorships.institutions.ror:(%2202ymmdj85%22) OR authorships.institutions.display_name:(%22Robert Wood Johnson Foundation%22) OR authorships.raw_affiliation_strings:(%22Robert Wood Johnson Foundation%22)))",
-  //'Michael J. Fox Foundation': "(publication_year:>1979 AND (grants.funder:(%22F4320306136%22) OR authorships.institutions.ror:(%2203arq3225%22) OR authorships.institutions.display_name:(%22Michael J. Fox Foundation%22) OR authorships.raw_affiliation_strings:(%22Michael J. Fox Foundation%22)))"
-  //'Wellcome Trust': "(publication_year:>1979 AND (grants.funder:(%22F4320311904%22) OR authorships.institutions.ror:(%22029chgv08%22) OR authorships.institutions.display_name:(%22Wellcome Trust%22) OR authorships.raw_affiliation_strings:(%22Wellcome Trust%22)))"
-  //'Templeton World Charity Foundation': "(publication_year:>1979 AND (grants.funder:(%22F4320327239%22) OR authorships.institutions.ror:(%2200x0z1472%22) OR authorships.institutions.display_name:(%22Templeton World Charity Foundation%22) OR authorships.raw_affiliation_strings:(%22Templeton World Charity Foundation%22)))"
-  //'Howard Hughes Medical Institute': "(publication_year:>1979 AND (grants.funder:(%22F4320306082%22) OR authorships.institutions.ror:(%22006w34k90%22 OR %22013sk6x84%22) OR authorships.institutions.display_name:(%22Howard Hughes Medical Institute%22 OR %22Janelia Research Campus%22 OR %22Freeman Hrabowski%22) OR authorships.raw_affiliation_strings:(%22Howard Hughes Medical Institute%22 OR %22Janelia Research Campus%22 OR %22Freeman Hrabowski%22)))"
-  if (org == null) {
-    org = (ref = this.params.org) != null ? ref : 'Gates Foundation';
-  }
-  if (queries == null) {
-    queries = (ref1 = qs[org]) != null ? ref1 : ((ref2 = this.params.queries) != null ? ref2 : '').split(',');
-  }
-  if (verbose == null) {
-    verbose = (ref3 = this.params.verbose) != null ? ref3 : false;
-  }
-  if (missed == null) {
-    missed = (ref4 = this.params.missed) != null ? ref4 : false;
-  }
-  if (save == null) {
-    save = (ref5 = this.params.save) != null ? ref5 : false;
-  }
-  if (compare == null) {
-    compare = (ref6 = this.params.compare) != null ? ref6 : false;
-  }
-  batch = [];
-  // "openalex": "(locations.source.display_name:(%22Gates%20Open%20Research%22%20OR%20%22verixiv%22) OR (grants.funder:(%22F4320306137%22 OR %22F4320323264%22 OR %22F4320310978%22) OR authorships.institutions.ror:(%220456r8d26%22 OR %22033sn5p83%22) OR authorships.institutions.display_name:(%22melinda gates foundation%22 OR %22gates cambridge trust%22 OR %22gates ventures%22) OR authorships.raw_affiliation_strings:(%22melinda gates foundation%22 OR %22gates cambridge trust%22 OR %22gates ventures%22)))",
-  // openalex cannot search locations.source.display_name but CAN search .issn
-  // openalex cannot search authorships.institutions.display_name but CAN search .id (which is the openalex ID of the institution)
-  // openalex cannot search authorships.raw_affiliation_strings but CAN search raw_affiliation_strings.search
-
-  // Note locations.source.display_name verixiv finds 9 on our openalex, and searching the matching ISSN finds 9 as well:
-  // BUT searching directly on openalex for issn or even the openalex source ID only returns 4 records
-  // AND for at least one of those records, our local version looks BETTER than their more recently updated version, which seems to be missing the locations.source object altogether
-  // A default.search for verixiv on openalex can find 6 results.
-  // https://bg.beta.oa.works/src/openalex/works/10.12688/verixiv.77.1 vs https://api.openalex.org/works/W4402608277
-  // https://bg.beta.oa.works/src/openalex/works?q=locations.source.display_name:%22Verixiv%22
-  // https://bg.beta.oa.works/src/openalex/works?q=locations.source.issn.keyword:%223029-0988%22
-
-  // our locations.source.display_name openalex search for Gates Open Research finds 873
-  // the issn is 2572-4754 which also finds 873 locally
-  // on remote openalex the ISSN search finds 880 so at least this one looks good.
-
-  // awards.funder_id returns 16474 - https://api.openalex.org/works?filter=awards.funder_id:F4320306137|F4320323264|F4320310978
-  // authorships.institutions.ror returns 3744 - https://api.openalex.org/works?filter=authorships.institutions.ror:0456r8d26|033sn5p83
-  // raw_affiliation_strings.search returns 3561 - https://api.openalex.org/works?filter=raw_affiliation_strings.search:melinda%20gates%20foundation|gates%20cambridge%20trust|gates%20ventures
-  // locations.source.issn returns 884 - https://api.openalex.org/works?filter=locations.source.issn:2572-4754|3029-0988
-
-  // alternatively funders.id gets 27473 - https://api.openalex.org/works?filter=funders.id:F4320306137|F4320323264|F4320310978
-
-  // basic openalex paging returns up to 200 per page, and up to 10000 results regardless of paging count - so will need cursor to get them all
-
-  // rate limit is 10r/s and 100k per day, IF not using premium API key. And need to send a contact email param to get into the polite pool (which processes faster)
-  // roughly 25k records indicated by the above queries, 200 per request, at least 125 requests or so. 
-  // Took 4 mins at first attempt, 127 requests, 20k found, 4k dups
-  // BUT our local query finds about 28k
-  // we are up to better coverage with funders.id instead of awards.funder_id. we still miss 553
-  // 'awards.funder_id:F4320306137|F4320323264|F4320310978' NOT NEEDED for gates, confirmed, all within funders.id which also returns much more.
-  res = {
-    org: org,
-    queries: queries,
-    started: 0,
-    took: 0,
-    saved: 0,
-    nodoi: 0,
-    missing: (missed ? 0 : void 0),
-    missed: (missed ? [] : void 0),
-    local: 0,
-    requests: 0,
-    found: [],
-    duplicates: 0
-  };
-  if (compare) {
-    res.cd = 0;
-    res.crossref = (await this.report.works.orgs_queries.crossref(org, void 0, verbose, missed));
-  }
-  org = (await this.report.orgs('name.keyword:"' + org + '"', 1));
-  if (org != null ? (ref7 = org.source) != null ? ref7.openalex : void 0 : void 0) {
-    try {
-      if (org.source.openalex.includes('%')) {
-        org.source.openalex = decodeURIComponent(decodeURIComponent(org.source.openalex));
-      }
-    } catch (error) {}
-    if (verbose || missed) {
-      res.local = [];
-      ref8 = this.index._for('src_openalex_works', org.source.openalex, {
-        include: ['id', 'doi', 'ids']
-      });
-      for await (w of ref8) {
-        res.local.push((((ref9 = w.ids) != null ? ref9.doi : void 0) || w.doi ? ((ref10 = (ref11 = w.ids) != null ? ref11.doi : void 0) != null ? ref10 : w.doi).split('.org/').pop() : w.id).toLowerCase());
-      }
-      console.log(res.local.length);
-    } else {
-      try {
-        res.local = (await this.src.openalex.works.count(org.source.openalex));
-      } catch (error) {}
-      console.log(res.local);
-    }
-  }
-  last = Date.now();
-  res.started = last;
-  for (j = 0, len = queries.length; j < len; j++) {
-    o = queries[j];
-    rg = o.split(':')[0];
-    res[rg] = {
-      found: [],
-      unique: []
-    };
-    cursor = '*';
-    o += ',publication_year:>' + (parseInt(((await this.date())).split('-')[0]) - 3); // to avoid openalex deep cursoring errors
-    while ((cursor != null) && (ans = (await this.fetch('https://api.openalex.org/works?mailto=sysadmin@oa.works' + (((ref16 = this.S.src.openalex) != null ? ref16.apikey : void 0) ? '&api_key=' + this.S.src.openalex.apikey : '') + '&filter=' + o + '&per-page=200&cursor=' + encodeURIComponent(cursor), {
-        rate: ['openalexFilter', 20, 10000, 86400]
-      })))) {
-      if ((typeof ans !== "undefined" && ans !== null ? ans.status : void 0) && typeof ans.status === 'number') { // look out for 429 or other errors - break or log? No errors on first attempt
-        console.log(ans);
-      }
-      cursor = ans.meta.next_cursor; // will be null if there are no more to get
-      console.log(rg, res.requests, res.found.length, res.duplicates, Date.now() - res.started, cursor);
-      res.requests += 1;
-      ref12 = ans.results;
-      for (l = 0, len1 = ref12.length; l < len1; l++) {
-        r = ref12[l];
-        if (((ref13 = r.ids) != null ? ref13.doi : void 0) || r.doi) {
-          rid = ((ref14 = (ref15 = r.ids) != null ? ref15.doi : void 0) != null ? ref14 : r.doi).split('.org/').pop().toLowerCase();
-        } else {
-          res.nodoi += 1;
-          rid = r.id.toLowerCase();
-        }
-        if (indexOf.call(res[rg].found, rid) < 0) {
-          res[rg].found.push(rid);
-        }
-        if (indexOf.call(res[rg].unique, rid) < 0 && indexOf.call(res.found, rid) < 0) {
-          res[rg].unique.push(rid);
-        }
-        if (indexOf.call(res.found, rid) >= 0) {
-          res.duplicates += 1;
-        } else if (compare && indexOf.call(res.crossref.found, rid) >= 0) {
-          res.cd += 1;
-        } else {
-          res.found.push(rid);
-          if (save) {
-            ft = (await this.src.openalex.works._format(r));
-            batch.push(ft);
-          }
-          if (batch.length >= 5000) {
-            await this.src.openalex.works(batch);
-            res.saved += batch.length;
-            console.log('openalex orgs queries saved batch', res.saved);
-            batch = [];
-          }
-        }
-      }
-      if (Date.now() - last < 100) {
-        await this.sleep(100 - (Date.now() - last));
-      }
-      last = Date.now();
-    }
-    if (!verbose) {
-      res[rg].found = res[rg].found.length;
-    }
-    if (!verbose) {
-      res[rg].unique = res[rg].unique.length;
-    }
-  }
-  if (batch.length) {
-    await this.src.openalex.works(batch);
-    res.saved += batch.length;
-    console.log('openalex orgs queries saved final batch', res.saved);
-    batch = [];
-  }
-  console.log(res.found.length, typeof res.local === 'number' ? res.local : res.local.length);
-  if (missed && Array.isArray(res.local)) {
-    ref17 = res.local;
-    for (m = 0, len2 = ref17.length; m < len2; m++) {
-      ld = ref17[m];
-      if (indexOf.call(res.found, ld) < 0 && (!compare || indexOf.call(res.crossref.found, ld) < 0)) {
-        res.missed.push(ld);
-      }
-    }
-    res.missing = res.missed.length;
-  }
-  if (compare && !verbose && Array.isArray(res.crossref.found)) {
-    res.crossref.found = res.crossref.found.length;
-  }
-  if (compare && missed && !verbose && Array.isArray(res.crossref.missed)) {
-    res.crossref.missed = res.crossref.missed.length;
-  }
-  if (!verbose && Array.isArray(res.local)) {
-    res.local = res.local.length;
-  }
-  if (!verbose && Array.isArray(res.found)) {
-    res.found = res.found.length;
-  }
-  res.took = Date.now() - res.started;
-  if (!verbose) {
-    console.log(res);
-  }
-  return res;
-};
-
-//P.report.works.orgs_queries.openalex._async = true
-P.report.works.crossref = {
-  _index: true,
-  _prefix: false,
-  _key: 'DOI'
-};
-
-P.report.works.crossref.doi = async function(doi, refresh, local) {
-  var found, ref, ref1, ref2, ref3, ref4, ref5, ref6, res;
-  if (doi == null) {
-    doi = this.params.doi;
-  }
-  if ((refresh == null) && this.fn === 'report.works.crossref.doi') {
-    refresh = this.refresh;
-  }
-  if (refresh === 0) {
-    refresh = true;
-  }
-  if (local == null) {
-    local = (ref = this.params.local) != null ? ref : true; // rely on local index for now, if it exists there
-  }
-  if (refresh !== true) {
-    found = (await this.report.works.crossref(doi));
-    if (!found && local) {
-      found = (await this.src.crossref.works(doi));
-    }
-    if (found && (typeof refresh !== 'number' || !found.retrievedAt || (Date.now() - refresh) <= found.retrievedAt)) {
-      return found;
-    }
-  }
-  res = (await this.fetch('https://api.crossref.org/works/' + doi + '?mailto=' + ((ref1 = (ref2 = this.S.mail) != null ? ref2.to : void 0) != null ? ref1 : 'sysadmin@oa.works'), {
-    rate: ['crossref', 7],
-    headers: {
-      'User-Agent': ((ref3 = this.S.name) != null ? ref3 : 'OA.Works') + '; mailto:' + ((ref4 = (ref5 = this.S.mail) != null ? ref5.to : void 0) != null ? ref4 : 'sysadmin@oa.works') //, 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
-    }
-  }));
-  if (typeof res === 'object' && (((ref6 = res.message) != null ? ref6.DOI : void 0) != null)) {
-    found = (await this.src.crossref.works._format(res.message));
-    await this.report.works.crossref(found);
-  }
-  return found;
-};
+// making a clone
+// curl -X PUT http://localhost:9200/paradigm_b_report_works/_settings -H 'Content-Type: application/json' -d '{"index.blocks.write": true}'
+// curl -X POST http://localhost:9200/paradigm_b_report_works/_clone/paradigm_b_report_works_backup
+// curl -X PUT http://localhost:9200/paradigm_b_report_works/_settings -H 'Content-Type: application/json' -d '{"index.blocks.write": false}'
+// curl -X PUT http://localhost:9200/paradigm_b_report_works_backup/_settings -H 'Content-Type: application/json' -d '{"index.blocks.write": false}'
+`P.report.clone = (suffix, idx, dev) ->
+suffix ?= new Date().toISOString().split('T')[0].replace(/-/g, '')
+idx ?= 'report_works'
+dev ?= @S.dev
+target = 'paradigm_' + (if dev then 'b_' else '') + idx
+while exists = await @index._send target + '_' + suffix
+  suffix = suffix + '_' + Math.floor(Math.random() * 1000)
+console.log 'cloning index', target, 'to', target + '_' + suffix
+console.log 'blocking writes to index', target
+blocked = await @index._send target + '/_settings', {index: {blocks: {write: true}}}, 'PUT'
+console.log blocked
+if blocked?.acknowledged
+  console.log 'cloning...'
+  cloned = await @index._send target + '/_clone/' + target + '_' + suffix, undefined, 'POST'
+  console.log cloned
+  if cloned?.acknowledged
+    console.log 'unblocking writes to original index', target
+    unblocked = await @index._send target + '/_settings', {index: {blocks: {write: false}}}, 'PUT'
+    console.log unblocked
+    console.log 'unblocking writes to new index', target + '_' + suffix
+    newunblocked = await @index._send target + '_' + suffix + '/_settings', {index: {blocks: {write: false}}}, 'PUT'
+    console.log newunblocked
+    if unblocked?.acknowledged and newunblocked?.acknowledged
+      console.log 'clone complete', target + '_' + suffix
+      return target + '_' + suffix
+return false
+P.report.clone._bg = true
+P.report.clone._async = true
+P.report.clone._log = false
+P.report.clone._auth = 'root'`;
 
 P.report.suggestables = {
   _index: true
@@ -12294,22 +11762,22 @@ P.report.suggestions = async function() {
       sort = fieldname + ':' + sort;
     }
     _find = async(fq) => {
-      var rec, ref10, ref9, results;
+      var rec, ref10, ref9, results1;
       try {
         console.log(fq);
         ref9 = this.index._for('paradigm' + (S.dev ? '_b' : '') + '_report_suggestables', 'org.keyword:"' + org + '" AND field.keyword:"' + field + '" AND ' + fq, {
           max: max,
           sort: sort
         });
-        results = [];
+        results1 = [];
         for await (rec of ref9) {
           if (rec[fieldname] && (ref10 = rec[fieldname], indexOf.call(res, ref10) < 0)) {
-            results.push(res.push(rec[fieldname]));
+            results1.push(res.push(rec[fieldname]));
           } else {
-            results.push(void 0);
+            results1.push(void 0);
           }
         }
-        return results;
+        return results1;
       } catch (error) {}
     };
     cq = q.replace(/[\,\.\!\;\?\/\:\-]/g, ' ');
@@ -12389,13 +11857,13 @@ P.report.suggestify = async function(orgs, fields, clear) {
     fields = ['journal', 'authorships.institutions.display_name', 'authorships.author.orcid', 'authorships.author.display_name', 'concepts.display_name', 'supplements.publisher_simple', 'supplements.host_venue.display_name', 'supplements.grantid__bmgf', 'supplements.program__bmgf', 'supplements.grantid__rwjf', 'supplements.program__rwjf', 'supplements.grantid__mjff', 'supplements.grantid__twcf', 'supplements.program__twcf'];
   }
   fields = (function() {
-    var j, len, results;
-    results = [];
+    var j, len, results1;
+    results1 = [];
     for (j = 0, len = fields.length; j < len; j++) {
       f = fields[j];
-      results.push(f.replace('.keyword', ''));
+      results1.push(f.replace('.keyword', ''));
     }
-    return results;
+    return results1;
   })();
   // an example, PPMI for authorships.author.display_name, with only about 7.5k records has over 80k author name strings (some could be dups)
   //merge = @params.merge ? false # it takes 90 minutes to build Gates with merging. 30 minutes without
@@ -12595,7 +12063,8 @@ P.report.queue = async function(idents, openalex, refresh, everything, action = 
         await this.report.queued(qp._id, '');
       }
     } else {
-      await this.report.queued('');
+      //await @report.queued ''
+      await this.index._send('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_queued', '', 'DELETE');
     }
   }
   if (idents == null) {
@@ -12607,12 +12076,8 @@ P.report.queue = async function(idents, openalex, refresh, everything, action = 
   if (everything == null) {
     everything = this.params.everything;
   }
-  try {
-    console.log(_queue_batch_last);
-  } catch (error) {}
-  try {
-    console.log(idents.length);
-  } catch (error) {}
+  //try console.log _queue_batch_last
+  //try console.log idents.length
   if (_queue_batch_last === false) {
     this.report._handle_queue();
   }
@@ -13045,15 +12510,15 @@ P.report.orgs.supplements = {
   _auth: '@oa.works'
 };
 
-P.report.orgs.supplements.load = async function(orgname, sheetname, clear) {
-  var aps, check, h, header, headers, hp, hpv, idents, j, l, last, latest, ld, len, len1, len2, len3, len4, len5, lt, m, n, org, osdids, osw, p, ptc, rc, rec, recs, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref4, ref5, ref6, ref7, ref8, ref9, replacements, row, rows, rr, s, sheetnames, sheets, sheets_latest, started, sup, sups, total, tries, u, update;
+P.report.orgs.supplements.load = async function(orgname, sheetname, clear, immediate) {
+  var check, h, header, headers, hp, hpv, idents, j, l, last, latest, ld, len, len1, len2, len3, lt, m, n, org, osdids, ptc, rc, rec, recs, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref3, ref4, ref5, ref6, ref7, ref8, ref9, refresh, replacements, row, rows, rr, s, sheetnames, sheets, sheets_latest, started, sup, sups, total, tries, update;
   started = (await this.epoch());
   if (this.fn === 'report.orgs.supplements.load') {
     if (clear == null) {
       clear = this.params.clear;
     }
   }
-  if (clear) {
+  if (clear === true) {
     await this.report.orgs.supplements('');
   }
   if (orgname == null) {
@@ -13062,6 +12527,10 @@ P.report.orgs.supplements.load = async function(orgname, sheetname, clear) {
   if (sheetname == null) {
     sheetname = this.params.sheet;
   }
+  if (this.params.immediate || this.params.priority) {
+    immediate = true;
+  }
+  refresh = this.refresh;
   recs = (await this.src.google.sheets(S.report.orgs_sheet));
   total = 0;
   idents = [];
@@ -13106,13 +12575,13 @@ P.report.orgs.supplements.load = async function(orgname, sheetname, clear) {
       ref2 = org.sheets;
       for (l = 0, len1 = ref2.length; l < len1; l++) {
         s = ref2[l];
-        if ((!orgname || org.name === orgname) && (!sheetname || s.name === sheetname)) {
+        if ((!orgname || org.name === orgname) && sheetname !== false && (!sheetname || s.name === sheetname) && (orgname || ((ref3 = org.name) === 'Gates Foundation' || ref3 === 'Robert Wood Johnson Foundation' || ref3 === 'Wellcome Trust' || ref3 === 'Michael J. Fox Foundation' || ref3 === 'all paid'))) {
           console.log(org.name, s.name, s.url);
           rc = 0;
           osdids = [];
           headers = [];
           rows = [];
-          update = (ref3 = this.params.update) != null ? ref3 : true;
+          update = (ref4 = this.params.update) != null ? ref4 : true;
           last = false;
           sups = [];
           await this.sleep(1000);
@@ -13139,7 +12608,7 @@ P.report.orgs.supplements.load = async function(orgname, sheetname, clear) {
                         }
                       }));
                     } catch (error) {}
-                    if ((latest != null ? (ref4 = latest.hits) != null ? ref4.hits : void 0 : void 0) != null) {
+                    if ((latest != null ? (ref5 = latest.hits) != null ? ref5.hits : void 0 : void 0) != null) {
                       latest = latest.hits.hits[0]._source;
                       sheets_latest[s.name] = latest;
                     }
@@ -13160,7 +12629,7 @@ P.report.orgs.supplements.load = async function(orgname, sheetname, clear) {
                       }
                     }));
                   } catch (error) {}
-                  if ((latest != null ? (ref5 = latest.hits) != null ? ref5.hits : void 0 : void 0) != null) {
+                  if ((latest != null ? (ref6 = latest.hits) != null ? ref6.hits : void 0 : void 0) != null) {
                     latest = latest.hits.hits[0]._source;
                     sheets_latest[s.name] = latest;
                   }
@@ -13197,9 +12666,9 @@ P.report.orgs.supplements.load = async function(orgname, sheetname, clear) {
               } catch (error) {}
             }
             if (Array.isArray(rows) && rows.length) {
-              ref6 = rows.shift();
-              for (m = 0, len2 = ref6.length; m < len2; m++) {
-                header = ref6[m];
+              ref7 = rows.shift();
+              for (m = 0, len2 = ref7.length; m < len2; m++) {
+                header = ref7[m];
                 headers.push(header.toLowerCase().trim().replace(/ /g, '_').replace('?', ''));
               }
               for (n = 0, len3 = rows.length; n < len3; n++) {
@@ -13225,7 +12694,7 @@ P.report.orgs.supplements.load = async function(orgname, sheetname, clear) {
                         hpv = parseFloat(row[hp]);
                       } catch (error) {}
                     } else {
-                      hpv = typeof row[hp] === 'number' ? row[hp] : !row[hp] ? void 0 : (ref7 = row[hp].trim().toLowerCase()) === 'true' || ref7 === 'yes' ? true : (ref8 = row[hp].trim().toLowerCase()) === 'false' || ref8 === 'no' ? false : (ref9 = h.toLowerCase()) === 'grant_id' || ref9 === 'ror' ? row[hp].replace(/\//g, ',').replace(/ /g, '').split(',') : row[hp];
+                      hpv = typeof row[hp] === 'number' ? row[hp] : !row[hp] ? void 0 : (ref8 = row[hp].trim().toLowerCase()) === 'true' || ref8 === 'yes' ? true : (ref9 = row[hp].trim().toLowerCase()) === 'false' || ref9 === 'no' ? false : (ref10 = h.toLowerCase()) === 'grant_id' || ref10 === 'ror' ? row[hp].replace(/\//g, ',').replace(/ /g, '').split(',') : row[hp];
                       if (typeof row[hp] === 'string' && row[hp].includes(';')) {
                         hpv = row[hp].split(';');
                       }
@@ -13240,7 +12709,7 @@ P.report.orgs.supplements.load = async function(orgname, sheetname, clear) {
                   }
                 }
                 if (!rr.doi) {
-                  rr.doi = ((ref10 = rr.DOI) != null ? ref10 : '') + '';
+                  rr.doi = ((ref11 = rr.DOI) != null ? ref11 : '') + '';
                 } else {
                   if (rr.DOI == null) {
                     rr.DOI = rr.doi + '';
@@ -13270,10 +12739,10 @@ P.report.orgs.supplements.load = async function(orgname, sheetname, clear) {
                   if (typeof rr.email === 'string' && rr.email.includes('@')) {
                     rr.email = (await this.encrypt(rr.email));
                   }
-                  rr.osdid = (org.name.replace(/[^a-zA-Z0-9-_ ]/g, '') + '_' + s.name + '_' + ((ref11 = (ref12 = rr.DOI) != null ? ref12 : rr.openalex) != null ? ref11 : rr.pmcid)).replace(/[\u{0080}-\u{FFFF}]/gu, '').toLowerCase().replace(/\//g, '_').replace(/ /g, '_');
+                  rr.osdid = (org.name.replace(/[^a-zA-Z0-9-_ ]/g, '') + '_' + s.name + '_' + ((ref12 = (ref13 = rr.DOI) != null ? ref13 : rr.openalex) != null ? ref12 : rr.pmcid)).replace(/[\u{0080}-\u{FFFF}]/gu, '').toLowerCase().replace(/\//g, '_').replace(/ /g, '_');
                   rr._id = rr.osdid;
                   osdids.push(rr.osdid);
-                  if (ref13 = (ref14 = (ref15 = rr.DOI) != null ? ref15 : rr.openalex) != null ? ref14 : rr.pmcid, indexOf.call(idents, ref13) < 0) {
+                  if (ref14 = (ref15 = (ref16 = rr.DOI) != null ? ref16 : rr.openalex) != null ? ref15 : rr.pmcid, indexOf.call(idents, ref14) < 0) {
                     `kc = false
 if not clear
   present = await @report.works 'supplements.osdid.keyword:"' + rr.osdid + '"', 1
@@ -13289,7 +12758,7 @@ if not clear
     for k of present
       break if k not in ['updated'] and JSON.stringify(rr[k] ? '').toLowerCase() isnt JSON.stringify(present[k]).toLowerCase() # JSON string match on object isn't guaranteed but probably likely enough for the number of times we'll need it
       delete kc[k]`;
-                    idents.push((ref16 = (ref17 = rr.DOI) != null ? ref17 : rr.openalex) != null ? ref16 : rr.pmcid); //if clear or JSON.stringify(kc) isnt '{}'
+                    idents.push((ref17 = (ref18 = rr.DOI) != null ? ref18 : rr.openalex) != null ? ref17 : rr.pmcid); //if clear or JSON.stringify(kc) isnt '{}'
                   }
                   rr.updated = started;
                   sups.push(rr);
@@ -13299,20 +12768,12 @@ if not clear
               console.log(org.name, s.name, sups.length, idents.length);
               await this.report.orgs.supplements(sups);
             }
-            await this.sleep(2000);
-            ref18 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs_supplements', 'org.keyword:"' + org.name + '" AND sheets.keyword:"' + s.name + '"', {
-              scroll: '30m',
-              include: ['osdid', 'DOI', 'openalex', 'pmcid']
-            });
-            for await (sup of ref18) {
-              if (ref19 = sup.osdid, indexOf.call(osdids, ref19) < 0) {
-                await this.report.orgs.supplements(sup.osdid, '');
-                if (ref20 = (ref21 = (ref22 = sup.DOI) != null ? ref22 : sup.openalex) != null ? ref21 : sup.pmcid, indexOf.call(idents, ref20) < 0) { // need to rerun for ones where something has been deleted too so that deleted supplements get removed from the work
-                  idents.push((ref23 = (ref24 = sup.DOI) != null ? ref24 : sup.openalex) != null ? ref23 : sup.pmcid);
-                }
-              }
-            }
+            await this.sleep(1000);
           }
+          //for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'org.keyword:"' + org.name + '" AND sheets.keyword:"' + s.name + '"', scroll: '30m', include: ['osdid', 'DOI', 'openalex', 'pmcid']
+          //  if sup.osdid not in osdids
+          //    await @report.orgs.supplements sup.osdid, ''
+          //    idents.push(sup.DOI ? sup.openalex ? sup.pmcid) if (sup.DOI ? sup.openalex ? sup.pmcid) not in idents # need to rerun for ones where something has been deleted too so that deleted supplements get removed from the work
           sheets.push({
             org: org.name,
             sheet: s.name,
@@ -13326,42 +12787,35 @@ if not clear
     }
   }
   // check for sheets that have since been removed
-  if (!clear && !orgname && !sheetname) {
-    ref25 = (await this.report.works.suggest('supplements.sheets', void 0, 5000));
-    for (p = 0, len4 = ref25.length; p < len4; p++) {
-      aps = ref25[p];
-      if (indexOf.call(sheetnames, aps) < 0) {
-        ref26 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs_supplements', 'sheets.keyword:"' + aps + '"', {
-          scroll: '30m',
-          include: ['osdid']
-        });
-        for await (sup of ref26) {
-          await this.report.orgs.supplements(sup.osdid, '');
-        }
-        ref27 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', 'supplements.sheets.keyword:"' + aps + '"', {
-          scroll: '30m',
-          include: ['DOI', 'openalex', 'pmcid']
-        });
-        for await (osw of ref27) {
-          if ((osw.DOI && (ref28 = osw.DOI, indexOf.call(idents, ref28) < 0)) || (!osw.DOI && osw.openalex && (ref29 = osw.openalex, indexOf.call(idents, ref29) < 0)) || (!osw.DOI && !osw.openalex && osw.pmcid && (ref30 = osw.pmcid, indexOf.call(idents, ref30) < 0))) {
-            idents.push((ref31 = (ref32 = osw.DOI) != null ? ref32 : osw.openalex) != null ? ref31 : osw.pmcid);
-          }
-        }
+  //if not sheetname and sheetname isnt false and not orgname
+  //  for aps in await @report.works.suggest 'supplements.sheets.keyword', undefined, 5000
+  //    if aps not in sheetnames
+  //      console.log 'report orgs supplements queueing idents to clear', aps
+  //      for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'sheets.keyword:"' + aps + '"', scroll: '30m', include: ['osdid']
+  //        await @report.orgs.supplements sup.osdid, ''
+  //      for await osw from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'supplements.sheets.keyword:"' + aps + '"', scroll: '30m', include: ['DOI', 'openalex', 'pmcid']
+  //        idents.push(osw.DOI ? osw.openalex ? osw.pmcid) if (osw.DOI and osw.DOI not in idents) or (not osw.DOI and osw.openalex and osw.openalex not in idents) or (not osw.DOI and not osw.openalex and osw.pmcid and osw.pmcid not in idents)
+  if (clear) {
+    console.log('report orgs supplements queueing idents to clear for specific sheet', clear);
+    if (typeof clear === 'string') {
+      ref19 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs_supplements', 'sheets.keyword:"' + clear + '"', {
+        scroll: '30m',
+        include: ['osdid']
+      });
+      for await (sup of ref19) {
+        await this.report.orgs.supplements(sup.osdid, '');
       }
     }
-  }
-  if (clear) { // need to check to run everything that had a supplement
-    ref33 = (await this.report.works('orgs:* OR supplements.sheets:*', {
+    ref20 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', 'supplements.sheets' + (typeof clear === 'string' ? '.keyword:"' + clear + '"' : ':*'), {
       include: ['DOI', 'openalex', 'pmcid']
-    }));
-    for (u = 0, len5 = ref33.length; u < len5; u++) {
-      ptc = ref33[u];
-      if ((ptc.DOI && (ref34 = ptc.DOI, indexOf.call(idents, ref34) < 0)) || (!ptc.DOI && ptc.openalex && (ref35 = ptc.openalex, indexOf.call(idents, ref35) < 0)) || (!ptc.DOI && !ptc.openalex && ptc.pmcid && (ref36 = ptc.pmcid, indexOf.call(idents, ref36) < 0))) {
-        idents.push((ref37 = ptc.DOI) != null ? ref37 : ptc.openalex);
+    });
+    for await (ptc of ref20) {
+      if ((ptc.DOI && (ref21 = ptc.DOI, indexOf.call(idents, ref21) < 0)) || (!ptc.DOI && ptc.openalex && (ref22 = ptc.openalex, indexOf.call(idents, ref22) < 0)) || (!ptc.DOI && !ptc.openalex && ptc.pmcid && (ref23 = ptc.pmcid, indexOf.call(idents, ref23) < 0))) {
+        idents.push((ref24 = ptc.DOI) != null ? ref24 : ptc.openalex);
       }
     }
   }
-  await this.sleep(60000); // wait a while for the supplements index to finish building and then run the processing for identifiers
+  await this.sleep(20000); // wait a while for the supplements index to finish building and then run the processing for identifiers
   console.log('report orgs supplements load', total, idents.length, (await this.epoch()) - started);
   if (idents.length) {
     console.log('report orgs supplements load ready to call works load', idents.length);
@@ -13377,69 +12831,6 @@ P.report.orgs.supplements.load._async = true;
 P.report.orgs.supplements.load._log = false;
 
 //P.report.orgs.supplements.load._auth = '@oa.works'
-P.report.orgs.queries = async function(org, doi) {
-  var an, batch, dv, o, processed, q, rec, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, ret;
-  if (org == null) {
-    org = this.params.org;
-  }
-  if (doi == null) {
-    doi = (ref = this.params.queries) != null ? ref : this.params.doi;
-  }
-  ret = {};
-  batch = [];
-  processed = 0;
-  ref1 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs', (org ? 'name:"' + org + '"' : 'paid:true'), {
-    scroll: '30m'
-  });
-  for await (o of ref1) {
-    for (an in (ref2 = o.analysis) != null ? ref2 : []) {
-      if ((o.analysis[an].query != null) && ((ref3 = !o.analysis[an].make_key) === false || ref3 === 'false' || ref3 === 'False' || ref3 === 'FALSE')) {
-        q = o.analysis[an].query;
-        if (doi) {
-          q = '(' + q + ') AND  DOI.keyword:"' + doi + '"';
-        }
-        ref4 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', q, {
-          scroll: '30m'
-        });
-        for await (rec of ref4) {
-          dv = (ref5 = o.analysis[an].value) != null ? ref5 : true;
-          if (o.analysis[an].list) {
-            dv = [dv];
-          }
-          if (doi) {
-            ret[(ref6 = (ref7 = o.analysis[an].key) != null ? ref7 : o.analysis[an].name) != null ? ref6 : an] = dv;
-          } else {
-            // check how this would handle dot notations...
-            rec[(ref8 = (ref9 = o.analysis[an].key) != null ? ref9 : o.analysis[an].name) != null ? ref8 : an] = dv;
-            batch.push(rec);
-            processed += 1;
-            if (batch.length > 20000) {
-              await this.report.works(batch);
-              batch = [];
-            }
-          }
-        }
-      }
-    }
-  }
-  if (batch.length) {
-    await this.report.works(batch);
-  }
-  if (doi) {
-    return ret;
-  } else {
-    return processed;
-  }
-};
-
-P.report.orgs.queries._log = false;
-
-P.report.orgs.queries._bg = true;
-
-P.report.orgs.queries._async = true;
-
-P.report.orgs.queries._auth = '@oa.works';
-
 P.report.emails = {
   _sheet: S.report.emails_sheet,
   _key: 'doi',
@@ -13454,7 +12845,7 @@ P.report.email = async function(doi) {
   if (doi == null) {
     doi = (ref = this.params.email) != null ? ref : this.params.doi;
   }
-  if (doi == null) {
+  if (!doi) {
     return void 0;
   }
   rec = (await this.report.works(doi));
@@ -13487,12 +12878,14 @@ try {
   P.oareport.email = P.report.email; // temporary for oareport development
 } catch (error) {}
 
-
-// curl -X PUT http://localhost:9200/paradigm_b_report_works/_settings -H 'Content-Type: application/json' -d '{"index.mapping.total_fields.limit": 2000}'
-// put in opensearch.yml: indices.query.bool.max_clause_count: 20000
 P.report.works.process = async function(cr, openalex, refresh, everything, action, replaced, queued) {
-  var _rsup, a, ad, ass, assl, atp, best_initial, best_name, best_score, brd, c, cid, corresponding_author_ids, crv, dodgy, dor, dord, email, epmc, err, exists, f, flc, givenpmcid, i, i1, j, j1, k, k1, l, l1, lc, len, len1, len10, len11, len12, len13, len14, len15, len16, len17, len18, len19, len2, len20, len21, len22, len23, len24, len25, len3, len4, len5, len6, len7, len8, len9, lic, ll, loc, lvs, m, m1, n, n1, o1, oadoi, ok, ox, p, p1, permissions, poaa, poac, por, port, potfr, pp, pt, pub, publ, pubmed, q1, r1, ran, rec, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref45, ref46, ref47, ref48, ref49, ref5, ref50, ref51, ref52, ref53, ref54, ref55, ref56, ref57, ref58, ref59, ref6, ref60, ref61, ref62, ref63, ref64, ref65, ref66, ref67, ref68, ref69, ref7, ref70, ref71, ref72, ref73, ref74, ref75, ref76, ref77, ref78, ref79, ref8, ref80, ref81, ref82, ref83, ref9, ren, rn, rp, rpa, s1, score, sd, soad, sqq, started, sup, t1, u, u1, ud, ude, urlordois, v1, w1, x, x1, xref, y, y1, z;
+  var _rsup, a, ad, ass, assl, atp, best_initial, best_name, best_score, brd, c, cid, corresponding_author_ids, crv, dodgy, dor, dord, email, epmc, err, exists, f, flc, givenpmcid, howmanynow, i, i1, j, j1, k, k1, l, l1, lc, len, len1, len10, len11, len12, len13, len14, len15, len16, len17, len18, len19, len2, len20, len21, len22, len23, len24, len25, len3, len4, len5, len6, len7, len8, len9, lic, ll, loc, lvs, m, m1, maybepmcid, maybepmid, n, n1, o1, oadoi, ok, ox, p1, permissions, poaa, poac, por, port, potfr, pp, pt, pub, publ, pubmed, q1, r1, ran, rec, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref45, ref46, ref47, ref48, ref49, ref5, ref50, ref51, ref52, ref53, ref54, ref55, ref56, ref57, ref58, ref59, ref6, ref60, ref61, ref62, ref63, ref64, ref65, ref66, ref67, ref68, ref69, ref7, ref70, ref71, ref72, ref73, ref74, ref75, ref76, ref77, ref78, ref79, ref8, ref80, ref81, ref82, ref83, ref9, ren, rn, rp, rpa, s1, score, sd, soad, sqq, started, sup, t1, u, u1, ud, ude, urlordois, v1, w, w1, x, x1, xref, y, y1, z;
   try {
+    //try
+    //  # get rid of bad duplicates created from supplements key overwrite testing
+    //  if typeof cr is 'string' and cr.length and ((not cr.startsWith('10.') and not cr.startsWith('PMC') and not cr.startsWith('w')) or cr.startsWith('wellcome') or cr.startsWith('gates'))
+    //    await @report.works cr, ''
+    //    return
     started = (await this.epoch());
     if (cr == null) {
       cr = this.params.process;
@@ -13507,13 +12900,16 @@ P.report.works.process = async function(cr, openalex, refresh, everything, actio
     if (everything == null) {
       everything = this.params.everything; // if so then runs epmc and permissions, which otherwise only run for records with orgs providing supplements
     }
+    if (refresh === true && !everything) {
+      refresh = 129600000;
+    }
     rec = {};
     if (typeof cr === 'string' && cr.toLowerCase().startsWith('pmc')) {
       givenpmcid = cr.toLowerCase().replace('pmc', 'PMC');
       cr = void 0;
       //openalex ?= await @src.openalex.works 'ids.pmcid:"' + givenpmcid.toLowerCase().replace('pmc', '') + '"', 1 # openalex does not store them with the PMC prefix, they are in URL format without it
       if (openalex == null) {
-        openalex = (await this.src.openalex.works.find(void 0, void 0, givenpmcid));
+        openalex = (await this.src.openalex.works.find(void 0, void 0, givenpmcid, void 0, refresh));
       }
       if ((openalex == null) && (epmc = (await this.src.epmc.pmc(givenpmcid, refresh)))) {
         cr = epmc.doi;
@@ -13539,7 +12935,7 @@ P.report.works.process = async function(cr, openalex, refresh, everything, actio
         try {
           //ox = if openalex.startsWith('W') then await @src.openalex.works('id.keyword:"https://openalex.org/' + openalex + '"') else await @src.openalex.works.doi openalex, (@params.refresh_sources ? false)
           //try ox = ox.hits.hits[0]._source if ox?.hits?.hits?.length
-          ox = (await this.src.openalex.works.find((openalex.startsWith('10.') ? openalex : void 0), (openalex.startsWith('10.') ? void 0 : openalex)));
+          ox = (await this.src.openalex.works.find((openalex.startsWith('10.') ? openalex : void 0), (openalex.startsWith('10.') ? void 0 : openalex), void 0, void 0, refresh));
           if (ox != null ? ox.id : void 0) {
             openalex = ox;
           }
@@ -13547,13 +12943,15 @@ P.report.works.process = async function(cr, openalex, refresh, everything, actio
       }
     }
     if ((typeof openalex === 'object' && ((ref = openalex.ids) != null ? ref.doi : void 0)) || (typeof openalex === 'string' && openalex.startsWith('10.'))) {
-      soad = (typeof openalex === 'string' ? openalex : openalex.ids.doi.split('.org/')[1]).toLowerCase();
-      exists = (await this.report.works(soad)); // must look up prev record in every case now, in case we need to track orgs by query
-      if ((exists != null ? exists.DOI : void 0) && exists.DOI.toLowerCase() !== soad) {
-        exists = void 0;
-      }
-      if ((exists != null ? exists.updated : void 0) || (refresh && refresh !== true && exists && exists.updated < refresh)) {
-        refresh = true;
+      soad = (typeof openalex === 'string' && openalex.length ? openalex : openalex.ids.doi.split('.org/')[1]).toLowerCase();
+      if (soad) {
+        exists = (await this.report.works(soad)); // must look up prev record in every case now, in case we need to track orgs by query
+        if ((exists != null ? exists.DOI : void 0) && exists.DOI.toLowerCase() !== soad) {
+          exists = void 0;
+        }
+        if ((exists != null ? exists.updated : void 0) || (refresh && refresh !== true && exists && exists.updated < refresh)) {
+          refresh = true;
+        }
       }
     }
     if (typeof openalex === 'string' && !(openalex.startsWith('W') || openalex.startsWith('10.'))) {
@@ -13571,14 +12969,14 @@ P.report.works.process = async function(cr, openalex, refresh, everything, actio
     if (typeof cr === 'string') {
       cr = cr.toLowerCase();
     }
-    if (typeof cr === 'string' && (xref = (await this.src.crossref.works.doi(cr, this.params.refresh)))) {
+    if (typeof cr === 'string' && (xref = (await this.src.crossref.works.doi(cr, refresh)))) {
       cr = xref;
     }
     if (typeof cr === 'object' && !cr.DOI) {
       cr = void 0;
     }
     if ((cr != null) && (exists == null)) {
-      exists = (await this.report.works(typeof cr === 'string' ? cr : cr.DOI));
+      exists = (await this.report.works(typeof cr === 'string' && cr.length ? cr : cr.DOI));
     }
     if ((exists != null ? exists.DOI : void 0) && exists.DOI.toLowerCase() !== (typeof cr === 'string' ? cr : typeof cr === 'object' && cr.DOI ? cr.DOI : '').toLowerCase()) {
       exists = void 0;
@@ -13591,13 +12989,9 @@ P.report.works.process = async function(cr, openalex, refresh, everything, actio
         if (exists.pubtype != null) {
           rec.pubtype = exists.pubtype;
         }
-        if (exists.tried_epmc_licence != null) {
-          rec.tried_epmc_licence = exists.tried_epmc_licence;
-        }
-        if (exists.epmc_licence != null) {
-          rec.epmc_licence = exists.epmc_licence;
-        }
         if (exists.data_availability_statement != null) {
+          //rec.tried_epmc_licence = exists.tried_epmc_licence if exists.tried_epmc_licence?
+          //rec.epmc_licence = exists.epmc_licence if exists.epmc_licence?
           // this has to be checked every time from the supps, so don't set it again
           //rec.pmc_has_data_availability_statement = exists.pmc_has_data_availability_statement if exists.pmc_has_data_availability_statement
           rec.data_availability_statement = exists.data_availability_statement;
@@ -13617,7 +13011,7 @@ P.report.works.process = async function(cr, openalex, refresh, everything, actio
       }
     }
     if ((cr != null) && (openalex == null)) {
-      openalex = (await this.src.openalex.works.find(typeof cr === 'object' ? cr.DOI : cr));
+      openalex = (await this.src.openalex.works.find((typeof cr === 'object' ? cr.DOI : cr), void 0, void 0, void 0, refresh));
     }
     if (typeof openalex === 'string' || !(openalex != null ? openalex.id : void 0)) {
       openalex = void 0;
@@ -13626,6 +13020,10 @@ P.report.works.process = async function(cr, openalex, refresh, everything, actio
       if ((exists != null ? exists.updated : void 0) && ((ref2 = cr.indexed) != null ? ref2.timestamp : void 0) && exists.updated < cr.indexed.timestamp) {
         refresh = true;
       }
+      if (rec.crossref == null) {
+        rec.crossref = {};
+      }
+      rec.crossref.deposited = cr.deposited;
       rec.DOI = cr.DOI.toLowerCase();
       rec.published_year = cr.year;
       rec.published_date = cr.published;
@@ -13702,9 +13100,9 @@ P.report.works.process = async function(cr, openalex, refresh, everything, actio
         return brd.push(sup);
       };
       ref13 = (ref12 = cr['update-to']) != null ? ref12 : [];
-      for (p = 0, len4 = ref13.length; p < len4; p++) {
-        ud = ref13[p];
-        if (ud.DOI !== cr.DOI && ud.type && ((ref14 = ud.type.toLowerCase()) !== 'erratum' && ref14 !== 'correction')) { // some new version statements are for the same DOI, so no point changing anything
+      for (u = 0, len4 = ref13.length; u < len4; u++) {
+        ud = ref13[u];
+        if (ud.DOI && ud.DOI.length && ud.DOI !== cr.DOI && ud.type && ((ref14 = ud.type.toLowerCase()) !== 'erratum' && ref14 !== 'correction')) { // some new version statements are for the same DOI, so no point changing anything
           rec.replaces = [];
           rec.replaces.push({
             DOI: ud.DOI,
@@ -13752,8 +13150,8 @@ P.report.works.process = async function(cr, openalex, refresh, everything, actio
       rec.openalx = JSON.parse(JSON.stringify(openalex));
       ref17 = ['topics', 'primary_topic', 'keywords', 'concepts', 'domains', 'fields', 'subfields'];
       // avoid data type changes on openalex that caused save fails due to mapping mismatch
-      for (u = 0, len5 = ref17.length; u < len5; u++) {
-        dodgy = ref17[u];
+      for (w = 0, len5 = ref17.length; w < len5; w++) {
+        dodgy = ref17[w];
         delete rec.openalx[dodgy];
       }
       rec.publisher_license_v2 = (ref18 = rec.openalx.primary_location) != null ? ref18.license : void 0; // primary location is NOT always present
@@ -13854,11 +13252,10 @@ P.report.works.process = async function(cr, openalex, refresh, everything, actio
                 rec.PMCID = 'PMC' + pp;
               }
             }
-            if (loc.license && !rec.epmc_licence) {
-              rec.epmc_licence = loc.license;
-            }
           }
-          if (!rec.repository_url || !rec.repository_url.includes('pmc') || (!rec.repository_url.includes('ncbi.') && loc.url.includes('ncbi.'))) {
+          //if loc.license and not rec.epmc_licence
+          //  rec.epmc_licence = loc.license
+          if (!rec.repository_url || !rec.repository_url.includes('pmc') || (!rec.repository_url.includes('ncbi.') && loc.url && loc.url.includes('ncbi.'))) {
             ref37 = ['license', 'url_for_pdf', 'url', 'version'];
             for (l1 = 0, len12 = ref37.length; l1 < len12; l1++) {
               ok = ref37[l1];
@@ -13869,10 +13266,22 @@ P.report.works.process = async function(cr, openalex, refresh, everything, actio
           }
         }
       }
-      if (rec.repository_url && (rec.repository_url.toLowerCase().includes('europepmc.') || rec.repository_url.toLowerCase().includes('ncbi.'))) {
-        if (rec.PMCID == null) {
-          rec.PMCID = 'PMC' + rec.repository_url.toLowerCase().split('pmc').pop().split('articles/').pop().split('/')[0].split('#')[0].split('?')[0].split('.')[0].replace(/[^0-9]/g, '');
-        }
+      if (rec.repository_url && rec.repository_url.toLowerCase().includes('europepmc.')) {
+        try {
+          maybepmcid = rec.repository_url.toLowerCase().split('pmc').pop().split('articles/').pop().split('/')[0].split('#')[0].split('?')[0].split('.')[0].replace(/[^0-9]/g, '');
+          if (!rec.PMCID && typeof maybepmcid === 'string' && maybepmcid.length && !isNaN(parseInt(maybepmcid))) {
+            rec.PMCID = 'PMC' + maybepmcid;
+          }
+        } catch (error) {}
+        rec.repository_url_in_pmc = true;
+      }
+      if (rec.repository_url && rec.repository_url.toLowerCase().includes('ncbi.')) {
+        try {
+          maybepmid = rec.repository_url.toLowerCase().replace(/\/$/g, '').split('ncbi.').pop().split('/').pop().split('#')[0].split('?')[0].split('.')[0].replace(/[^0-9]/g, '');
+          if (!rec.PMID && typeof maybepmid === 'string' && maybepmid.length && !isNaN(parseInt(maybepmid))) {
+            rec.PMID = maybepmid;
+          }
+        } catch (error) {}
         rec.repository_url_in_pmc = true;
       }
       if (oadoi != null) {
@@ -13960,9 +13369,6 @@ P.report.works.process = async function(cr, openalex, refresh, everything, actio
             }
           }
         }
-        //for k of sup
-        //  rec[k] = sup[k] if rec[k]?
-        //  delete rec[k] if rec[k]? and sup[k] is 'NULL'
         rec.supplements.push(sup);
       }
     }
@@ -14190,8 +13596,9 @@ P.report.works.process = async function(cr, openalex, refresh, everything, actio
     //        break if f.country
 
     // is it worth restricting everything any more?
-    if ((rec.DOI || rec.PMCID) && ((epmc != null) || !rec.PMCID || (rec.pubtype == null))) { //or not rec.submitted_date or not rec.accepted_date # only thing restricted to orgs supplements for now is remote epmc lookup and epmc licence calculation below
-      if ((epmc != null) || (everything && (epmc = (rec.PMCID ? (await this.src.epmc.pmc(rec.PMCID, refresh)) : (await this.src.epmc.doi(rec.DOI, refresh)))))) {
+    if (rec.DOI || rec.PMCID) { //and (epmc? or not rec.PMCID or not rec.pubtype?) #or not rec.submitted_date or not rec.accepted_date # only thing restricted to orgs supplements for now is remote epmc lookup and epmc licence calculation below
+      //if epmc? or (everything and epmc = (if rec.PMCID then await @src.epmc.pmc(rec.PMCID, refresh) else await @src.epmc.doi rec.DOI, refresh))
+      if (epmc != null ? epmc : epmc = (rec.PMCID ? (await this.src.epmc.pmc(rec.PMCID, refresh)) : (await this.src.epmc.doi(rec.DOI, refresh)))) {
         if (!rec.PMCID && epmc.pmcid) {
           rec.PMCID = epmc.pmcid;
         }
@@ -14209,15 +13616,22 @@ P.report.works.process = async function(cr, openalex, refresh, everything, actio
         }
       }
     }
-    if ((everything || (epmc != null)) && rec.PMCID && !rec.epmc_licence && (refresh || !rec.tried_epmc_licence)) { //  and rec.repository_url_in_pmc
-      rec.tried_epmc_licence = true;
-      lic = (await this.src.epmc.licence(rec.PMCID, epmc, void 0, refresh));
-      rec.epmc_licence = lic != null ? lic.licence : void 0;
-    }
-    //if not rec.pmc_has_data_availability_statement # TODO comment these out once Joe happy to go ahead with removing
-    //  rec.pmc_has_data_availability_statement = rec.PMCID and await @src.pubmed.availability rec.PMCID
-    //  rec.has_data_availability_statement = true if rec.pmc_has_data_availability_statement
-    if (everything && rec.PMCID && (refresh || !rec.data_availability_statement || !rec.submitted_date)) { // restrict to everything?
+    //if (everything or epmc?) and rec.PMCID and (refresh or not rec.tried_epmc_licence) #  and rec.repository_url_in_pmc
+    rec.has_epmc_fulltext = false; // it appears this should default to false in all cases https://github.com/oaworks/discussion/issues/3738#issuecomment-4134013512
+    if (epmc != null) {
+      rec.has_epmc_fulltext = epmc.inEPMC === 'Y';
+      delete rec.epmc_licence;
+      delete rec.tried_epmc_licence;
+      if (rec.has_epmc_fulltext) {
+        rec.tried_epmc_licence = true;
+        lic = (await this.src.epmc.licence(rec.PMCID, epmc, void 0, refresh));
+        rec.epmc_licence = lic != null ? lic.licence : void 0;
+      }
+      //if not rec.pmc_has_data_availability_statement # TODO comment these out once Joe happy to go ahead with removing
+      //  rec.pmc_has_data_availability_statement = rec.PMCID and await @src.pubmed.availability rec.PMCID
+      //  rec.has_data_availability_statement = true if rec.pmc_has_data_availability_statement
+      //if everything and rec.PMCID and (refresh or not rec.data_availability_statement or not rec.submitted_date) # restrict to everything?
+      //if epmc?
       rec.data_availability_statement = (await this.src.epmc.statement(rec.PMCID, epmc, refresh));
       if (rec.data_availability_statement) {
         rec.has_data_availability_statement = true;
@@ -14225,7 +13639,7 @@ P.report.works.process = async function(cr, openalex, refresh, everything, actio
       if (rec.data_availability_statement && (urlordois = (await this.src.epmc.statement.url(rec.PMCID, epmc, rec.data_availability_statement)))) {
         for (y1 = 0, len25 = urlordois.length; y1 < len25; y1++) {
           dor = urlordois[y1];
-          if (dor.includes('doi.org/')) {
+          if (typeof dor === 'string' && dor.includes('doi.org/')) {
             dord = dor.split('doi.org/')[1].toLowerCase();
             if (rec.data_availability_doi == null) {
               rec.data_availability_doi = [];
@@ -14275,6 +13689,15 @@ try
         rec[qk].push(vl) if vl not in rec[qk]
     else
       rec[qk] = qrc[qk]`;
+    //for sup in rec.supplements
+    //  #console.log sup
+    //  for k of sup
+    //    #console.log k
+    //    if k not in ['_id', 'updated', 'DOI', 'doi', 'email', 'has_open_data', 'is_preprint', 'openalex', 'paid', 'pmc_has_data_availability_statement', 'pmcid', 'publisher_license_crossref', 'publisher_simple']
+    //      #console.log k, rec[k], sup[k]
+    //      rec[k] = sup[k] if rec[k]?
+    //      delete rec[k] if rec[k]? and sup[k] is 'NULL'
+    //      #console.log k, rec[k], sup[k]
     if (rec._id == null) {
       rec._id = rec.DOI ? rec.DOI.toLowerCase().replace(/\//g, '_') : rec.openalex ? rec.openalex.toLowerCase() : rec.PMCID ? rec.PMCID.toLowerCase() : void 0; // and if no openalex it will get a default ID
     }
@@ -14283,6 +13706,7 @@ try
     rec.took = rec.supplemented - started;
     rec.supplemented_date = (await this.datetime(rec.supplemented));
     rec.updated_date = (await this.datetime(rec.updated));
+    console.log(this.params.process, rec.DOI);
     if (this.params.process && this.params.save !== false && ((rec.DOI && rec.DOI.toLowerCase() === this.params.process.toLowerCase()) || (rec.openalex && rec.openalex.toLowerCase() === this.params.process.toLowerCase()) || (rec.PMCID && rec.PMCID.toLowerCase() === this.params.process.toLowerCase()))) {
       await this.report.works(rec);
     } else if (queued) {
@@ -14292,6 +13716,12 @@ try
       }
       _processing_idents.splice(_processing_idents.indexOf(queued), 1);
     }
+    try {
+      howmanynow = (await this.report.works.count());
+      if (howmanynow < 2) {
+        await fs.appendFile('/home/oaw/deletionrecords', JSON.stringify(rec) + '\n' + new Date().toISOString() + '\n', 'utf8');
+      }
+    } catch (error) {}
     //console.log 'report works processed', rec.DOI, rec.took
     return rec;
   } catch (error) {
@@ -14315,8 +13745,186 @@ try
 
 P.report.works.process._log = false;
 
-P.report.works.load = async function(timestamp, org, idents, year, clear, supplements, everything, info) {
-  var _crossref, _openalex, crt, i, j, len, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, refresh, started, sup, sw, text, took, total, updated;
+P.report.works._clone = async function(src, target, opensrc = true, opentarget, removetarget) {
+  var exists, j, l, latest, len, len1, len2, len3, m, n, p, procs, ref, ref1, ref2, ref3, ref4, res;
+  if (!removetarget && (await this.index._send(target, void 0, void 0, false, false))) {
+    return {
+      error: 'Target index already exists'
+    };
+  } else {
+    res = {
+      source: src,
+      target: target,
+      procs: {
+        pre: [],
+        post: []
+      },
+      counts: {},
+      closed: {},
+      opened: {}
+    };
+    if (this.S.name && this.S.pm2) {
+      res.name = this.S.name.toLowerCase();
+      procs = (await this._child(this.S.pm2, 'status')); // find the queues running for dev or live
+      ref = procs.split('\n');
+      for (j = 0, len = ref.length; j < len; j++) {
+        p = ref[j];
+        if (p.includes(res.name) && p.includes('online') && p.includes('queue')) {
+          res.procs.pre.push(res.name + p.split(res.name)[1].split(' ')[0]);
+        }
+      }
+      console.log(res);
+      if (exists = (await this.index._send(src + '/_search?q=*&size=0&rest_total_hits_as_int=true', void 0, void 0, false, false))) {
+        res.counts.src = exists.hits.total;
+        ref1 = res.procs.pre;
+        // stop all (live or dev) queue processes that are running
+        for (l = 0, len1 = ref1.length; l < len1; l++) {
+          p = ref1[l];
+          await this._child(this.S.pm2, ['stop', p]);
+        }
+        if (res.closed.src = (await this.index._send(src + '/_settings', {
+          settings: {
+            index: {
+              blocks: {
+                write: true
+              }
+            }
+          }
+        }, 'PUT', false, false))) {
+          console.log(res.closed);
+          if (res.closed.src.acknowledged) {
+            if (removetarget) {
+              res.deleted = (await this.index._send(target, void 0, 'DELETE', false, false));
+            }
+            if (res.cloned = (await this.index._send(src + '/_clone/' + target, void 0, 'POST', false, false))) {
+              if (res.cloned.acknowledged) {
+                latest = (await this.index._send(target + '/_search?q=*&size=0&rest_total_hits_as_int=true', void 0, void 0, false, false));
+                res.counts.target = latest.hits.total;
+              }
+            }
+          }
+        }
+        res.success = res.counts.src === res.counts.target;
+        if (opensrc && ((ref2 = res.closed.src) != null ? ref2.acknowledged : void 0)) {
+          res.opened.src = (await this.index._send(src + '/_settings', {
+            settings: {
+              index: {
+                blocks: {
+                  write: false
+                }
+              }
+            }
+          }, 'PUT', false, false));
+        }
+        if (opentarget && res.success) {
+          res.opened.target = (await this.index._send(target + '/_settings', {
+            settings: {
+              index: {
+                blocks: {
+                  write: false
+                }
+              }
+            }
+          }, 'PUT', false, false));
+        }
+      }
+      if (res.counts.src != null) {
+        ref3 = res.procs.pre;
+        // start all (live or dev) queue processes that were stopped
+        for (m = 0, len2 = ref3.length; m < len2; m++) {
+          p = ref3[m];
+          await this._child(this.S.pm2, ['start', p]);
+        }
+        procs = (await this._child(this.S.pm2, 'status')); // check which ones are running now, should match
+        ref4 = procs.split('\n');
+        for (n = 0, len3 = ref4.length; n < len3; n++) {
+          p = ref4[n];
+          if (p.includes(res.name) && p.includes('online') && p.includes('queue')) {
+            res.procs.post.push(res.name + p.split(res.name)[1].split(' ')[0]);
+          }
+        }
+      }
+    }
+    return res;
+  }
+};
+
+P.report.works.backup = async function(target) {
+  var counter, cur, exists, ref;
+  cur = 'paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works';
+  if (((ref = this.S.alias) != null ? ref.report_works : void 0) && !cur.includes(this.S.alias.report_works)) {
+    cur += '_' + this.S.alias.report_works;
+  }
+  if (target == null) {
+    target = cur + '_' + ((await this.date())).replace(/-/g, '');
+  }
+  counter = 0;
+  console.log(cur, target);
+  while (exists = (await this.index._send(target, void 0, void 0, false, false))) {
+    counter++;
+    target = counter === 1 ? target + '_v' + counter : target.replace('_v' + (counter - 1), '_v' + counter);
+  }
+  console.log('backing up', cur, target);
+  return this.report.works._clone(cur, target, true, false);
+};
+
+P.report.works.backup._bg = true;
+
+P.report.works.backup._auth = '@oa.works';
+
+P.report.works.recover = async function(datestamp, today) {
+  var checktoday, cloned, cur, j, l, len, len1, p, prev, procs, ps, ref, ref1;
+  if (today == null) {
+    today = this.params.confirmation;
+  }
+  if (datestamp == null) {
+    datestamp = this.params.from;
+  }
+  checktoday = ((await this.date())).replace(/-/g, '');
+  procs = [];
+  console.log('recovery called', today, typeof today, checktoday, typeof checktoday, datestamp, typeof datestamp, this.params.dev2live, this.S.pm2 != null);
+  if (today && checktoday && today + '' === checktoday + '' && datestamp && this.S.pm2) {
+    cur = 'paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works';
+    prev = cur + '_' + datestamp;
+    if (this.S.dev && this.params.dev2live === true && cur.includes('paradigm_b_')) { // allow recovering if called on dev, from a dev backup, to live index
+      ps = (await this._child(this.S.pm2, 'status')); // find the queues running for dev or live
+      ref = ps.split('\n');
+      for (j = 0, len = ref.length; j < len; j++) {
+        p = ref[j];
+        if (p.includes('paradigm') && !p.includes('paradigm_b') && p.includes('online')) {
+          procs.push('paradigm' + p.split('paradigm')[1].split(' ')[0]);
+          await this._child(this.S.pm2, [
+            'stop',
+            p // dev can turn off all live processes to increase likelihood of recovery
+          ]);
+        }
+      }
+      cur = cur.replace('paradigm_b_', 'paradigm_');
+    } else {
+      if (((ref1 = this.S.alias) != null ? ref1.report_works : void 0) && !cur.includes(this.S.alias.report_works)) { // cannot know alias for live, so only set it if on dev
+        cur += '_' + this.S.alias.report_works;
+      }
+    }
+    console.log(prev, cur, procs);
+    cloned = (await this.report.works._clone(prev, cur, false, true, true));
+    for (l = 0, len1 = procs.length; l < len1; l++) {
+      p = procs[l];
+      await this._child(this.S.pm2, ['start', p]);
+    }
+    cloned.live_procs = procs;
+    return cloned;
+  }
+  return {
+    required: 'from param containing only date suffix of report works index to recover from, and confirmation param must match ' + checktoday
+  };
+};
+
+P.report.works.recover._bg = true;
+
+P.report.works.recover._auth = '@oa.works';
+
+P.report.works.load = async function(timestamp, org, idents, year, clear, supplements, everything, info, refresh) {
+  var _crossref, _openalex, crt, i, j, len, o, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref3, ref4, ref5, ref6, ref7, ref8, ref9, started, sup, sw, text, took, total, updated;
   started = (await this.epoch());
   if (year == null) {
     year = (ref = this.params.load) != null ? ref : ((await this.date())).split('-')[0];
@@ -14335,7 +13943,9 @@ P.report.works.load = async function(timestamp, org, idents, year, clear, supple
       clear = this.params.clear;
     }
   }
-  refresh = this.refresh;
+  if (refresh == null) {
+    refresh = this.refresh;
+  }
   if (everything == null) {
     everything = (ref3 = this.params.everything) != null ? ref3 : this.params.load === 'everything';
   }
@@ -14387,7 +13997,7 @@ P.report.works.load = async function(timestamp, org, idents, year, clear, supple
     total += idents.length;
   } else {
     _crossref = async(cq, action) => {
-      var ae, cr, precount, ref13, results;
+      var ae, cr, precount, ref13, results1;
       if (cq == null) {
         cq = '(funder.name:* OR author.affiliation.name:*) AND year.keyword:' + year;
       }
@@ -14400,22 +14010,22 @@ P.report.works.load = async function(timestamp, org, idents, year, clear, supple
         include: ['DOI'],
         scroll: '30m'
       });
-      results = [];
+      results1 = [];
       for await (cr of ref13) {
-        if (org || year !== this.params.load || !(ae = (await this.report.works(cr.DOI)))) {
+        if (cr.DOI && cr.DOI.length && (org || year !== this.params.load || !(ae = (await this.report.works(cr.DOI))))) {
           total += 1;
-          results.push((await this.report.queue(cr.DOI, void 0, timestamp != null ? timestamp : refresh, everything, action)));
+          results1.push((await this.report.queue(cr.DOI, void 0, timestamp != null ? timestamp : refresh, everything, action)));
         } else {
-          results.push(void 0);
+          results1.push(void 0);
         }
       }
-      return results;
+      return results1;
     };
     if (org !== true && year === this.params.load) {
       await _crossref(void 0, 'years');
     }
     _openalex = async(oq, action) => {
-      var ae, ol, oodoi, precount, ref13, ref14, results;
+      var ae, ol, oodoi, precount, ref13, ref14, results1;
       if (oq == null) {
         oq = 'authorships.institutions.display_name:* AND publication_year:' + year;
       }
@@ -14428,40 +14038,54 @@ P.report.works.load = async function(timestamp, org, idents, year, clear, supple
         include: ['id', 'ids'],
         scroll: '30m'
       });
-      results = [];
+      results1 = [];
       for await (ol of ref13) {
         oodoi = ((ref14 = ol.ids) != null ? ref14.doi : void 0) ? '10.' + ol.ids.doi.split('/10.')[1] : ol.id.split('openalex.org/').pop();
-        if (oodoi) {
+        if (oodoi && oodoi.length) {
           if (org || year !== this.params.load || !oodoi.startsWith('10.') || !(ae = (await this.report.works(oodoi)))) {
             total += 1;
-            results.push((await this.report.queue(oodoi, void 0, timestamp != null ? timestamp : refresh, everything, action)));
+            results1.push((await this.report.queue(oodoi, void 0, timestamp != null ? timestamp : refresh, everything, action)));
           } else {
-            results.push(void 0);
+            results1.push(void 0);
           }
         } else {
-          results.push(void 0);
+          results1.push(void 0);
         }
       }
-      return results;
+      return results1;
     };
     if (org !== true && year === this.params.load) {
       await _openalex(void 0, 'years');
     }
-    `for await o from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs', (if typeof org is 'string' then 'name:"' + org + '"' else 'paid:true'), scroll: '10m'
-# if an org has no known records in report/works yet, could default it here to a timestamp of start of current year, or older, to pull in all records first time round
-if o.source?.crossref
-  try o.source.crossref = decodeURIComponent(decodeURIComponent(o.source.crossref)) if o.source.crossref.includes '%'
-  console.log 'report works load crossref by org', o.name, o.source.crossref
-  await _crossref o.source.crossref
-if o.source?.openalex
-  try o.source.openalex = decodeURIComponent(decodeURIComponent(o.source.openalex)) if o.source.openalex.includes '%'
-  console.log 'report works load openalex by org', o.name, o.source.openalex
-  await _openalex o.source.openalex`;
+    ref13 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs', (typeof org === 'string' ? 'name:"' + org + '"' : 'paid:true'), {
+      scroll: '10m'
+    });
+    for await (o of ref13) {
+      // if an org has no known records in report/works yet, could default it here to a timestamp of start of current year, or older, to pull in all records first time round
+      if ((ref14 = o.source) != null ? ref14.crossref : void 0) {
+        try {
+          if ((((ref15 = o.source) != null ? ref15.crossref : void 0) != null) && o.source.crossref.includes('%')) {
+            o.source.crossref = decodeURIComponent(decodeURIComponent(o.source.crossref));
+          }
+        } catch (error) {}
+        console.log('report works load crossref by org', o.name, o.source.crossref);
+        await _crossref(o.source.crossref);
+      }
+      if ((ref16 = o.source) != null ? ref16.openalex : void 0) {
+        try {
+          if ((((ref17 = o.source) != null ? ref17.openalex : void 0) != null) && o.source.openalex.includes('%')) {
+            o.source.openalex = decodeURIComponent(decodeURIComponent(o.source.openalex));
+          }
+        } catch (error) {}
+        console.log('report works load openalex by org', o.name, o.source.openalex);
+        await _openalex(o.source.openalex);
+      }
+    }
     if (timestamp) {
-      ref13 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', 'orgs:* AND updated:<' + timestamp, {
+      ref18 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', 'orgs:* AND updated:<' + timestamp, {
         scroll: '10m'
       });
-      for await (crt of ref13) {
+      for await (crt of ref18) {
         if (updated = (await this.src.crossref.works.count('DOI.keyword:"' + crt.DOI + '" AND srcday:>' + timestamp))) {
           await this.report.queue(crt.DOI, void 0, timestamp != null ? timestamp : refresh, everything);
         }
@@ -14494,14 +14118,14 @@ if o.source?.openalex
   if (year && typeof org !== 'string' && (this.params.load || !timestamp) && !(idents != null ? idents : []).length) {
     text += 'The load process was run for year ' + year + '\n';
   }
-  ref14 = info != null ? info : [];
-  for (j = 0, len = ref14.length; j < len; j++) {
-    i = ref14[j];
+  ref19 = info != null ? info : [];
+  for (j = 0, len = ref19.length; j < len; j++) {
+    i = ref19[j];
     text += '\n' + JSON.stringify(i) + '\n';
   }
   console.log('Report works loaded', total, took);
   await this.mail({
-    to: (ref15 = this.S.log) != null ? ref15.logs : void 0,
+    to: (ref20 = this.S.log) != null ? ref20.logs : void 0,
     subject: 'Report works loaded ' + total,
     text: text
   });
@@ -14518,10 +14142,13 @@ P.report.works.load._auth = '@oa.works';
 
 P.report.works.load.mains = async function() {
   var j, len, org, orgs;
-  orgs = this.params.orgs ? this.params.orgs.split(',') : ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Wellcome Trust'];
+  orgs = this.params.orgs ? this.params.orgs.split(',') : ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Wellcome Trust', 'Michael J. Fox Foundation'];
+  if (this.S.works_load_mains_backup_first) {
+    await this.report.works.backup();
+  }
   for (j = 0, len = orgs.length; j < len; j++) {
     org = orgs[j];
-    await this.report.works.load(void 0, org);
+    await this.report.works.load(void 0, org, void 0, void 0, void 0, void 0, void 0, void 0, true);
   }
   return true;
 };
@@ -14555,7 +14182,717 @@ P.report.works.changes._async = true;
 
 P.report.works.changes._auth = '@oa.works';
 
-//P.report.rs = _index: true # TODO remove this once happy with src.rs
+P.report.works.queries = async function(orgs) {
+  var ans, batch, cqs, crossref, cursor, cv, cvl, ids, j, l, len, len1, len2, len3, len4, m, n, o, openalex, oqs, org, ov, ovl, queued, r, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rid, started, sup, svl, u;
+  started = Date.now();
+  if (this.params.orgs) {
+    orgs = this.params.orgs.split(',');
+  }
+  if (orgs == null) {
+    orgs = [
+      'Gates Foundation',
+      'Robert Wood Johnson Foundation',
+      'Wellcome Trust' //, 'Michael J. Fox Foundation'
+    ];
+  }
+  
+  //if @params.clear
+  //  await @report.works ''
+  cqs = {
+    'Gates Foundation': ['funder:10.13039/100000865,funder:10.13039/501100005370', 'ror-id:0456r8d26,ror-id:033sn5p83', 'container-title:Gates%20Open%20Research', 'issn:2572-4754,issn:3029-0988'],
+    'Robert Wood Johnson Foundation': ['funder:10.13039/100000867', 'ror-id:02ymmdj85'],
+    'Michael J. Fox Foundation': ['funder:10.13039/100000864', 'ror-id:03arq3225'],
+    'Wellcome Trust': ['funder:10.13039/100010269,funder:10.13039/100004440', 'ror-id:029chgv08'],
+    'Templeton World Charity Foundation': ['funder:10.13039/501100011730', 'ror-id:00x0z1472'],
+    'Howard Hughes Medical Institute': ['funder:10.13039/100000011,10.13039/100022388', 'ror-id:006w34k90,ror-id:013sk6x84']
+  };
+  oqs = {
+    'Gates Foundation': ['funders.id:F4320306137|F4320323264|F4320310978', 'authorships.institutions.ror:0456r8d26|033sn5p83', 'raw_affiliation_strings.search:melinda%20gates%20foundation|gates%20cambridge%20trust|gates%20ventures', 'locations.source.issn:2572-4754|3029-0988'],
+    'Robert Wood Johnson Foundation': ['funders.id:F4320306139|F4320309038', 'authorships.institutions.ror:02ymmdj85', 'raw_affiliation_strings.search:Robert Wood Johnson Foundation'],
+    'Michael J. Fox Foundation': ['funders.id:F4320306136', 'authorships.institutions.ror:03arq3225', 'raw_affiliation_strings.search:Michael J. Fox Foundation'],
+    'Wellcome Trust': ['funders.id:F4320311904', 'authorships.institutions.ror:029chgv08', 'raw_affiliation_strings.search:Wellcome Trust'],
+    'Templeton World Charity Foundation': ['funders.id:F4320327239', 'authorships.institutions.ror:00x0z1472', 'raw_affiliation_strings.search:Templeton World Charity Foundation'],
+    'Howard Hughes Medical Institute': ['funders.id:F4320306082', 'authorships.institutions.ror:006w34k90|013sk6x84', 'raw_affiliation_strings.search:Howard Hughes Medical Institute|Janelia Research Campus|Freeman Hrabowski']
+  };
+  //for await o from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs'
+  //  if o.source?.crossref
+  //  if o.source?.openalex
+  ids = [];
+  cvl = 0;
+  ovl = 0;
+  svl = 0;
+  for (j = 0, len = orgs.length; j < len; j++) {
+    org = orgs[j];
+    console.log('orgs queries doing org', org);
+    ref2 = (ref = cqs[org]) != null ? ref : ((ref1 = this.params.queries) != null ? ref1 : '').split(',');
+    for (l = 0, len1 = ref2.length; l < len1; l++) {
+      o = ref2[l];
+      crossref = {};
+      cursor = '*';
+      console.log('crossref', org, o);
+      while ((cursor != null) && (ans = (await this.fetch('https://api.crossref.org/works?mailto=sysadmin@oa.works&filter=' + o + '&rows=1000&cursor=' + encodeURIComponent(cursor), {
+          rate: ['crossrefFilter', 3],
+          headers: {
+            'User-Agent': ((ref8 = this.S.name) != null ? ref8 : 'OA.Works') + '; mailto:' + ((ref9 = (ref10 = this.S.mail) != null ? ref10.to : void 0) != null ? ref9 : 'sysadmin@oa.works')
+          }
+        })))) {
+        cursor = (ref3 = ans.message) != null ? ref3['next-cursor'] : void 0;
+        if (!((ref4 = ans.message) != null ? ref4.items : void 0) || ans.message.items.length < 1000) { // crossref does not auto remove the last cursor on the last page so need to check for shortness
+          cursor = void 0;
+        }
+        ref7 = (ref5 = (ref6 = ans.message) != null ? ref6.items : void 0) != null ? ref5 : [];
+        for (m = 0, len2 = ref7.length; m < len2; m++) {
+          r = ref7[m];
+          rid = r.DOI.toLowerCase();
+          if (rid && indexOf.call(ids, rid) < 0) {
+            crossref[rid] = (await this.src.crossref.works._format(r));
+            ids.push(rid);
+          }
+        }
+      }
+      if (cv = Object.values(crossref)) {
+        cvl += cv.length;
+        console.log('report works queries saving crossref records for org', org, cv.length, cvl);
+        await this.src.crossref.works(cv); // do these per org so the size does not get too big in memory
+        cv = void 0;
+      }
+    }
+    ref13 = (ref11 = oqs[org]) != null ? ref11 : ((ref12 = this.params.queries) != null ? ref12 : '').split(',');
+    for (n = 0, len3 = ref13.length; n < len3; n++) {
+      o = ref13[n];
+      openalex = {};
+      cursor = '*';
+      //if not @params.clear
+      //  o += ',publication_year:>' + (parseInt((await @date()).split('-')[0]) - 3) # to avoid openalex deep cursoring errors
+      console.log('openalex', org, o);
+      while ((cursor != null) && (ans = (await this.fetch('https://api.openalex.org/works?mailto=sysadmin@oa.works' + (((ref18 = this.S.src.openalex) != null ? ref18.apikey : void 0) ? '&api_key=' + this.S.src.openalex.apikey : '') + '&filter=' + o + '&per-page=200&cursor=' + encodeURIComponent(cursor), {
+          rate: ['openalexFilter', 20, 10000, 86400]
+        })))) {
+        cursor = ans.meta.next_cursor; // will be null if there are no more to get
+        ref14 = ans.results;
+        for (u = 0, len4 = ref14.length; u < len4; u++) {
+          r = ref14[u];
+          rid = ((ref15 = r.ids) != null ? ref15.doi : void 0) || r.doi ? ((ref16 = (ref17 = r.ids) != null ? ref17.doi : void 0) != null ? ref16 : r.doi).split('.org/').pop().toLowerCase() : r.id.toLowerCase();
+          if (rid && indexOf.call(ids, rid) < 0) {
+            openalex[rid] = (await this.src.openalex.works._format(r));
+            ids.push(rid);
+          }
+        }
+      }
+      if (ov = Object.values(openalex)) {
+        ovl += ov.length;
+        console.log('report works queries saving openalex records for org', org, ov.length, ovl);
+        await this.src.openalex.works(ov);
+        ov = void 0;
+      }
+    }
+    ref19 = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_orgs_supplements', 'org.keyword:"' + org + '"');
+    for await (sup of ref19) {
+      svl += 1;
+      rid = (ref20 = (ref21 = sup.DOI) != null ? ref21 : sup.pmcid) != null ? ref20 : sup.openalex;
+      if (rid && indexOf.call(ids, rid) < 0) {
+        ids.push(rid);
+      }
+    }
+    console.log(svl);
+  }
+  queued = 0;
+  while ((batch = ids.splice(0, 10000)) && batch.length) {
+    queued += batch.length;
+    console.log('report works queries queueing', batch.length, queued);
+    await this.report.queue(batch, void 0, true, true);
+    batch = [];
+  }
+  console.log('report works queries complete', cvl, ovl, svl, queued, 'elapsed', Date.now() - started);
+  return queued;
+};
+
+P.report.works.queries._async = true;
+
+`P.report.fixsuppdups = ->
+checked = 0
+dups = 0
+for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', undefined, scroll: '5m', include: ['osdid']
+  checked += 1
+  if sup.osdid and sup.osdid.length
+    exists = await @index._send 'paradigm_b_report_works/_doc/' + sup.osdid
+    #console.log exists?._id
+    if exists?._id is sup.osdid
+      console.log 'remove', exists._id, sup.osdid
+      await @report.works sup.osdid, ''
+      dups += 1
+      console.log checked, dups
+console.log 'fix supp dups done, checked', checked, 'dups', dups
+return dups
+P.report.fixsuppdups._log = false
+P.report.fixsuppdups._bg = true
+P.report.fixsuppdups._async = true`;
+
+P.report.finder = async function() {
+  var _crossref, _openalex, batch, h, header, headers, hp, hpv, j, l, len, len1, len2, m, o, org, ref, ref1, ref10, ref11, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, results, row, rows, rr, s, saved, sd, sheet;
+  org = 'Gates Foundation';
+  sheet = '';
+  results = {
+    count: {
+      crossref: 0,
+      openalex: 0
+    },
+    query: {
+      crossref: 0,
+      openalex: 0
+    },
+    missing: {
+      crossref: 0,
+      openalex: 0
+    },
+    sheets: {
+      names: [],
+      rows: 0,
+      missing: 0
+    },
+    breakers: []
+  };
+  batch = [];
+  _crossref = async(cq) => {
+    var counted, cr, ref, results1, saved;
+    results.count.crossref = (await this.src.crossref.works.count(cq));
+    console.log('report finder crossref by query expects', cq, results.count.crossref);
+    ref = this.index._for('src_crossref_works', cq, {
+      include: ['DOI'],
+      scroll: '30m'
+    });
+    results1 = [];
+    for await (cr of ref) {
+      if (results.query.crossref % 100 === 0) {
+        console.log('report finder crossref', results.query.crossref, results.missing.crossref);
+      }
+      results.query.crossref += 1;
+      batch.push((await this.report.works.process(cr.DOI)));
+      if (batch.length >= 5) {
+        saved = (await this.report.works(batch));
+        counted = (await this.report.works.count());
+        if (counted < 7) {
+          results.breakers = results.breakers.concat(batch);
+        }
+        results1.push(batch = []);
+      } else {
+        results1.push(void 0);
+      }
+    }
+    return results1;
+  };
+  _openalex = async(oq) => {
+    var counted, ol, oodoi, ref, ref1, results1, saved;
+    results.count.openalex = (await this.src.openalex.works.count(oq));
+    console.log('report finder openalex by query expects', oq, results.count.openalex);
+    ref = this.index._for('src_openalex_works', oq, {
+      include: ['id', 'ids'],
+      scroll: '30m'
+    });
+    results1 = [];
+    for await (ol of ref) {
+      if (results.query.openalex % 100 === 0) {
+        console.log('report finder openalex', results.query.openalex, results.missing.openalex);
+      }
+      results.query.openalex += 1;
+      oodoi = ((ref1 = ol.ids) != null ? ref1.doi : void 0) ? '10.' + ol.ids.doi.split('/10.')[1] : ol.id.split('openalex.org/').pop();
+      batch.push((await this.report.works.process(oodoi)));
+      if (batch.length >= 5) {
+        saved = (await this.report.works(batch));
+        counted = (await this.report.works.count());
+        if (counted < 7) {
+          results.breakers = results.breakers.concat(batch);
+        }
+        results1.push(batch = []);
+      } else {
+        results1.push(void 0);
+      }
+    }
+    return results1;
+  };
+  ref = this.index._for('paradigm_report_orgs', 'name.keyword:"' + org + '"', {
+    scroll: '10m'
+  }, false);
+  // only live report orgs have the local source queries now
+  for await (o of ref) {
+    console.log('report finder doing org', org, o.name);
+    if ((ref1 = o.source) != null ? ref1.openalex : void 0) {
+      try {
+        if (o.source.openalex.includes('%')) {
+          o.source.openalex = decodeURIComponent(decodeURIComponent(o.source.openalex));
+        }
+      } catch (error) {}
+      console.log('report finder openalex by org', o.name, o.source.openalex);
+      await _openalex(o.source.openalex);
+    }
+    if ((ref2 = o.source) != null ? ref2.crossref : void 0) {
+      try {
+        if (o.source.crossref.includes('%')) {
+          o.source.crossref = decodeURIComponent(decodeURIComponent(o.source.crossref));
+        }
+      } catch (error) {}
+      console.log('report finder crossref by org', o.name, o.source.crossref);
+      await _crossref(o.source.crossref);
+    }
+    if (batch.length >= 5) {
+      saved = (await this.report.works(batch));
+      batch = [];
+    }
+    ref3 = [];
+    for (j = 0, len = ref3.length; j < len; j++) {
+      s = ref3[j];
+      if (!sheet || s.name === sheet) {
+        headers = [];
+        results.sheets.names.push(s.name);
+        sd = (await this.decrypt(s.url));
+        console.log('report finder checking sheet', o.name, s.name, sd);
+        try {
+          rows = (await this.src.google.sheets({
+            sheetid: sd,
+            sheet: 'Export',
+            headers: false
+          }));
+        } catch (error) {}
+        if (Array.isArray(rows) && rows.length) {
+          ref4 = rows.shift();
+          for (l = 0, len1 = ref4.length; l < len1; l++) {
+            header = ref4[l];
+            headers.push(header.toLowerCase().trim().replace(/ /g, '_').replace('?', ''));
+          }
+          for (m = 0, len2 = rows.length; m < len2; m++) {
+            row = rows[m];
+            if (results.sheets.rows % 100 === 0) {
+              console.log('report finder sheets', s.name, results.sheets.rows, results.sheets.missing);
+            }
+            results.sheets.rows += 1;
+            rr = {};
+            for (hp in headers) {
+              h = headers[hp];
+              if (h.toLowerCase() === 'pmcid') {
+                rr[h] = row[hp];
+                rr.pmcid = 'PMC' + row[hp].toLowerCase().replace('pmc', '');
+              } else if (h === 'doi' || h === 'DOI') {
+                rr[h] = row[hp];
+              } else {
+                hpv = '';
+                if ((ref5 = !h) === 'apc_cost' || ref5 === 'wellcome.apc_paid_actual_currency_excluding_vat' || ref5 === 'wellcome.apc_paid_gbp_inc_vat_if_charged' || ref5 === 'wellcome.additional_publication_fees_gbp' || ref5 === 'wellcome.amount_of_apc_charged_to_coaf_grant_inc_vat_if_charged_in_gbp' || ref5 === 'wellcome.amount_of_apc_charged_to_rcuk_oa_fund_inc_vat_if_charged_in_gbp' || ref5 === 'wellcome.amount_of_apc_charged_to_wellcome_grant_inc_vat_in_gbp') {
+                  hpv = typeof row[hp] === 'number' ? row[hp] : !row[hp] ? void 0 : (ref6 = row[hp].trim().toLowerCase()) === 'true' || ref6 === 'yes' ? true : (ref7 = row[hp].trim().toLowerCase()) === 'false' || ref7 === 'no' ? false : (ref8 = h.toLowerCase()) === 'grant_id' || ref8 === 'ror' ? row[hp].replace(/\//g, ',').replace(/ /g, '').split(',') : row[hp];
+                  if (typeof row[hp] === 'string' && row[hp].includes(';')) {
+                    hpv = row[hp].split(';');
+                  }
+                }
+                if ((hpv != null) && hpv !== '') {
+                  if (h.includes('.')) {
+                    await this.dot(rr, h, hpv);
+                  } else {
+                    rr[h] = hpv;
+                  }
+                }
+              }
+            }
+            if (!rr.doi) {
+              rr.doi = ((ref9 = rr.DOI) != null ? ref9 : '') + '';
+            } else {
+              if (rr.DOI == null) {
+                rr.DOI = rr.doi + '';
+              }
+            }
+            try {
+              if (rr.DOI.startsWith('http')) {
+                rr.DOI = '10.' + rr.DOI.split('/10.')[1];
+              }
+            } catch (error) {}
+            try {
+              if (rr.DOI.startsWith('doi ')) {
+                rr.DOI = rr.DOI.toLowerCase().replace('doi ', '');
+              }
+            } catch (error) {}
+            try {
+              rr.DOI = rr.DOI.toLowerCase().trim().split('\\')[0].replace(/\/\//g, '/').replace(/\/ /g, '/').replace(/^\//, '').split(' ')[0].split('?')[0].split('#')[0].split(' pmcid')[0].split('\n')[0].replace(/[\u{0080}-\u{FFFF}]/gu, '').trim();
+            } catch (error) {}
+            try {
+              rr.DOI = rr.DOI.split(',http')[0];
+            } catch (error) {}
+            if ((typeof rr.DOI === 'string' && rr.DOI.startsWith('10.') && !rr.DOI.includes('@')) || rr.openalex || rr.pmcid) {
+              rr.osdid = (o.name.replace(/[^a-zA-Z0-9-_ ]/g, '') + '_' + s.name + '_' + ((ref10 = (ref11 = rr.DOI) != null ? ref11 : rr.openalex) != null ? ref10 : rr.pmcid)).replace(/[\u{0080}-\u{FFFF}]/gu, '').toLowerCase().replace(/\//g, '_').replace(/ /g, '_');
+              rr._id = rr.osdid;
+            }
+            if (!rr.DOI && !rr.pmcid && !rr.openalex) {
+              console.log(rr);
+              results.sheets.missing += 1;
+            }
+          }
+        }
+      }
+    } //o.sheets
+  }
+  console.log(results);
+  return results;
+};
+
+P.report.finder._log = false;
+
+P.report.finder._bg = true;
+
+P.report.finder._async = true;
+
+`P.report.works.orgs_queries = (orgs, verbose, missed, save, compare, crossref, openalex, process, supplements, clear, refresh) ->
+  orgs = @params.orgs.split(',') if @params.orgs
+  orgs ?= ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Michael J. Fox Foundation', 'Wellcome Trust', 'Templeton World Charity Foundation', 'Howard Hughes Medical Institute', 'Parkinson’s Progression Markers Initiative']
+  verbose ?= @params.verbose ? false
+  missed ?= @params.missed ? false
+  save ?= @params.save ? false
+  compare ?= @params.compare ? false
+  crossref ?= @params.crossref ? true
+  openalex ?= @params.openalex ? true
+  process ?= @params.process ? false
+  supplements ?= @params.supplements ? true
+  verbose = true if process
+  ret = []
+  dois = []
+  batch = []
+  processed = 0
+  saved = 0
+
+  #if clear or @params.clear
+  #  await @report.works ''
+  refresh ?= @refresh
+
+  for o in orgs
+    console.log 'orgs queries doing org', o
+    ret.push(await @report.works.orgs_queries.crossref o, undefined, verbose, missed, save) if crossref
+    ret.push(await @report.works.orgs_queries.openalex o, undefined, verbose, missed, save, compare) if openalex
+    if process
+      lens = if crossref and openalex then 2 else if crossref or openalex then 1 else 0
+      while lens > 0
+        lens -= 1
+        for d in (ret[ret.length - 1 - lens].found ? [])
+          dois.push(d) if d and d.startsWith('10.') and d not in dois            
+        ret[ret.length - 1 - lens][t] = ret[ret.length - 1 - lens][t].length for t in ['local', 'found', 'missed'] when Array.isArray ret[ret.length - 1 - lens][t]
+    if supplements
+      for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'org.keyword:"' + o + '"'
+        dois.push(sup.DOI ? sup.pmcid ? sup.openalex) if (sup.DOI and sup.DOI not in dois) or (sup.pmcid and sup.pmcid not in dois) or (sup.openalex and sup.openalex not in dois)
+
+  console.log 'orgs queries total dois to process', dois.length
+  for d in dois
+    if refresh or not exists = await @report.works d
+      batch.push(d) if d not in batch
+      if batch.length >= 5000
+        await @report.queue batch, undefined, refresh
+        saved += batch.length
+        console.log 'orgs queries sent to queue', batch.length, saved
+        batch = []
+      processed += 1
+
+  if batch.length
+    await @report.queue batch, undefined, refresh
+    saved += batch.length
+    console.log 'orgs queries sent to queue', batch.length, saved
+    batch = []
+  console.log 'orgs queries total processed', processed, saved
+  return if process then {dois: dois.length, processed: processed, results: ret} else ret
+
+P.report.works.orgs_queries._async = true
+P.report.works.orgs_queries._log = false
+P.report.works.orgs_queries._bg = true
+P.report.works.orgs_queries._auth = '@oa.works'
+
+P.report.works.orgs_queries.crossref = (org, queries, verbose, missed, save) ->
+  # all queries except Gates had a year:>1979 restriction as well, but that may not be necessary - check the differences
+  # for RWJF 70 come up for funder.name that do not have funder.DOI
+  # all except Gates may need author affiliation ID or name checks. HHMI has alternative names, could maybe search for them. Also try direct searches for all full names
+  qs = 
+    'Gates Foundation': ['funder:10.13039/100000865,funder:10.13039/501100005370', 'container-title:Gates%20Open%20Research', 'issn:2572-4754,issn:3029-0988']
+    'Robert Wood Johnson Foundation': ['funder:10.13039/100000867', 'ror-id:02ymmdj85']
+    'Michael J. Fox Foundation': ['funder:10.13039/100000864', 'ror-id:03arq3225']
+    'Wellcome Trust': ['funder:10.13039/100010269,funder:10.13039/100004440', 'ror-id:029chgv08']
+    'Templeton World Charity Foundation': ['funder:10.13039/501100011730', 'ror-id:00x0z1472']
+    'Howard Hughes Medical Institute': ['funder:10.13039/100000011']
+    #'Robert Wood Johnson Foundation': "(year:>1979 AND (funder.DOI:(%2210.13039/100000867%22) OR funder.name:(%22Robert Wood Johnson Foundation%22) OR author.affiliation.id.id:(%2202ymmdj85%22) OR author.affiliation.name:(%22Robert Wood Johnson Foundation%22)))"
+    #'Michael J. Fox Foundation': "(year:>1979 AND (funder.DOI:(%2210.13039/100000864%22) OR funder.name:(%22Michael J. Fox Foundation%22) OR author.affiliation.id.id:(%2203arq3225%22) OR author.affiliation.name:(%22Michael J. Fox Foundation%22)))"
+    #'Wellcome Trust': "(year:>1979 AND (funder.DOI:(%2210.13039/100010269%22 OR %2210.13039/100004440%22) OR funder.name:(%22Wellcome Trust%22) OR author.affiliation.id.id:(%22029chgv08%22) OR author.affiliation.name:(%22Wellcome Trust%22)))"
+    #'Templeton World Charity Foundation': "(year:>1979 AND (funder.DOI:(%2210.13039/501100011730%22) OR funder.name:(%22Templeton World Charity Foundation%22) OR author.affiliation.id.id:(%2200x0z1472%22) OR author.affiliation.name:(%22Templeton World Charity Foundation%22)))"
+    #'Howard Hughes Medical Institute': "(year:>1979 AND (funder.DOI:(%2210.13039/100000011%22) OR funder.name:(%22Howard Hughes Medical Institute%22 OR %22Janelia Research Campus%22 OR %22Freeman Hrabowski%22) OR author.affiliation.id.id:(%22006w34k90%22 OR %22013sk6x84%22) OR author.affiliation.name:(%22Howard Hughes Medical Institute%22 OR %22Janelia Research Campus%22 OR %22Freeman Hrabowski%22)))"
+
+  org ?= @params.org ? 'Gates Foundation'
+  queries ?= qs[org] ? (@params.queries ? '').split ','
+  verbose ?= @params.verbose ? false
+  missed ?= @params.missed ? false
+  save ?= @params.save ? false
+  batch = []
+  # https://api.crossref.org/swagger-ui/index.html
+  # https://www.crossref.org/documentation/retrieve-metadata/rest-api/rest-api-filters/#75200
+  # "crossref": "(DOI:%2210.12688/verixiv%22 OR container-title:%22gates open research%22 OR (funder.DOI:(%2210.13039/100000865%22 OR %2210.13039/501100005370%22 OR %2210.13039/100009053%22) OR funder.name:(%22melinda gates foundation%22 OR %22gates cambridge trust%22 OR %22gates ventures%22) OR author.affiliation.id.id:(%220456r8d26%22 OR %22033sn5p83%22) OR author.affiliation.name:(%22melinda gates foundation%22 OR %22gates cambridge trust%22 OR %22gates ventures%22)))",
+
+  # DOI:%2210.12688/verixiv%22 467
+  # container-title:%22gates open research%22 863
+  # (funder.DOI:(%2210.13039/100000865%22 OR %2210.13039/501100005370%22 OR %2210.13039/100009053%22) 26650
+  # funder.name:(%22melinda gates foundation%22 OR %22gates cambridge trust%22 OR %22gates ventures%22) 26995
+  # author.affiliation.id.id:(%220456r8d26%22 OR %22033sn5p83%22) 3
+  # author.affiliation.name:(%22melinda gates foundation%22 OR %22gates cambridge trust%22 OR %22gates ventures%22) 1043
+
+  # https://api.crossref.org/works?filter=container-title:Gates%20Open%20Research 862 - NOTE case sensitive
+  # https://api.crossref.org/works?filter=funder:10.13039/100000865,funder:10.13039/501100005370 26698
+  # https://api.crossref.org/works?filter=issn:2572-4754,issn:3029-0988 864 - is this same as container-title though? Do either cover the verixiv doi prefix?
+
+  # can filter by prefix (e.g part of DOI 10.12688) but can't do 10.12688/verixiv
+  # https://api.crossref.org/works?filter=prefix:10.12688 - returns 29407, could get them all and check which are really verixiv
+  # using the other DOI prefixes that seem "special" as they are used on report/works for PMC DAS stuff:
+  # https://api.crossref.org/works?filter=prefix:10.12688,prefix:10.1186,prefix:10.1371 returns 5673600 - maybe too many? (4737232 are 10.1371, 906966 for 10.1186 - with possible overlap)
+  # there is a has-affiliation prefix which returns about 26m records, that would be too many to page through I guess
+  # there is query= and query.bibliographic but verixiv returns 2 and gates open research returns over 9m, so does not seem useful
+
+  # only 21 show for verixiv DOI form with nothing else: 
+  # https://bg.beta.oa.works/src/crossref/works?q=DOI:%2210.12688/verixiv%22%20AND%20NOT%20funder.DOI.keyword:(%2210.13039/100000865%22%20OR%20%2210.13039/501100005370%22%20OR%20%2210.13039/100009053%22)%20AND%20NOT%20container-title.keyword:%22Gates%20Open%20Research%22%20AND%20NOT%20funder.name:(%22melinda%20gates%20foundation%22%20OR%20%22gates%20cambridge%20trust%22%20OR%20%22gates%20ventures%22)%20AND%20NOT%20author.affiliation.id.id:(%220456r8d26%22%20OR%20%22033sn5p83%22)%20AND%20NOT%20author.affiliation.name:(%22melinda%20gates%20foundation%22%20OR%20%22gates%20cambridge%20trust%22%20OR%20%22gates%20ventures%22)
+  # or 194 for verixiv anywhere:
+  # https://bg.beta.oa.works/src/crossref/works?q=verixiv%20AND%20NOT%20funder.DOI.keyword:(%2210.13039/100000865%22%20OR%20%2210.13039/501100005370%22%20OR%20%2210.13039/100009053%22)%20AND%20NOT%20container-title.keyword:%22Gates%20Open%20Research%22%20AND%20NOT%20funder.name:(%22melinda%20gates%20foundation%22%20OR%20%22gates%20cambridge%20trust%22%20OR%20%22gates%20ventures%22)%20AND%20NOT%20author.affiliation.id.id:(%220456r8d26%22%20OR%20%22033sn5p83%22)%20AND%20NOT%20author.affiliation.name:(%22melinda%20gates%20foundation%22%20OR%20%22gates%20cambridge%20trust%22%20OR%20%22gates%20ventures%22)
+
+  res = org: org, queries: queries, started: 0, took: 0, saved: 0, missing: (if missed then 0 else undefined), missed: (if missed then [] else undefined), local: 0, requests: 0, found: [], duplicates: 0
+  org = await @report.orgs 'name.keyword:"' + org + '"', 1
+  if org?.source?.crossref
+    try org.source.crossref = decodeURIComponent(decodeURIComponent(org.source.crossref)) if org.source.crossref.includes '%'
+    if verbose or missed
+      res.local = []
+      res.local.push(w.DOI) for await w from @index._for 'src_crossref_works', org.source.crossref, include: ['DOI']
+      console.log res.local.length
+    else
+      try res.local = await @src.crossref.works.count org.source.crossref
+      console.log res.local # this is currently 28732 (and 26650 are found just by the funder.DOI check)
+  last = Date.now()
+  res.started = last
+
+  # first run got 26867 from remote, vs the expected 28732 - took about 3 mins
+  # adding 'prefix:10.12688' found a lot more mostly unique, and rendered container-title and issn redundant, but far more false than true matches
+  # so filtering would definitely be needed on all of those - and the total missed was still about the same at 1976
+  # total missed after running this then openalex comes down to 553
+
+  for o in queries
+    rg = o.split(':')[0]
+    res[rg] = found: [], unique: []
+    cursor = '*'
+    # test without our API key and stick to rate limit
+    while cursor? and ans = await @fetch ('https://api.crossref.org/works?mailto=sysadmin@oa.works&filter=' + o + '&rows=1000&cursor=' + encodeURIComponent cursor), {rate: ['crossrefFilter', 3], headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works')}} #, 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
+      cursor = ans.message?['next-cursor'] # will be null if there are no more to get
+      cursor = undefined if not ans.message?.items or ans.message.items.length < 1000 # crossref does not auto remove the last cursor on the last page so need to check for shortness
+      console.log rg, res.requests, res.found.length, res.duplicates, Date.now() - res.started, cursor
+      res.requests += 1
+      for r in (ans.message?.items ? [])
+        rid = r.DOI.toLowerCase()
+        res[rg].found.push(rid) if rid not in res[rg].found
+        res[rg].unique.push(rid) if rid not in res[rg].unique and rid not in res.found
+        if rid in res.found
+          res.duplicates += 1
+        else
+          res.found.push rid
+          if save
+            ft = await @src.crossref.works._format r
+            batch.push ft
+          if batch.length >= 5000
+            await @report.works.crossref batch
+            res.saved += batch.length
+            console.log 'crossref orgs queries saved batch', res.saved
+            batch = []
+      if Date.now() - last < 100
+        await @sleep 100 - (Date.now() - last)
+      last = Date.now()
+    res[rg].found = res[rg].found.length unless verbose
+    res[rg].unique = res[rg].unique.length unless verbose
+  if batch.length
+    await @report.works.crossref batch
+    res.saved += batch.length
+    console.log 'crossref orgs queries saved final batch', res.saved
+    batch = []
+  console.log res.found.length, if typeof res.local is 'number' then res.local else res.local.length
+  if missed and Array.isArray res.local
+    res.missed.push(ld) for ld in res.local when ld not in res.found
+    res.missing = res.missed.length
+  res.local = res.local.length if not verbose and Array.isArray res.local
+  res.found = res.found.length unless verbose or missed
+  res.took = Date.now() - res.started
+  console.log(res) if not verbose
+  return res
+
+#P.report.works.orgs_queries.crossref._async = true
+
+
+P.report.works.orgs_queries.openalex = (org, queries, verbose, missed, save, compare) ->
+  # all but gates had publication_year:>1979
+  # for RWJF it makes no difference, and also searching in institutions.display_name returns no more than raw_affiliation_strings, but DOES find more than just the ROR search
+  # for Wellcome 1979 made a 3k difference out of about 79k. So not enough to worry about.
+  # RWJF misses 41 over crossref and openalex, but also finds a few extra. MJFF misses 17, Wellcome misses X, HHMI misses X, Templeton misses X
+  qs = 
+    'Gates Foundation': ['funders.id:F4320306137|F4320323264|F4320310978', 'authorships.institutions.ror:0456r8d26|033sn5p83', 'raw_affiliation_strings.search:melinda%20gates%20foundation|gates%20cambridge%20trust|gates%20ventures', 'locations.source.issn:2572-4754|3029-0988']
+    'Robert Wood Johnson Foundation': ['funders.id:F4320306139|F4320309038', 'authorships.institutions.ror:02ymmdj85', 'raw_affiliation_strings.search:Robert Wood Johnson Foundation']
+    'Michael J. Fox Foundation': ['funders.id:F4320306136', 'authorships.institutions.ror:03arq3225', 'raw_affiliation_strings.search:Michael J. Fox Foundation']
+    'Wellcome Trust': ['funders.id:F4320311904', 'authorships.institutions.ror:029chgv08', 'raw_affiliation_strings.search:Wellcome Trust']
+    'Templeton World Charity Foundation': ['funders.id:F4320327239', 'authorships.institutions.ror:00x0z1472', 'raw_affiliation_strings.search:Templeton World Charity Foundation']
+    'Howard Hughes Medical Institute': ['funders.id:F4320306082', 'authorships.institutions.ror:006w34k90|013sk6x84', 'raw_affiliation_strings.search:Howard Hughes Medical Institute|Janelia Research Campus|Freeman Hrabowski']
+    #'Robert Wood Johnson Foundation': "(publication_year:>1979 AND (grants.funder:(%22F4320306139%22 OR %22F4320309038%22) OR authorships.institutions.ror:(%2202ymmdj85%22) OR authorships.institutions.display_name:(%22Robert Wood Johnson Foundation%22) OR authorships.raw_affiliation_strings:(%22Robert Wood Johnson Foundation%22)))",
+    #'Michael J. Fox Foundation': "(publication_year:>1979 AND (grants.funder:(%22F4320306136%22) OR authorships.institutions.ror:(%2203arq3225%22) OR authorships.institutions.display_name:(%22Michael J. Fox Foundation%22) OR authorships.raw_affiliation_strings:(%22Michael J. Fox Foundation%22)))"
+    #'Wellcome Trust': "(publication_year:>1979 AND (grants.funder:(%22F4320311904%22) OR authorships.institutions.ror:(%22029chgv08%22) OR authorships.institutions.display_name:(%22Wellcome Trust%22) OR authorships.raw_affiliation_strings:(%22Wellcome Trust%22)))"
+    #'Templeton World Charity Foundation': "(publication_year:>1979 AND (grants.funder:(%22F4320327239%22) OR authorships.institutions.ror:(%2200x0z1472%22) OR authorships.institutions.display_name:(%22Templeton World Charity Foundation%22) OR authorships.raw_affiliation_strings:(%22Templeton World Charity Foundation%22)))"
+    #'Howard Hughes Medical Institute': "(publication_year:>1979 AND (grants.funder:(%22F4320306082%22) OR authorships.institutions.ror:(%22006w34k90%22 OR %22013sk6x84%22) OR authorships.institutions.display_name:(%22Howard Hughes Medical Institute%22 OR %22Janelia Research Campus%22 OR %22Freeman Hrabowski%22) OR authorships.raw_affiliation_strings:(%22Howard Hughes Medical Institute%22 OR %22Janelia Research Campus%22 OR %22Freeman Hrabowski%22)))"
+
+  org ?= @params.org ? 'Gates Foundation'
+  queries ?= qs[org] ? (@params.queries ? '').split ','
+  verbose ?= @params.verbose ? false
+  missed ?= @params.missed ? false
+  save ?= @params.save ? false
+  compare ?= @params.compare ? false
+  batch = []
+  # "openalex": "(locations.source.display_name:(%22Gates%20Open%20Research%22%20OR%20%22verixiv%22) OR (grants.funder:(%22F4320306137%22 OR %22F4320323264%22 OR %22F4320310978%22) OR authorships.institutions.ror:(%220456r8d26%22 OR %22033sn5p83%22) OR authorships.institutions.display_name:(%22melinda gates foundation%22 OR %22gates cambridge trust%22 OR %22gates ventures%22) OR authorships.raw_affiliation_strings:(%22melinda gates foundation%22 OR %22gates cambridge trust%22 OR %22gates ventures%22)))",
+  # openalex cannot search locations.source.display_name but CAN search .issn
+  # openalex cannot search authorships.institutions.display_name but CAN search .id (which is the openalex ID of the institution)
+  # openalex cannot search authorships.raw_affiliation_strings but CAN search raw_affiliation_strings.search
+
+  # Note locations.source.display_name verixiv finds 9 on our openalex, and searching the matching ISSN finds 9 as well:
+  # BUT searching directly on openalex for issn or even the openalex source ID only returns 4 records
+  # AND for at least one of those records, our local version looks BETTER than their more recently updated version, which seems to be missing the locations.source object altogether
+  # A default.search for verixiv on openalex can find 6 results.
+  # https://bg.beta.oa.works/src/openalex/works/10.12688/verixiv.77.1 vs https://api.openalex.org/works/W4402608277
+  # https://bg.beta.oa.works/src/openalex/works?q=locations.source.display_name:%22Verixiv%22
+  # https://bg.beta.oa.works/src/openalex/works?q=locations.source.issn.keyword:%223029-0988%22
+
+  # our locations.source.display_name openalex search for Gates Open Research finds 873
+  # the issn is 2572-4754 which also finds 873 locally
+  # on remote openalex the ISSN search finds 880 so at least this one looks good.
+
+  # awards.funder_id returns 16474 - https://api.openalex.org/works?filter=awards.funder_id:F4320306137|F4320323264|F4320310978
+  # authorships.institutions.ror returns 3744 - https://api.openalex.org/works?filter=authorships.institutions.ror:0456r8d26|033sn5p83
+  # raw_affiliation_strings.search returns 3561 - https://api.openalex.org/works?filter=raw_affiliation_strings.search:melinda%20gates%20foundation|gates%20cambridge%20trust|gates%20ventures
+  # locations.source.issn returns 884 - https://api.openalex.org/works?filter=locations.source.issn:2572-4754|3029-0988
+
+  # alternatively funders.id gets 27473 - https://api.openalex.org/works?filter=funders.id:F4320306137|F4320323264|F4320310978
+
+  # basic openalex paging returns up to 200 per page, and up to 10000 results regardless of paging count - so will need cursor to get them all
+
+  # rate limit is 10r/s and 100k per day, IF not using premium API key. And need to send a contact email param to get into the polite pool (which processes faster)
+  # roughly 25k records indicated by the above queries, 200 per request, at least 125 requests or so. 
+  # Took 4 mins at first attempt, 127 requests, 20k found, 4k dups
+  # BUT our local query finds about 28k
+  # we are up to better coverage with funders.id instead of awards.funder_id. we still miss 553
+  # 'awards.funder_id:F4320306137|F4320323264|F4320310978' NOT NEEDED for gates, confirmed, all within funders.id which also returns much more.
+
+  res = org: org, queries: queries, started: 0, took: 0, saved: 0, nodoi: 0, missing: (if missed then 0 else undefined), missed: (if missed then [] else undefined), local: 0, requests: 0, found: [], duplicates: 0
+  if compare
+    res.cd = 0
+    res.crossref = await @report.works.orgs_queries.crossref org, undefined, verbose, missed
+  org = await @report.orgs 'name.keyword:"' + org + '"', 1
+  if org?.source?.openalex
+    try org.source.openalex = decodeURIComponent(decodeURIComponent(org.source.openalex)) if org.source.openalex.includes '%'
+    if verbose or missed
+      res.local = []
+      res.local.push((if w.ids?.doi or w.doi then (w.ids?.doi ? w.doi).split('.org/').pop() else w.id).toLowerCase()) for await w from @index._for 'src_openalex_works', org.source.openalex, include: ['id', 'doi', 'ids']
+      console.log res.local.length
+    else
+      try res.local = await @src.openalex.works.count org.source.openalex
+      console.log res.local
+  last = Date.now()
+  res.started = last
+
+  for o in queries
+    rg = o.split(':')[0]
+    res[rg] = found: [], unique: []
+    cursor = '*'
+    o += ',publication_year:>' + (parseInt((await @date()).split('-')[0]) - 3) # to avoid openalex deep cursoring errors
+    while cursor? and ans = await @fetch ('https://api.openalex.org/works?mailto=sysadmin@oa.works' + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '') + '&filter=' + o + '&per-page=200&cursor=' + encodeURIComponent cursor), {rate: ['openalexFilter', 20, 10000, 86400]}
+      console.log(ans) if ans?.status and typeof ans.status is 'number' # look out for 429 or other errors - break or log? No errors on first attempt
+      cursor = ans.meta.next_cursor # will be null if there are no more to get
+      console.log rg, res.requests, res.found.length, res.duplicates, Date.now() - res.started, cursor
+      res.requests += 1
+      for r in ans.results
+        if r.ids?.doi or r.doi
+          rid = (r.ids?.doi ? r.doi).split('.org/').pop().toLowerCase()
+        else
+          res.nodoi += 1
+          rid = r.id.toLowerCase()
+        res[rg].found.push(rid) if rid not in res[rg].found
+        res[rg].unique.push(rid) if rid not in res[rg].unique and rid not in res.found
+        if rid in res.found
+          res.duplicates += 1
+        else if compare and rid in res.crossref.found
+          res.cd += 1
+        else
+          res.found.push rid
+          if save
+            ft = await @src.openalex.works._format r
+            batch.push ft
+          if batch.length >= 5000
+            await @src.openalex.works batch
+            res.saved += batch.length
+            console.log 'openalex orgs queries saved batch', res.saved
+            batch = []
+      if Date.now() - last < 100
+        await @sleep 100 - (Date.now() - last)
+      last = Date.now()
+    res[rg].found = res[rg].found.length unless verbose
+    res[rg].unique = res[rg].unique.length unless verbose
+  if batch.length
+    await @src.openalex.works batch
+    res.saved += batch.length
+    console.log 'openalex orgs queries saved final batch', res.saved
+    batch = []
+  console.log res.found.length, if typeof res.local is 'number' then res.local else res.local.length
+  if missed and Array.isArray res.local
+    res.missed.push(ld) for ld in res.local when ld not in res.found and (not compare or ld not in res.crossref.found)
+    res.missing = res.missed.length
+  res.crossref.found = res.crossref.found.length if compare and not verbose and Array.isArray res.crossref.found
+  res.crossref.missed = res.crossref.missed.length if compare and missed and not verbose and Array.isArray res.crossref.missed
+  res.local = res.local.length if not verbose and Array.isArray res.local
+  res.found = res.found.length if not verbose and Array.isArray res.found
+  res.took = Date.now() - res.started
+  console.log(res) if not verbose
+  return res
+
+#P.report.works.orgs_queries.openalex._async = true`;
+`
+P.report.works.crossref = _index: true, _prefix: false, _key: 'DOI'
+P.report.works.crossref.doi = (doi, refresh, local) ->
+  doi ?= @params.doi
+  refresh = @refresh if not refresh? and @fn is 'report.works.crossref.doi'
+  refresh = true if refresh is 0
+  local ?= @params.local ? true # rely on local index for now, if it exists there
+  if refresh isnt true
+    found = await @report.works.crossref doi
+    found = await @src.crossref.works(doi) if not found and local
+    if found and (typeof refresh isnt 'number' or not found.retrievedAt or (Date.now() - refresh) <= found.retrievedAt)
+      return found
+  res = await @fetch 'https://api.crossref.org/works/' + doi + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works'), {rate: ['crossref', 7], headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works')}} #, 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
+  if typeof res is 'object' and res.message?.DOI?
+    found = await @src.crossref.works._format res.message
+    await @report.works.crossref found
+  return found`;
+`P.report.orgs.queries = (org, doi) ->
+  org ?= @params.org
+  doi ?= @params.queries ? @params.doi
+  ret = {}
+  batch = []
+  processed = 0
+  for await o from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs', (if org then 'name:"' + org + '"' else 'paid:true'), scroll: '30m'
+    for an of (o.analysis ? [])
+      if o.analysis[an].query? and not o.analysis[an].make_key in [false, 'false', 'False', 'FALSE']
+        q = o.analysis[an].query
+        q = '(' + q + ') AND  DOI.keyword:"' + doi + '"' if doi
+        for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', q, scroll: '30m'
+          dv = o.analysis[an].value ? true
+          dv = [dv] if o.analysis[an].list
+          if doi
+            ret[o.analysis[an].key ? o.analysis[an].name ? an] = dv
+          else
+            # check how this would handle dot notations...
+            rec[o.analysis[an].key ? o.analysis[an].name ? an] = dv
+            batch.push rec
+            processed += 1
+            if batch.length > 20000
+              await @report.works batch
+              batch = []
+  if batch.length
+    await @report.works batch
+  return if doi then ret else processed
+P.report.orgs.queries._log = false
+P.report.orgs.queries._bg = true
+P.report.orgs.queries._async = true
+P.report.orgs.queries._auth = '@oa.works'`;
 `P.report.works.check = (year) ->
   year ?= @params.check ? @params.year ? '2023'
   seen = []
@@ -14621,7 +14958,6 @@ P.report.works.changes._auth = '@oa.works';
 P.report.works.check._async = true
 P.report.works.check._bg = true
 P.report.works.check._auth = '@oa.works'`;
-
 `P.report.fixmedline = ->
 fixes = []
 checked = 0
@@ -14658,7 +14994,6 @@ return fixes.length
 P.report.fixmedline._bg = true
 P.report.fixmedline._async = true
 P.report.fixmedline._auth = '@oa.works'`;
-
 `P.report.fixtitle = ->
   fixes = 0
   checked = 0
@@ -14688,7 +15023,6 @@ P.report.fixmedline._auth = '@oa.works'`;
 P.report.fixtitle._bg = true
 P.report.fixtitle._async = true
 P.report.fixtitle._auth = '@oa.works'`;
-
 `P.report.fixcroa = ->
   fixes = 0
   checked = 0
@@ -14711,77 +15045,51 @@ P.report.fixtitle._auth = '@oa.works'`;
 P.report.fixcroa._bg = true
 P.report.fixcroa._async = true
 P.report.fixcroa._auth = '@oa.works'`;
-
 //P.report.orgs.fixgates = ->
 //  rec = await @report.orgs.orgkeys 'org:"gates foundation"', 1
 //  rec.org = 'Gates Foundation'
 //  await @report.orgs.orgkeys rec
 //  return rec
-P.report.fixoatype = async function() {
-  var batch, checked, count, fixes, issns, noissn, q, rec, ref, ref1, ref2, tp, types;
-  fixes = 0;
-  checked = 0;
-  noissn = 0;
-  issns = {};
-  types = {};
-  batch = [];
-  q = 'journal_oa_type.keyword:"closed" AND issn:* AND orgs:*';
-  count = (await this.report.works.count(q));
-  console.log('check oa type expecting', count);
-  ref = this.index._for('paradigm_' + (this.S.dev ? 'b_' : '') + 'report_works', q, {
-    scroll: '30m'
-  });
-  for await (rec of ref) {
-    checked += 1;
-    if (!rec.issn) {
-      noissn += 1;
-    }
-    if (checked % 100 === 0) {
-      console.log('check oa type checked', checked, fixes, noissn);
-    }
-    if (rec.issn && issns[rec.issn[0]]) {
-      if ((ref1 = issns[rec.issn[0]]) !== 'closed' && ref1 !== 'unknown') {
-        types[issns[rec.issn[0]]] += 1;
-        fixes += 1;
-        rec.journal_oa_type = issns[rec.issn[0]];
-        batch.push(rec);
-      }
-    } else if ((rec.issn || rec.DOI) && (tp = (await this.permissions.journals.oa.type((ref2 = rec.issn) != null ? ref2 : rec.DOI)))) {
-      if (rec.issn) {
-        issns[rec.issn[0]] = tp;
-      }
-      if (tp && (tp !== 'closed' && tp !== 'unknown')) {
-        if (types[tp] == null) {
-          types[tp] = 0;
-        }
-        types[tp] += 1;
-        fixes += 1;
-        rec.journal_oa_type = tp;
-        batch.push(rec);
-      }
-    }
-    if (batch.length >= 20000) {
-      await this.report.works(batch);
-      batch = [];
-    }
-  }
-  if (batch.length) {
-    await this.report.works(batch);
-  }
-  console.log('check oa type completed with', checked, fixes, noissn, count);
-  console.log(types);
-  try {
-    console.log(Object.keys(issns).length);
-  } catch (error) {}
-  return fixes;
-};
-
-P.report.fixoatype._bg = true;
-
-P.report.fixoatype._async = true;
-
-P.report.fixoatype._auth = '@oa.works';
-
+`P.report.fixoatype = ->
+  fixes = 0
+  checked = 0
+  noissn = 0
+  issns = {}
+  types = {}
+  batch = []
+  q = 'journal_oa_type.keyword:"closed" AND issn:* AND orgs:*'
+  count = await @report.works.count q
+  console.log 'check oa type expecting', count
+  for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', q, scroll: '30m'
+    checked += 1
+    noissn += 1 if not rec.issn
+    console.log('check oa type checked', checked, fixes, noissn) if checked % 100 is 0
+    if rec.issn and issns[rec.issn[0]]
+      if issns[rec.issn[0]] not in ['closed', 'unknown']
+        types[issns[rec.issn[0]]] += 1
+        fixes += 1
+        rec.journal_oa_type = issns[rec.issn[0]]
+        batch.push rec
+    else if (rec.issn or rec.DOI) and tp = await @permissions.journals.oa.type rec.issn ? rec.DOI
+      issns[rec.issn[0]] = tp if rec.issn
+      if tp and tp not in ['closed', 'unknown']
+        types[tp] ?= 0
+        types[tp] += 1
+        fixes += 1
+        rec.journal_oa_type = tp
+        batch.push rec
+    if batch.length >= 20000
+      await @report.works batch
+      batch = []
+  if batch.length
+    await @report.works batch
+  console.log 'check oa type completed with', checked, fixes, noissn, count
+  console.log types
+  try console.log Object.keys(issns).length
+  return fixes
+P.report.fixoatype._bg = true
+P.report.fixoatype._async = true
+P.report.fixoatype._auth = '@oa.works'`;
 `P.report.removeobq = ->
   checked = 0
   for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'orgs_by_query:*', scroll: '30m', include: ['DOI', 'openalex', 'PMCID']
@@ -14793,7 +15101,6 @@ P.report.fixoatype._auth = '@oa.works';
 P.report.removeobq._bg = true
 P.report.removeobq._async = true
 P.report.removeobq._auth = '@oa.works'`;
-
 `P.report.fixtype = ->
   fixes = 0
   fixols = 0
@@ -14828,7 +15135,6 @@ P.report.removeobq._auth = '@oa.works'`;
 P.report.fixtype._bg = true
 P.report.fixtype._async = true
 P.report.fixtype._auth = '@oa.works'`;
-
 `P.report.fixsupps = ->
   remove = @params.remove ? true
   q = @params.q ? 'org:melinda'
@@ -14851,7 +15157,6 @@ P.report.fixtype._auth = '@oa.works'`;
 P.report.fixsupps._bg = true
 P.report.fixsupps._async = true
 P.report.fixsupps._auth = '@oa.works'`;
-
 `P.report.fixmelinda = ->
 ondev = @S.dev
 ondev = false if @params.dev is false or @params.live is true
@@ -14884,7 +15189,6 @@ return checked
 P.report.fixmelinda._bg = true
 P.report.fixmelinda._async = true
 P.report.fixmelinda._auth = '@oa.works'`;
-
 `P.report.fixmjff = ->
   checked = 0
   removed = 0
@@ -14901,7 +15205,6 @@ P.report.fixmelinda._auth = '@oa.works'`;
 P.report.fixmjff._bg = true
 P.report.fixmjff._async = true
 P.report.fixmjff._auth = '@oa.works'`;
-
 `P.exports = ->
 for idx in ['paradigm_svc_rscvd']
   total = 0
@@ -14919,7 +15222,6 @@ return true
 P.exports._bg = true
 P.exports._async = true
 P.exports._log = false`;
-
 `P.reloads = ->
 for idx in ['paradigm_b_users', 'paradigm_b_report_orgs_orgkeys', 'paradigm_users', 'paradigm_report_orgs_orgkeys', 'paradigm_deposits', 'paradigm_ills', 'paradigm_svc_rscvd']
   total = 0
@@ -14937,7 +15239,6 @@ for idx in ['paradigm_b_users', 'paradigm_b_report_orgs_orgkeys', 'paradigm_user
 return true
 P.reloads._bg = true
 P.reloads._async = true`;
-
 `P.report.test = _index: true, _alias: 'altest2'
 P.report.test.add = ->
   toalias = @params.toalias
@@ -14955,6 +15256,7 @@ P.report.test.add = ->
     res.records.push i
   return res`;
 
+
 var _check_res,
   indexOf = [].indexOf;
 
@@ -14970,81 +15272,6 @@ P.report.remote_works = {
 
 // NOTE in doing this discovered numerous Elsevier works that have the name Elsevier in assertion.value where a date was expected, so they cannot save to our index:
 // https://api.crossref.org/works/10.1016/j.jhin.2023.09.005
-_check_res = false;
-
-P.report.remote_works.check = async function(orgs) {
-  var exists, oq, rec, ref, ref1, ref2, ref3, ref4, ref5, ref6, res, sqq, sup;
-  if (this.params.orgs) {
-    orgs = this.params.orgs.split(',');
-  }
-  //orgs ?= ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Michael J. Fox Foundation', 'Wellcome Trust', 'Templeton World Charity Foundation'] # 'Howard Hughes Medical Institute', 
-  if (orgs == null) {
-    orgs = [
-      'Robert Wood Johnson Foundation',
-      'Michael J. Fox Foundation',
-      'Wellcome Trust',
-      'Templeton World Charity Foundation' // 'Howard Hughes Medical Institute', 
-    ];
-  }
-  //orgs ?= ['Gates Foundation']
-  oq = 'orgs.keyword:"' + orgs.join('" OR orgs.keyword:"') + '"';
-  if (_check_res && !this.refresh) {
-    return _check_res;
-  }
-  res = {
-    count: 0,
-    found: 0,
-    notfound: 0,
-    notfoundnosup: 0,
-    notfoundnosupbuthas: 0,
-    missing: [],
-    missingnosup: [],
-    missingnosupbuthas: []
-  };
-  ref = this.index._for('paradigm_b_report_works', oq);
-  //'orgs.keyword:"Gates Foundation"'
-  for await (rec of ref) {
-    res.count += 1;
-    if (rec.DOI && (exists = (await this.report.remote_works(rec.DOI)))) {
-      res.found += 1;
-    } else if (rec.PMCID && (exists = (await this.report.remote_works('PMCID.keyword:"' + rec.PMCID + '"', 1))) && exists.PMCID === rec.PMCID) {
-      res.found += 1;
-    } else if (rec.PMID && (exists = (await this.report.remote_works('PMID.keyword:"' + rec.PMID + '"', 1))) && exists.PMID === rec.PMID) {
-      res.found += 1;
-    } else if (rec.openalex && (exists = (await this.report.remote_works('openalex.keyword:"' + rec.openalex + '"', 1))) && exists.openalex === rec.openalex) {
-      res.found += 1;
-    } else {
-      res.notfound += 1;
-      sqq = rec.DOI ? 'DOI.keyword:"' + rec.DOI + '"' : '';
-      if (rec.openalex) {
-        sqq += (sqq ? ' OR ' : '') + 'openalex.keyword:"' + rec.openalex + '"';
-      }
-      if (rec.PMCID) {
-        sqq += (sqq ? ' OR ' : '') + 'pmcid.keyword:"' + rec.PMCID + '"';
-      }
-      if (sqq.includes(' OR ')) {
-        sqq = '(' + sqq + ')';
-      }
-      //sqq += ' AND org.keyword:"Gates Foundation"'
-      sqq += ' AND ' + (oq.includes(' OR ') ? '(' : '') + oq.replace('orgs.', 'org.') + (oq.includes(' OR ') ? ')' : '');
-      if (sup = (await this.report.orgs.supplements.count(sqq))) {
-        res.missing.push((ref1 = (ref2 = rec.DOI) != null ? ref2 : rec.openalex) != null ? ref1 : rec.PMCID);
-      } else {
-        res.notfoundnosup += 1;
-        if (JSON.stringify(rec.supplements).includes('Gates Foundation')) {
-          res.missingnosupbuthas.push((ref3 = (ref4 = rec.DOI) != null ? ref4 : rec.openalex) != null ? ref3 : rec.PMCID);
-          res.notfoundnosupbuthas += 1;
-        } else {
-          res.missingnosup.push((ref5 = (ref6 = rec.DOI) != null ? ref6 : rec.openalex) != null ? ref5 : rec.PMCID);
-        }
-      }
-    }
-  }
-  console.log(res);
-  _check_res = res;
-  return res;
-};
-
 P.report.remote_works.queries = async function(orgs) {
   var ans, batch, c, cqs, cursor, cv, cvl, j, k, l, len, len1, len2, len3, len4, len5, len6, m, n, o, oqs, org, ov, ovl, p, q, r, recs, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref3, ref4, ref5, ref6, ref7, ref8, ref9, saved, started, sup, svl, t;
   started = Date.now();
@@ -15867,6 +16094,81 @@ P.report.remote_works.process = async function(ident, refresh, do_crossref, do_p
 };
 
 P.report.remote_works.process._log = false;
+
+_check_res = false;
+
+P.report.remote_works.check = async function(orgs) {
+  var exists, oq, rec, ref, ref1, ref2, ref3, ref4, ref5, ref6, res, sqq, sup;
+  if (this.params.orgs) {
+    orgs = this.params.orgs.split(',');
+  }
+  //orgs ?= ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Michael J. Fox Foundation', 'Wellcome Trust', 'Templeton World Charity Foundation'] # 'Howard Hughes Medical Institute', 
+  if (orgs == null) {
+    orgs = [
+      'Robert Wood Johnson Foundation',
+      'Michael J. Fox Foundation',
+      'Wellcome Trust',
+      'Templeton World Charity Foundation' // 'Howard Hughes Medical Institute', 
+    ];
+  }
+  //orgs ?= ['Gates Foundation']
+  oq = 'orgs.keyword:"' + orgs.join('" OR orgs.keyword:"') + '"';
+  if (_check_res && !this.refresh) {
+    return _check_res;
+  }
+  res = {
+    count: 0,
+    found: 0,
+    notfound: 0,
+    notfoundnosup: 0,
+    notfoundnosupbuthas: 0,
+    missing: [],
+    missingnosup: [],
+    missingnosupbuthas: []
+  };
+  ref = this.index._for('paradigm_b_report_works', oq);
+  //'orgs.keyword:"Gates Foundation"'
+  for await (rec of ref) {
+    res.count += 1;
+    if (rec.DOI && (exists = (await this.report.remote_works(rec.DOI)))) {
+      res.found += 1;
+    } else if (rec.PMCID && (exists = (await this.report.remote_works('PMCID.keyword:"' + rec.PMCID + '"', 1))) && exists.PMCID === rec.PMCID) {
+      res.found += 1;
+    } else if (rec.PMID && (exists = (await this.report.remote_works('PMID.keyword:"' + rec.PMID + '"', 1))) && exists.PMID === rec.PMID) {
+      res.found += 1;
+    } else if (rec.openalex && (exists = (await this.report.remote_works('openalex.keyword:"' + rec.openalex + '"', 1))) && exists.openalex === rec.openalex) {
+      res.found += 1;
+    } else {
+      res.notfound += 1;
+      sqq = rec.DOI ? 'DOI.keyword:"' + rec.DOI + '"' : '';
+      if (rec.openalex) {
+        sqq += (sqq ? ' OR ' : '') + 'openalex.keyword:"' + rec.openalex + '"';
+      }
+      if (rec.PMCID) {
+        sqq += (sqq ? ' OR ' : '') + 'pmcid.keyword:"' + rec.PMCID + '"';
+      }
+      if (sqq.includes(' OR ')) {
+        sqq = '(' + sqq + ')';
+      }
+      //sqq += ' AND org.keyword:"Gates Foundation"'
+      sqq += ' AND ' + (oq.includes(' OR ') ? '(' : '') + oq.replace('orgs.', 'org.') + (oq.includes(' OR ') ? ')' : '');
+      if (sup = (await this.report.orgs.supplements.count(sqq))) {
+        res.missing.push((ref1 = (ref2 = rec.DOI) != null ? ref2 : rec.openalex) != null ? ref1 : rec.PMCID);
+      } else {
+        res.notfoundnosup += 1;
+        if (JSON.stringify(rec.supplements).includes('Gates Foundation')) {
+          res.missingnosupbuthas.push((ref3 = (ref4 = rec.DOI) != null ? ref4 : rec.openalex) != null ? ref3 : rec.PMCID);
+          res.notfoundnosupbuthas += 1;
+        } else {
+          res.missingnosup.push((ref5 = (ref6 = rec.DOI) != null ? ref6 : rec.openalex) != null ? ref5 : rec.PMCID);
+        }
+      }
+    }
+  }
+  console.log(res);
+  _check_res = res;
+  return res;
+};
 
 P.report.remote_works.compare = async function(ident, current, do_crossref, do_pubmed, do_epmc, do_oadoi, do_permissions, ignores, inclusive) {
   var ck, diffs, j, k, l, len, len1, len2, len3, m, n, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, remote, rk, s;
@@ -16758,7 +17060,7 @@ P.tests = P.test;
 // new crossref rate limits since 05/11/2025
   // https://www.crossref.org/blog/announcing-changes-to-rest-api-rate-limits/
   // if in public pool, single record request e.g. to DOI is 5 per second, one at a time. Query requests are 1 per second, 1 at a time.
-  // polite pool, single record requests are 10 per second 3 at a time, query requests are 3 per second 3 at a time.
+  // polite pool, single record requests are 10 per second 3 at a time, query requests are 3 per second 3 at a time. Sounds like can have both, e.g 13 total.
   // polite pool examples appear to require &mailto=my@email.com as a param - check we are doing that rather than a header, just in case headers not checked any more
   // so at most we could send 864000 single record requests per day (if each one responded fast enough)
 var _crossref_mapping,
@@ -16800,7 +17102,7 @@ P.src.crossref.works.doi = async function(doi, refresh, save) {
     }
     if (refresh || !(found = (await this.src.crossref.works(doi)))) {
       res = (await this.fetch('https://api.crossref.org/works/' + doi, {
-        rate: ['crossref', 7],
+        rate: ['crossref', 10],
         headers: {
           'User-Agent': ((ref1 = this.S.name) != null ? ref1 : 'OA.Works') + '; mailto:' + ((ref2 = (ref3 = this.S.mail) != null ? ref3.to : void 0) != null ? ref2 : 'sysadmin@oa.works') //, 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
         }
@@ -17703,7 +18005,7 @@ P.src.epmc.notinepmc.years = async function() {
       await this.src.epmc.notinepmc(batch);
       batch = [];
     }
-    if (!rec.checkedAt || !rec.year) {
+    if (!rec.checkedAt || (this.params.removenoyears && !rec.year)) {
       present = true;
       console.log('deleting as no checked date', rec.id);
       await this.src.epmc.notinepmc(rec.id.split('#')[0], '');
@@ -17775,7 +18077,8 @@ P.src.epmc.search = async function(qrystr, from, size) {
   if (typeof qrystr === 'number') {
     qrystr = 'PMCID:PMC' + qrystr;
   }
-  url = 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=' + qrystr + ' sort_date:y&resulttype=core&format=json';
+  // removed sort_date:y from query due to https://github.com/oaworks/discussion/issues/3738#issuecomment-4134013512
+  url = 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=' + qrystr + '&resulttype=core&format=json';
   if (size != null) {
     url += '&pageSize=' + size; //can handle 1000, have not tried more, docs do not say
   }
@@ -17798,7 +18101,7 @@ P.src.epmc.search = async function(qrystr, from, size) {
 };
 
 P.src.epmc.doi = async function(ident, refresh, year) {
-  var exists, ly, ne, ref, ref1, ref2, res;
+  var exists, ly, ne, ref, ref1, ref2, ref3, ref4, ref5, res, rt, yr;
   if (!ident) {
     if (refresh == null) {
       refresh = this.refresh;
@@ -17807,34 +18110,40 @@ P.src.epmc.doi = async function(ident, refresh, year) {
   if (ident == null) {
     ident = this.params.doi;
   }
-  exists = (await this.src.epmc('doi:"' + ident + '"'));
-  ly = parseInt(((await this.date())).split('-')[0]) - 3; // don't check again if already more than 3 years old, it is unlikely to turn up
-  if (exists != null ? (ref = exists.hits) != null ? ref.total : void 0 : void 0) {
-    return exists.hits.hits[0]._source;
-  //else if not refresh and Date.now() - ((await @src.epmc.notinepmc ident)?.checkedAt ? 0) < 2419200000 # 1000*60*60*24*28 # if we checked in the last 28 days, don't check again
-  } else if (!refresh && (ne = (await this.src.epmc.notinepmc(ident))) && ((ref1 = ne.year) != null ? ref1 : ly) < ly && Date.now() - ((ref2 = ne.checkedAt) != null ? ref2 : 0) < 2419200000) { // don't check again within 28 days
-
-  } else {
-    res = (await this.src.epmc.search('DOI:' + ident));
-    if (res.total) {
-      if (!res.data[0].doi) {
-        res.data[0].doi = ident;
-        this.waitUntil(this.src.epmc(res.data[0]));
+  if (ident && ident.startsWith('10.') && ident.split('/').length >= 2 && ident.split(' ').length === 1) {
+    exists = (await this.src.epmc('doi:"' + ident + '"'));
+    ly = parseInt(((await this.date())).split('-')[0]) - 3; // don't check again if already more than 3 years old, it is unlikely to change or turn up
+    if ((exists != null ? (ref = exists.hits) != null ? ref.total : void 0 : void 0) && (rt = exists.hits.hits[0]._source)) {
+      yr = (((ref1 = (ref2 = (ref3 = rt.pubYear) != null ? ref3 : rt.journalInfo.yearOfPublication) != null ? ref2 : rt.firstPublicationDate) != null ? ref1 : '') + '').split('-')[0];
+      if (typeof yr === 'string' && yr.length === 4 && parseInt(yr) <= ly) {
+        return rt;
       }
-      return res.data[0];
-    } else if (res.total != null) {
-      await this.src.epmc.notinepmc({
-        id: ident.replace(/\//g, '_'),
-        doi: ident,
-        year: year,
-        checkedAt: Date.now()
-      }); // because on 21/08/2025 the whole API disappeared - we don't want to record that as not being in
+    }
+    //else if not refresh and Date.now() - ((await @src.epmc.notinepmc ident)?.checkedAt ? 0) < 2419200000 # 1000*60*60*24*28 # if we checked in the last 28 days, don't check again
+    if (!refresh && (ne = (await this.src.epmc.notinepmc(ident))) && ((ref4 = ne.year) != null ? ref4 : ly) < ly && Date.now() - ((ref5 = ne.checkedAt) != null ? ref5 : 0) < 2419200000) { // don't check again within 28 days
+      return;
+    } else {
+      res = (await this.src.epmc.search('DOI:' + ident));
+      if (res.total) {
+        if (!res.data[0].doi) {
+          res.data[0].doi = ident;
+          this.waitUntil(this.src.epmc(res.data[0]));
+        }
+        return res.data[0];
+      } else if (res.total != null) {
+        await this.src.epmc.notinepmc({
+          id: ident.replace(/\//g, '_'),
+          doi: ident,
+          year: year,
+          checkedAt: Date.now()
+        }); // because on 21/08/2025 the whole API disappeared - we don't want to record that as not being in
+      }
     }
   }
 };
 
 P.src.epmc.pmid = async function(ident, refresh, year) {
-  var exists, ly, ne, ref, ref1, ref2, res;
+  var exists, ly, ne, ref, ref1, ref2, ref3, ref4, ref5, res, rt, yr;
   if (!ident) {
     if (refresh == null) {
       refresh = this.refresh;
@@ -17843,29 +18152,35 @@ P.src.epmc.pmid = async function(ident, refresh, year) {
   if (ident == null) {
     ident = this.params.pmid;
   }
-  exists = (await this.src.epmc('pmid:"' + ident + '"'));
-  ly = parseInt(((await this.date())).split('-')[0]) - 3; // don't check again if already more than 3 years old, it is unlikely to turn up
-  if (exists != null ? (ref = exists.hits) != null ? ref.total : void 0 : void 0) {
-    return exists.hits.hits[0]._source;
-  } else if (!refresh && (ne = (await this.src.epmc.notinepmc(ident))) && ((ref1 = ne.year) != null ? ref1 : ly) < ly && Date.now() - ((ref2 = ne.checkedAt) != null ? ref2 : 0) < 2419200000) { // don't check again within 28 days
-
-  } else {
-    res = (await this.src.epmc.search('EXT_ID:' + ident + ' AND SRC:MED'));
-    if (res.total) {
-      return res.data[0];
-    } else if (res.total != null) {
-      await this.src.epmc.notinepmc({
-        id: ident,
-        pmid: ident,
-        year: year,
-        checkedAt: Date.now()
-      }); // because on 21/08/2025 the whole API disappeared - we don't want to record that as not being in
+  if (ident && (typeof ident === 'number' || (typeof parseInt(ident) === 'number' && ident.split('.').length === 1 && ident.split(' ').length === 1))) {
+    exists = (await this.src.epmc('pmid:"' + ident + '"'));
+    ly = parseInt(((await this.date())).split('-')[0]) - 3; // don't check again if already more than 3 years old, it is unlikely to change or turn up
+    if ((exists != null ? (ref = exists.hits) != null ? ref.total : void 0 : void 0) && (rt = exists.hits.hits[0]._source)) {
+      yr = (((ref1 = (ref2 = (ref3 = rt.pubYear) != null ? ref3 : rt.journalInfo.yearOfPublication) != null ? ref2 : rt.firstPublicationDate) != null ? ref1 : '') + '').split('-')[0];
+      if (typeof yr === 'string' && yr.length === 4 && parseInt(yr) <= ly) {
+        return rt;
+      }
+    }
+    if (!refresh && (ne = (await this.src.epmc.notinepmc(ident))) && ((ref4 = ne.year) != null ? ref4 : ly) < ly && Date.now() - ((ref5 = ne.checkedAt) != null ? ref5 : 0) < 2419200000) { // don't check again within 28 days
+      return;
+    } else {
+      res = (await this.src.epmc.search('EXT_ID:' + ident + ' AND SRC:MED'));
+      if (res.total) {
+        return res.data[0];
+      } else if (res.total != null) {
+        await this.src.epmc.notinepmc({
+          id: ident,
+          pmid: ident,
+          year: year,
+          checkedAt: Date.now()
+        }); // because on 21/08/2025 the whole API disappeared - we don't want to record that as not being in
+      }
     }
   }
 };
 
 P.src.epmc.pmc = async function(ident, refresh, year) {
-  var exists, ly, ne, ref, ref1, ref2, ref3, res;
+  var exists, ly, ne, ref, ref1, ref2, ref3, ref4, ref5, ref6, res, rt, yr;
   if (!ident) {
     if (refresh == null) {
       refresh = this.refresh;
@@ -17875,24 +18190,33 @@ P.src.epmc.pmc = async function(ident, refresh, year) {
     ident = (ref = this.params.pmc) != null ? ref : this.params.pmcid;
   }
   if (ident) {
-    ident = 'PMC' + ident.toLowerCase().replace('pmc', '');
-    exists = (await this.src.epmc('pmcid:"' + ident + '"'));
-    ly = parseInt(((await this.date())).split('-')[0]) - 3; // don't check again if already more than 3 years old, it is unlikely to turn up
-    if (exists != null ? (ref1 = exists.hits) != null ? ref1.total : void 0 : void 0) {
-      return exists.hits.hits[0]._source;
-    } else if (!refresh && (ne = (await this.src.epmc.notinepmc(ident))) && ((ref2 = ne.year) != null ? ref2 : ly) < ly && Date.now() - ((ref3 = ne.checkedAt) != null ? ref3 : 0) < 2419200000) { // don't check again within 28 days
-      return;
-    } else {
-      res = (await this.src.epmc.search('PMCID:' + ident));
-      if (res.total) {
-        return res.data[0];
-      } else if (res.total != null) {
-        await this.src.epmc.notinepmc({
-          id: ident,
-          pmcid: ident,
-          year: year,
-          checkedAt: Date.now()
-        }); // because on 21/08/2025 the whole API disappeared - we don't want to record that as not being in
+    if (typeof ident === 'string') {
+      ident = ident.toLowerCase().replace('pmc', '');
+    }
+    if (ident && (typeof ident === 'number' || (typeof parseInt(ident) === 'number' && ident.split('.').length === 1 && ident.split(' ').length === 1))) {
+      ident = 'PMC' + ident;
+      exists = (await this.src.epmc('pmcid:"' + ident + '"'));
+      ly = parseInt(((await this.date())).split('-')[0]) - 3; // don't check again if already more than 3 years old, it is unlikely to change or turn up
+      if ((exists != null ? (ref1 = exists.hits) != null ? ref1.total : void 0 : void 0) && (rt = exists.hits.hits[0]._source)) {
+        yr = (((ref2 = (ref3 = (ref4 = rt.pubYear) != null ? ref4 : rt.journalInfo.yearOfPublication) != null ? ref3 : rt.firstPublicationDate) != null ? ref2 : '') + '').split('-')[0];
+        if (typeof yr === 'string' && yr.length === 4 && parseInt(yr) <= ly) {
+          return rt;
+        }
+      }
+      if (!refresh && (ne = (await this.src.epmc.notinepmc(ident))) && ((ref5 = ne.year) != null ? ref5 : ly) < ly && Date.now() - ((ref6 = ne.checkedAt) != null ? ref6 : 0) < 2419200000) { // don't check again within 28 days
+        return;
+      } else {
+        res = (await this.src.epmc.search('PMCID:' + ident));
+        if (res.total) {
+          return res.data[0];
+        } else if (res.total != null) {
+          await this.src.epmc.notinepmc({
+            id: ident,
+            pmcid: ident,
+            year: year,
+            checkedAt: Date.now()
+          }); // because on 21/08/2025 the whole API disappeared - we don't want to record that as not being in
+        }
       }
     }
   }
@@ -18027,7 +18351,7 @@ P.src.epmc.xml = async function(pmcid, rec, refresh) {
       } catch (error) {}
     }
     //rec ?= await @src.epmc.pmc pmcid, refresh
-    if (refresh) { //or not rec?.no_ft
+    if (true) { //refresh #or not rec?.no_ft
       //ncdl = Date.now() - _last_ncbi
       //console.log 'ncbi eutils for epmc xml', _ncbi_running, _last_ncbi, ncdl
       //while ncdl < 1100 or _ncbi_running >= 2 # should be able to hit 3r/s although it's possible we call from other workers on same server. This will have to do for now
@@ -18069,21 +18393,17 @@ P.src.epmc.xml = async function(pmcid, rec, refresh) {
 //else if rec?
 //  rec.no_ft = true
 //  await @src.epmc rec.id, rec
-P.src.epmc.fulltext = async function(pmcid) { // check fulltext exists in epmc explicitly
-  var exists, ref, ref1;
-  if (pmcid == null) {
-    pmcid = (ref = (ref1 = this.params.fulltext) != null ? ref1 : this.params.pmcid) != null ? ref : this.params.epmc;
-  }
-  if (pmcid) {
-    exists = (await this.fetch('https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML', {
-      method: 'HEAD',
-      rate: ['ebi', 8]
-    }));
-    return (exists != null ? exists.status : void 0) === 200;
-  } else {
-
-  }
-};
+`No longer required as per https://github.com/oaworks/discussion/issues/3738#issuecomment-4126645154
+P.src.epmc.fulltext = (pmcid) -> # check fulltext exists in epmc explicitly
+  pmcid ?= @params.fulltext ? @params.pmcid ? @params.epmc
+  if pmcid
+    if pmcid.startsWith '10.'
+      rec = await @src.epmc.doi pmcid
+      pmcid = rec?.pmcid ? undefined
+    if pmcid
+      exists = await @fetch 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML', method: 'HEAD', rate: ['ebi', 8]
+      return result: exists?.status is 200
+  return error: 'no valid pmcid to map to'`;
 
 P.src.epmc.aam = async function(pmcid, rec, fulltext, refresh) {
   var pg, ref, ref1, s1, s2, s3, s4, url;
@@ -18222,8 +18542,13 @@ P.src.epmc.statement = async function(pmcid, rec, refresh, verbose) {
   if (pmcid == null) {
     pmcid = (ref = (ref1 = (ref2 = (ref3 = this.params.statement) != null ? ref3 : this.params.pmc) != null ? ref2 : this.params.pmcid) != null ? ref1 : this.params.PMC) != null ? ref : this.params.PMCID;
   }
-  if (pmcid.startsWith('10.')) { // if a doi was provided instead
-    rec = (await this.src.epmc.doi(pmcid, refresh));
+  if (pmcid && pmcid.startsWith('10.')) { // if a doi was provided instead
+    if (rec == null) {
+      rec = (await this.src.epmc.doi(pmcid, refresh));
+    }
+    pmcid = void 0;
+  }
+  if (pmcid == null) {
     pmcid = rec != null ? rec.pmcid : void 0;
   }
   if (refresh == null) {
@@ -23037,6 +23362,8 @@ P.rate = async function(rate, blocked, ms) {
   }
 };
 
+P.rate._log = false;
+
 P.rates = async function() {
   var headers, rs;
   if (S.limiter && S.limiter.startsWith('http') && this.params.rated !== true && JSON.stringify(_rates) === '{}') {
@@ -23054,6 +23381,8 @@ P.rates = async function() {
 };
 
 //P.rates._auth = 'system'
+P.rates._log = false;
+
 P.rates.check = async function(url, group, rate, max, per, amount) {
   var ended, headers, i, r, ref, ref1, ref2, ref3, ref4, ref5, ret, started, times, waits;
   started = Date.now();
@@ -23111,6 +23440,8 @@ P.rates.check = async function(url, group, rate, max, per, amount) {
 };
 
 P.rates.check._auth = 'root';
+
+P.rates.check._log = false;
 
 P.fetch = async function(url, params) {
   var _f, _rate, av, base, base1, ct, err, fk, fll, flo, i, j, k, l, len, len1, len2, len3, len4, m, n, name, nu, p, po, ppt, pt, pts, qp, ref, ref1, ref10, ref11, ref12, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, v, waitto;
@@ -24953,7 +25284,7 @@ return [url, rt]`;
 // calling this should be given a correct URL route for ES7.x, domain part of the URL is optional though.
 // call the above to have the route constructed. method is optional and will be inferred if possible (may be removed)
 P.index._send = async function(route, data, method, prefix, alias, url) {
-  var dtp, opts, provided_scroll_id, ref1, ref10, ref11, ref12, ref13, ref14, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, rqp, rrso, rso;
+  var dtp, methodexplicit, opts, provided_scroll_id, ref1, ref10, ref11, ref12, ref13, ref14, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, rqp, rrso, rso;
   if (route.includes('?')) {
     [route, rqp] = route.split('?');
     rqp = '?' + rqp;
@@ -24972,12 +25303,36 @@ P.index._send = async function(route, data, method, prefix, alias, url) {
       route = route.replace(/#/g, '%23');
     }
   } catch (error) {}
+  methodexplicit = method && typeof method === 'string';
   if (method == null) {
     method = data === '' ? 'DELETE' : (data != null) && (route.indexOf('/') === -1 || route.indexOf('/_create') !== -1 || (route.indexOf('/_doc') !== -1 && !route.endsWith('/_doc'))) ? 'PUT' : (data != null) || ((ref1 = route.split('/').pop().split('?')[0]) === '_refresh' || ref1 === '_aliases') ? 'POST' : 'GET';
   }
   if (method === 'DELETE' && route.indexOf('/_all') !== -1) { // nobody can delete all via the API
     // TODO if data is a query that also has a _delete key in it, remove that key and do a delete by query? and should that be bulked? is dbq still allowed in ES7.x?
     return false;
+  }
+  if (method === 'DELETE' && !route.includes('_doc') && !route.includes('_search/scroll')) { // only allow delete by ID, not by query, to avoid accidental mass deletes. _search/scroll is allowed because that's how we do deletes by query, but it requires a scroll ID which should make it safe enough
+    console.log(data);
+    console.log(typeof data);
+    if (methodexplicit || (route === 'report_orgs' || route === 'report_emails')) {
+      console.log('ALLOWING DELETE BY EXPLICIT METHOD OR ALLOW LISTED ROUTE');
+      console.log(route);
+    } else {
+      console.log('ONLY DELETE BY SPECIFIC RECORD ID (OR SCROLL) CURRENTLY ALLOWED');
+      console.log('Change this to allow if method is explicitly stated');
+      console.log(route);
+      try {
+        fs.appendFile('/home/oaw/deletionattempts', new Date().toISOString() + ' ' + route + ' ' + JSON.stringify(data) + '\n');
+      } catch (error) {}
+      return false;
+    }
+  }
+  if (method === 'DELETE' && route.includes('_doc') && route.includes('report_works')) {
+    console.log('ALLOWING DELETE OF SPECIFIC RECORD'); // log these for now
+    console.log(route);
+    try {
+      fs.appendFile('/home/oaw/deletionbyids', new Date().toISOString() + ' ' + route + ' ' + JSON.stringify(data) + '\n');
+    } catch (error) {}
   }
   if (!route.startsWith('http')) { // which it probably doesn't
     rso = route.split('/')[0];
@@ -26584,7 +26939,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Wed Mar 04 2026 09:34:51 GMT+0000";
+S.built = "Wed May 20 2026 20:45:24 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
