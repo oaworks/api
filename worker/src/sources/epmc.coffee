@@ -226,7 +226,7 @@ P.src.epmc.xml = (pmcid, rec, refresh) ->
         return ft.toString()
 
     #rec ?= await @src.epmc.pmc pmcid, refresh
-    if refresh #or not rec?.no_ft
+    if true #refresh #or not rec?.no_ft
       #ncdl = Date.now() - _last_ncbi
       #console.log 'ncbi eutils for epmc xml', _ncbi_running, _last_ncbi, ncdl
       #while ncdl < 1100 or _ncbi_running >= 2 # should be able to hit 3r/s although it's possible we call from other workers on same server. This will have to do for now

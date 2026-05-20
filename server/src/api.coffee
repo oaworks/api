@@ -76,9 +76,9 @@ server = http.createServer (req, res) ->
   
   #try console.log(req.body) if S.dev and req.body?
   try
-    try console.log('=== BG ' + req.method + ' ===', req.url) if S.dev
+    try console.log('=== ' + S.port + ' BG ' + req.method + ' ===', req.url) if S.dev
     pr = await P.call request: req
-    try console.log('=== BG ' + req.method + ' DONE ===', pr.status) if S.dev
+    try console.log('=== ' + S.port + ' BG ' + req.method + ' DONE ===', pr.status) #if S.dev
     try pr.headers['x-' + S.name.toLowerCase() + '-bg'] = true
     if req.url is '/'
       try

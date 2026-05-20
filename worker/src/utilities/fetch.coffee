@@ -56,6 +56,7 @@ P.rate = (rate, blocked, ms) ->
       _rates[rate[0]].count += 1
       _rates[rate[0]].average = Math.round 1000 / ((_rates[rate[0]].last - _rates[rate[0]].started) / _rates[rate[0]].count)
   return if ms then s else Date.now() + s
+P.rate._log = false
 
 P.rates = ->
   if S.limiter and S.limiter.startsWith('http') and @params.rated isnt true and JSON.stringify(_rates) is '{}'
@@ -68,6 +69,7 @@ P.rates = ->
     _rates.master = true
     return _rates
 #P.rates._auth = 'system'
+P.rates._log = false
 
 P.rates.check = (url, group, rate, max, per, amount) ->
   started = Date.now()
@@ -92,6 +94,7 @@ P.rates.check = (url, group, rate, max, per, amount) ->
   ended = Date.now()
   return started: started, ended: ended, took: (ended-started), local: (JSON.stringify(_rates) isnt '{}'), url: url, group: group, rate: rate + 'r/s', max: (if max then (max + (if per then ' per ' + per + 's' else '')) else undefined), amount: amount, times: times, waits: waits, results: ret
 P.rates.check._auth = 'root'
+P.rates.check._log = false
 
 P.fetch = (url, params) ->
   if not url? and not params?
