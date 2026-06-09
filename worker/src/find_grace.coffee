@@ -1,4 +1,5 @@
 
+'''
 # the only things find does that could be required separately is it provides a URL to the article, which is actually extracted in @citation
 # so if dropping find altogether, just use @citation to get the URL e.g. in calls to permissions that may also need it such as for shareyourpaper
 # find will also operate without a DOI whereas shareyourpaper and permissions didn't - they could be changed to allow that, or just restrict some of what find used to do
@@ -402,3 +403,4 @@ P.citation_grace = (citation) ->
 
   res.year = res.year.toString() if typeof res.year is 'number'
   return res
+'''
