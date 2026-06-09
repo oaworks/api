@@ -1,5 +1,5 @@
 
-
+'''
 # this should default to a search of ILLs as well... with a restrict
 # restrict = @auth.role('openaccessbutton.admin') and this.queryParams.all then [] else [{term:{from:@user?._id}}]
 P.ill_grace = (opts) -> # only worked on POST with optional auth
@@ -345,5 +345,5 @@ P.ill_grace.subscription = (config, meta) ->
 
   res.url = await @decode(res.url) if res.url
   return res
-
+'''
 

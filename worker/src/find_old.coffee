@@ -1,4 +1,5 @@
 
+'''
 P.find_diffs = ->
   ignoring = (@params.ignore ? 'journal_short,shortname,subject,keyword,DOI').split(',')
   res = count: [], ignoring: ignoring, dois: [
@@ -525,3 +526,4 @@ P.availability = (params, v2) ->
               afnd.data.requests.push rq
     afnd.data.accepts.push({type:'article'}) if afnd.data.availability.length is 0 and afnd.data.requests.length is 0
     return afnd
+'''

@@ -1189,15 +1189,23 @@ P.report.works.backup = (target) ->
 P.report.works.backup._bg = true
 P.report.works.backup._auth = '@oa.works'
 
-P.report.works.recover = (datestamp, today) ->
-  today ?= @params.confirmation
-  datestamp ?= @params.from
-  checktoday = (await @date()).replace /-/g, ''
+P.report.works.recover = (suffix, confirm) ->
+  confirm ?= @params.confirm
+  suffix ?= @params.suffix
   procs = []
-  console.log 'recovery called', today, typeof today, checktoday, typeof checktoday, datestamp, typeof datestamp, @params.dev2live, @S.pm2?
-  if today and checktoday and today + '' is checktoday + '' and datestamp and @S.pm2
+  console.log 'recovery called', @user?.email, confirm, typeof confirm, suffix, typeof suffix, @params.dev2live, @S.pm2?
+  if not confirm and @user?.email and @user.email.includes '@oa.works'
+    token = @uid 8
+    @kv 'auth/token/RECOVERY', token + '_' + @user.email, 120 # create a unique recovery token that expires in 2 minutes (and only one can exist)
+    @waitUntil @mail
+      from: S.auth?.from ? 'login@oa.works'
+      to: @user.email
+      subject: 'Recovery token for report works from OA.works'
+      text: 'Your recovery token is:\r\n\r\n' + token + '\r\n\r\nThis token will expire in 2 minutes.\r\n\r\nOA.works System'
+    return message: "A confirmation token has been sent to your email. Please re-try this endpoint within 2 minutes, with the token in the 'confirm' param, and the 'suffix' param indicating the index suffix to recover from." + (if @S.dev then  " Recover a dev backup to live by setting param 'dev2live' to true." else '')
+  else if confirm and suffix and @user?.email and @S.pm2 and (confirmed = await @kv 'auth/token/RECOVERY', '') and confirmed is confirm + '_' + @user.email
     cur = 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works'
-    prev = cur + '_' + datestamp
+    prev = cur + '_' + suffix
     if @S.dev and @params.dev2live is true and cur.includes 'paradigm_b_' # allow recovering if called on dev, from a dev backup, to live index
       ps = await @_child @S.pm2, 'status' # find the queues running for dev or live
       for p in ps.split '\n'
@@ -1213,7 +1221,7 @@ P.report.works.recover = (datestamp, today) ->
       await @_child @S.pm2, ['start', p]
     cloned.live_procs = procs
     return cloned
-  return required: 'from param containing only date suffix of report works index to recover from, and confirmation param must match ' + checktoday
+  return
 P.report.works.recover._bg = true
 P.report.works.recover._auth = '@oa.works'
 
