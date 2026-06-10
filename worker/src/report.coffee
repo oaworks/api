@@ -1095,15 +1095,15 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
           else
             rec[qk] = qrc[qk]'''
 
-    #for sup in rec.supplements
-    #  #console.log sup
-    #  for k of sup
-    #    #console.log k
-    #    if k not in ['_id', 'updated', 'DOI', 'doi', 'email', 'has_open_data', 'is_preprint', 'openalex', 'paid', 'pmc_has_data_availability_statement', 'pmcid', 'publisher_license_crossref', 'publisher_simple']
-    #      #console.log k, rec[k], sup[k]
-    #      rec[k] = sup[k] if rec[k]?
-    #      delete rec[k] if rec[k]? and sup[k] is 'NULL'
-    #      #console.log k, rec[k], sup[k]
+    for sup in rec.supplements
+      #console.log sup
+      for k of sup
+        #console.log k
+        if k not in ['_id', 'updated', 'DOI', 'doi', 'email', 'has_open_data', 'is_preprint', 'openalex', 'paid', 'pmc_has_data_availability_statement', 'pmcid', 'publisher_license_crossref', 'publisher_simple']
+          #console.log k, rec[k], sup[k]
+          rec[k] = sup[k] if rec[k]?
+          delete rec[k] if rec[k]? and sup[k] is 'NULL'
+          #console.log k, rec[k], sup[k]
 
     rec._id ?= if rec.DOI then rec.DOI.toLowerCase().replace(/\//g, '_') else if rec.openalex then rec.openalex.toLowerCase() else if rec.PMCID then rec.PMCID.toLowerCase() else undefined # and if no openalex it will get a default ID
     rec.supplemented = await @epoch()
@@ -1350,29 +1350,39 @@ P.report.works.changes._auth = '@oa.works'
 P.report.works.queries = (orgs) ->
   started = Date.now()
   orgs = @params.orgs.split(',') if @params.orgs
-  orgs ?= ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Wellcome Trust'] #, 'Michael J. Fox Foundation'
+  orgs ?= [] # ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Wellcome Trust'] #, 'Michael J. Fox Foundation'
 
   #if @params.clear
   #  await @report.works ''
 
-  cqs = 
-    'Gates Foundation': ['funder:10.13039/100000865,funder:10.13039/501100005370', 'ror-id:0456r8d26,ror-id:033sn5p83', 'container-title:Gates%20Open%20Research', 'issn:2572-4754,issn:3029-0988']
-    'Robert Wood Johnson Foundation': ['funder:10.13039/100000867', 'ror-id:02ymmdj85']
-    'Michael J. Fox Foundation': ['funder:10.13039/100000864', 'ror-id:03arq3225']
-    'Wellcome Trust': ['funder:10.13039/100010269,funder:10.13039/100004440', 'ror-id:029chgv08']
-    'Templeton World Charity Foundation': ['funder:10.13039/501100011730', 'ror-id:00x0z1472']
-    'Howard Hughes Medical Institute': ['funder:10.13039/100000011,10.13039/100022388', 'ror-id:006w34k90,ror-id:013sk6x84']
-  oqs = 
-    'Gates Foundation': ['funders.id:F4320306137|F4320323264|F4320310978', 'authorships.institutions.ror:0456r8d26|033sn5p83', 'raw_affiliation_strings.search:melinda%20gates%20foundation|gates%20cambridge%20trust|gates%20ventures', 'locations.source.issn:2572-4754|3029-0988']
-    'Robert Wood Johnson Foundation': ['funders.id:F4320306139|F4320309038', 'authorships.institutions.ror:02ymmdj85', 'raw_affiliation_strings.search:Robert Wood Johnson Foundation']
-    'Michael J. Fox Foundation': ['funders.id:F4320306136', 'authorships.institutions.ror:03arq3225', 'raw_affiliation_strings.search:Michael J. Fox Foundation']
-    'Wellcome Trust': ['funders.id:F4320311904', 'authorships.institutions.ror:029chgv08', 'raw_affiliation_strings.search:Wellcome Trust']
-    'Templeton World Charity Foundation': ['funders.id:F4320327239', 'authorships.institutions.ror:00x0z1472', 'raw_affiliation_strings.search:Templeton World Charity Foundation']
-    'Howard Hughes Medical Institute': ['funders.id:F4320306082', 'authorships.institutions.ror:006w34k90|013sk6x84', 'raw_affiliation_strings.search:Howard Hughes Medical Institute|Janelia Research Campus|Freeman Hrabowski']
+  cqs = []
+  #  'Gates Foundation': ['funder:10.13039/100000865,funder:10.13039/501100005370', 'ror-id:0456r8d26,ror-id:033sn5p83', 'container-title:Gates%20Open%20Research', 'issn:2572-4754,issn:3029-0988']
+  #  'Robert Wood Johnson Foundation': ['funder:10.13039/100000867', 'ror-id:02ymmdj85']
+  #  'Michael J. Fox Foundation': ['funder:10.13039/100000864', 'ror-id:03arq3225']
+  #  'Wellcome Trust': ['funder:10.13039/100010269,funder:10.13039/100004440', 'ror-id:029chgv08']
+  #  'Templeton World Charity Foundation': ['funder:10.13039/501100011730', 'ror-id:00x0z1472']
+  #  'Howard Hughes Medical Institute': ['funder:10.13039/100000011,10.13039/100022388', 'ror-id:006w34k90,ror-id:013sk6x84']
+  oqs = []
+  #  'Gates Foundation': ['funders.id:F4320306137|F4320323264|F4320310978', 'authorships.institutions.ror:0456r8d26|033sn5p83', 'raw_affiliation_strings.search:melinda%20gates%20foundation|gates%20cambridge%20trust|gates%20ventures', 'locations.source.issn:2572-4754|3029-0988']
+  #  'Robert Wood Johnson Foundation': ['funders.id:F4320306139|F4320309038', 'authorships.institutions.ror:02ymmdj85', 'raw_affiliation_strings.search:Robert Wood Johnson Foundation']
+  #  'Michael J. Fox Foundation': ['funders.id:F4320306136', 'authorships.institutions.ror:03arq3225', 'raw_affiliation_strings.search:Michael J. Fox Foundation']
+  #  'Wellcome Trust': ['funders.id:F4320311904', 'authorships.institutions.ror:029chgv08', 'raw_affiliation_strings.search:Wellcome Trust']
+  #  'Templeton World Charity Foundation': ['funders.id:F4320327239', 'authorships.institutions.ror:00x0z1472', 'raw_affiliation_strings.search:Templeton World Charity Foundation']
+  #  'Howard Hughes Medical Institute': ['funders.id:F4320306082', 'authorships.institutions.ror:006w34k90|013sk6x84', 'raw_affiliation_strings.search:Howard Hughes Medical Institute|Janelia Research Campus|Freeman Hrabowski']
 
-  #for await o from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs'
-  #  if o.source?.crossref
-  #  if o.source?.openalex
+  for await o from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs'
+    if o.source?.crossref
+      cqs[o.name] = []
+      for k in o.source.crossref
+        for ck of k
+          cqs[o.name].push(ck + ':' + k[ck].split(';').join(',' + ck + ':'))
+      orgs.push o.name
+    if o.source?.openalex
+      oqs[o.name] = []
+      for ok in o.source.openalex
+        for pk of ok
+          oqs[o.name].push(pk + ':' + ok[pk].split(';').join('|'))
+      orgs.push(o.name) if o.name not in orgs
 
   ids = []
   cvl = 0
@@ -1385,7 +1395,7 @@ P.report.works.queries = (orgs) ->
       crossref = {}
       cursor = '*'
       console.log 'crossref', org, o
-      while cursor? and ans = await @fetch ('https://api.crossref.org/works?mailto=sysadmin@oa.works&filter=' + o + '&rows=1000&cursor=' + encodeURIComponent cursor), {rate: ['crossrefFilter', 3], headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works')}}
+      while o and cursor? and ans = await @fetch ('https://api.crossref.org/works?mailto=sysadmin@oa.works&filter=' + o + '&rows=1000&cursor=' + encodeURIComponent cursor), {rate: ['crossrefFilter', 3], headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works')}}
         cursor = ans.message?['next-cursor'] # will be null if there are no more to get
         cursor = undefined if not ans.message?.items or ans.message.items.length < 1000 # crossref does not auto remove the last cursor on the last page so need to check for shortness
         for r in (ans.message?.items ? [])
@@ -1404,7 +1414,7 @@ P.report.works.queries = (orgs) ->
       #if not @params.clear
       #  o += ',publication_year:>' + (parseInt((await @date()).split('-')[0]) - 3) # to avoid openalex deep cursoring errors
       console.log 'openalex', org, o
-      while cursor? and ans = await @fetch ('https://api.openalex.org/works?mailto=sysadmin@oa.works' + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '') + '&filter=' + o + '&per-page=200&cursor=' + encodeURIComponent cursor), {rate: ['openalexFilter', 20, 10000, 86400]}
+      while o and cursor? and ans = await @fetch ('https://api.openalex.org/works?mailto=sysadmin@oa.works' + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '') + '&filter=' + o + '&per-page=200&cursor=' + encodeURIComponent cursor), {rate: ['openalexFilter', 20, 10000, 86400]}
         cursor = ans.meta.next_cursor # will be null if there are no more to get
         for r in ans.results
           rid = if r.ids?.doi or r.doi then (r.ids?.doi ? r.doi).split('.org/').pop().toLowerCase() else r.id.toLowerCase()
@@ -1433,6 +1443,9 @@ P.report.works.queries = (orgs) ->
   return queued
 
 P.report.works.queries._async = true
+P.report.works.queries._bg = true
+P.report.works.queries._log = false
+P.report.works.queries._auth = '@oa.works'
 
 
 '''P.report.fixsuppdups = ->
