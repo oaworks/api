@@ -1349,6 +1349,10 @@ P.report.works.changes._auth = '@oa.works'
 
 P.report.works.queries = (orgs) ->
   started = Date.now()
+
+  if @S.works_load_mains_backup_first
+    await @report.works.backup()
+
   orgs = @params.orgs.split(',') if @params.orgs
   orgs ?= [] # ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Wellcome Trust'] #, 'Michael J. Fox Foundation'
 
