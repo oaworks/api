@@ -1,6 +1,9 @@
 
 P.src.rs = _index: true, _prefix: false
-P.src.rs.retrieve = (since) ->
+P.src.rs.retrieve = (since, q, doi) ->
+  notify = not doi?
+  q = 'DOI.keyword:"' + doi + '"' if doi
+  since ?= @params.since # if an RS format, will be converted to epoch - otherwise just provide epoch (which is what crossref uses for created.timestamp)
   max = @params.max
   retrieve = @params.retrieve
   save = @params.save
@@ -9,7 +12,7 @@ P.src.rs.retrieve = (since) ->
   limit = @params.limit ? 500 #1000 # 100 worked fine but was of course slow, around 5 or 6 days to get all relevant records
   empty = @params.empty
   await @src.rs('') if empty
-  q = @params.q ? 'prefix.keyword:"10.21203" AND DOI:"v1" AND type.keyword:"posted-content"'
+  q ?= @params.q ? 'prefix.keyword:"10.21203" AND DOI:"v1" AND type.keyword:"posted-content"'
   opts = include: ['DOI'], scroll: '30m'
   # TODO see changes function below, this could actually be done by pulling from RS, but for now we do by searching our crossref.
   if since and (not @params.q or @params.since)
@@ -73,7 +76,7 @@ P.src.rs.retrieve = (since) ->
   res.ended = Date.now()
   res.took = res.ended - started
   console.log res
-  await @mail to: @S.log.logs, subject: 'Report RS retrieved ' + res.retrieved, text: JSON.stringify res, '', 2
+  await @mail(to: @S.log.logs, subject: 'Report RS retrieved ' + res.retrieved, text: JSON.stringify res, '', 2) if notify
   return res
 P.src.rs.retrieve._log = false
 P.src.rs.retrieve._bg = true
@@ -96,6 +99,13 @@ P.src.rs.changes._bg = true
 P.src.rs.changes._async = true
 P.src.rs.changes._auth = '@oa.works'
   
+
+P.src.rs.process = (doi) ->
+  # this is for processing a single record, for example if we get a notification of a new RS preprint and want to pull it in
+  doi ?= @params.process ? @params.doi
+  if doi
+    return @src.rs.retrieve undefined, undefined, doi
+  return ''
 
 
 P.src.rs.check = ->
