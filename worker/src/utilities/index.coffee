@@ -781,7 +781,7 @@ P.index._send = (route, data, method, prefix, alias, url) ->
   if method is 'DELETE' and not route.includes('_doc') and not route.includes '_search/scroll' # only allow delete by ID, not by query, to avoid accidental mass deletes. _search/scroll is allowed because that's how we do deletes by query, but it requires a scroll ID which should make it safe enough
     console.log data
     console.log typeof data
-    if methodexplicit or route in ['report_orgs', 'report_emails', 'src_pubmed_availabilities', 'permissions_journals', 'permissions_publishers', 'permissions_affiliations']
+    if methodexplicit or route in ['report_orgs', 'report_emails', 'report_suggestables', 'src_pubmed_availabilities', 'permissions_journals', 'permissions_publishers', 'permissions_affiliations']
       console.log 'ALLOWING DELETE BY EXPLICIT METHOD OR ALLOW LISTED ROUTE'
       console.log route
     else
@@ -801,7 +801,8 @@ P.index._send = (route, data, method, prefix, alias, url) ->
     if not route.startsWith '_'
       dtp = await @dot P, rso.replace /_/g, '.'
       alias ?= @params._alias ? @S.alias?[if rso.startsWith(@S.index.name + '_') then rso.replace(@S.index.name + '_', '') else rso] ? dtp?._alias
-      if typeof alias is 'string'
+      alias = alias + '' if alias
+      if typeof alias is 'string' and alias.length
         alias = '_' + alias if not alias.startsWith '_'
         alias = alias.replace /\//g, '_'
         route = route.replace(rso, rso + alias) if not rso.endsWith alias

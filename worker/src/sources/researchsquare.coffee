@@ -8,7 +8,7 @@ P.src.rs.retrieve = (since, q, doi) ->
   retrieve = @params.retrieve
   save = @params.save
   refresh = @params.refresh
-  plus = @params.plus ? true
+  plus = @params.plus ? false
   limit = @params.limit ? 500 #1000 # 100 worked fine but was of course slow, around 5 or 6 days to get all relevant records
   empty = @params.empty
   await @src.rs('') if empty
@@ -39,10 +39,11 @@ P.src.rs.retrieve = (since, q, doi) ->
     else if max <= 10
       console.log rsurl
     if not refresh and not plus and exists = await @report.works rec.DOI
-      console.log(rec.DOI, 'already exists in report/works') if max <= 10
+      console.log(rec.DOI, 'already exists in report/works') #if max <= 10
       res.existing += 1
-    else if not refresh and not empty and local = await @src.rs 'identity.keyword:"' + rsid + '"', 1 # rec.DOI
-      console.log(rec.DOI, 'already exists in local RS') if max <= 10
+    #else if not refresh and not empty and local = await @src.rs 'identity.keyword:"' + rsid + '" OR identity.keyword:"' + rsid.split('/')[0] + '"', 1
+    else if not refresh and not empty and local = await @src.rs 'doi.keyword:"' + rec.DOI + '"', 1 # only one has no DOI
+      console.log(rec.DOI, 'already exists in local RS') #if max <= 10
       res.local += 1
     else 
       res.tried += 1
