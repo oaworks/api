@@ -84,7 +84,7 @@ P.report.suggestions = ->
     res.options = org: 'Org name (required)', field: 'Field name (required)', q: 'search term, default *', size: 'How many to return, default 1000', exact: 'Do exact match, default true, will try matching an entire keyword (Gates Foundation), then tries partials (Foundation)', keyword: 'Default true, if false then exact match will not try keyword first', wildcard: 'Default true, enables wildcard searches after exact searches', suffix: 'The default wildcard search, appends * to the query, unless set to false', fuzzy: 'Default false, if true will try fuzzy match ONLY if previous searches fail (slower)', prefix: 'Default false, if true will try *query* wildcard match ONLY if previous searches fail (slowest)'
     # sort: 'Order, asc/desc, default asc', 
     res.field = {}
-    res.field[f.term] = f.count for f in await @report.suggestables.terms 'field'      
+    res.field[f.term] = f.count for f in await @report.suggestables.terms 'field'
     res.org = await @report.suggestables.terms 'org'
     for o in res.org
       o.works = await @report.works.count 'orgs.keyword:"' + o.term + '" AND NOT orgs_by_query:*'
@@ -490,7 +490,7 @@ P.report.orgs.supplements.load = (orgname, sheetname, clear, immediate) ->
         org[h] = rec[h]
     if Array.isArray org.sheets
       for s in org.sheets
-        if (not orgname or org.name is orgname) and sheetname isnt false and (not sheetname or s.name is sheetname) and (orgname or org.name in ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Wellcome Trust', 'Michael J. Fox Foundation', 'all paid'])
+        if (not orgname or org.name is orgname) and sheetname isnt false and (not sheetname or s.name is sheetname)
           console.log org.name, s.name, s.url
           rc = 0
           osdids = []
@@ -541,7 +541,7 @@ P.report.orgs.supplements.load = (orgname, sheetname, clear, immediate) ->
               headers.push(header.toLowerCase().trim().replace(/ /g, '_').replace('?', '')) for header in rows.shift()
               for row in rows
                 rc += 1
-                rr = org: org.name, sheets: s.name, ror: org.ror, paid: (if org.paid is true then org.paid else undefined) # check paid explicitly because some had an empty string instead of a bool
+                rr = org: org.name, sheets: s.name, ror: org.ror
                 for hp of headers
                   h = headers[hp]
                   if h.toLowerCase() is 'pmcid'
@@ -887,7 +887,6 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
         sqq += (if sqq then ' OR ' else '') + 'pmcid.keyword:"' + rec.PMCID + '"'
       for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', sqq, sort: 'osdid.keyword': 'asc'
         rec.orgs.push(sup.org) if sup.org not in rec.orgs
-        rec.paid = true if sup.paid
         rec.email = sup.email if not rec.email and sup.email
         rec.author_email_name = sup.author_email_name_ic if sup.author_email_name_ic
         rec.has_data_availability_statement = true if sup.has_data_availability_statement_ic
@@ -915,7 +914,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
       rec.PMCID = exists.PMCID if (not rec.PMCID or rec.PMCID is 'PMC') and exists.PMCID? and exists.PMCID isnt 'PMC'
 
     #if rec.DOI and not refresh?
-    #  for await o from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs', 'paid:true', scroll: '10m'
+    #  for await o from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs', scroll: '10m'
     #    if o.name not in rec.orgs and o.source?.crossref
     #      try o.source.crossref = decodeURIComponent(decodeURIComponent(o.source.crossref)) if o.source.crossref.includes '%'
     #      try rec.orgs.push(o.name) if matches = await @src.crossref.works '(' + o.source.crossref + ') AND DOI.keyword:"' + rec.DOI + '"', 1
@@ -962,7 +961,6 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
           rec.publisher_simple = pub.publisher_display_name
           break
 
-    #if (not exists? and rec.orgs.length) or (exists?.orgs ? []).length isnt rec.orgs.length or (rec.paid and rec.paid isnt exists?.paid) #or not exists.journal_oa_type
     if not rec.PMCID or not rec.PMID or not rec.pubtype? or not rec.submitted_date or not rec.accepted_date
       if pubmed = (if rec.PMID then await @src.pubmed(rec.PMID) else if rec.DOI then await @src.pubmed.doi(rec.DOI) else undefined) # pubmed is faster to lookup but can't rely on it being right if no PMC found in it, e.g. 10.1111/nyas.14608
         rec.PMCID = 'PMC' + pubmed.identifier.pmc.toLowerCase().replace('pmc', '') if not rec.PMCID and pubmed?.identifier?.pmc
@@ -1196,13 +1194,13 @@ P.report.works.recover = (suffix, confirm) ->
   console.log 'recovery called', @user?.email, confirm, typeof confirm, suffix, typeof suffix, @params.dev2live, @S.pm2?
   if not confirm and @user?.email and @user.email.includes '@oa.works'
     token = @uid 8
-    @kv 'auth/token/RECOVERY', token + '_' + @user.email, 120 # create a unique recovery token that expires in 2 minutes (and only one can exist)
+    @kv 'auth/token/RECOVERY', token + '_' + @user.email, 600 # create a unique recovery token that expires in 10 minutes (and only one can exist)
     @waitUntil @mail
       from: S.auth?.from ? 'login@oa.works'
       to: @user.email
       subject: 'Recovery token for report works from OA.works'
-      text: 'Your recovery token is:\r\n\r\n' + token + '\r\n\r\nThis token will expire in 2 minutes.\r\n\r\nOA.works System'
-    return message: "A confirmation token has been sent to your email. Please re-try this endpoint within 2 minutes, with the token in the 'confirm' param, and the 'suffix' param indicating the index suffix to recover from." + (if @S.dev then  " Recover a dev backup to live by setting param 'dev2live' to true." else '')
+      text: 'Your recovery token is:\r\n\r\n' + token + '\r\n\r\nThis token will expire in 10 minutes.\r\n\r\nOA.works System'
+    return message: "A confirmation token has been sent to your email. Please re-try this endpoint within 10 minutes, with the token in the 'confirm' param, and the 'suffix' param indicating the index suffix to recover from." + (if @S.dev then  " Recover a dev backup to live by setting param 'dev2live' to true." else '')
   else if confirm and suffix and @user?.email and @S.pm2 and (confirmed = await @kv 'auth/token/RECOVERY', '') and confirmed is confirm + '_' + @user.email
     cur = 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works'
     prev = cur + '_' + suffix
@@ -1288,7 +1286,7 @@ P.report.works.load = (timestamp, org, idents, year, clear, supplements, everyth
       
     await _openalex(undefined, 'years') if org isnt true and year is @params.load
 
-    for await o from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs', (if typeof org is 'string' then 'name:"' + org + '"' else 'paid:true'), scroll: '10m'
+    for await o from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs', (if typeof org is 'string' then 'name:"' + org + '"' else '*'), scroll: '10m'
       # if an org has no known records in report/works yet, could default it here to a timestamp of start of current year, or older, to pull in all records first time round
       if o.source?.crossref
         try o.source.crossref = decodeURIComponent(decodeURIComponent(o.source.crossref)) if o.source?.crossref? and o.source.crossref.includes '%'
@@ -1350,14 +1348,19 @@ P.report.works.changes._auth = '@oa.works'
 P.report.works.queries = (orgs) ->
   started = Date.now()
 
-  if @S.works_load_mains_backup_first
+  if @S.works_load_mains_backup_first and @params.backup isnt false
     await @report.works.backup()
 
-  orgs = @params.orgs.split(',') if @params.orgs
-  orgs ?= [] # ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Wellcome Trust'] #, 'Michael J. Fox Foundation'
+  last = @params.since ? 0 # @params.since can be timestamp from which to load changes to report/works (all will get loaded to crossref/openalex anyway)
+  last = Date.now() - (5 * 24 * 60 * 60 * 1000) if not @params.clear and not @params.all and not @params.since # 5 days ago
 
   #if @params.clear
   #  await @report.works ''
+
+  supps = @params.supps ? false
+
+  orgs = @params.orgs.split(',') if @params.orgs
+  orgs ?= [] # ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Wellcome Trust'] #, 'Michael J. Fox Foundation'
 
   cqs = []
   #  'Gates Foundation': ['funder:10.13039/100000865,funder:10.13039/501100005370', 'ror-id:0456r8d26,ror-id:033sn5p83', 'container-title:Gates%20Open%20Research', 'issn:2572-4754,issn:3029-0988']
@@ -1379,14 +1382,21 @@ P.report.works.queries = (orgs) ->
       cqs[o.name] = []
       for k in o.source.crossref
         for ck of k
-          cqs[o.name].push(ck + ':' + k[ck].split(';').join(',' + ck + ':'))
+          try cqs[o.name].push(ck + ':' + k[ck].split(';').join(',' + ck + ':'))
       orgs.push o.name
     if o.source?.openalex
       oqs[o.name] = []
       for ok in o.source.openalex
         for pk of ok
-          oqs[o.name].push(pk + ':' + ok[pk].split(';').join('|'))
+          try oqs[o.name].push(pk + ':' + ok[pk].split(';').join('|'))
       orgs.push(o.name) if o.name not in orgs
+
+  #testdoi = '10.1097/00006223-200311000-00009' # 10.1101/400358
+
+  #console.log orgs, cqs, oqs
+  #orgs = ['Robert Wood Johnson Foundation']
+  #oqs['Robert Wood Johnson Foundation'] = oqs['Robert Wood Johnson Foundation'].slice(0,1)
+  #console.log orgs, cqs, oqs
 
   ids = []
   cvl = 0
@@ -1436,6 +1446,8 @@ P.report.works.queries = (orgs) ->
       ids.push(rid) if rid and rid not in ids
     console.log svl
 
+  #console.log 'checking if test record', testdoi, 'is in the ids list', ids.length, ids.includes(testdoi)
+
   queued = 0
   while (batch = ids.splice(0, 10000)) and batch.length
     queued += batch.length
@@ -1444,6 +1456,7 @@ P.report.works.queries = (orgs) ->
     batch = []
 
   console.log 'report works queries complete', cvl, ovl, svl, queued, 'elapsed', Date.now() - started
+  await @mail to: @S.log?.logs, subject: (if @S.dev then '[DEV] ' else '') + 'Report works queries queued ' + queued, text: 'Report works queries queued ' + queued + '\n\nCrossref records found: ' + cvl + '\nOpenAlex records found: ' + ovl + '\nSupplements found: ' + svl + '\n\nOrg queries were:\n' + JSON.stringify(cqs) + '\n\nOpenAlex org queries were:\n' + JSON.stringify(oqs) + '\n\nElapsed time ' + Math.ceil((Date.now() - started)/1000/60) + 'm\n\n'
   return queued
 
 P.report.works.queries._async = true
