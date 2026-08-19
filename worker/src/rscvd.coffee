@@ -1,6 +1,6 @@
 
 P.svc ?= {}
-
+P.svc.joe = -> 'hello'
 P.svc.rscvd = _index: true
 
 P.svc.rscvd.form = () ->
