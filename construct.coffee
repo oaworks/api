@@ -77,10 +77,10 @@ DATE = new Date().toString().split(' (')[0]
 VERSION = '' # get read from main worker file
 BG = '' # get read from worker settings, and if present is used to ping the URL to check it is up
 
-CNS = []
+CNS = {}
 if fs.existsSync './' + GROUP + 'secrets/' + ENV + 'construct.json'
   CNS = JSON.parse fs.readFileSync('./' + GROUP + 'secrets/' + ENV + 'construct.json').toString()
-  CNS = [CNS] if not Array.isArray CNS
+  CNS = CNS[0] if Array.isArray CNS
 else
   console.log "No cloudflare config loaded."
   console.log "A folder called " + GROUP + "secrets should be placed at the top level directory / root of the project, and also one each in server/ and worker/"
@@ -111,22 +111,21 @@ _put = (data) ->
   else
     sn = ''
     ps = ''
-  for CNE in CNS
-    console.log 'Sending ' + (if sn then sn + ' ' else '') + 'for ' + CNE.SCRIPT_ID + (if CNE.NAME then ' on ' + CNE.NAME else '')
-    if CNE.ACCOUNT_ID and CNE.SCRIPT_ID and CNE.API_TOKEN
-      # data is either an object to send to secrets, or a file handle to stream to worker
-      ret = await _sr data, 
-        hostname: 'api.cloudflare.com'
-        port: 443
-        path: '/client/v4/accounts/' + CNE.ACCOUNT_ID + '/workers/scripts/' + CNE.SCRIPT_ID + ps
-        method: 'PUT'
-        headers:
-          'Content-Type': if ps then 'application/json' else 'application/javascript'
-          #'Content-Length': data.length
-          'Authorization': 'Bearer ' + CNE.API_TOKEN
-      try console.log('ERROR', e.code, e.message) for e in ret.errors
-      try console.log (ret?.success ? 'false'), CNE.SCRIPT_ID, CNE.NAME, sn
-      console.log '------'
+  console.log 'Sending ' + (if sn then sn + ' ' else '') + 'for ' + CNS.SCRIPT_ID + (if CNS.NAME then ' on ' + CNS.NAME else '')
+  if CNS.ACCOUNT_ID and CNS.SCRIPT_ID and CNS.API_TOKEN
+    # data is either an object to send to secrets, or a file handle to stream to worker
+    ret = await _sr data, 
+      hostname: 'api.cloudflare.com'
+      port: 443
+      path: '/client/v4/accounts/' + CNS.ACCOUNT_ID + '/workers/scripts/' + CNS.SCRIPT_ID + ps
+      method: 'PUT'
+      headers:
+        'Content-Type': if ps then 'application/json' else 'application/javascript'
+        #'Content-Length': data.length
+        'Authorization': 'Bearer ' + CNS.API_TOKEN
+    try console.log('ERROR', e.code, e.message) for e in ret.errors
+    try console.log (ret?.success ? 'false'), CNS.SCRIPT_ID, CNS.NAME, sn
+    console.log '------'
 
 _exec = (cmd) ->
   return new Promise (d) ->
@@ -287,7 +286,7 @@ _w = () ->
               SECRETS_DATA.system = SYSTOKEN
             if 'worker' in args
               if 'secrets' in args
-                if not CNS.length
+                if not CNS.API_TOKEN
                   console.log "To push secrets to cloudflare, cloudflare account ID, API token, and script ID must be set to keys ACCOUNT_ID, API_TOKEN, SCRIPT_ID, in ./secrets/construct.json"
                 else
                   console.log 'Sending worker ' + SECRETS_NAME + ' secrets to cloudflare'
@@ -314,7 +313,7 @@ _w = () ->
   if 'deploy' in args
     if 'worker' in args
       if fs.existsSync './worker/dist/worker.min.js'
-        if not CNS.length
+        if not CNS.API_TOKEN
           console.log "To deploy worker to cloudflare, cloudflare account ID, API token, and script ID must be set to keys ACCOUNT_ID, API_TOKEN, SCRIPT_ID, in secrets/construct.json"
         else
           console.log "Deploying worker to cloudflare"
@@ -322,16 +321,6 @@ _w = () ->
       else
         console.log "No worker file available to deploy to cloudflare at worker/dist/worker.min.js\n"
   
-    if 'server' in args
-      for CNE in CNS
-        if CNE.SCP
-          if fs.existsSync './server/dist/server.min.js'
-            console.log "Deploying server to " + CNE.SCP + (if CNE.NAME then ' for ' + CNE.NAME else '')
-            console.log await _exec 'scp ./server/dist/server.min.js ' + CNE.SCP
-          else
-            console.log "No server file available to deploy at server/dist/server.min.js\n"
-            break
-
   if 'construct' in args
     # not done by default, and not mentioned. Unnecessary, because even if a js is constructed, it still needs coffee for the translation stage
     try fs.writeFileSync './construct.js', coffee.compile fs.readFileSync('./construct.coffee').toString(), bare: true
@@ -339,7 +328,7 @@ _w = () ->
   if VERSION
     console.log 'v' + VERSION + ' built at ' + DATE
 
-  if BG.startsWith 'http' # this will confirm version deployment to BG if available, and also causes any scheduled tasks to be loaded on restart
+  if BG and BG.startsWith 'http' # this will confirm version deployment to BG if available, and also causes any scheduled tasks to be loaded on restart
     setTimeout () ->
       req = https.request {hostname: BG.split('://')[1], port: if BG.startsWith('https') then 443 else 80}, (res) -> 
         body = ''

@@ -3,6 +3,8 @@
 *secrets*
 worker/src/schedule.coffee
 server/src/schedule.coffee
+worker/src/loader.coffee
+server/src/loader.coffee
 server/dist/
 *.tmp
 *.swp
