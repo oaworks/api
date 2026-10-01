@@ -1,7 +1,4 @@
 
-S.src.openalex ?= {}
-try S.src.openalex = JSON.parse SECRETS_OPENALEX
-
 # https://docs.openalex.org/api
 # https://docs.openalex.org/download-snapshot/snapshot-data-format
 # https://docs.openalex.org/download-snapshot/download-to-your-machine
@@ -36,7 +33,7 @@ try S.src.openalex = JSON.parse SECRETS_OPENALEX
 P.src.openalex = -> return true
 
 P.src.openalex.rates = ->
-  return @fetch 'https://api.openalex.org/rate-limit?api_key=' + @S.src.openalex.apikey, {rate: ['openalex', 80]}
+  return @fetch 'https://api.openalex.org/rate-limit?api_key=' + @S.openalex.apikey, {rate: ['openalex', 80]}
 
 
 P.src.openalex.works = _index: {settings: {number_of_shards: 15}}, _prefix: false
@@ -104,11 +101,11 @@ P.src.openalex.works.find = (doi, openalex, pmcid, pmid, refresh) -> # ident can
       return found
 
   if doi
-    res = await @fetch ('https://api.openalex.org/works/https://doi.org/' + doi + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '')), {rate: ['openalex', 80]}
+    res = await @fetch ('https://api.openalex.org/works/https://doi.org/' + doi + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.openalex?.apikey then '&api_key=' + @S.openalex.apikey else '')), {rate: ['openalex', 80]}
   if not res and openalex
-    res = await @fetch ('https://api.openalex.org/works/' + openalex + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '')), {rate: ['openalex', 80]}
+    res = await @fetch ('https://api.openalex.org/works/' + openalex + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.openalex?.apikey then '&api_key=' + @S.openalex.apikey else '')), {rate: ['openalex', 80]}
   if not res and pmid
-    res = await @fetch ('https://api.openalex.org/works/pmid:' + pmid + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '')), {rate: ['openalex', 80]}
+    res = await @fetch ('https://api.openalex.org/works/pmid:' + pmid + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.openalex?.apikey then '&api_key=' + @S.openalex.apikey else '')), {rate: ['openalex', 80]}
 
   if false #not res and pmcid # using filters for pmcid searches is too "expensive"
     # openalex does not appear to have ids.pmcid on records now, even though ids.pmcid is still a searchable field, and the locations does contain it
@@ -121,10 +118,10 @@ P.src.openalex.works.find = (doi, openalex, pmcid, pmid, refresh) -> # ident can
     # whereas our copy (older) had pmcid too: https://bg.beta.oa.works/src/openalex/works/10.1073/pnas.30.11.362
     # can also check locations.landing_page_url for PMID: https://pubmed.ncbi.nlm.nih.gov/37788887
     pml = pmcid.toLowerCase().replace('pmc', '')
-    res = await @fetch ('https://api.openalex.org/works?filter=locations.landing_page_url:https://www.ncbi.nlm.nih.gov/pmc/articles/' + pml + '|https://europepmc.org/articles/pmc' + pml + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '')), {rate: ['openalexFilter', 20, 10000, 86400]}
+    res = await @fetch ('https://api.openalex.org/works?filter=locations.landing_page_url:https://www.ncbi.nlm.nih.gov/pmc/articles/' + pml + '|https://europepmc.org/articles/pmc' + pml + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.openalex?.apikey then '&api_key=' + @S.openalex.apikey else '')), {rate: ['openalexFilter', 20, 10000, 86400]}
     try res = res.results[0]
     try res = undefined if not res?.id
-    res ?= await @fetch ('https://api.openalex.org/works?filter=ids.pmcid:https://www.ncbi.nlm.nih.gov/pmc/articles/' + pml + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '')), {rate: ['openalexFilter', 20, 10000, 86400]}
+    res ?= await @fetch ('https://api.openalex.org/works?filter=ids.pmcid:https://www.ncbi.nlm.nih.gov/pmc/articles/' + pml + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.openalex?.apikey then '&api_key=' + @S.openalex.apikey else '')), {rate: ['openalexFilter', 20, 10000, 86400]}
     try res = res.results[0]
     try res = undefined if not res?.id
   if typeof res is 'object' and res.id
@@ -356,7 +353,7 @@ P.src.openalex.sources.load = ->
   await @src.openalex.sources ''
   total = 0
   batch = []
-  url = 'https://api.openalex.org/sources?' + (if @S.src.openalex?.apikey then 'api_key=' + @S.src.openalex.apikey + '&' else '') + 'per-page=200&cursor='
+  url = 'https://api.openalex.org/sources?' + (if @S.openalex?.apikey then 'api_key=' + @S.openalex.apikey + '&' else '') + 'per-page=200&cursor='
   res = await @fetch url + '*'
   while res? and typeof res is 'object' and Array.isArray(res.results) and res.results.length
     for rec in res.results
@@ -425,7 +422,7 @@ P.src.openalex.hybrid = (issns) ->
         cursor = '*'
         # doing created and updated separately because although we initially thought updated would include created, there is suggestions it does not, in missing records
         # https://github.com/ourresearch/openalex-api-tutorials/blob/main/notebooks/getting-started/premium.ipynb
-        url = 'https://api.openalex.org/' + w + '?filter=from_' + filter + '_date:' + last[filter] + '&api_key=' + @S.src.openalex.apikey + '&per-page=200&cursor='
+        url = 'https://api.openalex.org/' + w + '?filter=from_' + filter + '_date:' + last[filter] + '&api_key=' + @S.openalex.apikey + '&per-page=200&cursor='
         console.log 'Openalex changes querying', url + cursor
         try
           res = await @fetch url + cursor
@@ -472,18 +469,3 @@ P.src.openalex.hybrid = (issns) ->
   return total
 '''
 
-
-
-P.src.openalex.works.tf = ->
-  doi = @params.tf ? 'W2416193353'
-  if doi.startsWith 'W'
-    ox = doi
-    doi = undefined
-  if ox
-    rec = await @fetch ('https://api.openalex.org/works/' + ox + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '')), {rate: ['openalex', 80]}
-  else if doi
-    rec = await @fetch ('https://api.openalex.org/works/https://doi.org/' + doi + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '')), {rate: ['openalex', 80]}
-
-  if typeof rec is 'object' and rec.id
-    found = await @src.openalex.works._format rec
-  return { rec, found }

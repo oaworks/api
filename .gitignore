@@ -6,5 +6,6 @@ server/src/schedule.coffee
 worker/src/loader.coffee
 server/src/loader.coffee
 server/dist/
+worker/dist/
 *.tmp
 *.swp

@@ -184,23 +184,9 @@ P.src.epmc.licence = (pmcid, rec, fulltext, refresh) ->
       else
         if not fulltext and pmcid
           fulltext = await @src.epmc.xml pmcid, rec, refresh
-        if @licence? and fulltext
-          if typeof fulltext is 'string' and fulltext.startsWith '<'
-            lics = await @licence undefined, fulltext, '<permissions>', '</permissions>'
-            lics.source = 'epmc_xml_permissions' if lics?.licence?
-          if not lics?.licence?
-            lics = await @licence undefined, fulltext
-            lics.source = 'epmc_xml_outside_permissions' if lics?.licence?
         if not lics?.licence? and typeof fulltext is 'string' and fulltext.includes '<permissions>'
           lics = licence: 'non-standard-licence', source: 'epmc_xml_permissions'
-  
-        #if pmcid and @licence? and (not lics?.licence? or lics?.licence is 'non-standard-licence')
-        #  await @sleep 1000
-        #  url = 'https://europepmc.org/articles/PMC' + pmcid.toLowerCase().replace 'pmc', ''
-        #  if pg = await @puppet url
-        #    try lics = await @licence undefined, pg
-        #    lics.source = 'epmc_html' if lics?.licence?
-    
+      
     if lics?.licence?
       rec.calculated_licence = lics
       await @src.epmc rec.id, rec

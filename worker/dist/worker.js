@@ -161,6 +161,10 @@ P = async function() {
     this.waitUntil = function(fn) {
       return true; // just let it run
     };
+    try {
+      this.S.pm2 = (await this._child('sudo', ['-u', 'oaw', 'which', 'pm2']));
+    } catch (error) {}
+    console.log('@S.pm2 set to', this.S.pm2);
   } else if (!this.S.kv) { // try setting a default key-value store reference on the worker
     // where will backend overwrite this to true? can this be set on the global S, and overwritten on backend?
     this.S.kv = this.S.name.replace(/\s/g, '');
@@ -1917,113 +1921,6 @@ P.users._delete = async function(uid) {
   }
 };
 
-// get the big deal data from a sheet and expose it in a website
-// https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4frfBvvPOKKFhArpV7cRUG0aAbfGRy214y-xlDG_CsW7kNbL-e8tuRvh8y37F4xc8wjO6FK8SD6UT/pubhtml
-// https://docs.google.com/spreadsheets/d/1dPG7Xxvk4qnPajTu9jG_uNuz2R5jvjfeaKI-ylX4NXs/edit
-P.deal = {
-  _index: true,
-  _prefix: false
-};
-
-P.deal.institution = {
-  _index: true,
-  _prefix: false
-};
-
-P.deal.load = async function() {
-  var i, institutions, insts, j, k, len, len1, name, rdc, rec, recs, ref, tk, tl;
-  recs = (await this.src.google.sheets('1dPG7Xxvk4qnPajTu9jG_uNuz2R5jvjfeaKI-ylX4NXs'));
-  institutions = {};
-  for (j = 0, len = recs.length; j < len; j++) {
-    rec = recs[j];
-    ref = ['Institution', 'Publisher', 'Collection', 'Year(s)', 'Length of Agreement', 'Package Price', '2015 Carnegie Basic Classification', 'FTE', 'Source', 'URL', 'Share URL Publicly?', 'Notes'];
-    for (k = 0, len1 = ref.length; k < len1; k++) {
-      tk = ref[k];
-      tl = tk.toLowerCase().replace(/ /g, '').replace('?', '').replace('(', '').replace(')', '');
-      rec[tl] = rec[tk];
-      delete rec[tk];
-    }
-    try {
-      rec.value = parseInt(rec.packageprice.replace(/[^0-9]/g, ''));
-      if (typeof rec.fte === 'string') {
-        try {
-          rec.fte = parseInt(rec.fte);
-        } catch (error) {
-          delete rec.fte;
-        }
-      }
-      if (typeof rec.notes === 'string' && rec.notes.toLowerCase().includes('canadian')) {
-        rec.gbpvalue = Math.floor(rec.value * .57);
-        rec.usdvalue = Math.floor(rec.value * .75);
-      } else if (rec.packageprice.includes('$')) {
-        rec.gbpvalue = Math.floor(rec.value * .77);
-        rec.usdvalue = Math.floor(rec.value);
-      } else {
-        rec.gbpvalue = Math.floor(rec.value);
-        rec.usdvalue = Math.floor(rec.value * 1.3);
-      }
-    } catch (error) {}
-    if (rec.usdvalue == null) {
-      rec.usdvalue = '';
-    }
-    try {
-      if (rec.years === '2103') { // fix what is probably a typo
-        rec.years = '2013';
-      }
-    } catch (error) {}
-    try {
-      if (rec.shareurlpublicly.toLowerCase() !== 'yes') {
-        delete rec.url;
-      }
-    } catch (error) {}
-    try {
-      delete rec.shareurlpublicly;
-    } catch (error) {}
-    try {
-      if (rec.collection === '') {
-        rec.collection = 'Unclassified';
-      }
-    } catch (error) {}
-    try {
-      rec.carnegiebasicclassification = rec['2015carnegiebasicclassification'];
-      delete rec['2015carnegiebasicclassification'];
-    } catch (error) {}
-    try {
-      if (institutions[name = rec.institution] == null) {
-        institutions[name] = {
-          institution: rec.institution,
-          deals: [],
-          value: 0,
-          usdvalue: 0,
-          gbpvalue: 0
-        };
-      }
-      rdc = JSON.parse(JSON.stringify(rec));
-      try {
-        delete rdc.institution;
-      } catch (error) {}
-      try {
-        institutions[rec.institution].value += rec.value;
-        institutions[rec.institution].gbpvalue += rec.gbpvalue;
-        institutions[rec.institution].usdvalue += rec.usdvalue;
-      } catch (error) {}
-      institutions[rec.institution].deals.push(rdc);
-    } catch (error) {}
-  }
-  insts = [];
-  for (i in institutions) {
-    insts.push(institutions[i]);
-  }
-  await this.deal('');
-  await this.deal.institution('');
-  await this.deal(recs);
-  await this.deal.institution(insts);
-  return {
-    retrieved: recs.length,
-    institutions: insts.length
-  };
-};
-
 // need listing of deposits and deposited for each user ID
 // and/or given a uid, find the most recent URL that this users uid submitted a deposit for
 // need to handle old/new user configs somehow - just store all the old ones and let the UI pick them up
@@ -2432,9 +2329,9 @@ P.archivable = async function(file, url, confirmed, meta, permissions, dev) {
     licence: void 0
   };
   _check = async() => {
-    var a, af, an, authorsfound, base, content, contentsmall, err, ft, hts, i, inc, ind, j, l, len, len1, len2, lowercontentsmall, lowercontentstart, ls, matched, n, re, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rts, sc, wtm, wts;
+    var a, af, an, authorsfound, base, content, contentsmall, err, ft, hts, i, inc, ind, j, l, len, len1, len2, lowercontentsmall, lowercontentstart, matched, n, re, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rts, sc, wtm, wts;
     if (typeof meta === 'string' || ((meta == null) && (this.params.doi || this.params.title))) {
-      meta = (await _internal((ref = meta != null ? meta : this.params.doi) != null ? ref : this.params.title));
+      meta = (await this.metadata_internal((ref = meta != null ? meta : this.params.doi) != null ? ref : this.params.title));
     }
     if (meta == null) {
       meta = {};
@@ -2629,13 +2526,6 @@ P.archivable = async function(file, url, confirmed, meta, permissions, dev) {
       if (f.version === 'unknown' && f.version_evidence.strings_checked > 0) { //and f.format? and f.format isnt 'pdf'
         f.version = 'acceptedVersion';
       }
-      try {
-        ls = (await this.licence(void 0, lowercontentsmall)); // check for licence info in the file content
-        if ((ls != null ? ls.licence : void 0) != null) {
-          f.licence = ls.licence;
-          f.licence_evidence = ls;
-        }
-      } catch (error) {}
       f.archivable = false;
       if (confirmed) {
         f.archivable = true;
@@ -2821,875 +2711,65 @@ P.deposited = async function() {
 // so if dropping find altogether, just use @citation to get the URL e.g. in calls to permissions that may also need it such as for shareyourpaper
 // find will also operate without a DOI whereas shareyourpaper and permissions didn't - they could be changed to allow that, or just restrict some of what find used to do
 // find will also give info of any open ILLs
+
+// old service closure pointers
 var indexOf = [].indexOf;
 
-P.metadata = async function(doi) {
-  var res;
+P.metadata = function() {
   return {
     status: 410,
     body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
   };
-  res = (await this.find(doi)); // may not be a DOI, but most likely thing
-  return res != null ? res.metadata : void 0;
 };
 
-P.metadata._log = false;
-
-P.find = async function(options, metadata = {}, content) {
-  var _ill, _metadata, _permissions, cr, dd, dps, epmc, i, len, openalex, pi, ref, ref1, ref10, ref11, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, uo;
+P.find = function() {
   return {
     status: 410,
     body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
   };
-  res = {};
-  _metadata = async(input) => {
-    var ct, k, results;
-    ct = (await this.citation(input));
-    results = [];
-    for (k in ct) {
-      if (k === 'url' || k === 'paywall') {
-        results.push(res[k] != null ? res[k] : res[k] = ct[k]);
-      } else {
-        results.push(metadata[k] != null ? metadata[k] : metadata[k] = ct[k]);
-      }
-    }
-    return results;
-  };
-  if (typeof options === 'string') {
-    options = options.split('doi.org/').pop().startsWith('10.') ? {
-      doi: options
-    } : {
-      title: options
-    };
-  }
-  try {
-    if (options == null) {
-      options = this.copy(this.params);
-    }
-  } catch (error) {}
-  if (options == null) {
-    options = {};
-  }
-  if (content == null) {
-    content = (ref = options.dom) != null ? ref : (typeof this.body === 'string' ? this.body : void 0);
-  }
-  if (options.metadata) {
-    options.find = options.metadata;
-  }
-  if (options.find) {
-    if (options.find.startsWith('10.') && options.find.includes('/')) {
-      options.doi = options.find;
-    } else {
-      options.url = options.find;
-    }
-    delete options.find;
-  }
-  if (options.url == null) {
-    options.url = (ref1 = options.q) != null ? ref1 : options.id;
-  }
-  if (options.url) {
-    if (typeof options.url === 'number') {
-      options.url = options.url.toString();
-    }
-    if (options.url.startsWith('/10.')) {
-      // we don't use a regex to try to pattern match a DOI because people often make mistakes typing them, so instead try to find one
-      // in ways that may still match even with different expressions (as long as the DOI portion itself is still correct after extraction we can match it)
-      dd = '10.' + options.url.split('/10.')[1].split('&')[0].split('#')[0];
-      if (dd.includes('/') && dd.split('/')[0].length > 6 && dd.length > 8) {
-        dps = dd.split('/');
-        if (dps.length > 2) {
-          dd = dps.join('/');
-        }
-        if (metadata.doi == null) {
-          metadata.doi = dd;
-        }
-      }
-    }
-    if (options.url.replace('doi:', '').replace('doi.org/', '').trim().startsWith('10.')) {
-      if (metadata.doi == null) {
-        metadata.doi = options.url.replace('doi:', '').replace('doi.org/', '').trim();
-      }
-      options.url = 'https://doi.org/' + metadata.doi;
-    } else if (options.url.toLowerCase().startsWith('pmc')) {
-      if (metadata.pmcid == null) {
-        metadata.pmcid = options.url.toLowerCase().replace('pmcid', '').replace('pmc', '');
-      }
-      options.url = 'http://europepmc.org/articles/PMC' + metadata.pmcid;
-    } else if (options.url.replace(/pmid/i, '').replace(':', '').length < 10 && options.url.includes('.') && !isNaN(parseInt(options.url.replace(/pmid/i, '').replace(':', '').trim()))) {
-      if (metadata.pmid == null) {
-        metadata.pmid = options.url.replace(/pmid/i, '').replace(':', '').trim();
-      }
-      options.url = 'https://www.ncbi.nlm.nih.gov/pubmed/' + metadata.pmid;
-    } else if ((metadata.title == null) && !options.url.startsWith('http')) {
-      if (options.url.includes('{') || ((ref2 = options.url.replace('...', '').match(/\./gi)) != null ? ref2 : []).length > 3 || ((ref3 = options.url.match(/\(/gi)) != null ? ref3 : []).length > 2) {
-        options.citation = options.url;
-      } else {
-        metadata.title = options.url;
-      }
-    }
-    if (!options.url.startsWith('http') || !options.url.includes('.')) {
-      delete options.url;
-    }
-  }
-  if (typeof options.title === 'string' && (options.title.includes('{') || ((ref4 = options.title.replace('...', '').match(/\./gi)) != null ? ref4 : []).length > 3 || ((ref5 = options.title.match(/\(/gi)) != null ? ref5 : []).length > 2)) {
-    options.citation = options.title; // titles that look like citations
-    try {
-      if (options.title.includes('10.') && options.title.includes('/')) {
-        options.doi = '10.' + options.title.split('10.')[1].split(' ')[0].trim();
-      }
-    } catch (error) {}
-    if (options.doi.length < 8 || !options.doi.includes('/')) {
-      delete options.doi;
-    }
-    delete options.title;
-  }
-  if (options.doi) {
-    options.doi = (await this.decode(options.doi));
-  }
-  if (metadata.doi == null) {
-    metadata.doi = options.doi;
-  }
-  if (metadata.title == null) {
-    metadata.title = options.title;
-  }
-  if (metadata.pmid == null) {
-    metadata.pmid = options.pmid;
-  }
-  if (metadata.pmcid == null) {
-    metadata.pmcid = (ref6 = options.pmcid) != null ? ref6 : options.pmc;
-  }
-  if (options.citation) {
-    await _metadata(options.citation);
-  }
-  try {
-    metadata.title = metadata.title.replace(/(<([^>]+)>)/g, '').replace(/\+/g, ' ').trim();
-  } catch (error) {}
-  try {
-    metadata.title = (await this.decode(metadata.title));
-  } catch (error) {}
-  try {
-    metadata.doi = metadata.doi.split(' ')[0].replace('http://', '').replace('https://', '').replace('doi.org/', '').replace('doi:', '').trim();
-  } catch (error) {}
-  if (typeof metadata.doi !== 'string' || !metadata.doi.startsWith('10.')) {
-    delete metadata.doi;
-  }
-  if (!metadata.title && content && typeof options.url === 'string' && (options.url.includes('alma.exlibrisgroup.com') || options.url.includes('/exlibristest'))) {
-    // switch exlibris URLs for titles, which the scraper knows how to extract, because the exlibris url would always be the same
-    delete options.url;
-  }
-  if (options.demo != null) {
-    // set a demo tag in certain cases e.g. for instantill/shareyourpaper/other demos - dev and live demo accounts
-    res.demo = options.demo;
-  }
-  if ((metadata.doi === '10.1234/567890' || ((metadata.doi != null) && metadata.doi.startsWith('10.1234/oab-syp-'))) || metadata.title === 'Engineering a Powerfully Simple Interlibrary Loan Experience with InstantILL' || ((ref7 = options.from) === 'qZooaHWRz9NLFNcgR' || ref7 === 'eZwJ83xp3oZDaec86')) {
-    if (res.demo == null) {
-      res.demo = true;
-    }
-  }
-  if (res.demo) { // don't save things coming from the demo accounts into the catalogue later
-    if (res.test == null) {
-      res.test = true;
-    }
-  }
-  epmc = false;
-  if (((content != null) || (options.url != null)) && !(metadata.doi || (metadata.pmid != null) || (metadata.pmcid != null) || (metadata.title != null))) {
-    await _metadata((await this.scrape(content != null ? content : options.url)));
-  }
-  if (!metadata.doi) {
-    if (metadata.pmid || metadata.pmcid) {
-      epmc = (await this.src.epmc[metadata.pmcid ? 'pmc' : 'pmid']((ref8 = metadata.pmcid) != null ? ref8 : metadata.pmid));
-      await _metadata(epmc);
-    }
-    if (!metadata.doi && metadata.title && metadata.title.length > 8 && metadata.title.split(' ').length > 1) {
-      metadata.title = metadata.title.replace(/\+/g, ' '); // some+titles+come+in+like+this
-      openalex = (await this.src.openalex.works.title(metadata.title));
-      if ((openalex != null ? openalex.type : void 0) && (openalex != null ? openalex.doi : void 0)) {
-        await _metadata(openalex);
-      }
-      if (!metadata.doi && !epmc) {
-        epmc = (await this.src.epmc.title(metadata.title));
-        if (epmc !== false) {
-          await _metadata(epmc);
-        }
-      }
-    }
-  }
-  if (metadata.doi && (openalex = (await this.src.openalex.works.doi(metadata.doi)))) { // run this even if ran openalex title search above, because may since have gotten DOI and could get better
-    await _metadata(openalex);
-  }
-  if (metadata.doi && !(openalex != null ? openalex.type_crossref : void 0)) {
-    res.doi_not_in_openalex = true;
-  }
-  // temporary until publishers in permissions are re-keyed to match openalex publisher names (which differ from crossref which is what we originally keyed them to)
-  // https://github.com/oaworks/discussion/issues/3192#issuecomment-2314515904
-  if (metadata.doi && (cr = (await this.src.crossref.works.doi(metadata.doi)))) { // metadata.publisher and 
-    if (cr.publisher) {
-      metadata.publisher = cr.publisher;
-    }
-  }
-  _ill = async() => {
-    var ref9;
-    if ((metadata.doi || (metadata.title && metadata.title.length > 8 && metadata.title.split(' ').length > 1)) && (options.from || (options.config != null)) && (options.plugin === 'instantill' || options.ill === true)) {
-      try {
-        if (res.ill == null) {
-          res.ill = {
-            subscription: (await this.ill.subscription((ref9 = options.config) != null ? ref9 : options.from, metadata))
-          };
-        }
-      } catch (error) {}
-    }
-    return true;
-  };
-  _permissions = async() => {
-    var ref9;
-    if (metadata.doi && (options.permissions || options.plugin === 'shareyourpaper')) {
-      if (res.permissions == null) {
-        res.permissions = (await this.permissions(metadata, (ref9 = options.config) != null ? ref9.ror : void 0, false));
-      }
-    }
-    return true;
-  };
-  await Promise.all([_ill(), _permissions()]);
-  try {
-    // temporary 
-    if (metadata.doi && (options.permissions || options.plugin === 'shareyourpaper') && !((ref9 = res.permissions) != null ? ref9.all_permissions : void 0) && metadata.publisher_lineage.length > 1) {
-      pi = 0;
-      while (pi < metadata.publisher_lineage.length) {
-        if (metadata.publisher_lineage[pi] !== metadata.publisher) {
-          metadata.publisher = metadata.publisher_lineage[pi];
-          res.permissions = (await this.permissions(metadata, (ref10 = options.config) != null ? ref10.ror : void 0, false));
-          if (res.permissions.all_permissions) {
-            break;
-          }
-        }
-        pi++;
-      }
-    }
-  } catch (error) {}
-  ref11 = ['title', 'journal', 'year', 'doi'];
-  for (i = 0, len = ref11.length; i < len; i++) {
-    uo = ref11[i];
-    if (options[uo] && options[uo] !== metadata[uo]) {
-      // certain user-provided search values are allowed to override any that we could find ourselves. TODO is this ONLY relevant to ILL? or anything else?
-      metadata[uo] = options[uo];
-    }
-  }
-  res.metadata = metadata; // if JSON.stringify(metadata) isnt '{}'
-  return res;
 };
 
-// Yi-Jeng Chen. (2016). Young Children's Collaboration on the Computer with Friends and Acquaintances. Journal of Educational Technology & Society, 19(1), 158-170. Retrieved November 19, 2020, from http://www.jstor.org/stable/jeductechsoci.19.1.158
-// Baker, T. S., Eisenberg, D., & Eiserling, F. (1977). Ribulose Bisphosphate Carboxylase: A Two-Layered, Square-Shaped Molecule of Symmetry 422. Science, 196(4287), 293-295. doi:10.1126/science.196.4287.293
-P.citation = async function(citation) {
-  var a, aff, ak, au, authors, bt, cf, clc, cn, i, id, j, k, key, kw, l, len, len1, len10, len11, len12, len2, len3, len4, len5, len6, len7, len8, len9, m, mn, n, o, p, pt, pts, q, r, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref45, ref46, ref47, ref48, ref49, ref5, ref50, ref51, ref52, ref53, ref54, ref55, ref56, ref57, ref58, ref59, ref6, ref60, ref61, ref62, ref63, ref64, ref65, ref66, ref67, ref68, ref69, ref7, ref70, ref71, ref72, ref73, ref74, ref75, ref76, ref77, ref78, ref79, ref8, ref80, ref81, ref82, ref83, ref84, ref85, ref86, ref87, ref88, ref89, ref9, ref90, ref91, ref92, ref93, ref94, ref95, ref96, res, rmn, rt, s, sy, t, u, v, w, x, y;
+P.citation = function() {
   return {
     status: 410,
     body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
   };
-  try {
-    if (citation == null) {
-      citation = (ref = this.params.citation) != null ? ref : this.params;
-    }
-  } catch (error) {}
-  if (typeof citation === 'string') {
-    try {
-      if (citation.startsWith('{') || citation.startsWith('[')) {
-        citation = JSON.parse(citation);
-      }
-    } catch (error) {}
-    if (citation.startsWith('10.')) {
-      citation = (await this.src.openalex.works.doi(citation));
-    }
-  }
-  res = {};
-  if (typeof citation === 'object') { // can be crossref, oadoi, openalex, epmc format
-    ref1 = ['doi', 'pmid', 'pmcid'];
-    for (i = 0, len = ref1.length; i < len; i++) {
-      id = ref1[i];
-      res[id] = (ref2 = (ref3 = citation[id]) != null ? ref3 : citation[id.toUpperCase()]) != null ? ref2 : (ref4 = citation.ids) != null ? ref4[id] : void 0;
-      if (typeof res[id] === 'number') {
-        res[id] = res[id].toString();
-      }
-      if ((id === 'pmid' || id === 'pmcid') && res[id] && res[id].includes('/')) {
-        res[id] = res[id].split('/').pop();
-      }
-      if ((id === 'doi') && res[id] && res[id].includes('.org/')) {
-        res[id] = res[id].split('.org/').pop();
-      }
-      if (res[id] && id === 'pmcid' && !res[id].startsWith('PMC')) {
-        res[id] = 'PMC' + res[id];
-      }
-    }
-    if (res.doi && !res.DOI) {
-      res.DOI = res.doi;
-    }
-    try {
-      res.type = (ref5 = (ref6 = citation.type_crossref) != null ? ref6 : citation.type) != null ? ref5 : citation.genre;
-    } catch (error) {}
-    res.issn = (ref7 = (ref8 = (ref9 = (ref10 = (ref11 = citation.ISSN) != null ? ref11 : citation.issn) != null ? ref10 : (ref12 = citation.journalInfo) != null ? (ref13 = ref12.journal) != null ? ref13.issn : void 0 : void 0) != null ? ref9 : (ref14 = citation.journal) != null ? ref14.issn : void 0) != null ? ref8 : (ref15 = citation.primary_location) != null ? (ref16 = ref15.source) != null ? ref16.issn : void 0 : void 0) != null ? ref7 : [];
-    if ((((ref17 = citation.journalInfo) != null ? (ref18 = ref17.journal) != null ? ref18.eissn : void 0 : void 0) != null) && (ref19 = citation.journalInfo.journal.eissn, indexOf.call(res.issn, ref19) < 0)) {
-      res.issn.push(citation.journalInfo.journal.eissn);
-    }
-    if (!res.issn && citation.journal_issns) {
-      res.issn = citation.journal_issns.split(',');
-    }
-    res.title = citation.title;
-    if (Array.isArray(res.title)) {
-      res.title = res.title[0];
-    }
-    if (res.title && (citation.subtitle != null) && citation.subtitle.length && citation.subtitle[0].length) {
-      res.title += ': ' + citation.subtitle[0];
-    }
-    if (res.title == null) {
-      res.title = (ref20 = citation.dctitle) != null ? ref20 : (ref21 = citation.bibjson) != null ? ref21.title : void 0;
-    }
-    if ((ref22 = res.title) === 404 || ref22 === '404') {
-      delete res.title;
-    }
-    if (typeof res.title === 'string') {
-      res.title = res.title.replace(/\s\s+/g, ' ').trim();
-    }
-    res.journal = citation['container-title'] ? citation['container-title'][0] : (ref23 = citation.primary_location) != null ? (ref24 = ref23.source) != null ? ref24.display_name : void 0 : void 0;
-    try {
-      res.shortname = citation['short-container-title'][0];
-    } catch (error) {}
-    try {
-      res.shortname = (ref25 = citation.journalInfo.journal.isoabbreviation) != null ? ref25 : citation.journalInfo.journal.medlineAbbreviation;
-    } catch (error) {}
-    if (res.journal == null) {
-      res.journal = (ref26 = (ref27 = citation.journal_name) != null ? ref27 : (ref28 = citation.journalInfo) != null ? (ref29 = ref28.journal) != null ? ref29.title : void 0 : void 0) != null ? ref26 : (ref30 = citation.journal) != null ? ref30.title : void 0;
-    }
-    if (citation.journal) {
-      res.journal = citation.journal.split('(')[0].trim();
-    }
-    if (res.shortname == null) {
-      res.shortname = res.journal; // fix for old embed that still expects something here
-    }
-    if (res.shortname && !res.journal_short) { // fix for change to old metadata field name
-      res.journal_short = res.shortname;
-    }
-    try {
-      ref31 = ['title', 'journal'];
-      for (j = 0, len1 = ref31.length; j < len1; j++) {
-        key = ref31[j];
-        if (res[key] == null) {
-          res[key] = res[key].charAt(0).toUpperCase() + res[key].slice(1);
-        }
-      }
-    } catch (error) {}
-    res.publisher = (ref32 = (ref33 = citation.publisher) != null ? ref33 : (ref34 = citation.primary_location) != null ? (ref35 = ref34.source) != null ? ref35.publisher : void 0 : void 0) != null ? ref32 : (ref36 = citation.primary_location) != null ? (ref37 = ref36.source) != null ? ref37['host_organization_name'] : void 0 : void 0;
-    if (res.publisher) {
-      res.publisher = res.publisher.trim();
-    }
-    try {
-      res.publisher_lineage = citation.primary_location.source.host_organization_lineage_names; // temporary re. https://github.com/oaworks/discussion/issues/3227
-    } catch (error) {}
-    res.published = citation.publication_date; // like 2009-01-01
-    res.issue = (ref38 = (ref39 = citation.issue) != null ? ref39 : (ref40 = citation.journalInfo) != null ? ref40.issue : void 0) != null ? ref38 : (ref41 = citation.biblio) != null ? ref41.issue : void 0;
-    res.volume = (ref42 = (ref43 = citation.volume) != null ? ref43 : (ref44 = citation.journalInfo) != null ? ref44.volume : void 0) != null ? ref42 : (ref45 = citation.biblio) != null ? ref45.volume : void 0;
-    if (citation.page || citation.pages || citation.pageInfo) {
-      res.pages = ((ref46 = (ref47 = citation.page) != null ? ref47 : citation.pages) != null ? ref46 : citation.pageInfo).toString();
-    }
-    if (((ref48 = citation.biblio) != null ? ref48.first_page : void 0) || ((ref49 = citation.biblio) != null ? ref49.last_page : void 0)) {
-      res.pages = citation.biblio.first_page === citation.biblio.last_page ? citation.biblio.first_page : ((ref50 = citation.biblio.first_page) != null ? ref50 : '') + (citation.biblio.first_page && citation.biblio.last_page ? '-' : '') + ((ref51 = citation.biblio.last_page) != null ? ref51 : '');
-    }
-    res.abstract = (ref52 = citation.abstract) != null ? ref52 : citation.abstractText;
-    ref53 = ['published-print', 'journal-issue.published-print', 'journalInfo.printPublicationDate', 'firstPublicationDate', 'journalInfo.electronicPublicationDate', 'published', 'published_date', 'issued', 'published-online', 'created', 'deposited'];
-    for (n = 0, len2 = ref53.length; n < len2; n++) {
-      p = ref53[n];
-      if (typeof res.published !== 'string') { // this may already be set above from openalex for example
-        if (rt = (ref54 = (ref55 = citation[p]) != null ? ref55 : (ref56 = citation['journal-issue']) != null ? ref56[p.replace('journal-issue.', '')] : void 0) != null ? ref54 : (ref57 = citation['journalInfo']) != null ? ref57[p.replace('journalInfo.', '')] : void 0) {
-          if (typeof rt === 'number') {
-            rt = rt.toString();
-          }
-          try {
-            if (typeof rt !== 'string') {
-              rt = rt['date-time'].toString();
-            }
-          } catch (error) {}
-          if (typeof rt !== 'string') {
-            try {
-              for (k in rt['date-parts'][0]) {
-                if ((ref58 = typeof rt['date-parts'][0][k]) !== 'number' && ref58 !== 'string') {
-                  rt['date-parts'][0][k] = '01';
-                }
-              }
-              rt = rt['date-parts'][0].join('-');
-            } catch (error) {}
-          }
-          if (typeof rt === 'string') {
-            res.published = rt.includes('T') ? rt.split('T')[0] : rt;
-            res.published = res.published.replace(/\//g, '-').replace(/-(\d)-/g, "-0$1-").replace(/-(\d)$/, "-0$1");
-            if (!res.published.includes('-')) {
-              res.published += '-01';
-            }
-            if (res.published.split('-').length !== 3) {
-              res.published += '-01';
-            }
-            if (res.year == null) {
-              res.year = res.published.split('-')[0];
-            }
-            if (res.published.split('-').length !== 3) {
-              delete res.published;
-            }
-            if (res.year.toString().length !== 4) {
-              delete res.year;
-            }
-          }
-        }
-        if (res.published) {
-          break;
-        }
-      }
-    }
-    if (citation.year) {
-      if (res.year == null) {
-        res.year = citation.year;
-      }
-    }
-    try {
-      if (res.year == null) {
-        res.year = citation.journalInfo.yearOfPublication.trim();
-      }
-    } catch (error) {}
-    if (!res.year && res.published && res.published.includes('-')) {
-      res.year = res.published.split('-')[0];
-    }
-    if ((res.author == null) && (authors = (ref59 = (ref60 = (ref61 = citation.author) != null ? ref61 : citation.z_authors) != null ? ref60 : (ref62 = citation.authorList) != null ? ref62.author : void 0) != null ? ref59 : citation.authorships)) {
-      if (res.author == null) {
-        res.author = [];
-      }
-      try {
-        for (o = 0, len3 = authors.length; o < len3; o++) {
-          a = authors[o];
-          if (typeof a === 'string') {
-            res.author.push({
-              name: a
-            });
-          } else {
-            au = {};
-            if (typeof a.author === 'object') {
-              if (a.author.display_name.split(' ').length > 1) {
-                au.given = a.author.display_name.split(' ')[0];
-              }
-              au.family = a.author.display_name.split(' ').pop();
-              try {
-                if (a.author.display_name.split(' ').length > 2) {
-                  au.given = a.author.display_name.replace(' ' + au.family, '');
-                }
-              } catch (error) {}
-              au.name = a.author.display_name;
-              ref64 = (ref63 = a.raw_affiliation_strings) != null ? ref63 : [];
-              for (q = 0, len4 = ref64.length; q < len4; q++) {
-                aff = ref64[q];
-                if (au.affiliation == null) {
-                  au.affiliation = [];
-                }
-                au.affiliation.push({
-                  name: aff
-                });
-              }
-            } else {
-              au.given = (ref65 = a.given) != null ? ref65 : a.firstName;
-              au.family = (ref66 = a.family) != null ? ref66 : a.lastName;
-              au.name = (au.given ? au.given + ' ' : '') + ((ref67 = au.family) != null ? ref67 : '');
-              ref69 = (a.affiliation ? (Array.isArray(a.affiliation) ? a.affiliation : [a.affiliation]) : (ref68 = a.authorAffiliationDetailsList.authorAffiliation) != null ? ref68 : []);
-              for (r = 0, len5 = ref69.length; r < len5; r++) {
-                aff = ref69[r];
-                if (typeof aff === 'string') {
-                  if (au.affiliation == null) {
-                    au.affiliation = [];
-                  }
-                  au.affiliation.push({
-                    name: aff.replace(/\s\s+/g, ' ').trim()
-                  });
-                } else if (typeof aff === 'object' && (aff.name || aff.affiliation)) {
-                  if (au.affiliation == null) {
-                    au.affiliation = [];
-                  }
-                  au.affiliation.push({
-                    name: ((ref70 = aff.name) != null ? ref70 : aff.affiliation).replace(/\s\s+/g, ' ').trim()
-                  });
-                }
-              }
-            }
-            try {
-              au.affiliation = au.affiliation.sort(function(a, b) {
-                return a.name.localeCompare(b.name);
-              });
-            } catch (error) {}
-            res.author.push(au);
-          }
-        }
-      } catch (error) {}
-    }
-    try {
-      if ((citation.subject != null) && citation.subject.length && typeof citation.subject[0] === 'string') {
-        res.subject = citation.subject;
-      }
-    } catch (error) {}
-    try {
-      if ((((ref71 = citation.keywordList) != null ? ref71.keyword : void 0) != null) && citation.keywordList.keyword.length && typeof citation.keywordList.keyword[0] === 'string') {
-        res.keyword = citation.keywordList.keyword;
-      }
-    } catch (error) {}
-    if (!res.keyword && citation.keywords) { // openalex also has topics and fields / subfields, use those here?
-      res.keyword = [];
-      ref72 = citation.keywords;
-      for (s = 0, len6 = ref72.length; s < len6; s++) {
-        kw = ref72[s];
-        if (kw.keyword || kw.display_name) {
-          res.keyword.push((ref73 = kw.keyword) != null ? ref73 : kw.display_name);
-        }
-      }
-    }
-    try {
-      ref78 = [...((ref74 = (ref75 = citation.meshHeadingList) != null ? ref75.meshHeading : void 0) != null ? ref74 : []), ...((ref76 = (ref77 = citation.chemicalList) != null ? ref77.chemical : void 0) != null ? ref76 : [])];
-      for (t = 0, len7 = ref78.length; t < len7; t++) {
-        m = ref78[t];
-        if (res.keyword == null) {
-          res.keyword = [];
-        }
-        mn = typeof m === 'string' ? m : (ref79 = m.name) != null ? ref79 : m.descriptorName;
-        if (typeof mn === 'string' && mn && indexOf.call(res.keyword, mn) < 0) {
-          res.keyword.push(mn);
-        }
-      }
-    } catch (error) {}
-    if (typeof citation.license === 'string') {
-      res.licence = citation.license.trim().replace(/ /g, '-');
-    }
-    if (typeof citation.licence === 'string') {
-      res.licence = citation.licence.trim().replace(/ /g, '-');
-    }
-    try {
-      if ((ref80 = citation.best_oa_location) != null ? ref80.license : void 0) {
-        if (res.licence == null) {
-          res.licence = citation.best_oa_location.license;
-        }
-      }
-    } catch (error) {}
-    try {
-      if ((ref81 = citation.primary_location) != null ? ref81.license : void 0) {
-        if (res.licence == null) {
-          res.licence = citation.primary_location.license;
-        }
-      }
-    } catch (error) {}
-    if (!res.licence) {
-      ref83 = (ref82 = citation.assertion) != null ? ref82 : [];
-      for (u = 0, len8 = ref83.length; u < len8; u++) {
-        a = ref83[u];
-        if (a.label === 'OPEN ACCESS' && a.URL && a.URL.includes('creativecommons')) {
-          if (res.licence == null) {
-            res.licence = a.URL; // and if the record has a URL, it can be used as an open URL rather than a paywall URL, or the DOI can be used
-          }
-        }
-      }
-      ref85 = (ref84 = citation.license) != null ? ref84 : [];
-      for (v = 0, len9 = ref85.length; v < len9; v++) {
-        l = ref85[v];
-        if (l.URL && l.URL.includes('creativecommons') && (!res.licence || !res.licence.includes('creativecommons'))) {
-          if (res.licence == null) {
-            res.licence = l.URL;
-          }
-        }
-      }
-    }
-    if (typeof res.licence === 'string' && res.licence.includes('/licenses/')) {
-      res.licence = 'cc-' + res.licence.split('/licenses/')[1].replace(/$\//, '').replace(/\//g, '-').replace(/-$/, '');
-    }
-    // if there is a URL to use but not open, store it as res.paywall?
-    if (res.url == null) {
-      res.url = (ref86 = (ref87 = (ref88 = (ref89 = citation.best_oa_location) != null ? ref89.pdf_url : void 0) != null ? ref88 : (ref90 = citation.best_oa_location) != null ? ref90.url_for_pdf : void 0) != null ? ref87 : (ref91 = citation.best_oa_location) != null ? ref91.url : void 0) != null ? ref86 : (ref92 = citation.best_oa_location) != null ? ref92.landing_page_url : void 0; //? citation.url # is this always an open URL? check the sources, and check where else the open URL could be. Should it be blacklist checked and dereferenced?
-    }
-    if (!res.url && (((ref93 = citation.fullTextUrlList) != null ? ref93.fullTextUrl : void 0) != null)) { // epmc fulltexts
-      ref94 = citation.fullTextUrlList.fullTextUrl;
-      for (w = 0, len10 = ref94.length; w < len10; w++) {
-        cf = ref94[w];
-        if (((ref95 = cf.availabilityCode.toLowerCase()) === 'oa' || ref95 === 'f') && (!res.url || (cf.documentStyle === 'pdf' && !res.url.includes('pdf')))) {
-          res.url = cf.url;
-        }
-      }
-    }
-  } else if (typeof citation === 'string') { // worth keeping citiation string extraction? Don't think it's used anywhere any more
-    try {
-      citation = citation.replace(/citation\:/gi, '').trim();
-      if (citation.includes('title')) {
-        citation = citation.split('title')[1].trim();
-      }
-      citation = citation.replace(/^"/, '').replace(/^'/, '').replace(/"$/, '').replace(/'$/, '');
-      if (citation.includes('doi:')) {
-        res.doi = citation.split('doi:')[1].split(',')[0].split(' ')[0].trim();
-      }
-      if (citation.includes('doi.org/')) {
-        res.doi = citation.split('doi.org/')[1].split(',')[0].split(' ')[0].trim();
-      }
-      if (!res.doi && citation.includes('http')) {
-        res.url = 'http' + citation.split('http')[1].split(' ')[0].trim();
-      }
-      try {
-        if (citation.includes('|') || citation.includes('}')) {
-          res.title = citation.split('|')[0].split('}')[0].trim();
-        }
-        if (citation.split('"').length > 2) {
-          res.title = citation.split('"')[1].trim();
-        } else if (citation.split("'").length > 2) {
-          if (res.title == null) {
-            res.title = citation.split("'")[1].trim();
-          }
-        }
-      } catch (error) {}
-      try {
-        pts = citation.replace(/,\./g, ' ').split(' ');
-        for (x = 0, len11 = pts.length; x < len11; x++) {
-          pt = pts[x];
-          if (!res.year) {
-            pt = pt.replace(/[^0-9]/g, '');
-            if (pt.length === 4) {
-              sy = parseInt(pt);
-              if (typeof sy === 'number' && !isNaN(sy)) {
-                res.year = sy;
-              }
-            }
-          }
-        }
-      } catch (error) {}
-      try {
-        if (!res.title && res.year && citation.indexOf(res.year) < (citation.length / 4)) {
-          res.title = citation.split(res.year)[1].trim();
-          if (!res.title.includes('(') || res.title.indexOf(')') < res.title.indexOf('(')) {
-            res.title = res.title.replace(')', '');
-          }
-          if (res.title.indexOf('.') < 3) {
-            res.title = res.title.replace('.', '');
-          }
-          if (res.title.indexOf(',') < 3) {
-            res.title = res.title.replace(',', '');
-          }
-          res.title = res.title.trim();
-          if (res.title.includes('.')) {
-            res.title = res.title.split('.')[0];
-          } else if (res.title.includes(',')) {
-            res.title = res.title.split(',')[0];
-          }
-        }
-      } catch (error) {}
-      if (res.title) {
-        try {
-          bt = citation.split(res.title)[0];
-          if (res.year && bt.includes(res.year)) {
-            bt = bt.split(res.year)[0];
-          }
-          if (res.url && bt.indexOf(res.url) > 0) {
-            bt = bt.split(res.url)[0];
-          }
-          if (res.url && bt.startsWith(res.url)) {
-            bt = bt.replace(res.url);
-          }
-          if (res.doi && bt.startsWith(res.doi)) {
-            bt = bt.replace(res.doi);
-          }
-          if (bt.indexOf('.') < 3) {
-            bt = bt.replace('.', '');
-          }
-          if (bt.indexOf(',') < 3) {
-            bt = bt.replace(',', '');
-          }
-          if (bt.lastIndexOf('(') > (bt.length - 3)) {
-            bt = bt.substring(0, bt.lastIndexOf('('));
-          }
-          if (bt.lastIndexOf(')') > (bt.length - 3)) {
-            bt = bt.substring(0, bt.lastIndexOf(')'));
-          }
-          if (bt.lastIndexOf(',') > (bt.length - 3)) {
-            bt = bt.substring(0, bt.lastIndexOf(','));
-          }
-          if (bt.lastIndexOf('.') > (bt.length - 3)) {
-            bt = bt.substring(0, bt.lastIndexOf('.'));
-          }
-          bt = bt.trim();
-          if (bt.length > 6) {
-            if (bt.includes(',')) {
-              res.author = [];
-              ref96 = bt.split(',');
-              for (y = 0, len12 = ref96.length; y < len12; y++) {
-                ak = ref96[y];
-                res.author.push({
-                  name: ak
-                });
-              }
-            } else {
-              res.author = [
-                {
-                  name: bt
-                }
-              ];
-            }
-          }
-        } catch (error) {}
-        try {
-          rmn = citation.split(res.title)[1];
-          if (res.url && rmn.includes(res.url)) {
-            rmn = rmn.replace(res.url);
-          }
-          if (res.doi && rmn.includes(res.doi)) {
-            rmn = rmn.replace(res.doi);
-          }
-          if (rmn.indexOf('.') < 3) {
-            rmn = rmn.replace('.', '');
-          }
-          if (rmn.indexOf(',') < 3) {
-            rmn = rmn.replace(',', '');
-          }
-          rmn = rmn.trim();
-          if (rmn.length > 6) {
-            res.journal = rmn;
-            if (rmn.includes(',')) {
-              res.journal = res.journal.split(',')[0].replace(/in /gi, '').trim();
-            }
-            if (res.journal.indexOf('.') < 3) {
-              res.journal = res.journal.replace('.', '');
-            }
-            if (res.journal.indexOf(',') < 3) {
-              res.journal = res.journal.replace(',', '');
-            }
-            res.journal = res.journal.trim();
-          }
-        } catch (error) {}
-      }
-      try {
-        if (res.journal) {
-          rmn = citation.split(res.journal)[1];
-          if (res.url && rmn.includes(res.url)) {
-            rmn = rmn.replace(res.url);
-          }
-          if (res.doi && rmn.includes(res.doi)) {
-            rmn = rmn.replace(res.doi);
-          }
-          if (rmn.indexOf('.') < 3) {
-            rmn = rmn.replace('.', '');
-          }
-          if (rmn.indexOf(',') < 3) {
-            rmn = rmn.replace(',', '');
-          }
-          rmn = rmn.trim();
-          if (rmn.length > 4) {
-            if (rmn.includes('retrieved')) {
-              rmn = rmn.split('retrieved')[0];
-            }
-            if (rmn.includes('Retrieved')) {
-              rmn = rmn.split('Retrieved')[0];
-            }
-            res.volume = rmn;
-            if (res.volume.includes('(')) {
-              res.volume = res.volume.split('(')[0];
-              res.volume = res.volume.trim();
-              try {
-                res.issue = rmn.split('(')[1].split(')')[0];
-                res.issue = res.issue.trim();
-              } catch (error) {}
-            }
-            if (res.volume.includes(',')) {
-              res.volume = res.volume.split(',')[0];
-              res.volume = res.volume.trim();
-              try {
-                res.issue = rmn.split(',')[1];
-                res.issue = res.issue.trim();
-              } catch (error) {}
-            }
-            if (res.volume) {
-              try {
-                if (isNaN(parseInt(res.volume))) {
-                  delete res.volume;
-                }
-              } catch (error) {}
-            }
-            if (res.issue) {
-              if (res.issue.includes(',')) {
-                res.issue = res.issue.split(',')[0].trim();
-              }
-              try {
-                if (isNaN(parseInt(res.issue))) {
-                  delete res.issue;
-                }
-              } catch (error) {}
-            }
-            if (res.volume && res.issue) {
-              try {
-                rmn = citation.split(res.journal)[1];
-                if (rmn.includes('retriev')) {
-                  rmn = rmn.split('retriev')[0];
-                }
-                if (rmn.includes('Retriev')) {
-                  rmn = rmn.split('Retriev')[0];
-                }
-                if (res.url && rmn.includes(res.url)) {
-                  rmn = rmn.split(res.url)[0];
-                }
-                if (res.doi && rmn.includes(res.doi)) {
-                  rmn = rmn.split(res.doi)[0];
-                }
-                rmn = rmn.substring(rmn.indexOf(res.volume) + (res.volume + '').length);
-                rmn = rmn.substring(rmn.indexOf(res.issue) + (res.issue + '').length);
-                if (rmn.indexOf('.') < 2) {
-                  rmn = rmn.replace('.', '');
-                }
-                if (rmn.indexOf(',') < 2) {
-                  rmn = rmn.replace(',', '');
-                }
-                if (rmn.indexOf(')') < 2) {
-                  rmn = rmn.replace(')', '');
-                }
-                rmn = rmn.trim();
-                if (!isNaN(parseInt(rmn.substring(0, 1)))) {
-                  res.pages = rmn.split(' ')[0].split('.')[0].trim();
-                  if (res.pages.length > 5) {
-                    res.pages = res.pages.split(', ')[0];
-                  }
-                }
-              } catch (error) {}
-            }
-          }
-        }
-      } catch (error) {}
-      if (!res.author && citation.includes('et al')) {
-        cn = citation.split('et al')[0].trim();
-        if (citation.startsWith(cn)) {
-          res.author = [
-            {
-              name: cn + 'et al'
-            }
-          ];
-        }
-      }
-      if (res.title && !res.volume) {
-        try {
-          clc = citation.split(res.title)[1].toLowerCase().replace('volume', 'vol').replace('vol.', 'vol').replace('issue', 'iss').replace('iss.', 'iss').replace('pages', 'page').replace('pp', 'page');
-          if (clc.includes('vol')) {
-            res.volume = clc.split('vol')[1].split(',')[0].split('(')[0].split('.')[0].split(' ')[0].trim();
-          }
-          if (!res.issue && clc.includes('iss')) {
-            res.issue = clc.split('iss')[1].split(',')[0].split('.')[0].split(' ')[0].trim();
-          }
-          if (!res.pages && clc.includes('page')) {
-            res.pages = clc.split('page')[1].split('.')[0].split(', ')[0].split(' ')[0].trim();
-          }
-        } catch (error) {}
-      }
-    } catch (error) {}
-  }
-  if (typeof res.year === 'number') {
-    res.year = res.year.toString();
-  }
-  return res;
 };
 
-// the only things find does that could be required separately is it provides a URL to the article, which is actually extracted in @citation
-// so if dropping find altogether, just use @citation to get the URL e.g. in calls to permissions that may also need it such as for shareyourpaper
-// find will also operate without a DOI whereas shareyourpaper and permissions didn't - they could be changed to allow that, or just restrict some of what find used to do
-// find will also give info of any open ILLs
-var indexOf = [].indexOf;
+P.ill = function() {
+  return {
+    status: 410,
+    body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
+  };
+};
+
+P.ills = function() {
+  return {
+    status: 410,
+    body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
+  };
+};
+
+P.ill.collect = function() {
+  return {
+    status: 410,
+    body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
+  };
+};
+
+P.ill.openurl = function() {
+  return {
+    status: 410,
+    body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
+  };
+};
+
+P.ill.subscription = function() {
+  return {
+    status: 410,
+    body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
+  };
+};
 
 P.metadata_internal = async function(doi) {
   var res;
@@ -4546,603 +3626,6 @@ P.citation_internal = async function(citation) {
   return res;
 };
 
-// this should default to a search of ILLs as well... with a restrict
-// restrict = @auth.role('openaccessbutton.admin') and this.queryParams.all then [] else [{term:{from:@user?._id}}]
-var indexOf = [].indexOf;
-
-P.ill = async function(opts) { // only worked on POST with optional auth
-  var a, atidy, ats, authors, config, first, i, j, len, len1, m, o, ordered, r, ref, ref1, ref2, ref3, ref4, ref5, su, tmpl, tos, vars;
-  return {
-    status: 410,
-    body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
-  };
-  if (opts == null) {
-    opts = this.copy(this.params);
-    if (opts.ill) {
-      opts.doi = opts.ill;
-      delete opts.ill;
-    }
-  }
-  if (opts.metadata == null) {
-    opts.metadata = (await this.metadata(opts));
-  }
-  if (opts.pilot === true) {
-    opts.pilot = Date.now();
-  }
-  if (opts.live === true) {
-    opts.live = Date.now();
-  }
-  config = opts.config;
-  try {
-    config = JSON.parse(config);
-  } catch (error1) {}
-  if (typeof config === 'string' || (!config && opts.from)) {
-    config = (await this.fetch('https://api.cottagelabs.com/service/oab/ill/config?uid=' + ((ref = opts.from) != null ? ref : config)));
-    if ((config == null) || JSON.stringify(config) === '{}') {
-      config = (await this.fetch('https://dev.api.cottagelabs.com/service/oab/ill/config?uid=' + ((ref1 = opts.from) != null ? ref1 : config)));
-    }
-  }
-  if (config == null) {
-    config = {};
-  }
-  vars = {
-    name: 'librarian',
-    details: '' // anywhere to get the user name from config?
-  };
-  ordered = ['title', 'author', 'volume', 'issue', 'date', 'pages'];
-  for (o in opts) {
-    if (o === 'metadata') {
-      for (m in opts[o]) {
-        if (m !== 'email') {
-          opts[m] = opts[o][m];
-          if (indexOf.call(ordered, m) < 0) {
-            ordered.push(m);
-          }
-        }
-      }
-      delete opts.metadata;
-    } else {
-      if (indexOf.call(ordered, o) < 0) {
-        ordered.push(o);
-      }
-    }
-  }
-  for (i = 0, len = ordered.length; i < len; i++) {
-    r = ordered[i];
-    if (opts[r]) {
-      vars[r] = opts[r];
-      if (r === 'author') {
-        authors = '<p>Authors:<br>';
-        first = true;
-        ats = [];
-        ref2 = opts[r];
-        for (j = 0, len1 = ref2.length; j < len1; j++) {
-          a = ref2[j];
-          if (a.family) {
-            if (first) {
-              first = false;
-            } else {
-              authors += ', ';
-            }
-            atidy = a.family + (a.given ? ' ' + a.given : '');
-            authors += atidy;
-            ats.push(atidy);
-          }
-        }
-        vars[r] = ats;
-      }
-    }
-  }
-  if (opts.author != null) {
-    delete opts.author; // remove author metadata due to messy provisions causing save issues
-  }
-  vars.illid = opts._id = (await this.uid());
-  // such as https://ambslibrary.share.worldcat.org/wms/cmnd/nd/discover/items/search?ai0id=level3&ai0type=scope&offset=1&pageSize=10&si0in=in%3A&si0qs=0021-9231&si1in=au%3A&si1op=AND&si2in=kw%3A&si2op=AND&sortDirection=descending&sortKey=librarycount&applicationId=nd&requestType=search&searchType=advancedsearch&eventSource=df-advancedsearch
-  // could be provided as: (unless other params are mandatory) 
-  // https://ambslibrary.share.worldcat.org/wms/cmnd/nd/discover/items/search?si0qs=0021-9231
-  if (config.search && config.search.length && (opts.issn || opts.journal)) {
-    if (config.search.indexOf('worldcat') !== -1) {
-      su = config.search.split('?')[0] + '?ai0id=level3&ai0type=scope&offset=1&pageSize=10&si0in=';
-      su += opts.issn != null ? 'in%3A' : 'ti%3A';
-      su += '&si0qs=' + ((ref3 = opts.issn) != null ? ref3 : opts.journal);
-      su += '&sortDirection=descending&sortKey=librarycount&applicationId=nd&requestType=search&searchType=advancedsearch&eventSource=df-advancedsearch';
-    } else {
-      su = config.search;
-      su += opts.issn ? opts.issn : opts.journal;
-    }
-    vars.worldcatsearchurl = su;
-  }
-  await this.ills(opts);
-  tmpl = (await this.templates('instantill_create'));
-  tmpl = tmpl.content;
-  if (!opts.forwarded && !opts.resolved && (config.email || opts.email)) {
-    this.waitUntil(this.mail({
-      svc: 'oaworks',
-      vars: vars,
-      template: tmpl,
-      to: (ref4 = config.email) != null ? ref4 : opts.email,
-      from: "InstantILL <InstantILL@openaccessbutton.org>",
-      subject: "ILL request " + opts._id
-    }));
-  }
-  tmpl = tmpl.replace(/Dear.*?\,/, 'Dear Joe, here is a copy of what was just sent:');
-  tos = ['joe+notifications@oa.works'];
-  if ((ref5 = this.S.log) != null ? ref5.logs : void 0) {
-    tos.push(this.S.log.logs);
-  }
-  this.waitUntil(this.mail({
-    svc: 'oaworks',
-    vars: vars,
-    template: tmpl,
-    from: "InstantILL <InstantILL@openaccessbutton.org>",
-    subject: "ILL CREATED " + opts._id,
-    to: tos
-  }));
-  return opts;
-};
-
-//P.ills = _index: true
-P.ills = function() {
-  return {
-    status: 410,
-    body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
-  };
-};
-
-P.ill.collect = async function(params) {
-  var q, sid, url;
-  return {
-    status: 410,
-    body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
-  };
-  if (params == null) {
-    params = this.copy(this.params);
-  }
-  sid = params.collect; // end of the url is an SID
-  if (params._id == null) {
-    params._id = (await this.uid());
-  }
-  // example AKfycbwPq7xWoTLwnqZHv7gJAwtsHRkreJ1hMJVeeplxDG_MipdIamU6
-  url = 'https://script.google.com/macros/s/' + sid + '/exec?';
-  for (q in params) {
-    if (q !== 'collect') {
-      url += (q === '_id' ? 'uuid' : q) + '=' + params[q] + '&';
-    }
-  }
-  this.waitUntil(this.fetch(url));
-  this.waitUntil(this.svc.rscvd(params));
-  return true;
-};
-
-P.ill.openurl = async function(config, meta) {
-  var author, d, defaults, i, k, len, nfield, ref, ref1, ref2, url, v;
-  return {
-    status: 410,
-    body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
-  };
-  // Will eventually redirect after reading openurl params passed here, somehow. 
-  // For now a POST of metadata here by a user with an open url registered will build their openurl
-  if (config == null) {
-    config = (ref = this.params.config) != null ? ref : {};
-  }
-  if (meta == null) {
-    meta = (ref1 = this.params.meta) != null ? ref1 : (await this.metadata());
-  }
-  if (config.ill_redirect_base_url) {
-    if (config.ill_form == null) {
-      config.ill_form = config.ill_redirect_base_url;
-    }
-  }
-  if (config.ill_redirect_params) {
-    if (config.ill_added_params == null) {
-      config.ill_added_params = config.ill_redirect_params;
-    }
-  }
-  // add iupui / openURL defaults to config
-  defaults = {
-    sid: 'sid',
-    title: 'atitle', // this is what iupui needs (title is also acceptable, but would clash with using title for journal title, which we set below, as iupui do that
-    doi: 'rft_id', // don't know yet what this should be
-    pmcid: 'pmcid', // don't know yet what this should be
-    author: 'aulast', // author should actually be au, but aulast works even if contains the whole author, using aufirst just concatenates
-    journal: 'title', // this is what iupui needs
-    page: 'pages', // iupui uses the spage and epage for start and end pages, but pages is allowed in openurl, check if this will work for iupui
-    published: 'date', // this is what iupui needs, but in format 1991-07-01 - date format may be a problem
-    year: 'rft.year' // this is what IUPUI uses
-  };
-  for (d in defaults) {
-    if (!config[d]) {
-      config[d] = defaults[d];
-    }
-  }
-  url = '';
-  if (config.ill_added_params) {
-    url += config.ill_added_params.replace('?', '') + '&';
-  }
-  url += config.sid + '=InstantILL&';
-  for (k in meta) {
-    v = '';
-    if (k === 'author') {
-      ref2 = (Array.isArray(meta.author) ? meta.author : [meta.author]);
-      for (i = 0, len = ref2.length; i < len; i++) {
-        author = ref2[i];
-        if (v.length) {
-          v += ', ';
-        }
-        v += typeof author === 'string' ? author : author.family ? author.family + (author.given ? ', ' + author.given : '') : JSON.stringify(author);
-      }
-    } else if (k === 'doi' || k === 'pmid' || k === 'pmc' || k === 'pmcid' || k === 'url' || k === 'journal' || k === 'title' || k === 'year' || k === 'issn' || k === 'volume' || k === 'issue' || k === 'page' || k === 'crossref_type' || k === 'publisher' || k === 'published' || k === 'notes') {
-      v = meta[k];
-    }
-    if (v) {
-      url += (config[k] ? config[k] : k) + '=' + encodeURIComponent(v) + '&';
-    }
-  }
-  if (meta.usermetadata) {
-    nfield = config.notes ? config.notes : 'notes';
-    url = url.replace('usermetadata=true', '');
-    if (url.indexOf(nfield + '=') === -1) {
-      url += '&' + nfield + '=The user provided some metadata.';
-    } else {
-      url = url.replace(nfield + '=', nfield + '=The user provided some metadata. ');
-    }
-  }
-  return url.replace('/&&/g', '&');
-};
-
-P.ill.subscription = async function(config, meta) {
-  var err, error, fnd, npg, openurl, pg, ref, ref1, ref2, res, s, spg, sub, subtype, surl, tid, url;
-  return {
-    status: 410,
-    body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
-  };
-  if (!config && !meta && (this.params.sub || this.params.subscription)) { // assume values are being passed directly on GET request
-    config = this.copy(this.params);
-    if (config.sub) {
-      config.subscription = config.sub;
-    }
-    if (this.params.meta) {
-      meta = this.params.meta;
-      delete config.meta;
-    } else if (config.doi && this.keys(config).length === 2) {
-      meta = (await this.metadata(config.doi));
-      delete config.doi;
-    } else {
-      meta = this.copy(config);
-      delete config.doi;
-    }
-  }
-  if (config == null) {
-    config = (ref = this.params.config) != null ? ref : {};
-  }
-  if (typeof config === 'string') {
-    config = (await this.fetch('https://api.cottagelabs.com/service/oab/ill/config?uid=' + config));
-    if ((config == null) || JSON.stringify(config) === '{}') {
-      config = (await this.fetch('https://dev.api.cottagelabs.com/service/oab/ill/config?uid=' + ((ref1 = opts.from) != null ? ref1 : config)));
-    }
-  }
-  if (meta == null) {
-    meta = this.params.meta;
-  }
-  res = {
-    findings: {},
-    lookups: [],
-    error: [],
-    contents: []
-  };
-  if (config.subscription != null) {
-    if (config.ill_redirect_params) {
-      if (config.ill_added_params == null) {
-        config.ill_added_params = config.ill_redirect_params;
-      }
-    }
-    // need to get their subscriptions link from their config - and need to know how to build the query string for it
-    openurl = (await this.ill.openurl(config, meta));
-    if (config.ill_added_params) {
-      openurl = openurl.replace(config.ill_added_params.replace('?', ''), '');
-    }
-    if (typeof config.subscription === 'string') {
-      config.subscription = config.subscription.split(',');
-    }
-    if (typeof config.subscription_type === 'string') {
-      config.subscription_type = config.subscription_type.split(',');
-    }
-    if (config.subscription_type == null) {
-      config.subscription_type = [];
-    }
-    for (s in config.subscription) {
-      sub = config.subscription[s];
-      if (typeof sub === 'object') {
-        subtype = sub.type;
-        sub = sub.url;
-      } else {
-        subtype = (ref2 = config.subscription_type[s]) != null ? ref2 : 'unknown';
-      }
-      sub = sub.trim();
-      if (sub) {
-        if (subtype === 'serialssolutions' || sub.indexOf('serialssolutions') !== -1) { //  and sub.indexOf('.xml.') is -1
-          tid = sub.split('.search')[0];
-          if (tid.indexOf('//') !== -1) {
-            tid = tid.split('//')[1];
-          }
-          //bs = if sub.indexOf('://') isnt -1 then sub.split('://')[0] else 'http' # always use http because https on the xml endpoint fails
-          sub = 'http://' + tid + '.openurl.xml.serialssolutions.com/openurlxml?version=1.0&genre=article&';
-        } else if ((subtype === 'sfx' || sub.indexOf('sfx.') !== -1) && sub.indexOf('sfx.response_type=simplexml') === -1) {
-          sub += (sub.indexOf('?') === -1 ? '?' : '&') + 'sfx.response_type=simplexml';
-        } else if ((subtype === 'exlibris' || sub.indexOf('.exlibris') !== -1) && sub.indexOf('response_type') === -1) {
-          // https://github.com/OAButton/discussion/issues/1793
-          //sub = 'https://trails-msu.userservices.exlibrisgroup.com/view/uresolver/01TRAILS_MSU/openurl?svc_dat=CTO&response_type=xml&sid=InstantILL&'
-          sub = sub.split('?')[0] + '?svc_dat=CTO&response_type=xml&sid=InstantILL&';
-        }
-        //ID=doi:10.1108%2FNFS-09-2019-0293&genre=article&atitle=Impact%20of%20processing%20and%20packaging%20on%20the%20quality%20of%20murici%20jelly%20%5BByrsonima%20crassifolia%20(L.)%20rich%5D%20during%20storage.&title=Nutrition%20&%20Food%20Science&issn=00346659&volume=50&issue=5&date=20200901&au=Da%20Cunha,%20Mariana%20Crivelari&spage=871&pages=871-883
-        url = sub + (sub.indexOf('?') === -1 ? '?' : '&') + openurl;
-        if (url.indexOf('snc.idm.oclc.org/login?url=') !== -1) {
-          url = url.split('snc.idm.oclc.org/login?url=')[1];
-        }
-        url = url.replace('cache=true', '');
-        if (subtype === 'sfx' || sub.indexOf('sfx.') !== -1 && url.indexOf('=10.') !== -1) {
-          url = url.replace('=10.', '=doi:10.');
-        }
-        if (subtype === 'exlibris' || sub.indexOf('.exlibris') !== -1 && url.indexOf('doi=10.') !== -1) {
-          url = url.replace('doi=10.', 'ID=doi:10.');
-        }
-        pg = '';
-        spg = '';
-        error = false;
-        res.lookups.push(url);
-        try {
-          // proxy may still be required if our main machine was registered with some of these ILL service providers...
-          //pg = if url.includes('.xml.serialssolutions') or url.includes('sfx.response_type=simplexml') or url.includes('response_type=xml') then await @fetch(url) else await @puppet url
-          pg = (await this.fetch(url));
-          //try await @mail(to: 'mark@oa.works', subject: 'oa.works serials solutions query running', text: url + '\n\n' + JSON.stringify pg) if @S.dev
-          if ((pg == null) || typeof pg === 'object') {
-            //if subtype is 'serialssolutions'
-            //  try await @mail(to: 'mark@oa.works', subject: 'oa.works serials solutions error', text: url + '\n\n' + JSON.stringify pg) if @S.dev
-            pg = '';
-            error = true;
-          }
-        } catch (error1) {
-          err = error1;
-          error = true;
-        }
-        try {
-          //if subtype is 'serialssolutions'
-          //  try await @mail to: 'mark@oa.works', subject: 'oa.works serials solutions error', text: url + '\n\n' + JSON.stringify(pg) + '\n\n' + JSON.stringify err
-          spg = pg.indexOf('<body') !== -1 ? pg.toLowerCase().split('<body')[1].split('</body')[0] : pg;
-          res.contents.push(spg);
-        } catch (error1) {
-          err = error1;
-          error = true;
-        }
-        //if subtype is 'serialssolutions'
-        //  try await @mail to: 'mark@oa.works', subject: 'oa.works serials solutions error', text: url + '\n\n' + JSON.stringify(pg) + '\n\n' + JSON.stringify err
-
-        // sfx 
-        // with access:
-        // https://cricksfx.hosted.exlibrisgroup.com/crick?sid=Elsevier:Scopus&_service_type=getFullTxt&issn=00225193&isbn=&volume=467&issue=&spage=7&epage=14&pages=7-14&artnum=&date=2019&id=doi:10.1016%2fj.jtbi.2019.01.031&title=Journal+of+Theoretical+Biology&atitle=Potential+relations+between+post-spliced+introns+and+mature+mRNAs+in+the+Caenorhabditis+elegans+genome&aufirst=S.&auinit=S.&auinit1=S&aulast=Bo
-        // which will contain a link like:
-        // <A title="Navigate to target in new window" HREF="javascript:openSFXMenuLink(this, 'basic1', undefined, '_blank');">Go to Journal website at</A>
-        // but the content can be different on different sfx language pages, so need to find this link via the tag attributes, then trigger it, then get the page it opens
-        // can test this with 10.1016/j.jtbi.2019.01.031 on instantill page
-        // note there is also now an sfx xml endpoint that we have found to check
-        if (subtype === 'sfx' || url.indexOf('sfx.') !== -1) {
-          if (error) {
-            res.error.push('sfx');
-          }
-          if (spg.indexOf('getFullTxt') !== -1 && spg.indexOf('<target_url>') !== -1) {
-            try {
-              // this will get the first target that has a getFullTxt type and has a target_url element with a value in it, or will error
-              res.url = spg.split('getFullTxt')[1].split('</target>')[0].split('<target_url>')[1].split('</target_url>')[0].trim();
-              res.findings.sfx = res.url;
-              if (res.url != null) {
-                if (res.url.indexOf('getitnow') === -1) {
-                  res.found = 'sfx';
-                } else {
-                  res.url = void 0;
-                  res.findings.sfx = void 0;
-                }
-              }
-            } catch (error1) {}
-          } else {
-            if (spg.indexOf('<a title="navigate to target in new window') !== -1 && spg.split('<a title="navigate to target in new window')[1].split('">')[0].indexOf('basic1') !== -1) {
-              // tried to get the next link after the click through, but was not worth putting more time into it. For now, seems like this will have to do
-              res.url = url;
-              res.findings.sfx = res.url;
-              if (res.url != null) {
-                if (res.url.indexOf('getitnow') === -1) {
-                  res.found = 'sfx';
-                } else {
-                  res.url = void 0;
-                  res.findings.sfx = void 0;
-                }
-              }
-            }
-          }
-        // eds
-        // note eds does need a login, but IP address range is supposed to get round that
-        // our IP is supposed to be registered with the library as being one of their internal ones so should not need login
-        // however a curl from our IP to it still does not seem to work - will try with puppeteer to see if it is blocking in other ways
-        // not sure why the links here are via an oclc login - tested, and we will use without it
-        // with access:
-        // https://snc.idm.oclc.org/login?url=http://resolver.ebscohost.com/openurl?sid=google&auinit=RE&aulast=Marx&atitle=Platelet-rich+plasma:+growth+factor+enhancement+for+bone+grafts&id=doi:10.1016/S1079-2104(98)90029-4&title=Oral+Surgery,+Oral+Medicine,+Oral+Pathology,+Oral+Radiology,+and+Endodontology&volume=85&issue=6&date=1998&spage=638&issn=1079-2104
-        // can be tested on instantill page with 10.1016/S1079-2104(98)90029-4
-        // without:
-        // https://snc.idm.oclc.org/login?url=http://resolver.ebscohost.com/openurl?sid=google&auinit=MP&aulast=Newton&atitle=Librarian+roles+in+institutional+repository+data+set+collecting:+outcomes+of+a+research+library+task+force&id=doi:10.1080/01462679.2011.530546
-        } else if (subtype === 'eds' || url.indexOf('ebscohost.') !== -1) {
-          if (error) {
-            res.error.push('eds');
-          }
-          if (spg.indexOf('view this ') !== -1 && pg.indexOf('<a data-auto="menu-link" href="') !== -1) {
-            res.url = url.replace('://', '______').split('/')[0].replace('______', '://') + pg.split('<a data-auto="menu-link" href="')[1].split('" title="')[0];
-            res.findings.eds = res.url;
-            if (res.url != null) {
-              if (res.url.indexOf('getitnow') === -1) {
-                res.found = 'eds';
-              } else {
-                res.url = void 0;
-              }
-            }
-          }
-        // serials solutions
-        // the HTML source code for the No Results page includes a span element with the class SS_NoResults. This class is only found on the No Results page (confirmed by serialssolutions)
-        // with:
-        // https://rx8kl6yf4x.search.serialssolutions.com/?genre=article&issn=14085348&title=Annales%3A%20Series%20Historia%20et%20Sociologia&volume=28&issue=1&date=20180101&atitle=HOW%20TO%20UNDERSTAND%20THE%20WAR%20IN%20SYRIA.&spage=13&PAGES=13-28&AUTHOR=%C5%A0TERBENC%2C%20Primo%C5%BE&&aufirst=&aulast=&sid=EBSCO:aph&pid=
-        // can test this on instantill page with How to understand the war in Syria - Annales Series Historia et Sociologia 2018
-        // but the with link has a suppressed link that has to be clicked to get the actual page with the content on it
-        // <a href="?ShowSupressedLinks=yes&SS_LibHash=RX8KL6YF4X&url_ver=Z39.88-2004&rfr_id=info:sid/sersol:RefinerQuery&rft_val_fmt=info:ofi/fmt:kev:mtx:journal&SS_ReferentFormat=JournalFormat&SS_formatselector=radio&rft.genre=article&SS_genreselector=1&rft.aulast=%C5%A0TERBENC&rft.aufirst=Primo%C5%BE&rft.date=2018-01-01&rft.issue=1&rft.volume=28&rft.atitle=HOW+TO+UNDERSTAND+THE+WAR+IN+SYRIA.&rft.spage=13&rft.title=Annales%3A+Series+Historia+et+Sociologia&rft.issn=1408-5348&SS_issnh=1408-5348&rft.isbn=&SS_isbnh=&rft.au=%C5%A0TERBENC%2C+Primo%C5%BE&rft.pub=Zgodovinsko+dru%C5%A1tvo+za+ju%C5%BEno+Primorsko&paramdict=en-US&SS_PostParamDict=disableOneClick">Click here</a>
-        // which is the only link with the showsuppressedlinks param and the clickhere content
-        // then the page with the content link is like:
-        // https://rx8kl6yf4x.search.serialssolutions.com/?ShowSupressedLinks=yes&SS_LibHash=RX8KL6YF4X&url_ver=Z39.88-2004&rfr_id=info:sid/sersol:RefinerQuery&rft_val_fmt=info:ofi/fmt:kev:mtx:journal&SS_ReferentFormat=JournalFormat&SS_formatselector=radio&rft.genre=article&SS_genreselector=1&rft.aulast=%C5%A0TERBENC&rft.aufirst=Primo%C5%BE&rft.date=2018-01-01&rft.issue=1&rft.volume=28&rft.atitle=HOW+TO+UNDERSTAND+THE+WAR+IN+SYRIA.&rft.spage=13&rft.title=Annales%3A+Series+Historia+et+Sociologia&rft.issn=1408-5348&SS_issnh=1408-5348&rft.isbn=&SS_isbnh=&rft.au=%C5%A0TERBENC%2C+Primo%C5%BE&rft.pub=Zgodovinsko+dru%C5%A1tvo+za+ju%C5%BEno+Primorsko&paramdict=en-US&SS_PostParamDict=disableOneClick
-        // and the content is found in a link like this:
-        // <div id="ArticleCL" class="cl">
-        //   <a target="_blank" href="./log?L=RX8KL6YF4X&amp;D=EAP&amp;J=TC0000940997&amp;P=Link&amp;PT=EZProxy&amp;A=HOW+TO+UNDERSTAND+THE+WAR+IN+SYRIA.&amp;H=c7306f7121&amp;U=http%3A%2F%2Fwww.ulib.iupui.edu%2Fcgi-bin%2Fproxy.pl%3Furl%3Dhttp%3A%2F%2Fopenurl.ebscohost.com%2Flinksvc%2Flinking.aspx%3Fgenre%3Darticle%26issn%3D1408-5348%26title%3DAnnales%2BSeries%2Bhistoria%2Bet%2Bsociologia%26date%3D2018%26volume%3D28%26issue%3D1%26spage%3D13%26atitle%3DHOW%2BTO%2BUNDERSTAND%2BTHE%2BWAR%2BIN%2BSYRIA.%26aulast%3D%25C5%25A0TERBENC%26aufirst%3DPrimo%C5%BE">Article</a>
-        // </div>
-        // without:
-        // https://rx8kl6yf4x.search.serialssolutions.com/directLink?&atitle=Writing+at+the+Speed+of+Sound%3A+Music+Stenography+and+Recording+beyond+the+Phonograph&author=Pierce%2C+J+Mackenzie&issn=01482076&title=Nineteenth+Century+Music&volume=41&issue=2&date=2017-10-01&spage=121&id=doi:&sid=ProQ_ss&genre=article
-        // we also have an xml alternative for serials solutions
-        // see https://journal.code4lib.org/articles/108
-        } else if (subtype === 'serialssolutions' || url.indexOf('serialssolutions.') !== -1) {
-          if (error) {
-            res.error.push('serialssolutions');
-          }
-          if (spg.indexOf('<ssopenurl:url type="article">') !== -1) {
-            fnd = spg.split('<ssopenurl:url type="article">')[1].split('</ssopenurl:url>')[0].trim().replace(/&amp;/g, '&'); // this gets us something that has an empty accountid param - do we need that for it to work?
-            if (fnd.length) {
-              res.url = fnd;
-              res.findings.serials = res.url;
-              if (res.url != null) {
-                if (res.url.indexOf('getitnow') === -1) {
-                  res.found = 'serials';
-                } else {
-                  res.url = void 0;
-                  res.findings.serials = void 0;
-                }
-              }
-            }
-          } else {
-            // disable journal matching for now until we have time to get it more accurate - some things get journal links but are not subscribed
-            //else if spg.indexOf('<ssopenurl:result format="journal">') isnt -1
-            //  # we assume if there is a journal result but not a URL that it means the institution has a journal subscription but we don't have a link
-            //  res.journal = true
-            //  res.found = 'serials'
-            if (spg.indexOf('ss_noresults') === -1) {
-              surl = url.split('?')[0] + '?ShowSupressedLinks' + pg.split('?ShowSupressedLinks')[1].split('">')[0];
-              try {
-                //npg = await @puppet surl # would this still need proxy?
-                //try await @mail to: 'mark@oa.works', subject: 'oa.works serials solutions query running second stage', text: surl + '\n\n' + JSON.stringify pg
-                npg = (await this.fetch(surl));
-                //try await @mail to: 'mark@oa.works', subject: 'oa.works serials solutions query running second stage succeeded', text: surl + '\n\n' + JSON.stringify npg
-                if (npg.indexOf('ArticleCL') !== -1 && npg.split('DatabaseCL')[0].indexOf('href="./log') !== -1) {
-                  res.url = surl.split('?')[0] + npg.split('ArticleCL')[1].split('DatabaseCL')[0].split('href="')[1].split('">')[0].replace(/&amp;/g, '&');
-                  res.findings.serials = res.url;
-                  if (res.url != null) {
-                    if (res.url.indexOf('getitnow') === -1) {
-                      res.found = 'serials';
-                    } else {
-                      res.url = void 0;
-                      res.findings.serials = void 0;
-                    }
-                  }
-                }
-              } catch (error1) {
-                err = error1;
-                if (error) {
-                  res.error.push('serialssolutions');
-                }
-              }
-            }
-          }
-        //try await @mail to: 'mark@oa.works', subject: 'oa.works serials solutions second stage error', text: 'serials solutions later error\n\n' + url + '\n\n' + surl + '\n\n' + JSON.stringify(pg) + '\n\n' + JSON.stringify err
-        } else if (subtype === 'exlibris' || url.indexOf('.exlibris') !== -1) {
-          if (error) {
-            res.error.push('exlibris');
-          }
-          if (spg.indexOf('full_text_indicator') !== -1 && spg.split('full_text_indicator')[1].replace('">', '').indexOf('true') === 0 && spg.indexOf('resolution_url') !== -1) {
-            res.url = spg.split('<resolution_url>')[1].split('</resolution_url>')[0].replace(/&amp;/g, '&');
-            res.findings.exlibris = res.url;
-            res.found = 'exlibris';
-          }
-        }
-      }
-    }
-  }
-  if (res.url) {
-    res.url = (await this.decode(res.url));
-  }
-  return res;
-};
-
-P.licence = async function(url, content, start, end) {
-  var i, l, len, lh, lic, lics, match, ref, ref1, ref2, ref3, ref4, urlmatch, urlmatcher;
-  if (url == null) {
-    url = this.params.url;
-  }
-  if (content == null) {
-    content = (ref = this.params.content) != null ? ref : this.body;
-  }
-  if (!url && !content && (this.params.licence || this.params.doi)) {
-    url = 'https://doi.org/' + ((ref1 = this.params.licence) != null ? ref1 : this.params.doi);
-  }
-  if (url) {
-    url = url.replace(/(^\s*)|(\s*$)/g, '');
-    if (!content) {
-      console.log(url);
-      try {
-        //try content = await @puppet url
-        content = (await this.fetch(url));
-      } catch (error) {}
-    }
-  }
-  if (typeof content === 'number') {
-    content = void 0;
-  }
-  if (start == null) {
-    start = this.params.start;
-  }
-  if (end == null) {
-    end = this.params.end;
-  }
-  lic = {};
-  if (url) {
-    lic.url = url;
-  }
-  if (typeof content === 'string') {
-    if ((start != null) && content.includes(start)) {
-      content = content.split(start)[1];
-    }
-    if (end) {
-      content = content.split(end)[0];
-    }
-    if (content.length > 100000) { // reduced this by and the substrings below by an order of magnitude
-      lic.large = true;
-      content = content.substring(0, 50000) + content.substring(content.length - 50000, content.length);
-    }
-    lics = (await this.licences('*', 10000));
-    ref4 = (ref2 = lics != null ? (ref3 = lics.hits) != null ? ref3.hits : void 0 : void 0) != null ? ref2 : [];
-    for (i = 0, len = ref4.length; i < len; i++) {
-      lh = ref4[i];
-      l = lh._source;
-      if (!l.matchesondomains || l.matchesondomains === '*' || (url == null) || l.matchesondomains.toLowerCase().includes(url.toLowerCase().replace('http://', '').replace('https://', '').replace('www.', '').split('/')[0])) {
-        match = l.matchtext.toLowerCase().replace(/[^a-z0-9]/g, '');
-        urlmatcher = l.matchtext.includes('://') ? l.matchtext.toLowerCase().split('://')[1].split('"')[0].split(' ')[0] : false;
-        urlmatch = urlmatcher ? content.toLowerCase().includes(urlmatcher) : false;
-        if (urlmatch || content.toLowerCase().replace(/[^a-z0-9]/g, '').includes(match)) {
-          lic.licence = l.licencetype;
-          lic.match = l.matchtext;
-          lic.matched = urlmatch ? urlmatcher : match;
-          break;
-        }
-      }
-    }
-  }
-  return lic;
-};
-
-P.licences = {
-  _sheet: '1yJOpE_YMdDxCKaK0DqWoCJDdq8Ep1b-_J1xYVKGsiYI',
-  _prefix: false
-};
-
 var indexOf = [].indexOf;
 
 P.permissions = async function(meta, ror, getmeta, oadoi, crossref, best) { // oadoi and crossref are just ways for other functions to pass in oadoi or crossref record objects to save looking them up again
@@ -5996,14 +4479,6 @@ P.permissions.publishers.oa._log = false;
 
 var _do_batch, _done_batch, _processed_batch, _processed_batch_last, _processing_errors, _processing_idents, _processing_orgs, _queue_batch, _queue_batch_last, _queued_batch, _report_publishers,
   indexOf = [].indexOf;
-
-try {
-  S.report = JSON.parse(SECRETS_REPORT);
-} catch (error) {}
-
-if (S.report == null) {
-  S.report = {};
-}
 
 P.report = function() {
   return 'OA.Works report';
@@ -8463,8 +6938,7 @@ P.report.works.load._auth = '@oa.works';
 
 `P.report.works.load.mains = ->
   orgs = if @params.orgs then @params.orgs.split(',') else ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Wellcome Trust', 'Michael J. Fox Foundation']
-  if @S.works_load_mains_backup_first
-    await @report.works.backup()
+  await @report.works.backup()
   for org in orgs
     await @report.works.load undefined, org, undefined, undefined, undefined, undefined, undefined, undefined, true
   return true
@@ -8487,9 +6961,7 @@ P.report.works.changes._auth = '@oa.works'`;
 P.report.works.queries = async function(orgs) {
   var ans, batch, ck, cqs, crossref, cursor, cv, cvl, ids, j, k, l, last, len, len1, len2, len3, len4, len5, len6, m, n, o, ok, oqs, org, ovl, pk, queued, r, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref4, ref5, ref6, ref7, ref8, ref9, rid, started, sup, supps, svl, u, w, x;
   started = Date.now();
-  if (this.S.works_load_mains_backup_first && this.params.backup !== false) {
-    await this.report.works.backup();
-  }
+  await this.report.works.backup();
   last = (ref = this.params.since) != null ? ref : 0; // @params.since can be timestamp from which to load changes to report/works (all will get loaded to crossref/openalex anyway)
   if (!this.params.clear && !this.params.all && !this.params.since) {
     last = Date.now() - (1 * 24 * 60 * 60 * 1000);
@@ -8844,361 +7316,6 @@ P.report.checksuggest._log = false;
 P.report.checksuggest._bg = true;
 
 P.report.checksuggest._async = true;
-
-var indexOf = [].indexOf;
-
-if (P.svc == null) {
-  P.svc = {};
-}
-
-P.svc.joe = function() {
-  return 'howdy';
-};
-
-P.svc.rscvd = {
-  _index: true
-};
-
-P.svc.rscvd.form = async function() {
-  var av, rec, ref, ref1, ref2, ref3, rq, txt;
-  if (this.keys(this.params).length > 1) {
-    rec = this.copy(this.params);
-    delete rec.form;
-    rec.status = 'Awaiting verification';
-    try {
-      if (rq = (await this.svc.rscvd.requestees('email:"' + rec.email + '"'))) {
-        if ((rq != null ? rq.verified : void 0) || (rq != null ? rq.verification : void 0) === 'Approved') {
-          rec.status = 'Verified';
-          rec.verified = true;
-        } else if ((rq != null ? rq.denied : void 0) || (rq != null ? rq.verification : void 0) === 'Denied') {
-          rec.status = 'Denied';
-          rec.verified = false;
-        }
-      }
-    } catch (error) {}
-    if (rec.status === 'Awaiting verification') { // not yet found in pre-verified list
-      try {
-        av = (await this.svc.rscvd('email:"' + rec.email + '" AND verified:*'));
-        if ((av != null ? (ref = av.hits) != null ? ref.hits : void 0 : void 0) && av.hits.hits[0]._source.verified === true) {
-          rec.status = 'Verified';
-          rec.verified = true;
-        } else if (av.hits.hits[0]._source.verified === false) {
-          rec.status = 'Denied';
-          rec.verified = false;
-        }
-      } catch (error) {}
-    }
-    if (rec.type == null) {
-      rec.type = 'paper';
-    }
-    try {
-      rec.createdAt = new Date();
-    } catch (error) {}
-    try {
-      rec.neededAt = (await this.epoch(rec['needed-by']));
-    } catch (error) {}
-    rec._id = (await this.svc.rscvd(rec));
-    try {
-      txt = 'Hi ' + rec.name + ',<br><br>We got your request:<br><br>Title: ' + ((ref1 = (ref2 = rec.atitle) != null ? ref2 : rec.title) != null ? ref1 : 'Unknown') + '\nReference (if provided): ' + ((ref3 = rec.reference) != null ? ref3 : '') + '<br><br>';
-      txt += 'If at any point you no longer need this item, please <a href="https://' + (this.S.dev ? 'dev.' : '') + 'rscvd.org/cancel?id=' + rec._id + '">cancel your request</a>, it only takes a second.<br><br>';
-      txt += 'Our team of volunteers will try and fill your request as soon as possible. If you would like to thank us, please consider <a href="https://rscvd.org/volunteer">joining us in helping supply requests</a>.<br><br>';
-      txt += 'Yours,<br><br>RSCVD team';
-      this.mail({
-        from: 'rscvd@oa.works',
-        to: rec.email,
-        subject: 'RSCVD Request Receipt',
-        text: txt
-      });
-    } catch (error) {}
-    return rec;
-  } else {
-
-  }
-};
-
-P.svc.rscvd.requestees = {
-  _index: true,
-  _auth: true,
-  _prefix: false,
-  _sheet: '1GuIH-Onf0A0dXFokH6Ma0cS0TRbbpAeOyhDVpmDNDNw'
-};
-
-P.svc.rscvd.resolves = async function(rid, resolver) {
-  var i, len, meta, r, rec, recs, ref, ref1, ref2, ref3, res, resolves;
-  if (rid == null) {
-    rid = this.params.resolves;
-  }
-  if (resolver == null) {
-    resolver = this.params.resolver;
-  }
-  if (rid) {
-    rec = typeof rid === 'object' ? rid : (await this.svc.rscvd(rid)); // can pass the ID of a specific record to resolve
-  } else {
-    recs = (await this.svc.rscvd('(status:"Awaiting verification" OR status:"Verified" OR status:"In progress" OR status:"Awaiting Peter") AND NOT resolved:"' + resolver + '" AND NOT unresolved:"' + resolver + '"'));
-  }
-  res = {};
-  ref2 = (rec != null ? [rec] : (ref = recs != null ? (ref1 = recs.hits) != null ? ref1.hits : void 0 : void 0) != null ? ref : []);
-  for (i = 0, len = ref2.length; i < len; i++) {
-    r = ref2[i];
-    if (r._source != null) {
-      rec = r._source;
-      if (rec._id == null) {
-        rec._id = r._id;
-      }
-    }
-    meta = this.copy(rec);
-    if (meta.title) {
-      meta.journal = meta.title;
-    }
-    if (meta.atitle) {
-      meta.title = meta.atitle;
-    }
-    resolves = (await this.ill.subscription({
-      subscription: resolver
-    }, meta)); // should send the metadata in the record
-    if (resolves != null ? resolves.url : void 0) { // if resolves
-      if (rec.resolved == null) {
-        rec.resolved = [];
-      }
-      rec.resolved.push(resolver);
-      if (rec.resolves == null) {
-        rec.resolves = [];
-      }
-      rec.resolves.push({
-        resolver: resolver,
-        url: resolves.url,
-        user: (ref3 = this.user) != null ? ref3._id : void 0
-      });
-      res[r._id] = true; // does not resolve
-    } else {
-      if (rec.unresolved == null) {
-        rec.unresolved = [];
-      }
-      rec.unresolved.push(resolver);
-      res[r._id] = false;
-    }
-    this.svc.rscvd(rec);
-  }
-  if (rid && res[rid]) {
-    return res[rid];
-  } else {
-    return res;
-  }
-};
-
-P.svc.rscvd.cancel = async function() {
-  var rec;
-  if (!this.params.cancel) {
-    return void 0;
-  }
-  rec = (await this.svc.rscvd(this.params.cancel));
-  rec.status = 'Cancelled';
-  this.svc.rscvd(rec);
-  return rec;
-};
-
-P.svc.rscvd.verify = async function(email, verify = true) {
-  var re, ref;
-  if (email == null) {
-    email = this.params.verify;
-  }
-  if (!email) {
-    return void 0;
-  }
-  re = (await this.svc.rscvd.requestees('email:"' + email + '"'));
-  if ((re != null ? (ref = re.hits) != null ? ref.total : void 0 : void 0) === 1) {
-    re = re.hits.hits[0]._source;
-  }
-  if ((re != null ? re.hits : void 0) != null) {
-    re = void 0;
-  }
-  if (re == null) {
-    re = {
-      email: email,
-      createdAt: Date.now()
-    };
-  }
-  if (verify) {
-    re.verified = true;
-    re.verified_by = this.user.email;
-  } else {
-    re.denied = true;
-    re.denied_by = this.user.email;
-  }
-  this.waitUntil(this.svc.rscvd.requestees(re));
-  await this.svc.rscvd._each('email:"' + email + '"', {
-    action: 'index'
-  }, function(rec) {
-    if (!rec.status || rec.status === 'Awaiting verification') {
-      rec.verified = verify;
-      if (verify) {
-        rec.status = 'Verified';
-        rec.verified_by = this.user.email;
-      } else {
-        rec.status = 'Denied';
-        rec.denied_by = this.user.email;
-      }
-    }
-    return rec;
-  });
-  return true;
-};
-
-P.svc.rscvd.verify._auth = true;
-
-P.svc.rscvd.deny = function() {
-  return this.svc.rscvd.verify(this.params.deny, false);
-};
-
-P.svc.rscvd.deny._auth = true;
-
-P.svc.rscvd.status = async function() {
-  var rec, rid, status;
-  if (!this.params.status) {
-    return void 0;
-  }
-  [rid, status] = this.params.status.split('/');
-  rec = (await this.svc.rscvd(rid));
-  rec.status = status;
-  try {
-    if (rec.status === 'Done') {
-      rec.done_by = this.user.email;
-    } else if (rec.status === 'In Progress') {
-      rec.progressed_by = this.user.email;
-    }
-  } catch (error) {}
-  this.svc.rscvd(rec);
-  return rec;
-};
-
-P.svc.rscvd.status._auth = true;
-
-P.svc.rscvd.poll = async function(poll, which) {
-  var base, base1, c, cc, cn, d, dn, ds, i, j, k, l, len, len1, len2, len3, len4, m, n, name, nn, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, res, s, ss, st, v, vn, vs;
-  if (poll == null) {
-    poll = (ref = this.params.poll) != null ? ref : Date.now() - 180000; // default to changes in last 3 mins
-  }
-  which = (ref1 = this.params.which) != null ? ref1 : ['new', 'verify', 'deny', 'cancel', 'status', 'overdue'];
-  if (typeof which === 'string') {
-    which = which.split(',');
-  }
-  if (indexOf.call(which, 'overdue') >= 0) {
-    this.svc.rscvd.overdue();
-  }
-  res = {
-    new: [],
-    verify: [],
-    deny: [],
-    cancel: [],
-    status: {}
-  };
-  if (indexOf.call(which, 'new') >= 0) {
-    nn = (await this.svc.rscvd('(status:"Awaiting verification" OR status:"Verified") AND createdAt:>' + poll, 500));
-    ref4 = (ref2 = nn != null ? (ref3 = nn.hits) != null ? ref3.hits : void 0 : void 0) != null ? ref2 : [];
-    for (i = 0, len = ref4.length; i < len; i++) {
-      n = ref4[i];
-      if ((base = n._source)._id == null) {
-        base._id = n._id;
-      }
-      res.new.push(n._source);
-    }
-  }
-  if (indexOf.call(which, 'verify') >= 0) {
-    vs = (await this.index('logs', 'createdAt:>' + poll + ' AND fn:"svc.rscvd.verify"', {
-      sort: {
-        createdAt: 'desc'
-      },
-      size: 500
-    }));
-    ref5 = vs.hits.hits;
-    for (j = 0, len1 = ref5.length; j < len1; j++) {
-      v = ref5[j];
-      vn = v._source.parts.pop();
-      if (indexOf.call(res.verify, vn) < 0) {
-        res.verify.push(vn);
-      }
-    }
-  }
-  if (indexOf.call(which, 'deny') >= 0) {
-    ds = (await this.index('logs', 'createdAt:>' + poll + ' AND fn:"svc.rscvd.deny"', {
-      sort: {
-        createdAt: 'desc'
-      },
-      size: 500
-    }));
-    ref6 = ds.hits.hits;
-    for (k = 0, len2 = ref6.length; k < len2; k++) {
-      d = ref6[k];
-      dn = d._source.parts.pop();
-      if (indexOf.call(res.deny, dn) < 0) {
-        res.deny.push(dn);
-      }
-    }
-  }
-  if (indexOf.call(which, 'cancel') >= 0) {
-    cc = (await this.index('logs', 'createdAt:>' + poll + ' AND fn:"svc.rscvd.cancel"', {
-      sort: {
-        createdAt: 'desc'
-      },
-      size: 500
-    }));
-    ref7 = cc.hits.hits;
-    for (l = 0, len3 = ref7.length; l < len3; l++) {
-      c = ref7[l];
-      cn = c._source.parts.pop();
-      if (indexOf.call(res.cancel, cn) < 0) {
-        res.cancel.push(cn);
-      }
-    }
-  }
-  // TODO need to track changes to Overdue status as well
-  if (indexOf.call(which, 'status') >= 0) {
-    ss = (await this.index('logs', 'createdAt:>' + poll + ' AND fn:"svc.rscvd.status"', {
-      sort: {
-        createdAt: 'desc'
-      },
-      size: 500
-    }));
-    ref8 = ss.hits.hits;
-    for (m = 0, len4 = ref8.length; m < len4; m++) {
-      s = ref8[m];
-      st = s._source.parts.pop();
-      if ((base1 = res.status)[name = s._source.parts.pop()] == null) {
-        base1[name] = st; // only return the most recent status change for a given record ID
-      }
-    }
-  }
-  return res;
-};
-
-P.svc.rscvd.poll._log = false;
-
-P.svc.rscvd.overdue = async function() {
-  var base, counter, dn, i, j, len, len1, r, rec, recs, ref, res;
-  counter = 0;
-  dn = Date.now();
-  recs = [];
-  if (this.params.overdue) {
-    recs.push((await this.svc.rscvd(this.params.overdue)));
-  } else {
-    res = (await this.svc.rscvd('(status:"Awaiting verification" OR status:"Verified") AND (neededAt:<' + dn + ' OR createdAt:<' + (dn - 1209600000) + ')', 10000));
-    ref = res.hits.hits;
-    for (i = 0, len = ref.length; i < len; i++) {
-      r = ref[i];
-      if ((base = r._source)._id == null) {
-        base._id = r._id;
-      }
-      recs.push(r._source);
-    }
-  }
-  for (j = 0, len1 = recs.length; j < len1; j++) {
-    rec = recs[j];
-    rec.status = 'Overdue';
-    this.waitUntil(this.svc.rscvd(rec));
-    counter += 1;
-  }
-  return counter;
-};
 
 var indexOf = [].indexOf;
 
@@ -10224,16 +8341,6 @@ _crossref_mapping = {
   }
 };
 
-var base;
-
-if ((base = S.src).doaj == null) {
-  base.doaj = {};
-}
-
-try {
-  S.src.doaj.secrets = JSON.parse(SECRETS_DOAJ);
-} catch (error) {}
-
 P.src.doaj = {};
 
 P.src.doaj.journals = {
@@ -10246,7 +8353,7 @@ P.src.doaj.journals.load = async function() {
   fldr = '/tmp/doaj_' + (await this.uid());
   await fs.mkdir(fldr);
   fldr += '/';
-  await fs.writeFile(fldr + 'doaj.tar', (await this.fetch('https://doaj.org/public-data-dump/journal?api_key=' + S.src.doaj.secrets.apikey, {
+  await fs.writeFile(fldr + 'doaj.tar', (await this.fetch('https://doaj.org/public-data-dump/journal?api_key=' + S.doaj.apikey, {
     buffer: true
   })));
   tar.extract({
@@ -10643,20 +8750,6 @@ P.src.epmc.licence = async function(pmcid, rec, fulltext, refresh) {
         if (!fulltext && pmcid) {
           fulltext = (await this.src.epmc.xml(pmcid, rec, refresh));
         }
-        if ((this.licence != null) && fulltext) {
-          if (typeof fulltext === 'string' && fulltext.startsWith('<')) {
-            lics = (await this.licence(void 0, fulltext, '<permissions>', '</permissions>'));
-            if ((lics != null ? lics.licence : void 0) != null) {
-              lics.source = 'epmc_xml_permissions';
-            }
-          }
-          if ((lics != null ? lics.licence : void 0) == null) {
-            lics = (await this.licence(void 0, fulltext));
-            if ((lics != null ? lics.licence : void 0) != null) {
-              lics.source = 'epmc_xml_outside_permissions';
-            }
-          }
-        }
         if (((lics != null ? lics.licence : void 0) == null) && typeof fulltext === 'string' && fulltext.includes('<permissions>')) {
           lics = {
             licence: 'non-standard-licence',
@@ -10665,13 +8758,6 @@ P.src.epmc.licence = async function(pmcid, rec, fulltext, refresh) {
         }
       }
     }
-    
-    //if pmcid and @licence? and (not lics?.licence? or lics?.licence is 'non-standard-licence')
-    //  await @sleep 1000
-    //  url = 'https://europepmc.org/articles/PMC' + pmcid.toLowerCase().replace 'pmc', ''
-    //  if pg = await @puppet url
-    //    try lics = await @licence undefined, pg
-    //    lics.source = 'epmc_html' if lics?.licence?
     if ((lics != null ? lics.licence : void 0) != null) {
       rec.calculated_licence = lics;
       await this.src.epmc(rec.id, rec);
@@ -11136,41 +9222,14 @@ res = {total: res.total, das: res.das, records: res.records} if verbose is false
 res = (if res.records.length and res.records[0].das.length then res.records[0].das[0] else false) if verbose is false and res.total is 1
 return res`;
 
-var base;
-
-if ((base = S.src).google == null) {
-  base.google = {};
-}
-
-try {
-  S.src.google.secrets = JSON.parse(SECRETS_GOOGLE);
-} catch (error) {}
-
 // https://developers.google.com/custom-search/json-api/v1/overview#Pricing
 // note technically meant to be targeted to a site but can do full search on free tier
 // free tier only up to 100 queries a day. After that, $5 per 1000, up to 10k
 // has to come from registered IP address
-P.src.google = async function(q, id, key) {
-  var ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, url;
-  if (q == null) {
-    q = (ref = this != null ? (ref1 = this.params) != null ? ref1.q : void 0 : void 0) != null ? ref : this != null ? (ref2 = this.params) != null ? ref2.google : void 0 : void 0;
-  }
-  if (id == null) {
-    id = (ref3 = this.S.src.google) != null ? (ref4 = ref3.secrets) != null ? (ref5 = ref4.search) != null ? ref5.id : void 0 : void 0 : void 0;
-  }
-  if (key == null) {
-    key = (ref6 = this.S.src.google) != null ? (ref7 = ref6.secrets) != null ? (ref8 = ref7.search) != null ? ref8.key : void 0 : void 0 : void 0;
-  }
-  if (q && id && key) {
-    url = 'https://www.googleapis.com/customsearch/v1?key=' + key + '&cx=' + id + '&q=' + q;
-    return (await this.fetch(url));
-  } else {
-    return {};
-  }
-};
+P.src.google = {};
 
 P.src.google.sheets = async function(opts) {
-  var g, h, hd, headers, i, j, l, len, len1, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, sid, toprow, url, val, values;
+  var g, h, hd, headers, i, j, l, len, len1, ref, ref1, ref2, sid, toprow, url, val, values;
   // expects a google sheet ID or a URL to a google sheets feed in json format
   // NOTE the sheet must be published for this to work, should have the data in Sheet1, and should have columns of data with key names in row 1
   // https://support.google.com/docs/thread/121088347/retrieving-data-from-sheets-results-in-404-error-50-of-the-time
@@ -11206,7 +9265,7 @@ P.src.google.sheets = async function(opts) {
     }
     // also possible to add sheet ranges in here, and use to update sheet if not just a public one being read (see below for a start on using full v4 API)
     // an API key is now NECESSARY even though this is still only for sheets that are published public. Further auth required to do more.
-    url = 'https://sheets.googleapis.com/v4/spreadsheets/' + opts.sheetid + '/values/' + opts.sheet + '?alt=json&key=' + ((ref1 = (ref2 = this.S.src.google) != null ? (ref3 = ref2.secrets) != null ? ref3.serverkey : void 0 : void 0) != null ? ref1 : (ref4 = this.S.src.google) != null ? (ref5 = ref4.secrets) != null ? ref5.apikey : void 0 : void 0);
+    url = 'https://sheets.googleapis.com/v4/spreadsheets/' + opts.sheetid + '/values/' + opts.sheet + '?alt=json&key=' + this.S.google.apikey;
   }
   // google sheets rate limit is 60 per minute per project per user
   g = (await this.fetch(url, {
@@ -11236,25 +9295,12 @@ P.src.google.sheets = async function(opts) {
       }
     }
     values = [];
-    ref7 = (ref6 = g.values) != null ? ref6 : [];
-    for (j = 0, len1 = ref7.length; j < len1; j++) {
-      l = ref7[j];
+    ref2 = (ref1 = g.values) != null ? ref1 : [];
+    for (j = 0, len1 = ref2.length; j < len1; j++) {
+      l = ref2[j];
       val = {};
       for (h in headers) {
         try {
-          //try l[h] = l[h].trim()
-          //try
-          //  l[h] = true if l[h].toLowerCase() is 'true'
-          //  l[h] = false if l[h].toLowerCase() is 'false'
-          //try
-          //  if ((l[h].startsWith('[') and l[h].endsWith(']')) or (l[h].startsWith('{') and l[h].endsWith('}')))
-          //    try l[h] = JSON.parse l[h]
-          //if opts.dot isnt false and typeof l[h] isnt 'object' and headers[h].includes '.'
-          //  try
-          //    await @dot val, headers[h], l[h]
-          //  catch
-          //    try val[headers[h]] = l[h]
-          //else
           val[headers[h]] = l[h];
         } catch (error) {}
       }
@@ -11269,312 +9315,6 @@ P.src.google.sheets = async function(opts) {
 P.src.google.sheets._bg = true;
 
 P.src.google.sheets._log = false;
-
-var base;
-
-if ((base = S.src).microsoft == null) {
-  base.microsoft = {};
-}
-
-try {
-  S.src.microsoft = JSON.parse(SECRETS_MICROSOFT);
-} catch (error) {}
-
-P.src.microsoft = {};
-
-// https://docs.microsoft.com/en-gb/rest/api/cognitiveservices/bing-web-api-v7-reference#endpoints
-// annoyingly Bing search API does not provide exactly the same results as the actual Bing UI.
-// and it seems the bing UI is sometimes more accurate
-P.src.microsoft.bing = async function(q, key, market, count, cache) {
-  var ref, ref1, ref10, ref11, ref12, ref13, ref14, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, res, url;
-  if (q == null) {
-    q = (ref = (ref1 = this != null ? (ref2 = this.params) != null ? ref2.bing : void 0 : void 0) != null ? ref1 : this != null ? (ref3 = this.params) != null ? ref3.q : void 0 : void 0) != null ? ref : this != null ? (ref4 = this.params) != null ? ref4.query : void 0 : void 0;
-  }
-  if (key == null) {
-    key = (ref5 = this != null ? (ref6 = this.params) != null ? ref6.key : void 0 : void 0) != null ? ref5 : (ref7 = S.src.microsoft.bing) != null ? ref7.key : void 0;
-  }
-  if (market == null) {
-    market = (ref8 = this != null ? (ref9 = this.params) != null ? ref9.market : void 0 : void 0) != null ? ref8 : 'en-GB';
-  }
-  if (count == null) {
-    count = (ref10 = this != null ? (ref11 = this.params) != null ? ref11.count : void 0 : void 0) != null ? ref10 : 20;
-  }
-  if (cache == null) {
-    cache = (ref12 = this != null ? (ref13 = this.params) != null ? ref13.cache : void 0 : void 0) != null ? ref12 : 259200; // cache for 3 days
-  }
-  if ((q != null) && (key != null)) {
-    url = 'https://api.cognitive.microsoft.com/bing/v7.0/search?';
-    if (market) {
-      url += 'mkt=' + market + '&';
-    }
-    if (count) {
-      url += 'count=' + count + '&';
-    }
-    url += 'q=' + q;
-    res = (await this.fetch(url, {
-      headers: {
-        'Ocp-Apim-Subscription-Key': key
-      },
-      cache: cache
-    }));
-    if (res != null ? (ref14 = res.webPages) != null ? ref14.value : void 0 : void 0) {
-      return {
-        total: res.webPages.totalEstimatedMatches,
-        data: res.webPages.value
-      };
-    }
-  }
-  return {
-    total: 0,
-    data: []
-  };
-};
-
-P.src.microsoft.bing._auth = '@oa.works';
-
-`P.src.microsoft.graph = _prefix: false, _index: settings: number_of_shards: 9
-P.src.microsoft.graph.journal = _prefix: false, _index: true
-P.src.microsoft.graph.author = _prefix: false, _index: settings: number_of_shards: 9
-P.src.microsoft.graph.affiliation = _prefix: false, _index: true
-P.src.microsoft.graph.urls = _prefix: false, _index: settings: number_of_shards: 6
-P.src.microsoft.graph.abstract = _prefix: false, _index: settings: number_of_shards: 6
-P.src.microsoft.graph.relation = _prefix: false, _index: settings: number_of_shards: 12
-
-P.src.microsoft.graph.paper = (q) -> # can be a search or a record to get urls and relations for
-  url_source_types = # defined by MAG
-    '1': 'html'
-    '2': 'text'
-    '3': 'pdf'
-    '4': 'doc'
-    '5': 'ppt'
-    '6': 'xls'
-    '8': 'rtf'
-    '12': 'xml'
-    '13': 'rss'
-    '20': 'swf'
-    '27': 'ics'
-    '31': 'pub'
-    '33': 'ods'
-    '34': 'odp'
-    '35': 'odt'
-    '36': 'zip'
-    '40': 'mp3'
-
-  if @params.title and not q
-    return @src.microsoft.graph.paper.title()
-
-  q = @params.q ? @params.paper ? @params
-  res = if typeof q is 'object' and q.PaperId and q.Rank then q else await @src.microsoft.graph q
-  for r in (res?.hits?.hits ? (if res then [res] else []))
-    #if ma = await @src.microsoft.graph.abstract r._source.PaperId, 1
-    #  r._source.abstract = ma
-    try
-      urlres = await @src.microsoft.graph.urls 'PaperId:"' + r._source.PaperId + '"' # don't bother for-looping these because result size should be low, and saves on creating and deleting a scrol context for every one
-      for ur in urlres.hits.hits
-        r._source.url ?= []
-        puo = url: ur._source.SourceUrl, language: ur._source.LanguageCode
-        try puo.type = url_source_types[ur._source.SourceType.toString()]
-        r._source.url.push puo
-    try
-      rres = await @src.microsoft.graph.relation 'PaperId:"' + r._source.PaperId + '"', 100 # 100 authors should be enough...
-      for rr in rres.hits.hits
-        if rr._source.AuthorId # which it seems they all do, along with OriginalAuthor and OriginalAffiliation
-          r._source.author ?= []
-          r._source.author.push name: rr._source.OriginalAuthor, sequence: rr._source.AuthorSequenceNumber, id: rr._source.AuthorId, affiliation: {name: rr._source.OriginalAffiliation, id: rr._source.AffiliationId}
-    
-  return res
-  
-
-P.src.microsoft.graph.title = (q) ->
-  q ?= @params.title ? @params.q
-  if typeof q is 'string'
-    title = q.toLowerCase().replace(/['".,\/\^&\*;:!\?#\$%{}=\-\+_\`~()]/g,' ').replace(/\s{2,}/g,' ').trim() # MAG PaperTitle is lowercased. OriginalTitle isnt
-    res = await @src.microsoft.graph 'PaperTitle:"' + title + '"', 1
-    res = res.hits.hits[0]?._source if res?.hits?.hits
-    if res?.PaperTitle
-      rt = res.PaperTitle.replace(/['".,\/\^&\*;:!\?#\$%{}=\-\+_\`~()]/g,' ').replace(/\s{2,}/g,' ').trim()
-      lvs = await @levenshtein title, rt, false
-      longest = if lvs.length.a > lvs.length.b then lvs.length.a else lvs.length.b
-      if lvs.distance < 2 or longest/lvs.distance > 10
-        return @src.microsoft.graph.paper res
-  return
-
-
-
-
-# https://docs.microsoft.com/en-us/academic-services/graph/reference-data-schema
-# We used to get files via MS Azure dump and run an import script. Have to manually go to 
-# Azure, use storage explorer to find the most recent blob container, select the file(s)
-# to download, right click and select shared access signature, create it, copy it, and download that.
-# THEN DELETE THE BLOB BECAUSE THEY CHARGE US FOR EVERY CREATION, EVERY DOWNLOAD, AND STORAGE TIME FOR AS LONG AS IT EXISTS
-# but now the service has been discontinued. Maybe there will be a replacement in future
-
-P.src.microsoft.load = (kinds) ->
-  howmany = @params.howmany ? -1 # max number of lines to process. set to -1 to keep going...
-
-  keys =
-    #journal: ['JournalId', 'Rank', 'NormalizedName', 'DisplayName', 'Issn', 'Publisher', 'Webpage', 'PaperCount', 'PaperFamilyCount', 'CitationCount', 'CreatedDate']
-    #affiliation: ['AffiliationId', 'Rank', 'NormalizedName', 'DisplayName', 'GridId', 'OfficialPage', 'Wikipage', 'PaperCount', 'PaperFamilyCount', 'CitationCount', 'Iso3166Code', 'Latitude', 'Longitude', 'CreatedDate']
-    #author: ['AuthorId', 'Rank', 'NormalizedName', 'DisplayName', 'LastKnownAffiliationId', 'PaperCount', 'PaperFamilyCount', 'CitationCount', 'CreatedDate']
-    #relation: ['PaperId', 'AuthorId', 'AffiliationId', 'AuthorSequenceNumber', 'OriginalAuthor', 'OriginalAffiliation']
-    #abstract: ['PaperId', 'Abstract']
-    #urls: ['PaperId', 'SourceType', 'SourceUrl', 'LanguageCode']
-    paper: ['PaperId', 'Rank', 'Doi', 'DocType', 'PaperTitle', 'OriginalTitle', 'BookTitle', 'Year', 'Date', 'OnlineDate', 'Publisher', 'JournalId', 'ConferenceSeriesId', 'ConferenceInstanceId', 'Volume', 'Issue', 'FirstPage', 'LastPage', 'ReferenceCount', 'CitationCount', 'EstimatedCitation', 'OriginalVenue', 'FamilyId', 'FamilyRank', 'CreatedDate']
-
-  kinds ?= if @params.load then @params.load.split(',') else if @params.kinds then @params.kinds.split(',') else @keys keys
-
-  # totals: 49027 journals, 26997 affiliations, 269880467 authors, 699632917 relations, 429637001 urls, 145551658 abstracts (in 2 files), 259102074 papers
-  # paper URLs PaperId is supposedly a Primary Key but there are clearly many more of them than Papers...
-  # of other files not listed here yet: 1726140322 paper references
-  # of about 49k journals about 9 are dups, 37k have ISSN. 32k were already known from other soruces. Of about 250m papers, about 99m have DOIs
-  infolder = @S.directory + '/import/mag/2021-04-26/' # where the lines should be read from
-  lastfile = @S.directory + '/import/mag/last' # prefix of where to record the ID of the last item read from the kind of file
-  
-  total = 0
-  blanks = 0
-  done = not @params.parallel
-  ds = {}
-  
-  paper_journal_count = 0
-  paper_journal_lookups = {} # store these in memory when loading papers as they're looked up because there aren't many and it will work out faster than searching every time
-  url_source_types = # defined by MAG
-    '1': 'html'
-    '2': 'text'
-    '3': 'pdf'
-    '4': 'doc'
-    '5': 'ppt'
-    '6': 'xls'
-    '8': 'rtf'
-    '12': 'xml'
-    '13': 'rss'
-    '20': 'swf'
-    '27': 'ics'
-    '31': 'pub'
-    '33': 'ods'
-    '34': 'odp'
-    '35': 'odt'
-    '36': 'zip'
-    '40': 'mp3'
-
-  _loadkind = (kind) =>
-    console.log 'MAG loading', kind
-    batchsize = if kind in ['abstract'] then 20000 else if kind in ['relation'] then 75000 else if kind in ['urls'] then 100000 else 50000 # how many records to batch upload at a time
-    batch = []
-    kindlastfile = lastfile + '_' + kind
-    kindtotal = 0
-    try lastrecord = parseInt((await fs.readFile kindlastfile).toString().split(' ')[0]) if not @refresh
-
-    if lastrecord isnt 'DONE'
-      if not lastrecord
-        if kind is 'paper'
-          await @src.microsoft.graph ''
-        else
-          await @src.microsoft.graph[kind] ''
-      
-      infile = (if kind in ['urls'] then infolder.replace('2021-04-26/', '') else infolder) + (if kind is 'relation' then 'PaperAuthorAffiliations.txt' else (if kind in ['urls'] then 'Paper' else '') + kind.substr(0,1).toUpperCase() + kind.substr(1) + (if kind in ['urls'] then '' else 's') + '.txt')
-
-      for await line from readline.createInterface input: fs.createReadStream infile
-        kindtotal += 1
-        break if total is howmany
-        vals = line.split '\t'
-        try console.log(kind, 'waiting', kindtotal, lastrecord) if lastrecord and not (kindtotal/100000).toString().includes '.'
-        if not lastrecord or kindtotal is lastrecord or parseInt(vals[0]) is lastrecord
-          lastrecord = undefined
-          total += 1
-          kc = 0
-          obj = {}
-          if kind not in ['relation', 'urls']
-            obj._id = vals[0]
-            try obj._id = obj._id.trim()
-            delete obj._id if not obj._id # there appear to be some blank lines so skip those
-          if obj._id or kind in ['relation', 'urls']
-            if kind is 'abstract'
-              try
-                obj.PaperId = parseInt vals[0]
-                ind = JSON.parse vals[1]
-                al = []
-                al.push('') while al.length < ind.IndexLength
-                for k in ind.InvertedIndex
-                  for p in ind.InvertedIndex[k]
-                    al[p] = k
-                obj.Abstract = al.join(' ').replace /\n/g, ' '
-            else
-              for key in keys[kind]
-                vs = vals[kc]
-                try vs.trim()
-                obj[key] = vs if vs and key not in ['NormalizedName']
-                if key in ['Rank', 'AuthorSequenceNumber', 'Year', 'EstimatedCitation', 'FamilyRank', 'SourceType'] or key.endsWith('Count') or key.endsWith 'Id'
-                  try
-                    psd = parseInt obj[key]
-                    obj[key] = psd if not isNaN psd
-                kc += 1
-            if kind is 'paper'
-              if obj.JournalId
-                try
-                  js = obj.JournalId.toString()
-                  if jrnl = paper_journal_lookups[js]
-                    obj.journal = title: jrnl.DisplayName, ISSN: jrnl.Issn.split(','), url: jrnl.Webpage, id: obj.JournalId
-                  else if jrnl = await @src.microsoft.graph.journal js
-                    paper_journal_lookups[js] = jrnl
-                    paper_journal_count += 1
-                    console.log paper_journal_count
-                    obj.journal = title: jrnl.DisplayName, ISSN: jrnl.Issn.split(','), url: jrnl.Webpage
-
-          if JSON.stringify(obj) isnt '{}' # readline MAG author dump somehow managed to cause blank rows even though they couldn't be found in the file, so skip empty records
-            batch.push obj
-          else
-            blanks += 1
-  
-        if batch.length is batchsize
-          console.log kind, total, kindtotal, blanks
-          if kind is 'paper'
-            await @src.microsoft.graph batch
-          else
-            batched = await @src.microsoft.graph[kind] batch
-            console.log 'batch returned', batched # should be the count of how many were successfully saved
-          await fs.writeFile kindlastfile, kindtotal + ' ' + vals[0]
-          batch = []
-  
-      if batch.length
-        if kind is 'paper'
-          await @src.microsoft.graph batch 
-        else
-          await @src.microsoft.graph[kind] batch
-      await fs.writeFile kindlastfile, 'DONE'
-    ds[k] = true
-
-  for k in kinds
-    if @params.parallel
-      if k isnt 'paper'
-        ds[k] = false
-        _loadkind k
-    else
-      await _loadkind k
-
-  while not done
-    done = true
-    for d of ds
-      done = false if ds[d] is false
-    if done and 'paper' in kinds
-      await _loadkind 'paper'
-    await @sleep 1000
-
-  console.log total, blanks
-  return total
-
-P.src.microsoft.load._bg = true
-P.src.microsoft.load._async = true
-P.src.microsoft.load._auth = 'root'`;
-
-var base;
-
-if ((base = S.src).oadoi == null) {
-  base.oadoi = {};
-}
-
-try {
-  S.src.oadoi = JSON.parse(SECRETS_OADOI);
-} catch (error) {}
 
 P.src.oadoi = {
   _index: {
@@ -11729,7 +9469,7 @@ P.src.oadoi.load = async function(url, tgt, toalias, clear, esurl) {
   } catch (error) {
     console.log('OADOI downloading snapshot');
     if (!url.includes('api_key=')) {
-      url += (url.includes('?') ? '&' : '?') + 'api_key=' + this.S.src.oadoi.apikey;
+      url += (url.includes('?') ? '&' : '?') + 'api_key=' + this.S.oadoi.apikey;
     }
     console.log(url);
     resp = (await fetch(url));
@@ -11920,7 +9660,7 @@ P.src.oadoi.changes = async function(oldest, tgt, toalias, esurl) {
     console.log('Timestamp day to work since is required - run load first to auto-generate');
     return;
   }
-  changes = (await this.fetch('https://api.unpaywall.org/feed/changefiles?api_key=' + this.S.src.oadoi.apikey + '&interval=day'));
+  changes = (await this.fetch('https://api.unpaywall.org/feed/changefiles?api_key=' + this.S.oadoi.apikey + '&interval=day'));
   //seen = []
   //dups = 0
   counter = 0;
@@ -12026,16 +9766,6 @@ P.src.oadoi._format = function(rec) {
   return rec;
 };
 
-var base;
-
-if ((base = S.src).openai == null) {
-  base.openai = {};
-}
-
-try {
-  S.src.openai = JSON.parse(SECRETS_OPENAI);
-} catch (error) {}
-
 P.src.openai = {};
 
 // https://platform.openai.com/docs/api-reference/chat/create
@@ -12053,11 +9783,11 @@ P.src.openai.chat = async function(prompt, role, model, json) {
   if (json == null) {
     json = this.params.json;
   }
-  if (typeof prompt === 'string' && prompt.length && ((ref5 = this.S.src.openai) != null ? ref5.key : void 0)) {
+  if (typeof prompt === 'string' && prompt.length && ((ref5 = this.S.openai) != null ? ref5.key : void 0)) {
     url = 'https://api.openai.com/v1/chat/completions';
     headers = {
       'Content-Type': 'application/json',
-      Authorization: 'Bearer ' + this.S.src.openai.key
+      Authorization: 'Bearer ' + this.S.openai.key
     };
     msg = {
       model: model,
@@ -12098,12 +9828,12 @@ P.src.openai.grantid = async function(prompt, text) {
   if (text == null) {
     text = (ref1 = this.params.text) != null ? ref1 : 'Bill & Melinda Gates Foundation:\n\nThis work was supported by the USDA-NIFA Hatch/Multistate project W4147-TEN00539, the Bill and Melinda Gates Foundation (grant ID OPP1052983 and OPP1213329) and the Illumina Agricultural Greater Good Initiative grant.';
   }
-  if (typeof text === 'string' && text.length && ((ref2 = this.S.src.openai) != null ? ref2.key : void 0)) {
+  if (typeof text === 'string' && text.length && ((ref2 = this.S.openai) != null ? ref2.key : void 0)) {
     try {
       url = 'https://api.openai.com/v1/chat/completions';
       headers = {
         'Content-Type': 'application/json',
-        Authorization: 'Bearer ' + this.S.src.openai.key
+        Authorization: 'Bearer ' + this.S.openai.key
       };
       msg = {
         model: "gpt-4o-2024-08-06",
@@ -12174,7 +9904,7 @@ P.src.openai.grantid = async function(prompt, text) {
 P.src.openai.assistant = async function(assistant, message, thread, instruct, model) {
   var AI, ret;
   AI = new OpenAI({
-    apiKey: this.S.src.openai.key
+    apiKey: this.S.openai.key
   });
   if (assistant == null) {
     assistant = this.params.assistant; //? 'asst_pYTJneAV4OE7x9YIKjG6yLaW'
@@ -12239,53 +9969,45 @@ P.src.openai.assistant._bg = true;
 
 //P.src.openai.assistant._auth = '@oa.works'
 
-var _openalex_load_running, base,
-  indexOf = [].indexOf;
-
-if ((base = S.src).openalex == null) {
-  base.openalex = {};
-}
-
-try {
-  S.src.openalex = JSON.parse(SECRETS_OPENALEX);
-} catch (error) {}
-
-// https://docs.openalex.org/api
-// https://docs.openalex.org/download-snapshot/snapshot-data-format
-// https://docs.openalex.org/download-snapshot/download-to-your-machine
+  // https://docs.openalex.org/api
+  // https://docs.openalex.org/download-snapshot/snapshot-data-format
+  // https://docs.openalex.org/download-snapshot/download-to-your-machine
 
 // https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
-// curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-// unzip awscliv2.zip
-// sudo ./aws/install
+  // curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+  // unzip awscliv2.zip
+  // sudo ./aws/install
 
 // aws s3 sync 's3://openalex' 'openalex' --no-sign-request
 
 // note for resizing storage volume:
-// sudo resize2fs /dev/sdv (or whatever the identity of the volume is)
+  // sudo resize2fs /dev/sdv (or whatever the identity of the volume is)
 
 // querying openalex
-// https://docs.openalex.org/api-entities/works/filter-works
-// https://docs.openalex.org/how-to-use-the-api/get-lists-of-entities/filter-entity-lists
+  // https://docs.openalex.org/api-entities/works/filter-works
+  // https://docs.openalex.org/how-to-use-the-api/get-lists-of-entities/filter-entity-lists
 
 // rate limits
-// https://docs.openalex.org/how-to-use-the-api/rate-limits-and-authentication
-// public tier is 10r/s max 100k per day, requires mailto: param
-// premium limits just says "as needed"
+  // https://docs.openalex.org/how-to-use-the-api/rate-limits-and-authentication
+  // public tier is 10r/s max 100k per day, requires mailto: param
+  // premium limits just says "as needed"
 
 // rate limits were CHANGED again:
-// https://docs.openalex.org/how-to-use-the-api/rate-limits-and-authentication
-// now direct GETs of individual records have no "cost"
-// filter queries "cost" means that we can make 10k filter queries per day on the free plan
-// overall rate limit is 100r/s with no day cap
-// this will require some changes to our rate limiting to manage a 10k cap on filters but not on GETS, whilst also maintaining 100r/s overall
-// for now split it 80/20 across two types and hope it works
+  // https://docs.openalex.org/how-to-use-the-api/rate-limits-and-authentication
+  // now direct GETs of individual records have no "cost"
+  // filter queries "cost" means that we can make 10k filter queries per day on the free plan
+  // overall rate limit is 100r/s with no day cap
+  // this will require some changes to our rate limiting to manage a 10k cap on filters but not on GETS, whilst also maintaining 100r/s overall
+  // for now split it 80/20 across two types and hope it works
+var _openalex_load_running,
+  indexOf = [].indexOf;
+
 P.src.openalex = function() {
   return true;
 };
 
 P.src.openalex.rates = function() {
-  return this.fetch('https://api.openalex.org/rate-limit?api_key=' + this.S.src.openalex.apikey, {
+  return this.fetch('https://api.openalex.org/rate-limit?api_key=' + this.S.openalex.apikey, {
     rate: ['openalex', 80]
   });
 };
@@ -12435,17 +10157,17 @@ P.src.openalex.works.find = async function(doi, openalex, pmcid, pmid, refresh) 
     }
   }
   if (doi) {
-    res = (await this.fetch('https://api.openalex.org/works/https://doi.org/' + doi + '?mailto=' + ((ref = (ref1 = this.S.mail) != null ? ref1.to : void 0) != null ? ref : 'sysadmin@oa.works') + (((ref2 = this.S.src.openalex) != null ? ref2.apikey : void 0) ? '&api_key=' + this.S.src.openalex.apikey : ''), {
+    res = (await this.fetch('https://api.openalex.org/works/https://doi.org/' + doi + '?mailto=' + ((ref = (ref1 = this.S.mail) != null ? ref1.to : void 0) != null ? ref : 'sysadmin@oa.works') + (((ref2 = this.S.openalex) != null ? ref2.apikey : void 0) ? '&api_key=' + this.S.openalex.apikey : ''), {
       rate: ['openalex', 80]
     }));
   }
   if (!res && openalex) {
-    res = (await this.fetch('https://api.openalex.org/works/' + openalex + '?mailto=' + ((ref3 = (ref4 = this.S.mail) != null ? ref4.to : void 0) != null ? ref3 : 'sysadmin@oa.works') + (((ref5 = this.S.src.openalex) != null ? ref5.apikey : void 0) ? '&api_key=' + this.S.src.openalex.apikey : ''), {
+    res = (await this.fetch('https://api.openalex.org/works/' + openalex + '?mailto=' + ((ref3 = (ref4 = this.S.mail) != null ? ref4.to : void 0) != null ? ref3 : 'sysadmin@oa.works') + (((ref5 = this.S.openalex) != null ? ref5.apikey : void 0) ? '&api_key=' + this.S.openalex.apikey : ''), {
       rate: ['openalex', 80]
     }));
   }
   if (!res && pmid) {
-    res = (await this.fetch('https://api.openalex.org/works/pmid:' + pmid + '?mailto=' + ((ref6 = (ref7 = this.S.mail) != null ? ref7.to : void 0) != null ? ref6 : 'sysadmin@oa.works') + (((ref8 = this.S.src.openalex) != null ? ref8.apikey : void 0) ? '&api_key=' + this.S.src.openalex.apikey : ''), {
+    res = (await this.fetch('https://api.openalex.org/works/pmid:' + pmid + '?mailto=' + ((ref6 = (ref7 = this.S.mail) != null ? ref7.to : void 0) != null ? ref6 : 'sysadmin@oa.works') + (((ref8 = this.S.openalex) != null ? ref8.apikey : void 0) ? '&api_key=' + this.S.openalex.apikey : ''), {
       rate: ['openalex', 80]
     }));
   }
@@ -12460,7 +10182,7 @@ P.src.openalex.works.find = async function(doi, openalex, pmcid, pmid, refresh) 
     // whereas our copy (older) had pmcid too: https://bg.beta.oa.works/src/openalex/works/10.1073/pnas.30.11.362
     // can also check locations.landing_page_url for PMID: https://pubmed.ncbi.nlm.nih.gov/37788887
     pml = pmcid.toLowerCase().replace('pmc', '');
-    res = (await this.fetch('https://api.openalex.org/works?filter=locations.landing_page_url:https://www.ncbi.nlm.nih.gov/pmc/articles/' + pml + '|https://europepmc.org/articles/pmc' + pml + '?mailto=' + ((ref9 = (ref10 = this.S.mail) != null ? ref10.to : void 0) != null ? ref9 : 'sysadmin@oa.works') + (((ref11 = this.S.src.openalex) != null ? ref11.apikey : void 0) ? '&api_key=' + this.S.src.openalex.apikey : ''), {
+    res = (await this.fetch('https://api.openalex.org/works?filter=locations.landing_page_url:https://www.ncbi.nlm.nih.gov/pmc/articles/' + pml + '|https://europepmc.org/articles/pmc' + pml + '?mailto=' + ((ref9 = (ref10 = this.S.mail) != null ? ref10.to : void 0) != null ? ref9 : 'sysadmin@oa.works') + (((ref11 = this.S.openalex) != null ? ref11.apikey : void 0) ? '&api_key=' + this.S.openalex.apikey : ''), {
       rate: ['openalexFilter', 20, 10000, 86400]
     }));
     try {
@@ -12472,7 +10194,7 @@ P.src.openalex.works.find = async function(doi, openalex, pmcid, pmid, refresh) 
       }
     } catch (error) {}
     if (res == null) {
-      res = (await this.fetch('https://api.openalex.org/works?filter=ids.pmcid:https://www.ncbi.nlm.nih.gov/pmc/articles/' + pml + '?mailto=' + ((ref12 = (ref13 = this.S.mail) != null ? ref13.to : void 0) != null ? ref12 : 'sysadmin@oa.works') + (((ref14 = this.S.src.openalex) != null ? ref14.apikey : void 0) ? '&api_key=' + this.S.src.openalex.apikey : ''), {
+      res = (await this.fetch('https://api.openalex.org/works?filter=ids.pmcid:https://www.ncbi.nlm.nih.gov/pmc/articles/' + pml + '?mailto=' + ((ref12 = (ref13 = this.S.mail) != null ? ref13.to : void 0) != null ? ref12 : 'sysadmin@oa.works') + (((ref14 = this.S.openalex) != null ? ref14.apikey : void 0) ? '&api_key=' + this.S.openalex.apikey : ''), {
         rate: ['openalexFilter', 20, 10000, 86400]
       }));
     }
@@ -12850,7 +10572,7 @@ P.src.openalex.sources.load = async function() {
   await this.src.openalex.sources('');
   total = 0;
   batch = [];
-  url = 'https://api.openalex.org/sources?' + (((ref = this.S.src.openalex) != null ? ref.apikey : void 0) ? 'api_key=' + this.S.src.openalex.apikey + '&' : '') + 'per-page=200&cursor=';
+  url = 'https://api.openalex.org/sources?' + (((ref = this.S.openalex) != null ? ref.apikey : void 0) ? 'api_key=' + this.S.openalex.apikey + '&' : '') + 'per-page=200&cursor=';
   res = (await this.fetch(url + '*'));
   while ((res != null) && typeof res === 'object' && Array.isArray(res.results) && res.results.length) {
     ref1 = res.results;
@@ -12931,7 +10653,7 @@ for w in (if Array.isArray(what) then what else [what])
       cursor = '*'
       # doing created and updated separately because although we initially thought updated would include created, there is suggestions it does not, in missing records
       # https://github.com/ourresearch/openalex-api-tutorials/blob/main/notebooks/getting-started/premium.ipynb
-      url = 'https://api.openalex.org/' + w + '?filter=from_' + filter + '_date:' + last[filter] + '&api_key=' + @S.src.openalex.apikey + '&per-page=200&cursor='
+      url = 'https://api.openalex.org/' + w + '?filter=from_' + filter + '_date:' + last[filter] + '&api_key=' + @S.openalex.apikey + '&per-page=200&cursor='
       console.log 'Openalex changes querying', url + cursor
       try
         res = await @fetch url + cursor
@@ -12976,28 +10698,6 @@ if @fn isnt 'src.openalex.changes' and ended - started < 3600000
   await @sleep 3600000 - (ended - started) 
 console.log 'Openalex changes changed', total, queued.length
 return total`;
-
-P.src.openalex.works.tf = async function() {
-  var doi, found, ox, rec, ref, ref1, ref2, ref3, ref4, ref5, ref6;
-  doi = (ref = this.params.tf) != null ? ref : 'W2416193353';
-  if (doi.startsWith('W')) {
-    ox = doi;
-    doi = void 0;
-  }
-  if (ox) {
-    rec = (await this.fetch('https://api.openalex.org/works/' + ox + '?mailto=' + ((ref1 = (ref2 = this.S.mail) != null ? ref2.to : void 0) != null ? ref1 : 'sysadmin@oa.works') + (((ref3 = this.S.src.openalex) != null ? ref3.apikey : void 0) ? '&api_key=' + this.S.src.openalex.apikey : ''), {
-      rate: ['openalex', 80]
-    }));
-  } else if (doi) {
-    rec = (await this.fetch('https://api.openalex.org/works/https://doi.org/' + doi + '?mailto=' + ((ref4 = (ref5 = this.S.mail) != null ? ref5.to : void 0) != null ? ref4 : 'sysadmin@oa.works') + (((ref6 = this.S.src.openalex) != null ? ref6.apikey : void 0) ? '&api_key=' + this.S.src.openalex.apikey : ''), {
-      rate: ['openalex', 80]
-    }));
-  }
-  if (typeof rec === 'object' && rec.id) {
-    found = (await this.src.openalex.works._format(rec));
-  }
-  return {rec, found};
-};
 
 // there are pubmed data loaders on the server side, they build an index that can 
 // be queried directly. However some of the below functions may still be useful 
@@ -14529,85 +12229,6 @@ P.src.zenodo.deposition.delete = async function(id, token, dev) {
   #file = z.uploaded?.links?.download
 
   return z`;
-
-P.blacklist = async function(url) {
-  var b, blacklist, i, j, k, len, len1, ref;
-  if (url == null) {
-    url = this.params.url;
-  }
-  if (typeof url === 'number') {
-    url = url.toString();
-  }
-  if ((url != null) && (url.length < 4 || url.indexOf('.') === -1)) {
-    return false;
-  }
-  blacklist = [];
-  ref = (await this.src.google.sheets("1j1eAnBN-5UoAPLFIFlQCXEnOmXG85RhwT1rKUkrPleI"));
-  for (j = 0, len = ref.length; j < len; j++) {
-    i = ref[j];
-    blacklist.push(i.url.toLowerCase());
-  }
-  if (url) {
-    if (!url.startsWith('http') && url.includes(' ')) {
-      return false; // sometimes things like article titles get sent here, no point checking them on the blacklist
-    } else {
-      for (k = 0, len1 = blacklist.length; k < len1; k++) {
-        b = blacklist[k];
-        if (url.includes(b.toLowerCase())) {
-          return true;
-        }
-      }
-      return false;
-    }
-  } else {
-    return blacklist;
-  }
-};
-
-P.bug = function() {
-  var k, lc, ref, ref1, ref2, ref3, ref4, ref5, subject, text, whoto;
-  if (this.params.contact) { // verify humanity
-    return '';
-  } else {
-    whoto = ['help@oa.works'];
-    text = '';
-    for (k in this.params) {
-      text += k + ': ' + JSON.stringify(this.params[k], void 0, 2) + '\n\n';
-    }
-    subject = '[OAB forms]';
-    if (((ref = this.params) != null ? ref.form : void 0) === 'uninstall') { // wrong bug general other
-      subject += ' Uninstall notice';
-    } else if (((ref1 = this.params) != null ? ref1.form : void 0) === 'wrong') {
-      subject += ' Wrong article';
-    } else if (((ref2 = this.params) != null ? ref2.form : void 0) === 'bug') {
-      subject += ' Bug';
-    } else if (((ref3 = this.params) != null ? ref3.form : void 0) === 'general') {
-      subject += ' General';
-    } else {
-      subject += ' Other';
-    }
-    subject += ' ' + Date.now();
-    if ((ref4 = (ref5 = this.params) != null ? ref5.form : void 0) === 'wrong' || ref4 === 'uninstall') {
-      whoto.push('help@openaccessbutton.org');
-    }
-    this.waitUntil(this.mail({
-      service: 'openaccessbutton',
-      from: 'help@openaccessbutton.org',
-      to: whoto,
-      subject: subject,
-      text: text
-    }));
-    lc = (this.S.dev ? 'https://dev.openaccessbutton.org' : 'https://openaccessbutton.org') + '/feedback#defaultthanks';
-    return {
-      status: 302,
-      headers: {
-        'Content-Type': 'text/plain',
-        'Location': lc
-      },
-      body: lc
-    };
-  }
-};
 
 // https://developers.cloudflare.com/workers/runtime-apis/cache
 
@@ -18401,12 +16022,6 @@ P.logs = {
   _auth: 'system'
 };
 
-try {
-  S.mail = JSON.parse(SECRETS_MAIL);
-} catch (error) {
-  S.mail = {};
-}
-
 P.mail = async function(opts) {
   var f, fa, i, len, ms, p, parts, pl, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, url;
   if ((ref = S.mail) != null ? ref.disabled : void 0) {
@@ -18702,23 +16317,6 @@ P.keys = function(obj) {
     }
   }
   return keys;
-};
-
-P.pings = {
-  _index: true
-};
-
-P.ping = async function() {
-  var data, ref, ref1;
-  data = this.copy(this.params);
-  if (JSON.stringify(data) !== '{}') {
-    data.ip = (ref = (ref1 = this.headers['x-forwarded-for']) != null ? ref1 : this.headers['cf-connecting-ip']) != null ? ref : this.headers['x-real-ip'];
-    data.forwarded = this.headers['x-forwarded-for'];
-    await this.pings(data);
-    return true;
-  } else {
-    return false;
-  }
 };
 
 // https://jcheminf.springeropen.com/articles/10.1186/1758-2946-3-47
@@ -19255,7 +16853,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Thu Oct 01 2026 15:15:58 GMT+0100";
+S.built = "Thu Oct 01 2026 22:44:53 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor

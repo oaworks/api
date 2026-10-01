@@ -1,7 +1,4 @@
 
-S.src.oadoi ?= {}
-try S.src.oadoi = JSON.parse SECRETS_OADOI
-
 P.src.oadoi = _index: settings: number_of_shards: 9
 P.src.oadoi._key = 'doi'
 P.src.oadoi._prefix = false
@@ -99,7 +96,7 @@ P.src.oadoi.load = (url, tgt, toalias, clear, esurl) ->
     stats = await fs.stat infile # check if file exists in async fs promises which does not have .exists
   catch
     console.log 'OADOI downloading snapshot'
-    url += (if url.includes('?') then '&' else '?') + 'api_key=' + @S.src.oadoi.apikey if not url.includes 'api_key='
+    url += (if url.includes('?') then '&' else '?') + 'api_key=' + @S.oadoi.apikey if not url.includes 'api_key='
     console.log url
     resp = await fetch url
     wstr = fs.createWriteStream infile
@@ -237,7 +234,7 @@ P.src.oadoi.changes = (oldest, tgt, toalias, esurl) ->
     console.log 'Timestamp day to work since is required - run load first to auto-generate'
     return
 
-  changes = await @fetch 'https://api.unpaywall.org/feed/changefiles?api_key=' + @S.src.oadoi.apikey + '&interval=day'
+  changes = await @fetch 'https://api.unpaywall.org/feed/changefiles?api_key=' + @S.oadoi.apikey + '&interval=day'
   #seen = []
   #dups = 0
   counter = 0

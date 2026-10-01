@@ -1,7 +1,4 @@
 
-S.src.openai ?= {}
-try S.src.openai = JSON.parse SECRETS_OPENAI
-
 P.src.openai = {}
 
 # https://platform.openai.com/docs/api-reference/chat/create
@@ -10,9 +7,9 @@ P.src.openai.chat = (prompt, role, model, json) ->
   role ?= @params.role ? 'You are a helpful assistant'
   model ?= @params.model ? 'gpt-4-1106-preview'
   json ?= @params.json
-  if typeof prompt is 'string' and prompt.length and @S.src.openai?.key
+  if typeof prompt is 'string' and prompt.length and @S.openai?.key
     url = 'https://api.openai.com/v1/chat/completions'
-    headers = 'Content-Type': 'application/json', Authorization: 'Bearer ' + @S.src.openai.key
+    headers = 'Content-Type': 'application/json', Authorization: 'Bearer ' + @S.openai.key
     msg = model: model, messages: []
     msg.response_format = {type: 'json_object'} if json
     system = role: 'system', content: role
@@ -31,10 +28,10 @@ P.src.openai.chat._auth = '@oa.works'
 P.src.openai.grantid = (prompt, text) ->
   prompt ?= @params.prompt ? 'Please extract the grant ID requested from the provided acknowledgements text.'
   text ?= @params.text ? 'Bill & Melinda Gates Foundation:\n\nThis work was supported by the USDA-NIFA Hatch/Multistate project W4147-TEN00539, the Bill and Melinda Gates Foundation (grant ID OPP1052983 and OPP1213329) and the Illumina Agricultural Greater Good Initiative grant.'
-  if typeof text is 'string' and text.length and @S.src.openai?.key
+  if typeof text is 'string' and text.length and @S.openai?.key
     try
       url = 'https://api.openai.com/v1/chat/completions'
-      headers = 'Content-Type': 'application/json', Authorization: 'Bearer ' + @S.src.openai.key
+      headers = 'Content-Type': 'application/json', Authorization: 'Bearer ' + @S.openai.key
 
       msg = 
         model: "gpt-4o-2024-08-06",
@@ -104,7 +101,7 @@ P.src.openai.grantid = (prompt, text) ->
 
 
 P.src.openai.assistant = (assistant, message, thread, instruct, model) ->
-  AI = new OpenAI apiKey: @S.src.openai.key
+  AI = new OpenAI apiKey: @S.openai.key
   assistant ?= @params.assistant #? 'asst_pYTJneAV4OE7x9YIKjG6yLaW'
   message ?= @params.message
   thread ?= @params.thread
