@@ -471,3 +471,19 @@ P.src.openalex.hybrid = (issns) ->
   console.log 'Openalex changes changed', total, queued.length
   return total
 '''
+
+
+
+P.src.openalex.works.tf = ->
+  doi = @params.tf ? 'W2416193353'
+  if doi.startsWith 'W'
+    ox = doi
+    doi = undefined
+  if ox
+    rec = await @fetch ('https://api.openalex.org/works/' + ox + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '')), {rate: ['openalex', 80]}
+  else if doi
+    rec = await @fetch ('https://api.openalex.org/works/https://doi.org/' + doi + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '')), {rate: ['openalex', 80]}
+
+  if typeof rec is 'object' and rec.id
+    found = await @src.openalex.works._format rec
+  return { rec, found }
