@@ -1,4 +1,10 @@
 
+try
+  S.mail = JSON.parse SECRETS_MAIL
+catch
+  S.mail = {}
+
+
 P.mail = (opts) ->
   return {} if S.mail?.disabled
 

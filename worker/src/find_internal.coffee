@@ -4,20 +4,16 @@
 # find will also operate without a DOI whereas shareyourpaper and permissions didn't - they could be changed to allow that, or just restrict some of what find used to do
 # find will also give info of any open ILLs
 
-P.metadata = (doi) ->
-  return status: 410, body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
-
-  res = await @find doi # may not be a DOI, but most likely thing
+P.metadata_internal = (doi) ->
+  res = await @find_internal doi # may not be a DOI, but most likely thing
   return res?.metadata
-P.metadata._log = false
+P.metadata_internal._log = false
 
-P.find = (options, metadata={}, content) ->
-  return status: 410, body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
-
+P.find_internal = (options, metadata={}, content) ->
   res = {}
 
   _metadata = (input) =>
-    ct = await @citation input
+    ct = await @citation_internal input
     for k of ct
       if k in ['url', 'paywall']
         res[k] ?= ct[k]
@@ -30,13 +26,16 @@ P.find = (options, metadata={}, content) ->
   options ?= {}
   content ?= options.dom ? (if typeof @body is 'string' then @body else undefined)
   
-  options.find = options.metadata if options.metadata
-  if options.find
-    if options.find.startsWith('10.') and options.find.includes '/'
-      options.doi = options.find
+  options.find_internal = options.metadata if options.metadata
+  if options.metadata_internal
+    options.find_internal = options.metadata_internal
+    delete options.metadata_internal
+  if options.find_internal
+    if options.find_internal.startsWith('10.') and options.find_internal.includes '/'
+      options.doi = options.find_internal
     else
-      options.url = options.find
-    delete options.find
+      options.url = options.find_internal
+    delete options.find_internal
   options.url ?= options.q ? options.id
   if options.url
     options.url = options.url.toString() if typeof options.url is 'number'
@@ -105,7 +104,7 @@ P.find = (options, metadata={}, content) ->
         await _metadata(epmc) if epmc isnt false
 
   await _metadata(openalex) if metadata.doi and openalex = await @src.openalex.works.doi metadata.doi # run this even if ran openalex title search above, because may since have gotten DOI and could get better
-  res.doi_not_in_openalex = true if metadata.doi and not openalex?.type_crossref
+  res.doi_not_in_openalex = true if metadata.doi and not openalex?.type_crossref and 'crossref' not in (openalex?.indexed_in ? []) #and openalex?.type not in ['article']
 
   # temporary until publishers in permissions are re-keyed to match openalex publisher names (which differ from crossref which is what we originally keyed them to)
   # https://github.com/oaworks/discussion/issues/3192#issuecomment-2314515904
@@ -114,7 +113,7 @@ P.find = (options, metadata={}, content) ->
 
   _ill = () =>
     if (metadata.doi or (metadata.title and metadata.title.length > 8 and metadata.title.split(' ').length > 1)) and (options.from or options.config?) and (options.plugin is 'instantill' or options.ill is true)
-      try res.ill ?= subscription: await @ill.subscription (options.config ? options.from), metadata
+      try res.ill ?= subscription: await @ill_internal.subscription (options.config ? options.from), metadata
     return true
   _permissions = () =>
     if metadata.doi and (options.permissions or options.plugin is 'shareyourpaper')
@@ -143,10 +142,8 @@ P.find = (options, metadata={}, content) ->
 
 # Yi-Jeng Chen. (2016). Young Children's Collaboration on the Computer with Friends and Acquaintances. Journal of Educational Technology & Society, 19(1), 158-170. Retrieved November 19, 2020, from http://www.jstor.org/stable/jeductechsoci.19.1.158
 # Baker, T. S., Eisenberg, D., & Eiserling, F. (1977). Ribulose Bisphosphate Carboxylase: A Two-Layered, Square-Shaped Molecule of Symmetry 422. Science, 196(4287), 293-295. doi:10.1126/science.196.4287.293
-P.citation = (citation) ->
-  return status: 410, body: 'This API has been permanently shut down. Learn more: https://blog.oa.works/sunsetting-the-open-access-button-instantill/'
-
-  try citation ?= @params.citation ? @params
+P.citation_internal = (citation) ->  
+  try citation ?= @params.citation_internal ? @params
   if typeof citation is 'string'
     try citation = JSON.parse(citation) if citation.startsWith('{') or citation.startsWith '['
     citation = await @src.openalex.works.doi(citation) if citation.startsWith '10.'

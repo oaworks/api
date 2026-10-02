@@ -232,7 +232,7 @@ P.archivable = (file, url, confirmed, meta, permissions, dev) ->
 
   _check = () =>
     if typeof meta is 'string' or (not meta? and (@params.doi or @params.title))
-      meta = await @metadata_internal meta ? @params.doi ? @params.title
+      meta = await _internal meta ? @params.doi ? @params.title
     meta ?= {}
   
     # handle different sorts of file passing
@@ -336,6 +336,12 @@ P.archivable = (file, url, confirmed, meta, permissions, dev) ->
       f.version = 'acceptedVersion' if f.version_evidence.score < 0
       if f.version is 'unknown' and f.version_evidence.strings_checked > 0 #and f.format? and f.format isnt 'pdf'
         f.version = 'acceptedVersion'
+  
+      try
+        ls = await @licence undefined, lowercontentsmall # check for licence info in the file content
+        if ls?.licence?
+          f.licence = ls.licence
+          f.licence_evidence = ls
   
       f.archivable = false
       if confirmed
