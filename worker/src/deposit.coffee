@@ -227,19 +227,21 @@ P.archivable = (file, url, confirmed, meta, permissions, dev) ->
   dev ?= @S.dev
   file ?= @request.files[0] if @request.files
   file = file[0] if Array.isArray file
-
+  pu = @params.url
+  url ?= pu if @fn is 'archivable' and not file? and typeof pu is 'string' and (@S.archivable?.url_prefixes ? ['https://raw.githubusercontent.com/oaworks/', 'https://static.oa.works/test-files/']).some((p) -> pu.startsWith p)
+  
   f = {archivable: undefined, archivable_reason: undefined, version: 'unknown', same_paper: undefined, licence: undefined}
 
   _check = () =>
     if typeof meta is 'string' or (not meta? and (@params.doi or @params.title))
-      meta = await _internal meta ? @params.doi ? @params.title
+      meta = await @metadata_internal meta ? @params.doi ? @params.title
     meta ?= {}
   
     # handle different sorts of file passing
     if typeof file is 'string'
       file = data: file
     if not file? and url?
-      file = await @fetch url # check if this gets file content
+      file = data: (await @fetch url, buffer: true), name: url.split('?')[0].split('/').pop()
   
     if file?
       file.name ?= file.filename
