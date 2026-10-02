@@ -2040,7 +2040,7 @@ P.deposits = {
 
 //P.undep = -> return @deposits ''
 P.deposit = async function(params, file, dev) {
-  var a, as, at, author, bcc, ccm, com, creators, dep, description, ee, file_checks, i, in_zenodo, j, k, len, len1, len2, len3, len4, meta, ml, n, o, p, parts, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref45, ref46, ref47, ref5, ref6, ref7, ref8, ref9, rv, tk, tmpl, tos, tries, uc, z, zn, zs;
+  var a, as, at, author, bcc, ccm, com, creators, dep, description, ee, file_checks, i, in_zenodo, j, k, len, len1, len2, len3, len4, meta, ml, n, o, parts, r, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref19, ref2, ref20, ref21, ref22, ref23, ref24, ref25, ref26, ref27, ref28, ref29, ref3, ref30, ref31, ref32, ref33, ref34, ref35, ref36, ref37, ref38, ref39, ref4, ref40, ref41, ref42, ref43, ref44, ref45, ref46, ref47, ref5, ref6, ref7, ref8, ref9, rv, tk, tmpl, tos, tries, uc, z, zn, zs;
   if (params == null) {
     params = this.copy(this.params);
   }
@@ -2358,8 +2358,8 @@ P.deposit = async function(params, file, dev) {
       }
       as = [];
       ref41 = (ref39 = (ref40 = dep.metadata) != null ? ref40.author : void 0) != null ? ref39 : [];
-      for (p = 0, len4 = ref41.length; p < len4; p++) {
-        author = ref41[p];
+      for (r = 0, len4 = ref41.length; r < len4; r++) {
+        author = ref41[r];
         if (author.family) {
           as.push((author.given ? author.given + ' ' : '') + author.family);
         }
@@ -2412,7 +2412,7 @@ P.deposit = async function(params, file, dev) {
 P.deposit._bg = true;
 
 P.archivable = async function(file, url, confirmed, meta, permissions, dev) {
-  var _check, f, ref;
+  var _check, f, pu, ref, ref1, ref2;
   if (dev == null) {
     dev = this.S.dev;
   }
@@ -2424,6 +2424,14 @@ P.archivable = async function(file, url, confirmed, meta, permissions, dev) {
   if (Array.isArray(file)) {
     file = file[0];
   }
+  pu = this.params.url;
+  if (this.fn === 'archivable' && (file == null) && typeof pu === 'string' && ((ref = (ref1 = this.S.archivable) != null ? ref1.url_prefixes : void 0) != null ? ref : ['https://raw.githubusercontent.com/oaworks/', 'https://static.oa.works/test-files/']).some(function(p) {
+    return pu.startsWith(p);
+  })) {
+    if (url == null) {
+      url = pu;
+    }
+  }
   f = {
     archivable: void 0,
     archivable_reason: void 0,
@@ -2432,9 +2440,9 @@ P.archivable = async function(file, url, confirmed, meta, permissions, dev) {
     licence: void 0
   };
   _check = async() => {
-    var a, af, an, authorsfound, base, content, contentsmall, err, ft, hts, i, inc, ind, j, l, len, len1, len2, lowercontentsmall, lowercontentstart, ls, matched, n, re, ref, ref1, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rts, sc, wtm, wts;
+    var a, af, an, authorsfound, base, content, contentsmall, err, ft, hts, i, inc, ind, j, l, len, len1, len2, lowercontentsmall, lowercontentstart, ls, matched, n, re, ref10, ref11, ref12, ref13, ref14, ref15, ref16, ref17, ref18, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, rts, sc, wtm, wts;
     if (typeof meta === 'string' || ((meta == null) && (this.params.doi || this.params.title))) {
-      meta = (await _internal((ref = meta != null ? meta : this.params.doi) != null ? ref : this.params.title));
+      meta = (await this.metadata_internal((ref2 = meta != null ? meta : this.params.doi) != null ? ref2 : this.params.title));
     }
     if (meta == null) {
       meta = {};
@@ -2447,7 +2455,12 @@ P.archivable = async function(file, url, confirmed, meta, permissions, dev) {
       };
     }
     if ((file == null) && (url != null)) {
-      file = (await this.fetch(url)); // check if this gets file content
+      file = {
+        data: (await this.fetch(url, {
+          buffer: true
+        })),
+        name: url.split('?')[0].split('/').pop()
+      };
     }
     if (file != null) {
       if (file.name == null) {
@@ -2478,7 +2491,7 @@ P.archivable = async function(file, url, confirmed, meta, permissions, dev) {
     }
     if ((content == null) && !confirmed) {
       if ((file != null) || (url != null)) {
-        f.error = (ref1 = file.error) != null ? ref1 : 'Could not extract any content';
+        f.error = (ref3 = file.error) != null ? ref3 : 'Could not extract any content';
       }
     } else {
       contentsmall = content.length < 20000 ? content : content.substring(0, 6000) + content.substring(content.length - 6000, content.length);
@@ -2516,15 +2529,15 @@ P.archivable = async function(file, url, confirmed, meta, permissions, dev) {
           if (!Array.isArray(meta.author)) {
             meta.author = [meta.author];
           }
-          ref2 = meta.author;
-          for (i = 0, len = ref2.length; i < len; i++) {
-            a = ref2[i];
+          ref4 = meta.author;
+          for (i = 0, len = ref4.length; i < len; i++) {
+            a = ref4[i];
             if (f.same_paper_evidence.author_match === true) {
               break;
             } else {
               try {
-                an = ((ref3 = (ref4 = (ref5 = (ref6 = a.last) != null ? ref6 : a.lastname) != null ? ref5 : a.family) != null ? ref4 : a.surname) != null ? ref3 : a.name).trim().split(',')[0].split(' ')[0].toLowerCase().replace(/[^a-z0-9\/]+/g, "");
-                af = ((ref7 = (ref8 = (ref9 = a.first) != null ? ref9 : a.firstname) != null ? ref8 : a.given) != null ? ref7 : a.name).trim().split(',')[0].split(' ')[0].toLowerCase().replace(/[^a-z0-9\/]+/g, "");
+                an = ((ref5 = (ref6 = (ref7 = (ref8 = a.last) != null ? ref8 : a.lastname) != null ? ref7 : a.family) != null ? ref6 : a.surname) != null ? ref5 : a.name).trim().split(',')[0].split(' ')[0].toLowerCase().replace(/[^a-z0-9\/]+/g, "");
+                af = ((ref9 = (ref10 = (ref11 = a.first) != null ? ref11 : a.firstname) != null ? ref10 : a.given) != null ? ref9 : a.name).trim().split(',')[0].split(' ')[0].toLowerCase().replace(/[^a-z0-9\/]+/g, "");
                 inc = lowercontentstart.indexOf(an);
                 if (an.length > 2 && af.length > 0 && inc !== -1 && lowercontentstart.substring(inc - 20, inc + an.length + 20).includes(af)) {
                   authorsfound += 1;
@@ -2539,9 +2552,9 @@ P.archivable = async function(file, url, confirmed, meta, permissions, dev) {
         } catch (error) {}
       }
       if (f.format != null) {
-        ref10 = ['doc', 'tex', 'pdf', 'htm', 'xml', 'txt', 'rtf', 'odf', 'odt', 'page'];
-        for (j = 0, len1 = ref10.length; j < len1; j++) {
-          ft = ref10[j];
+        ref12 = ['doc', 'tex', 'pdf', 'htm', 'xml', 'txt', 'rtf', 'odf', 'odt', 'page'];
+        for (j = 0, len1 = ref12.length; j < len1; j++) {
+          ft = ref12[j];
           if (f.format.includes(ft)) {
             f.same_paper_evidence.document_format = true;
             break;
@@ -2560,11 +2573,11 @@ P.archivable = async function(file, url, confirmed, meta, permissions, dev) {
         strings_matched: []
       };
       try {
-        ref11 = (await this.src.google.sheets((dev ? '1XA29lqVPCJ2FQ6siLywahxBTLFaDCZKaN5qUeoTuApg' : '10DNDmOG19shNnuw6cwtCpK-sBnexRCCtD4WnxJx_DPQ')));
+        ref13 = (await this.src.google.sheets((dev ? '1XA29lqVPCJ2FQ6siLywahxBTLFaDCZKaN5qUeoTuApg' : '10DNDmOG19shNnuw6cwtCpK-sBnexRCCtD4WnxJx_DPQ')));
         // dev https://docs.google.com/spreadsheets/d/1XA29lqVPCJ2FQ6siLywahxBTLFaDCZKaN5qUeoTuApg/edit#gid=0
         // live https://docs.google.com/spreadsheets/d/10DNDmOG19shNnuw6cwtCpK-sBnexRCCtD4WnxJx_DPQ/edit#gid=0
-        for (n = 0, len2 = ref11.length; n < len2; n++) {
-          l = ref11[n];
+        for (n = 0, len2 = ref13.length; n < len2; n++) {
+          l = ref13[n];
           f.version_evidence.strings_checked += 1;
           wts = l['what to search'];
           rts = l['where to search'];
@@ -2595,7 +2608,7 @@ P.archivable = async function(file, url, confirmed, meta, permissions, dev) {
               if (typeof sc !== 'number') {
                 sc = 1;
               }
-              if (ind && ((ref12 = ind.toLowerCase()) === 'publisher pdf' || ref12 === 'publishedversion')) {
+              if (ind && ((ref14 = ind.toLowerCase()) === 'publisher pdf' || ref14 === 'publishedversion')) {
                 f.version_evidence.score += sc;
               } else {
                 f.version_evidence.score -= sc;
@@ -2662,7 +2675,7 @@ P.archivable = async function(file, url, confirmed, meta, permissions, dev) {
                 permissions = (await this.permissions(meta));
               }
             }
-            if (f.version === (permissions != null ? (ref13 = permissions.best_permission) != null ? ref13.version : void 0 : void 0)) {
+            if (f.version === (permissions != null ? (ref15 = permissions.best_permission) != null ? ref15.version : void 0 : void 0)) {
               f.archivable = true;
               f.archivable_reason = 'We believe this is a ' + f.version.split('V')[0] + ' version and our permission system says that version can be shared';
             } else {
@@ -2681,9 +2694,9 @@ P.archivable = async function(file, url, confirmed, meta, permissions, dev) {
       }
     }
     if (f.archivable && (f.licence == null)) {
-      if (permissions != null ? (ref14 = permissions.best_permission) != null ? ref14.licence : void 0 : void 0) {
+      if (permissions != null ? (ref16 = permissions.best_permission) != null ? ref16.licence : void 0 : void 0) {
         f.licence = permissions.best_permission.licence;
-      } else if (((ref15 = permissions != null ? (ref16 = permissions.best_permission) != null ? ref16.deposit_statement : void 0 : void 0) != null ? ref15 : '').toLowerCase().startsWith('cc')) {
+      } else if (((ref17 = permissions != null ? (ref18 = permissions.best_permission) != null ? ref18.deposit_statement : void 0 : void 0) != null ? ref17 : '').toLowerCase().startsWith('cc')) {
         f.licence = permissions.best_permission.deposit_statement;
       }
     }
@@ -2692,7 +2705,7 @@ P.archivable = async function(file, url, confirmed, meta, permissions, dev) {
   _check();
   setTimeout((() => {
     return f.timeout = true;
-  }), (ref = this.params.timeout) != null ? ref : 60000);
+  }), (ref2 = this.params.timeout) != null ? ref2 : 60000);
   while ((f.archivable == null) && !f.timeout) {
     await this.sleep(500);
   }
@@ -19255,7 +19268,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Fri Oct 02 2026 21:26:34 GMT+0100";
+S.built = "Fri Oct 02 2026 21:33:12 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
