@@ -19268,7 +19268,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Fri Oct 02 2026 21:33:12 GMT+0100";
+S.built = "Sun Oct 04 2026 13:37:19 GMT+0100";
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
