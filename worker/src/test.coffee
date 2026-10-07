@@ -5,9 +5,15 @@ P.test = (sid, max) ->
   max ?= @params.max ? (if row then 1 else 10000)
   res = summary: {ran: 0, max: max, id: row, responded: 0, errors: 0, differences: 0, difference: (@params.diff ? @params.difference ? true), anomalous: 0}, anomalies: {}, anomalous_ids: [], errors: [], differences: {} #, specs: {}
   res.sheet = id: sid ? @params.sheet ? '1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8/tests'
-  # https://docs.google.com/spreadsheets/d/1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8
-  res.sheet.url ?= 'https://docs.google.com/spreadsheets/d/' + res.sheet.id.split('/')[0]
-  res.sheet.content = await @src.google.sheets res.sheet.id
+  if res.sheet.id.startsWith('test') and not res.sheet.id.includes('..')
+    res.sheet.id = res.sheet.id.split('/').pop()
+    res.sheet.url = 'file://' + process.cwd() + '/fixtures/' + res.sheet.id + '.jsonl'
+    try
+      res.sheet.content = (await fs.readFile process.cwd() + '/fixtures/' + res.sheet.id + '.jsonl').split('\n').map (line) -> JSON.parse line
+  else
+    # https://docs.google.com/spreadsheets/d/1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8
+    res.sheet.url ?= 'https://docs.google.com/spreadsheets/d/' + res.sheet.id.split('/')[0]
+    res.sheet.content = await @src.google.sheets res.sheet.id
   res.responses = []
   res.diffs = []
   #traversed = 1 # first row will be column names, so the sheet user would start counting rows from 2

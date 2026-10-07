@@ -9241,11 +9241,21 @@ P.test = async function(sid, max) {
   res.sheet = {
     id: (ref5 = sid != null ? sid : this.params.sheet) != null ? ref5 : '1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8/tests'
   };
-  // https://docs.google.com/spreadsheets/d/1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8
-  if ((base = res.sheet).url == null) {
-    base.url = 'https://docs.google.com/spreadsheets/d/' + res.sheet.id.split('/')[0];
+  if (res.sheet.id.startsWith('test') && !res.sheet.id.includes('..')) {
+    res.sheet.id = res.sheet.id.split('/').pop();
+    res.sheet.url = 'file://' + process.cwd() + '/fixtures/' + res.sheet.id + '.jsonl';
+    try {
+      res.sheet.content = ((await fs.readFile(process.cwd() + '/fixtures/' + res.sheet.id + '.jsonl'))).split('\n').map(function(line) {
+        return JSON.parse(line);
+      });
+    } catch (error) {}
+  } else {
+    // https://docs.google.com/spreadsheets/d/1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8
+    if ((base = res.sheet).url == null) {
+      base.url = 'https://docs.google.com/spreadsheets/d/' + res.sheet.id.split('/')[0];
+    }
+    res.sheet.content = (await this.src.google.sheets(res.sheet.id));
   }
-  res.sheet.content = (await this.src.google.sheets(res.sheet.id));
   res.responses = [];
   res.diffs = [];
   //traversed = 1 # first row will be column names, so the sheet user would start counting rows from 2
@@ -19246,7 +19256,7 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Tue Oct 06 2026 23:21:27 GMT+0100";
+S.built = "Wed Oct 07 2026 13:46:32 GMT+0100";
 P.fixtures = {_bg: true}// added by constructor
 
 P.convert.doc2txt = {_bg: true}// added by constructor

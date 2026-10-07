@@ -4,7 +4,9 @@ P.fixtures = ->
   if not @S.dev or not @params.trigger or not @S.static?.folder
     return note: 'Fixtures can only be dumped in dev mode with a static folder configured.'
 
-  console.log 'Dumping data to fixtures'
+  max = @params.max ? 10
+
+  console.log 'Dumping data to fixtures', max
   try
     await fs.stat @S.static.folder + "/fixtures"
   catch
@@ -36,6 +38,42 @@ P.fixtures = ->
       if im.started isnt starter
         meta.break = Date.now()
         break
+
+  # build a test set
+  if max
+    tests = []
+    DOIS = []
+    test_sheet = '1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8/tests'
+    # https://docs.google.com/spreadsheets/d/1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8
+    tests = await @src.google.sheets test_sheet
+    for t in tests
+      if DOIS.length >= max
+        break
+      if t.ID and t.ID.startsWith '10.'
+        DOIS.push t.ID.split('__')[0] # clear the test suffix if present
+        tests.push t
+
+    f = fs.createWriteStream @S.static.folder + '/fixtures/report_works.jsonl'
+    counter = 0
+    for d in DOIS
+      if typeof d is 'string' and d.startsWith '10.'
+        if r = await @report.works d
+          f.write('\n') if counter isnt 0
+          f.write JSON.stringify r
+          counter++
+    f.end()
+    meta.report_works = counter
+
+    #f = fs.createWriteStream @S.static.folder + '/fixtures/tests_sheet_' + max + '.jsonl'
+    #counter = 0
+    #for t in tests
+    #  if typeof t.ID is 'string' and t.ID.startsWith '10.'
+    #    f.write('\n') if counter isnt 0
+    #    f.write JSON.stringify t
+    #    counter++
+    #f.end()
+    #meta.tests = counter
+
   meta.finished = Date.now()
   meta.took = meta.finished - meta.started
   if not meta.break
