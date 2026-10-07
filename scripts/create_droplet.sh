@@ -349,6 +349,7 @@ case "$RAM_GB" in
     ;;
 esac
 
+if [ "$REGION_PROVIDED" = false ]; then
 REGIONS_RESPONSE=$(curl -fsS -H "Authorization: Bearer ${DO_TOKEN}" \
   "https://api.digitalocean.com/v2/regions?per_page=200") || {
   echo "Error: Could not retrieve DigitalOcean regions." >&2
@@ -374,11 +375,28 @@ for region_slug in "${REGION_SLUGS[@]}"; do
   fi
 done
 if [ "$REGION_VALID" != true ]; then
-  echo "Error: Region '${REGION}' is unavailable or does not support size ${SIZE}." >&2
-  exit 1
+  echo "Default region '${REGION}' is unavailable or does not support size ${SIZE}."
+  REGION="${REGION_SLUGS[0]}"
+  echo "Suitable regions for ${SIZE}:"
+  printf '  %s\n' "${REGION_SLUGS[@]}"
+  while true; do
+    read -r -p "Choose a region [${REGION} - Enter accepts default]: " REGION_CHOICE
+    REGION_CHOICE="${REGION_CHOICE:-$REGION}"
+    REGION_VALID=false
+    for region_slug in "${REGION_SLUGS[@]}"; do
+      if [ "$region_slug" = "$REGION_CHOICE" ]; then
+        REGION_VALID=true
+        break
+      fi
+    done
+    if [ "$REGION_VALID" = true ]; then
+      REGION="$REGION_CHOICE"
+      break
+    fi
+    echo "Region '${REGION_CHOICE}' is not in the suitable region list. Please choose one of the regions above."
+  done
 fi
 
-if [ "$REGION_PROVIDED" = false ]; then
   echo "Using default region '${REGION}'. To change it, use -r/--region <slug> on another run."
 fi
 
@@ -417,6 +435,9 @@ RESPONSE=$(curl -s -X POST \
 if echo "$RESPONSE" | jq -e '.id' > /dev/null 2>&1; then
   echo "Error from DigitalOcean API:"
   echo "$RESPONSE" | jq '.message'
+  if [ "$REGION_PROVIDED" = true ] && jq -e '.message // "" | test("region|datacenter"; "i") and test("size|type|available|availability"; "i")' <<< "$RESPONSE" >/dev/null; then
+    echo "Check availability and choose a different region with -r/--region <slug>, or rerun without that parameter to auto-configure a supported region." >&2
+  fi
   exit 1
 fi
 
