@@ -552,8 +552,8 @@ fi
 
 echo ""
 echo "Note, if you have a new oaworks API running on the same VM,"
-echo "you must configure the server/secrets/server.json or the"
-echo "worker/secrets/settings.json with an .index.url value:"
+echo "you must configure at least the worker/secrets/settings.json"
+echo "with an .index.url value:"
 echo "http://localhost:9200"
 echo ""
 echo "Then rebuild the API to enable it to use this instance of OpenSearch."
