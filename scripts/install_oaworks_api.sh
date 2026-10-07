@@ -325,9 +325,14 @@ if [ "$START_API" = "true" ] && [ "$API_SUCCEEDED" = "true" ]; then
 else
   echo " Manual start can be tried with:"
   printf 'cd %q && node --watch server/dist/server.min.js\n' "${API_DIR}"
-  echo " package.json also configures the start script:"
+  echo " package.json also configures the start script so npm commands can work too:"
   printf 'cd %q && npm run start\n' "${API_DIR}"
 fi
+echo " NOTE the API cannot do much without a running OpenSearch index instance to connect to."
+echo " See the README and install_opensearch.sh for more info."
+echo " Once you have a URL for your OpenSearch instance, the API can be configured to connect to it."
+echo " Basic config goes into ${API_DIR}/server/secrets/server.json and ${API_DIR}/worker/secrets/settings.json"
+echo " An index URL can be set for example as {\"index\": {\"url\": \"http://localhost:9200\"}}"
 echo ""
 echo " Further configuration can be done using the oa.works api_config repo."
 echo " This includes installing and configuring PM2 for reliable API process management."
