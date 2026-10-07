@@ -2,7 +2,9 @@
 P.fixtures.load = ->
   if not @S.dev or not @params.trigger
     return note: 'Fixtures can only be loaded in development mode.'
-  
+
+  clear = @params.clear ? false # deletes the index before loading fixtures
+
   res = {}
   folder = process.cwd() + '/fixtures'
   for fl in await fs.readdir folder
@@ -18,7 +20,10 @@ P.fixtures.load = ->
     fn = fn?[part] for part in parts
     if typeof fn is 'function'
       console.log 'Checking existence', idx
-      console.log await fn() # if the index was never queried yet this initial call will create with any configured settings first, before we bulk load to it
+      if exists = await fn() # if the index was never queried yet this initial call will create with any configured settings first, before we bulk load to it
+        console.log 'Exists, contains', exists.hits.total
+        if exists.hits.total isnt 0 and clear
+          await fn ''
     for await line from readline.createInterface input: fs.createReadStream(folder + '/' + fl), crlfDelay: Infinity
       continue if not line.trim()
       batch.push JSON.parse line

@@ -6,6 +6,7 @@ server/src/schedule.coffee
 server/dist/
 worker/dist/
 results/
-fixtures/
+fixtures/**
+!fixtures/test.jsonl
 *.tmp
 *.swp

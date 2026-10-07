@@ -7,6 +7,7 @@ TRIGGER_URL=""
 TARGET_IP=""
 TARGET_IP_CONFIRMED=0
 IDENTITY_FILE=""
+EMPTY_MODE=0
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 FIXTURES_DIR="${SCRIPT_DIR}/../fixtures"
 API_DIR=$(cd "${SCRIPT_DIR}/.." && pwd)
@@ -40,6 +41,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --target-ip-confirmed)
       TARGET_IP_CONFIRMED=1
+      shift
+      ;;
+    --EMPTY)
+      EMPTY_MODE=1
       shift
       ;;
     -h|--help)
@@ -111,6 +116,7 @@ if [ -n "$TARGET_IP" ]; then
 
   REMOTE_COMMAND='cd ~/api && bash ./scripts/load_fixtures.sh --target-ip-confirmed'
   [ -n "$TRIGGER_URL" ] && printf -v REMOTE_COMMAND '%s --url %q' "$REMOTE_COMMAND" "$TRIGGER_URL"
+  [ "$EMPTY_MODE" -eq 1 ] && REMOTE_COMMAND+=' --EMPTY'
   echo "Running load_fixtures.sh on droplet (${TARGET_IP})..."
   exec ssh "${SSH_OPTS[@]}" "oaw@${TARGET_IP}" "$REMOTE_COMMAND"
 fi
@@ -122,9 +128,20 @@ if [ ! -d "$FIXTURES_DIR" ] || [ -z "$(find "$FIXTURES_DIR" -mindepth 1 -maxdept
 fi
 
 TRIGGER_URL="${TRIGGER_URL:-$DEFAULT_URL}"
+if [ "$EMPTY_MODE" -eq 1 ]; then
+  case "$TRIGGER_URL" in
+    *\?*|*\&*)
+      case "$TRIGGER_URL" in
+        *\?|*\&) TRIGGER_URL="${TRIGGER_URL}clear=true" ;;
+        *) TRIGGER_URL="${TRIGGER_URL}&clear=true" ;;
+      esac
+      ;;
+    *) TRIGGER_URL="${TRIGGER_URL}?clear=true" ;;
+  esac
+fi
 echo "Fixture files found in $(cd "$FIXTURES_DIR" && pwd)."
 echo ""
-echo "This script assumes you are running a local dev instance of the API,"
+echo "This script assumes you are running a dev instance of the API,"
 echo "and that it has been configured to connect to an OpenSearch instance,"
 echo "and it is running the default npm run start (node --watch) instance."
 echo "If not, this script will fail."
@@ -132,10 +149,18 @@ echo "(This script could configure and turn on the local API...)"
 echo "(For the purpose of dev learning that is left as a task for the user.)"
 echo ""
 echo "A fixture loader will be injected into the API code."
+echo "Then the code will be rebuilt with the injected fixtures loader."
+echo "(the --watch flag on the API instance then causes a reload of the API code)."
 echo "Then a load trigger request will be sent to: ${TRIGGER_URL}"
-echo "THIS WILL LOAD DATA INTO THE INDEX CONFIGURED FOR THE LOCALLY RUNNING API INSTANCE."
+echo "THIS WILL LOAD DATA INTO THE INDEX CONFIGURED FOR THE RUNNING API INSTANCE."
+if [ "$EMPTY_MODE" -eq 1 ]; then
+  echo ""
+  echo "WARNING: EMPTY MODE IS ALSO ENABLED AS YOU SET THE --EMPTY FLAG."
+  echo "ANY FIXTURES FILES THAT ARE RUN WILL ALSO FIRST EMPTY THE INDEXES THEY ARE RELEVANT TO BEFORE LOADING!"
+fi
 
-read -r -p "Confirm you have a local running dev instance of the API, configured with an OpenSearch index, and you are ready to send the trigger request now? [Y/n]: " SEND_CHOICE
+echo ""
+read -r -p "Confirm you have a running dev instance of the API, configured with an OpenSearch index, and you are ready to send the trigger request now? [Y/n]: " SEND_CHOICE
 if [[ ! "${SEND_CHOICE:-Y}" =~ ^[Yy]$ ]]; then
   echo "Trigger request not sent."
   exit 0
