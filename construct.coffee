@@ -76,6 +76,8 @@ else
 DATE = new Date().toString().split(' (')[0]
 VERSION = '' # get read from main worker file
 BG = '' # get read from worker settings, and if present is used to ping the URL to check it is up
+WIDX = ''
+SIDX = ''
 
 CNS = []
 if fs.existsSync './' + GROUP + 'secrets/' + ENV + 'construct.json'
@@ -261,6 +263,7 @@ _w = () ->
           # don't use any that are prefixed for some other env - NOTE this means settings files MUST NOT have underscores in them except for when separating the env
           if ENV is '' or F.indexOf(ENV) is 0 or (F.indexOf('_') is -1 and not fs.existsSync './server/' + GROUP + 'secrets/' + ENV + F)
             SECRETS_DATA = JSON.parse fs.readFileSync('./server/' + GROUP + 'secrets/' + F).toString()
+            try SIDX = SECRETS_DATA.index.url if not SIDX and SECRETS_DATA.index?.url
             SECRETS_NAME = 'SECRETS_' + F.split('.')[0].toUpperCase().replace ENV + '_', ''
             console.log 'Saving server ' + SECRETS_NAME + ' to server file'
             # these are written to file as strings to be interpreted in the file, because that is how they'd 
@@ -280,7 +283,8 @@ _w = () ->
         for WF in wfls
           if ENV is '' or WF.indexOf(ENV) is 0 or (WF.indexOf('_') is -1 and not fs.existsSync './worker/' + GROUP + 'secrets/' + ENV + WF)
             SECRETS_DATA = JSON.parse fs.readFileSync('./worker/' + GROUP + 'secrets/' + WF).toString()
-            try BG = SECRETS_DATA.bg if not BG
+            try BG = SECRETS_DATA.bg if not BG and SECRETS_DATA.bg?
+            try WIDX = SECRETS_DATA.index.url if not WIDX and SECRETS_DATA.index?.url
             SECRETS_NAME = 'SECRETS_' + WF.split('.')[0].toUpperCase().replace ENV + '_', ''
             if (if WF.includes('_') then WF.split('_').pop() else WF).split('.')[0].toLowerCase() is 'settings' and not SECRETS_DATA.system
               console.log 'Adding system token', SYSTOKEN
@@ -339,8 +343,8 @@ _w = () ->
   if VERSION
     console.log 'v' + VERSION + ' built at ' + DATE
 
-  if BG.startsWith 'http' # this will confirm version deployment to BG if available, and also causes any scheduled tasks to be loaded on restart
-    setTimeout () ->
+  if BG and BG.startsWith 'http' # this will confirm version deployment to BG if available, and also causes any scheduled tasks to be loaded on restart
+    try
       req = https.request {hostname: BG.split('://')[1], port: if BG.startsWith('https') then 443 else 80}, (res) -> 
         body = ''
         res.on 'data', (chunk) -> body += chunk
@@ -351,7 +355,28 @@ _w = () ->
           catch
             console.log 'Ping ERROR'
       req.end()
-    , 1000
+
+  LIDX = ''
+  if WIDX and WIDX.startsWith 'http'
+    LIDX = WIDX if WIDX.includes('localhost') or WIDX.includes('127.0.0.1')
+    console.log 'A worker index URL has been configured at ' + WIDX.split('//').pop().split('@').pop()
+    console.log 'You should ensure this URL is accessible.'
+    console.log('As it is not a local URL you will need to setup some DNS and NGINX.') if not LIDX
+  if SIDX and SIDX.startsWith 'http'
+    LIDX = SIDX if SIDX.includes('localhost') or SIDX.includes('127.0.0.1')
+    console.log 'A server index URL has been configured at ' + SIDX.split('//').pop().split('@').pop()
+    console.log 'You should ensure this URL is accessible.'
+    console.log('As it is not a local URL you will need to setup some DNS and NGINX.') if not SIDX.includes('localhost') and not SIDX.includes('127.0.0.1')
+  if not SIDX and not WIDX
+    console.log 'No index URL has been configured.'
+    console.log 'Note that an OpenSearch or Elasticsearch index is required for most functionality.'
+    console.log 'See the OA.Works API git repo install scripts folder for more help installing one.'
+    console.log 'Or if you already have one running locally, configure your server/secrets/server.json.'
+    console.log 'It requires at least {"index": {"url": "http://localhost:9200"}}'
+    console.log 'Or you can use a remote index service provider and they will give you a URL to configure.'
+    console.log 'Note also if you configure a cloudflare worker, it will not have direct access to a localhost index;'
+    console.log 'In that case you should configure DNS and NGINX for a domain name and htpasswd security for the worker to connect on;'
+    console.log 'and set a separate index.url override value in worker/secrets/settings.json'
 
 _w()
 

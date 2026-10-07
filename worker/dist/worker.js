@@ -9239,13 +9239,13 @@ P.test = async function(sid, max) {
     differences: {} //, specs: {}
   };
   res.sheet = {
-    id: sid && Array.isArray(sid) ? 'provided' : (ref5 = sid != null ? sid : this.params.sheet) != null ? ref5 : '1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8/tests'
+    id: (ref5 = sid != null ? sid : this.params.sheet) != null ? ref5 : '1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8/tests'
   };
   // https://docs.google.com/spreadsheets/d/1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8
   if ((base = res.sheet).url == null) {
     base.url = 'https://docs.google.com/spreadsheets/d/' + res.sheet.id.split('/')[0];
   }
-  res.sheet.content = Array.isArray(sid) ? sid : (await this.src.google.sheets(res.sheet.id));
+  res.sheet.content = (await this.src.google.sheets(res.sheet.id));
   res.responses = [];
   res.diffs = [];
   //traversed = 1 # first row will be column names, so the sheet user would start counting rows from 2
@@ -12989,28 +12989,6 @@ if @fn isnt 'src.openalex.changes' and ended - started < 3600000
   await @sleep 3600000 - (ended - started) 
 console.log 'Openalex changes changed', total, queued.length
 return total`;
-
-P.src.openalex.works.tf = async function() {
-  var doi, found, ox, rec, ref, ref1, ref2, ref3, ref4, ref5, ref6;
-  doi = (ref = this.params.tf) != null ? ref : 'W2416193353';
-  if (doi.startsWith('W')) {
-    ox = doi;
-    doi = void 0;
-  }
-  if (ox) {
-    rec = (await this.fetch('https://api.openalex.org/works/' + ox + '?mailto=' + ((ref1 = (ref2 = this.S.mail) != null ? ref2.to : void 0) != null ? ref1 : 'sysadmin@oa.works') + (((ref3 = this.S.src.openalex) != null ? ref3.apikey : void 0) ? '&api_key=' + this.S.src.openalex.apikey : ''), {
-      rate: ['openalex', 80]
-    }));
-  } else if (doi) {
-    rec = (await this.fetch('https://api.openalex.org/works/https://doi.org/' + doi + '?mailto=' + ((ref4 = (ref5 = this.S.mail) != null ? ref5.to : void 0) != null ? ref4 : 'sysadmin@oa.works') + (((ref6 = this.S.src.openalex) != null ? ref6.apikey : void 0) ? '&api_key=' + this.S.src.openalex.apikey : ''), {
-      rate: ['openalex', 80]
-    }));
-  }
-  if (typeof rec === 'object' && rec.id) {
-    found = (await this.src.openalex.works._format(rec));
-  }
-  return {rec, found};
-};
 
 // there are pubmed data loaders on the server side, they build an index that can 
 // be queried directly. However some of the below functions may still be useful 
@@ -19268,7 +19246,9 @@ P.decode = async function(content) {
 };
 
 
-S.built = "Sun Oct 04 2026 13:37:19 GMT+0100";
+S.built = "Tue Oct 06 2026 23:21:27 GMT+0100";
+P.fixtures = {_bg: true}// added by constructor
+
 P.convert.doc2txt = {_bg: true}// added by constructor
 
 P.convert.docx2txt = {_bg: true}// added by constructor
