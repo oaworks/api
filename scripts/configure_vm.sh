@@ -61,13 +61,17 @@ done
 # Step 1: Resolve Target Machine
 # -----------------------------------------------------------------------------
 if [ -z "$TARGET_IP" ]; then
+  read -r -p "Target VM IP address (leave blank to configure locally): " TARGET_IP
+fi
+
+if [ -z "$TARGET_IP" ]; then
   if [ "$(uname -s)" = "Darwin" ]; then
     echo "Error: No target IP was provided, and this script is intended to configure a Linux machine. It will not run locally on macOS."
     exit 1
   fi
 
-  read -p "No target VM IP provided. Configure this Linux machine locally? [Y/n]: " LOCAL_CHOICE
-  LOCAL_CHOICE="${LOCAL_CHOICE:-Y}"
+  read -r -p "Configure this Linux machine locally? [y/N]: " LOCAL_CHOICE
+  LOCAL_CHOICE="${LOCAL_CHOICE:-N}"
   if [[ "$LOCAL_CHOICE" =~ ^[Yy]$ ]]; then
     LOCAL_MODE="true"
   else

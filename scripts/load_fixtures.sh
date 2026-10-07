@@ -53,8 +53,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$TARGET_IP" ] && [ "$TARGET_IP_CONFIRMED" -eq 0 ]; then
-  read -r -p "Load fixtures on this local machine? [Y/n]: " RUN_LOCAL_CHOICE
-  if [[ ! "${RUN_LOCAL_CHOICE:-Y}" =~ ^[Yy]$ ]]; then
+  read -r -p "Target VM IP address (leave blank to load fixtures locally): " TARGET_IP
+fi
+
+if [ -z "$TARGET_IP" ] && [ "$TARGET_IP_CONFIRMED" -eq 0 ]; then
+  read -r -p "Load fixtures on this local machine? [y/N]: " RUN_LOCAL_CHOICE
+  if [[ ! "${RUN_LOCAL_CHOICE:-N}" =~ ^[Yy]$ ]]; then
     echo "Cancelled. To run on a remote server, use -i/--ip <ip_address>."
     exit 0
   fi

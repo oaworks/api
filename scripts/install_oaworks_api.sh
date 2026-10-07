@@ -127,8 +127,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$TARGET_IP" ] && [ -z "$PUBLIC_IP" ]; then
-  read -r -p "Install on this local machine? [Y/n]: " RUN_LOCAL_CHOICE
-  if [[ ! "${RUN_LOCAL_CHOICE:-Y}" =~ ^[Yy]$ ]]; then
+  read -r -p "Target VM IP address (leave blank to install the API locally): " TARGET_IP
+fi
+
+if [ -z "$TARGET_IP" ] && [ -z "$PUBLIC_IP" ]; then
+  read -r -p "Install the API on this local machine? [y/N]: " RUN_LOCAL_CHOICE
+  if [[ ! "${RUN_LOCAL_CHOICE:-N}" =~ ^[Yy]$ ]]; then
     exit 0
   fi
 fi

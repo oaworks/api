@@ -138,8 +138,12 @@ fi
 FORWARD_ARGS+=(--name "$CLUSTER_NAME")
 
 if [ -z "$TARGET_IP" ] && [ "$TARGET_IP_CONFIRMED" -eq 0 ]; then
-  read -r -p "Install on this local VM instead of on a remote? [Y/n]: " RUN_LOCAL_CHOICE
-  if [[ ! "${RUN_LOCAL_CHOICE:-Y}" =~ ^[Yy]$ ]]; then
+  read -r -p "Target VM IP address (leave blank to install OpenSearch locally): " TARGET_IP
+fi
+
+if [ -z "$TARGET_IP" ] && [ "$TARGET_IP_CONFIRMED" -eq 0 ]; then
+  read -r -p "Install OpenSearch on this local machine? [y/N]: " RUN_LOCAL_CHOICE
+  if [[ ! "${RUN_LOCAL_CHOICE:-N}" =~ ^[Yy]$ ]]; then
     echo "Setup cancelled."
     exit 0
   fi
