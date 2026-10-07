@@ -13,10 +13,8 @@ IDENTITY_FILE=""
 QUIET_MODE="false"
 LOCAL_MODE="false"
 
-# Package payload
+# Package payload build-essential, gnupg?
 USEFUL_PACKAGES=(
-  build-essential
-  gnupg
   jq
   nginx
   git
