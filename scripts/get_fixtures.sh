@@ -137,7 +137,7 @@ if ! jq -e 'type == "object" and has("finished") and .finished != null' <<< "$ME
 fi
 
 # Each dump dataset is recorded in _meta.json as a numeric count keyed by its name.
-mapfile -t DATASETS < <(jq -r 'to_entries[] | select(.key | IN("started", "restarted", "finished", "break") | not) | select(.value | type == "number") | .key' <<< "$META")
+mapfile -t DATASETS < <(jq -r 'to_entries[] | select(.key | IN("started", "restarted", "finished", "break", "took") | not) | select(.value | type == "number") | .key' <<< "$META")
 
 mkdir -p "$FIXTURES_DIR"
 FIXTURES_DIR=$(cd "$FIXTURES_DIR" && pwd)

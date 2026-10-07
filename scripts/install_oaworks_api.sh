@@ -239,7 +239,7 @@ if [ "$OS_NAME" = "Darwin" ]; then
   install_macos_package pdftk-java pdftk
 else
   echo "Installing Linux document tools and utilities..."
-  install_linux_packages curl build-essential pdftk poppler-utils antiword unoconv unzip
+  install_linux_packages curl pdftk poppler-utils antiword unoconv unzip
 fi
 
 # Check and install Node.js (LTS v20) if node or npm are missing
@@ -323,11 +323,14 @@ if [ "$START_API" = "true" ] && [ "$API_SUCCEEDED" = "true" ]; then
     echo " Public API URL: http://${PUBLIC_IP}:4000"
   fi
 else
+  echo ""
   echo " Manual start can be tried with:"
   printf 'cd %q && node --watch server/dist/server.min.js\n' "${API_DIR}"
+  echo ""
   echo " package.json also configures the start script so npm commands can work too:"
   printf 'cd %q && npm run start\n' "${API_DIR}"
 fi
+echo ""
 echo " NOTE the API cannot do much without a running OpenSearch index instance to connect to."
 echo " See the README and install_opensearch.sh for more info."
 echo " Once you have a URL for your OpenSearch instance, the API can be configured to connect to it."
