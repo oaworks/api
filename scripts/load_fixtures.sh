@@ -125,13 +125,17 @@ TRIGGER_URL="${TRIGGER_URL:-$DEFAULT_URL}"
 echo "Fixture files found in $(cd "$FIXTURES_DIR" && pwd)."
 echo ""
 echo "This script assumes you are running a local dev instance of the API,"
+echo "and that it has been configured to connect to an OpenSearch instance,"
 echo "and it is running the default npm run start (node --watch) instance."
 echo "If not, this script will fail."
+echo "(This script could configure and turn on the local API...)"
+echo "(For the purpose of dev learning that is left as a task for the user.)"
 echo ""
 echo "A fixture loader will be injected into the API code."
 echo "Then a load trigger request will be sent to: ${TRIGGER_URL}"
 echo "THIS WILL LOAD DATA INTO THE INDEX CONFIGURED FOR THE LOCALLY RUNNING API INSTANCE."
-read -r -p "Send the trigger request now? [Y/n]: " SEND_CHOICE
+
+read -r -p "Confirm you have a local running dev instance of the API, configured with an OpenSearch index, and you are ready to send the trigger request now? [Y/n]: " SEND_CHOICE
 if [[ ! "${SEND_CHOICE:-Y}" =~ ^[Yy]$ ]]; then
   echo "Trigger request not sent."
   exit 0

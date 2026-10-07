@@ -324,11 +324,14 @@ if [ "$START_API" = "true" ] && [ "$API_SUCCEEDED" = "true" ]; then
   fi
 else
   echo " Manual start can be tried with:"
-  printf 'cd %q && node server/dist/server.min.js\n' "${API_DIR}"
+  printf 'cd %q && node --watch server/dist/server.min.js\n' "${API_DIR}"
+  echo " package.json also configures the start script:"
+  printf 'cd %q && npm run start\n' "${API_DIR}"
 fi
 echo ""
-#echo " Further configuration should be done using the oa.works api_config repo."
-#echo " This includes installing and configuring PM2 for reliable API process management."
-#echo " It (will) also provide options for configuring releaseable API deployments."
+echo " Further configuration can be done using the oa.works api_config repo."
+echo " This includes installing and configuring PM2 for reliable API process management."
+echo " It (will) also provide options for configuring releaseable API deployments."
+echo " As it has ability to access secrets etc, it is a private repo separate to this one, and is not necessary just for local development."
 echo "=========================================="
 echo ""
