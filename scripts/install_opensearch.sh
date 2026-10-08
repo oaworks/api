@@ -179,10 +179,29 @@ if [ -n "$TARGET_IP" ]; then
     fi
     if [ "${#IDENTITY_FILES[@]}" -gt 0 ]; then
       echo "Available local SSH private keys:"
-      printf '  %s\n' "${IDENTITY_FILES[@]}"
+      for index in "${!IDENTITY_FILES[@]}"; do
+        printf '  [%d] %s\n' "$((index + 1))" "${IDENTITY_FILES[$index]}"
+      done
     fi
-    read -r -p "Path to SSH private key${SUGGESTED_IDENTITY_FILE:+ [$SUGGESTED_IDENTITY_FILE]}: " IDENTITY_FILE
-    IDENTITY_FILE="${IDENTITY_FILE:-$SUGGESTED_IDENTITY_FILE}"
+    while true; do
+      read -r -p "SSH private key number or path${SUGGESTED_IDENTITY_FILE:+ [default: $((DEFAULT_IDENTITY_INDEX + 1)) - $SUGGESTED_IDENTITY_FILE]}: " IDENTITY_CHOICE
+      if [[ "$IDENTITY_CHOICE" =~ ^[0-9]+$ ]]; then
+        IDENTITY_FILE=""
+        for index in "${!IDENTITY_FILES[@]}"; do
+          if [ "$IDENTITY_CHOICE" = "$((index + 1))" ]; then
+            IDENTITY_FILE="${IDENTITY_FILES[$index]}"
+            break
+          fi
+        done
+        if [ -z "$IDENTITY_FILE" ]; then
+          echo "Please choose a number from the list or enter a private key path."
+          continue
+        fi
+      else
+        IDENTITY_FILE="${IDENTITY_CHOICE:-$SUGGESTED_IDENTITY_FILE}"
+      fi
+      break
+    done
   fi
 
   case "$IDENTITY_FILE" in
