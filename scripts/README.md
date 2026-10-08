@@ -261,7 +261,7 @@ with the fixtures code within about a minute, check that it is running with
 
 Fixtures are currently about 2GB in total.
 
-## Generating fixtures
+### Side note: Generating fixtures
 
 It is also possible to generate fixtures from your current local dev instance. 
 The /fixtures endpoint triggers it, however it also requires a local setting 
@@ -270,3 +270,76 @@ server.json file and rebuild the API codebase. Passing the ?trigger param
 causes the fixtures dump to run. You can then send / rsync / do whatever 
 you want with the local generated fixtures, such as to bootstrap another 
 dev machine with whatever current data state you have locally.
+
+
+## Running Tests
+
+Use `run_tests.sh` to run the API's test runner against a JSON Lines file in
+`fixtures/`. The API must already be running on the execution machine at
+`http://localhost:4000`, with any data and services required by the tests
+configured and available. Run the API from the repository root so it can find
+the fixtures there.
+
+The supplied `fixtures/test.jsonl` contains one JSON object per line, with test
+identifiers, endpoint URLs, parameters, and expected response fields. Its
+current tests target `http://localhost:4000/report/works`. You can add other
+test files to `fixtures/`, such as `test_permissions.jsonl`: filenames must
+start with `test` and end with `.jsonl`. Use JSON Lines, not CSV or TSV, and
+follow the existing test file's record format.
+
+| Option | Description |
+| --- | --- |
+| `-i`, `--ip <address>` | Run on this remote server as `oaw`, in `~/api`. Test files must exist in that server's `~/api/fixtures`. |
+| `-k`, `--key <private-key>` | SSH private key for `--ip`. If omitted, choose a numbered key, accept the suggested default, or enter a path. |
+| `-t`, `--test-file <filename>` | Test filename only, for example `test.jsonl`, not a path. If omitted or invalid, choose an available file by number or filename. |
+| `-h`, `--help` | Show usage. |
+
+To run the supplied tests locally:
+
+```bash
+cd ~/api
+bash scripts/run_tests.sh --test-file test.jsonl
+```
+
+Without `--ip`, the script asks for a target IP. Leave it blank and answer
+**Yes** to the local-run confirmation (default **No**). Omit `--test-file` to
+see and select from the available `test*.jsonl` files. If none exist, download
+them with `get_fixtures.sh` or create a suitable file first.
+
+To run on a configured VM:
+
+```bash
+bash scripts/run_tests.sh --ip <DROPLET_IP> --key ~/.ssh/id_ed25519 --test-file test.jsonl
+```
+
+The remote run selects and reads files on the VM, not your local machine. The
+script sends the filename as the `sheet` query parameter to
+`http://localhost:4000/test`, waits for the response, and prints it. For a
+remote run, `localhost` is the VM itself.
+
+NOTE: the oa.works project has extensive tests in a google sheet which can also be run directly 
+from that sheet, or imported, in various ways that are not yet covered here. Just a note 
+before anyone goes spending lots of time writing new tests - there may be plenty 
+already available elsewhere! So check with someone in the team first.
+
+### Reviewing Results
+
+Each successful request saves the JSON response in `results/` beside the
+repository's `scripts/` folder, creating it if needed. Result filenames use
+the test filename without `.jsonl` plus a timestamp, for example
+`test_20261008_143025.json`. Remote runs add a unique suffix to identify the
+result when copying it back.
+
+Open the saved JSON to review the test runner's output and compare runs, or
+format a selected result in the terminal:
+
+```bash
+ls -lt results/
+jq . results/test_20261008_143025.json
+```
+
+Remote runs save results in the VM's `~/api/results/`. After completion, the
+script asks whether to save that result locally too (default **No**). Answer
+**Yes** to copy it into your local clone's `results/` using the same SSH key;
+the remote copy is retained.
+
