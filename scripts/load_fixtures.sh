@@ -170,7 +170,7 @@ remove_injected_code() {
   echo "Removing injected fixtures code and rebuilding..."
   rm -f "$INJECTED_FILE"
   (cd "$API_DIR" && npm run build)
-  echo "Removal and rebuild complete."
+  echo "Removal of injected fixtures codeand rebuild complete."
 }
 
 cp "${SCRIPT_DIR}/fixtures_load.coffee" "$INJECTED_FILE"
