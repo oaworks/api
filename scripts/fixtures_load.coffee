@@ -37,11 +37,4 @@ P.fixtures.load = ->
       console.log 'Bulk loading final', batch.length, 'records into', idx
       await @index._bulk idx, batch, undefined, undefined, (if idx.includes('permissions_') or idx.includes('src_doaj_') then false else undefined) # no prefix for these - for now, want to change this config
 
-    try
-      ending = await @status()
-      res.status = ending.index.indices
-      for ik of res.status
-        delete res.status[ik].shards
-        delete res.status[ik].failed
-
   return res
