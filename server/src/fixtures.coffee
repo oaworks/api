@@ -7,6 +7,27 @@ P.fixtures = ->
   max = @params.max ? 100
   max = 0 if typeof max isnt 'number'
 
+  try
+    await fs.stat @S.static.folder + "/fixtures"
+  catch
+    await fs.mkdir @S.static.folder + "/fixtures"
+  meta = {}
+  try meta = JSON.parse await fs.readFile @S.static.folder + "/fixtures/_meta.json"
+  if meta.started and not meta.finished
+    if not @params.clear
+      console.log 'Previous fixture dump started but not finished'
+      return note: 'There appears to be a dump in progress since ' + meta.started + ' ' + (new Date(meta.started).toISOString()) + '. You can force a restart by applying the ?clear param to this URL.'
+    else
+      nm = started: meta.started, restarted: Date.now()
+      meta = nm
+  #else # if not always producing the same file set, could delete
+  #  for fn in await fs.readdir @S.static.folder + "/fixtures"
+  #    continue if fn isnt '_meta.json'
+  #    await fs.unlink @S.static.folder + "/fixtures/" + fn
+  meta.started = Date.now() if not meta.restarted or not meta.started
+  starter = meta.restarted ? meta.started # may not really be useful to keep track of previous start, but do for now
+  await fs.writeFile @S.static.folder + "/fixtures/_meta.json", JSON.stringify(meta)
+
   # build a test set
   console.log 'Dumping test set to fixtures'
   tests = []
@@ -44,26 +65,6 @@ P.fixtures = ->
     #meta.tests = counter
 
   console.log 'Dumping data to fixtures', max
-  try
-    await fs.stat @S.static.folder + "/fixtures"
-  catch
-    await fs.mkdir @S.static.folder + "/fixtures"
-  meta = {}
-  try meta = JSON.parse await fs.readFile @S.static.folder + "/fixtures/_meta.json"
-  if meta.started and not meta.finished
-    if not @params.clear
-      console.log 'Previous fixture dump started but not finished'
-      return note: 'There appears to be a dump in progress since ' + meta.started + ' ' + (new Date(meta.started).toISOString()) + '. You can force a restart by applying the ?clear param to this URL.'
-    else
-      nm = started: meta.started, restarted: Date.now()
-      meta = nm
-  #else # if not always producing the same file set, could delete
-  #  for fn in await fs.readdir @S.static.folder + "/fixtures"
-  #    continue if fn isnt '_meta.json'
-  #    await fs.unlink @S.static.folder + "/fixtures/" + fn
-  meta.started = Date.now() if not meta.restarted or not meta.started
-  starter = meta.restarted ? meta.started # may not really be useful to keep track of previous start, but do for now
-  await fs.writeFile @S.static.folder + "/fixtures/_meta.json", JSON.stringify(meta)
   for d in ['permissions_journals_transformative', 'permissions_journals', 'permissions_publishers', 'permissions_affiliations', 'src_doaj_journals', 'report_oapolicy', 'report_publishers', 'report_orgs', 'report_orgs_supplements']
     f = fs.createWriteStream @S.static.folder + '/fixtures/' + d + '.jsonl'
     console.log 'Dumping', d, 'to', f.path
