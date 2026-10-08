@@ -6,10 +6,15 @@ P.test = (sid, max) ->
   res = summary: {ran: 0, max: max, id: row, responded: 0, errors: 0, differences: 0, difference: (@params.diff ? @params.difference ? true), anomalous: 0}, anomalies: {}, anomalous_ids: [], errors: [], differences: {} #, specs: {}
   res.sheet = id: sid ? @params.sheet ? '1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8/tests'
   if res.sheet.id.startsWith('test') and not res.sheet.id.includes('..')
-    res.sheet.id = res.sheet.id.split('/').pop()
+    res.sheet.id = res.sheet.id.split('/').pop().replace('.jsonl', '')
     res.sheet.url = 'file://' + process.cwd() + '/fixtures/' + res.sheet.id + '.jsonl'
+    console.log res.sheet.id, res.sheet.url, process.cwd()
     try
-      res.sheet.content = (await fs.readFile process.cwd() + '/fixtures/' + res.sheet.id + '.jsonl').split('\n').map (line) -> JSON.parse line
+      res.sheet.content = (await fs.readFile process.cwd() + '/fixtures/' + res.sheet.id + '.jsonl').toString().split('\n').map (line) -> JSON.parse line
+      console.log res.sheet.content
+    catch
+      res.sheet.content = []
+      res.sheet.error = 'Failed to get fixture file.'
   else
     # https://docs.google.com/spreadsheets/d/1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8
     res.sheet.url ?= 'https://docs.google.com/spreadsheets/d/' + res.sheet.id.split('/')[0]
