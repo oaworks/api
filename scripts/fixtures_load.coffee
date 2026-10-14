@@ -26,8 +26,11 @@ P.fixtures.load = ->
           await fn ''
     for await line from readline.createInterface input: fs.createReadStream(folder + '/' + fl), crlfDelay: Infinity
       continue if not line.trim()
-      batch.push JSON.parse line
-      res[idx] += 1
+      try
+        batch.push JSON.parse line
+        res[idx] += 1
+      catch err
+        console.error 'Failed to parse line in', fl, ':', err.message
       if batch.length >= 10000
         console.log 'Bulk loading', batch.length, 'records into', idx
         # TODO get rid of the need for controlling prefix here, or at least use the fn defined above to read the _prefix config for it

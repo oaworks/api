@@ -49,17 +49,17 @@ P.fixtures = ->
       if typeof d is 'string' and d.startsWith '10.'
         if r = await @report.works d
           f.write('\n') if counter isnt 0
-          f.write JSON.stringify r
+          f.write JSON.stringify r.replace /\n/g, ' '
           counter++
     f.end()
     meta.report_works = counter
 
-    #f = fs.createWriteStream @S.static.folder + '/fixtures/tests_sheet_' + max + '.jsonl'
+    #f = fs.createWriteStream @S.static.folder + '/fixtures/tests_sheet_' + tests.length + '.jsonl'
     #counter = 0
     #for t in tests
     #  if typeof t.ID is 'string' and t.ID.startsWith '10.'
     #    f.write('\n') if counter isnt 0
-    #    f.write JSON.stringify t
+    #    f.write JSON.stringify t.replace /\n/g, ' '
     #    counter++
     #f.end()
     #meta.tests = counter
@@ -77,7 +77,7 @@ P.fixtures = ->
         qr = 'doi.keyword:"NEVERFINDME"' # for max zero we just write an empty supps file, so find no records
     for await r from @index._for d, qr, undefined, (if d.includes('permissions_') or d.includes('src_doaj_') then false else undefined) # no prefix for these - for now, want to change this config
       f.write('\n') if counter isnt 0
-      f.write JSON.stringify r
+      f.write JSON.stringify r.replace /\n/g, ' '
       counter++
     f.end()
     meta[d] = counter
