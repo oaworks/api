@@ -107,7 +107,7 @@ else if pen = process.env.name
     if pen.endsWith k.replace /\./g, '_'
       S.port = parseInt v.replace('http://', '').replace('https://', '').split(':')[1]
       break
-  if S.port in [3000, 4000] and pmid? and pmid isnt 0 and pen isnt 'paradigm'
+  if S.port in [3000, 4000] and pmid? and pmid isnt 0 and pen not in ['paradigm', 'paradigm_b']
     S.port += 110 + pmid
 S.port ?= if S.dev then 4000 else 3000
 server.listen S.port, 'localhost'
