@@ -80,29 +80,34 @@ P.report.suggestions = ->
       await _find((fieldname + ':' + cq.split(' ').join(' AND ' + fieldname + ':') + '*').replace(/:([^:]*)$/, ':*$1')) if not res.length and prefix
     return res
   else
-    res = total: await @report.suggestables.count()
-    res.options = org: 'Org name (required)', field: 'Field name (required)', q: 'search term, default *', size: 'How many to return, default 1000', exact: 'Do exact match, default true, will try matching an entire keyword (Gates Foundation), then tries partials (Foundation)', keyword: 'Default true, if false then exact match will not try keyword first', wildcard: 'Default true, enables wildcard searches after exact searches', suffix: 'The default wildcard search, appends * to the query, unless set to false', fuzzy: 'Default false, if true will try fuzzy match ONLY if previous searches fail (slower)', prefix: 'Default false, if true will try *query* wildcard match ONLY if previous searches fail (slowest)'
+    res = {} #total: await @report.suggestables.count()
+    #res.options = org: 'Org name (required)', field: 'Field name (required)', q: 'search term, default *', size: 'How many to return, default 1000', exact: 'Do exact match, default true, will try matching an entire keyword (Gates Foundation), then tries partials (Foundation)', keyword: 'Default true, if false then exact match will not try keyword first', wildcard: 'Default true, enables wildcard searches after exact searches', suffix: 'The default wildcard search, appends * to the query, unless set to false', fuzzy: 'Default false, if true will try fuzzy match ONLY if previous searches fail (slower)', prefix: 'Default false, if true will try *query* wildcard match ONLY if previous searches fail (slowest)'
     # sort: 'Order, asc/desc, default asc', 
-    res.field = {}
-    res.field[f.term] = f.count for f in await @report.suggestables.terms 'field'
-    res.org = await @report.suggestables.terms 'org'
-    for o in res.org
-      o.works = await @report.works.count 'orgs.keyword:"' + o.term + '" AND NOT orgs_by_query:*'
-      o.field = {}
-      o.field[f.term] = f.count for f in await @report.suggestables.terms 'field', 'org.keyword:"' + o.term + '"'
+    #res.field = {}
+    #res.field[f.term] = f.count for f in await @report.suggestables.terms 'field'
+    #res.org = await @report.suggestables.terms 'org'
+    try # catch when the suggestions index is empty
+      orgs = await @report.suggestables.terms 'org'
+      for o in orgs # res.org
+        #o.works = await @report.works.count 'orgs.keyword:"' + o.term + '" AND NOT orgs_by_query:*'
+        #o.field = {}
+        #o.field[f.term] = f.count for f in await @report.suggestables.terms 'field', 'org.keyword:"' + o.term + '"'
+        res[o.term.toLowerCase().replace(/[\. ]/g, '_') + '_' + f.term.toLowerCase().replace(/[\. ]/g, '_')] = f.count for f in await @report.suggestables.terms 'field', 'org.keyword:"' + o.term + '"'
     return res
 P.report.suggestify = (orgs, fields, clear) ->
   started = Date.now()
   orgs = @params.orgs.split(',') if @params.orgs
-  orgs ?= ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Michael J. Fox Foundation', 'Wellcome Trust', 'Templeton World Charity Foundation', 'Howard Hughes Medical Institute', 'Parkinson’s Progression Markers Initiative']
+  #orgs ?= ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Michael J. Fox Foundation', 'Wellcome Trust', 'Templeton World Charity Foundation', 'Howard Hughes Medical Institute', 'Parkinson’s Progression Markers Initiative']
+  orgs ?= await @report.orgs.suggest 'name'
   fields = @params.fields.split(',') if @params.fields
   fields ?= ['journal', 'authorships.institutions.display_name', 'authorships.author.orcid', 'authorships.author.display_name', 'concepts.display_name', 'supplements.publisher_simple', 'supplements.host_venue.display_name', 'supplements.grantid__bmgf', 'supplements.program__bmgf', 'supplements.grantid__rwjf', 'supplements.program__rwjf', 'supplements.grantid__mjff', 'supplements.grantid__twcf', 'supplements.program__twcf']
   fields = (f.replace('.keyword', '') for f in fields)
+  qfields = fields.concat ['authorships.author.id']
   # an example, PPMI for authorships.author.display_name, with only about 7.5k records has over 80k author name strings (some could be dups)
   #merge = @params.merge ? false # it takes 90 minutes to build Gates with merging. 30 minutes without
   batch = []
   total = 0
-  clear ?= @params.clear ? false
+  clear ?= @params.clear ? true
   if clear is true
     if @params.orgs and not @params.fields
       for o in orgs
@@ -118,28 +123,34 @@ P.report.suggestify = (orgs, fields, clear) ->
   console.log orgs
   console.log fields
 
+  batch = []
   for o in orgs
     console.log 'building suggestables for org', o
     uniques = {}
-    batches = {}
-    for await rec from @index._for 'paradigm' + (if S.dev then '_b' else '') + '_report_works', 'orgs.keyword:"' + o + '" AND NOT orgs_by_query:*', include: fields
+    for await rec from @index._for 'paradigm' + (if S.dev then '_b' else '') + '_report_works', 'orgs.keyword:"' + o + '"', include: qfields #  AND NOT orgs_by_query:*
       for field in fields
-        vals = await @dot rec, field
-        vals = [vals] unless Array.isArray vals
-        uniques[field] ?= []
-        batches[field] ?= []
+        if field is 'authorships.author.display_name'
+          vals = []
+          for a in (rec.authorships ? [])
+            vals.push(a.author.display_name) if a.author?.display_name and a.author.id and a.author.display_name not in vals
+        else
+          vals = await @dot rec, field
+          vals = [vals] unless Array.isArray vals
+        uniques[field] ?= {}
         for v in vals
-          if v and (v = v.replace('https://orcid.org/', '')) and v not in uniques[field]
-            uniques[field].push v
+          if v and (v = v.replace('https://orcid.org/', '')) and not uniques[field][v]
+            uniques[field][v] = true
             vr = org: o, field: field
             vr[field.toLowerCase().replace /[^a-z0-9]/g, ''] = v
-            batches[field].push vr
-    for b of batches
-      if batches[b].length
-        console.log 'suggestify saving batch', o, b, batches[b].length
-        await @report.suggestables batches[b]
-        total += batches[b].length
-        console.log 'suggestify saved batch', o, b, batches[b].length, total
+            batch.push vr
+        if batch.length >= 20000
+          total += batch.length
+          console.log 'suggestify batch saving', batch.length, total
+          await @report.suggestables batch
+          batch = []
+  if batch.length
+    await @report.suggestables batch
+    total += batch.length
 
   console.log orgs
   console.log fields
