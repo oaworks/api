@@ -209,67 +209,6 @@ P.convert.json2txt = (content) ->
   await _extract content
   return strings.join ' '
 
-P.convert._hexMatch = 
-  '0': '0000'
-  '1': '0001'
-  '2': '0010'
-  '3': '0011'
-  '4': '0100'
-  '5': '0101'
-  '6': '0110'
-  '7': '0111'
-  '8': '1000'
-  '9': '1001'
-  'a': '1010'
-  'b': '1011'
-  'c': '1100'
-  'd': '1101'
-  'e': '1110'
-  'f': '1111'
-
-P.convert.hex2bin = (ls) ->
-  res = []
-  for l in (if not Array.isArray(ls) then [ls] else ls)
-    res.push P.convert._hexMatch[l.toLowerCase()]
-  return res.join ''
-
-P.convert.bin2hex = (ls) ->
-  # this needs work...
-  if not Array.isArray ls
-    els = []
-    sls = ls.split('')
-    pr = ''
-    while sls.length
-      pr += sls.shift()
-      if pr.length is 4
-        els.push pr
-        pr = ''
-    ls = els
-  res = []
-  hm = {}
-  for k of P.convert._hexMatch
-    hm[P.convert._hexMatch[k]] = k
-  for l in ls
-    res.push '0x' + hm[l]
-  return new Buffer(res).toString()
-  
-P.convert.buf2bin = (buf) ->
-  buf = buf.toString('hex') if Buffer.isBuffer buf
-  buf = buf.replace /^0x/, ''
-  ret = ''
-  c = 0
-  while c < buf.length
-    ret += await P.convert.hex2bin buf[c]
-    c++
-  return ret
-
-P.convert.stream2txt = (stream) ->
-  chunks = []
-  return new Promise (resolve, reject) =>
-    stream.on 'data', (chunk) => chunks.push Buffer.from chunk
-    stream.on 'error', (err) => reject err
-    stream.on 'end', () => resolve Buffer.concat(chunks).toString 'utf8'
-
 P.convert.xml2json = (x) ->
   # TODO parse from buffer (file on disk or stream from url)
   # allow CDATA e.g <![CDATA[<p>your html here</p>]]>

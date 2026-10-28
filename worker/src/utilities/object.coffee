@@ -3,21 +3,6 @@ P.copy = (obj) ->
   try obj ?= @params
   return JSON.parse JSON.stringify obj
 
-'''P.dot = (obj, key) ->
-  if typeof obj is 'string' and typeof key is 'object'
-    st = obj
-    obj = key
-    key = st
-  if not obj? and this?.params?.key?
-    obj = @copy @params
-    key = obj.key
-  key = key.split('.') if typeof key is 'string'
-  try
-    res = obj
-    res = res[k] for k in key
-    return res
-  catch
-    return'''
 P.copy._log = false
 
 P.dot = (o, k, v, d, ae) -> # ae will attempt to recurse into the last object element of an array rather than return undefined for failing to match a key on the list element

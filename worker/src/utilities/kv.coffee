@@ -23,45 +23,6 @@ if typeof S.kv is 'string' and S.kv.startsWith('http') and not global[S.kv]
     opts ?= {}
     return P.fetch S.kv + '/list' + (if opts.prefix then '/' + opts.prefix else '') + (if opts.cursor then '?cursor=' + opts.cursor else '')
 
-'''if typeof S.kv isnt 'string' and S.kv isnt false
-  global[S.kv] = {}
-  global[S.kv].get = (key) ->
-    kc = 'kv/' + key.replace /\//g, '_'
-    ret = await P.index kc
-    if ret.expiresAt and ret.expiresAt < Date.now()
-      P.index kc, '' # delete
-      return
-    else
-      try ret.val = JSON.parse ret.val
-      return ret.val
-  global[S.kv].getWithMetadata = (key) ->
-    kc = 'kv/' + key.replace /\//g, '_'
-    ret = await P.index kc
-    try ret.val = JSON.parse ret.val
-    try ret.metadata = JSON.parse ret.metadata
-    return value: ret.val, metadata: ret.metadata
-  global[S.kv].put = (key, data) ->
-    kc = 'kv/' + key.replace /\//g, '_'
-    return await P.index kc, key: key, val: JSON.stringify data
-  global[S.kv].delete = (key) ->
-    kc = 'kv/' + key.replace /\//g, '_'
-    return await P.index kc, ''
-  global[S.kv].list = (opts) ->
-    # cursor on real kv isnt a from count, but use that for now
-    # need to change this to use each properly on index, as from will only go as far as 10k
-    opts ?= {}
-    opts.cursor ?= 0
-    ret = await P.index 'kv', (if opts.prefix then 'key:' + opts.prefix.replace(/\//g, '_') + '*' else '*'), {sort: {key: {order: 'asc'}}, from: opts.cursor}
-    res = keys: []
-    try
-      res.cursor: opts.cursor + 1000
-      if res.cursor >= ret.hits.total
-        res.list_complete = true
-        delete res.cursor
-      for k in ret.hits.hits
-        res.keys.push k._source.key
-    return res'''
-
 
 P.kv = (key, val, ttle, metadata, type) ->
   # val can be string, stream, buffer. The type gets inferred.

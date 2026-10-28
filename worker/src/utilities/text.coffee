@@ -39,52 +39,6 @@ P.levenshtein = (a, b, lowercase) ->
 
   return distance: r[ r.length - 1 ][ r[ r.length - 1 ].length - 1 ], length: {a:m, b:n} #, detail: r
 
-P.extract = (opts) ->
-  # opts expects url,content,matchers (a list, or singular "match" string),start,end,convert,format,lowercase,ascii
-  opts ?= @copy @params
-  if opts.url and not opts.content
-    if opts.url.indexOf('.pdf') isnt -1 or opts.url.indexOf('/pdf') isnt -1
-      opts.convert ?= 'pdf'
-    else
-      #opts.content = await @puppet opts.url
-      opts.content = await @fetch opts.url
-  if opts.convert
-    try text = await @convert[opts.convert + '2txt'] opts.url ? opts.content
-  text ?= opts.content
-
-  opts.matchers ?= [opts.match]
-  if opts.start?
-    parts = text.split opts.start
-    text = if parts.length > 1 then parts[1] else parts[0]
-  text = text.split(opts.end)[0] if opts.end?
-  text = text.toLowerCase() if opts.lowercase
-  text = text.replace(/[^a-z0-9]/g,'') if opts.ascii
-  text = text.replace(/ /g,'') if opts.spaces is false
-
-  res = {length: text.length, matched: 0, matches: [], matchers: opts.matchers, text: text}
-
-  if text and typeof text isnt 'number'
-    for match in (if typeof opts.matchers is 'string' then opts.matchers.split(',') else opts.matchers)
-      if typeof match is 'string'
-        mopts = ''
-        if match.indexOf('/') is 0
-          lastslash = match.lastIndexOf '/'
-          if lastslash+1 isnt match.length
-            mopts = match.substring lastslash+1
-            match = match.substring 1,lastslash
-        else
-          match = match.replace /[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&"
-      else
-        mopts = ''
-      mopts += 'i' if opts.lowercase
-      try
-        mr = new RegExp match, mopts
-        if m = mr.exec text
-          res.matched += 1
-          res.matches.push {matched: match.toString(), result: m}
-
-  return res
-
 P.decode = (content) ->
   content ?= this?.params?.decode ? this?.params?.content ? this?.params?.text ? this?.body
   _decode = (content) ->
