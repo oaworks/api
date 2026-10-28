@@ -25,15 +25,6 @@ P.convert.doc2txt = (content) ->
   await fs.unlink(cn) if typeof cn is 'string' and cn.startsWith '/tmp/'
   return txt
 
-'''P.convert.docx2txt = (content) ->
-  cn = await @convert._content2file content
-  await @_child 'unoconv', ['-f', 'doc', cn] # unoconv also has a convenience command set up called doc2pdf
-  await fs.unlink(cn) if cn.startsWith '/tmp/'
-  cn = cn.replace('.docx', '') + '.doc'
-  txt = await @convert.doc2txt cn
-  try await fs.unlink(cn) if typeof cn is 'string' and cn.startsWith '/tmp/'
-  return txt'''
-
 P.convert.docx2txt = (content) ->
   cn = await @convert._content2file content
   #cn = '/home/cloo/static/ExtendedInterval.docx'

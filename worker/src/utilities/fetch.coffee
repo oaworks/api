@@ -253,12 +253,7 @@ P.fetch = (url, params) ->
         if waitto = await @rate params.rate
           await @sleep waitto - Date.now()
         delete params.rate
-      if params.timeout and this?._timeout?
-        pt = if params.timeout is true then 30000 else params.timeout
-        delete params.timeout
-        res = await @_timeout pt, _f()
-      else
-        res = await _f()
+      res = await _f()
       try
         res = res.trim()
         res = JSON.parse(res) if res.startsWith('[') or res.startsWith('{')
@@ -274,17 +269,3 @@ P.fetch = (url, params) ->
 P.fetch._auth = 'system'
 
 
-
-P._timeout = (ms, fn) -> # where fn is a promise-able function that has been called
-  # so call this like res = await @_timeout 5000, @fetch url
-  return new Promise (resolve, reject) =>
-    timer = setTimeout () =>
-      reject new Error 'TIMEOUT' # should this error or just return?
-    , ms
-    promise
-      .then value =>
-        clearTimeout timer
-        resolve value
-      .catch reason =>
-        clearTimeout timer
-        reject reason

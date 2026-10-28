@@ -735,32 +735,6 @@ P.index.translate = (q, opts) ->
 P.index.translate._auth = false
 
 
-'''P.index._locate = (route, url) -> # is prefix required as well?
-  # force lowercase string on all IDs so that can deal with users giving incorrectly cased IDs for things like DOIs which are defined as case insensitive
-  rt = (route + '').split('?')[0].toLowerCase()
-  rt = rt.replace('/','') if rt.startsWith '/' # gets added back in when combined with the url
-  rt = rt.replace(/\/$/,'') if rt.endsWith '/'
-  try rt = rt.replace(/#/g, '%23') if rt.split('/').pop().includes '#'
-  if not rt.startsWith 'http' # which it probably doesn't
-    rso = rt.split('/')[0]
-    if not rt.startsWith '_'
-      dtp = await @dot P, rso.replace /_/g, '.'
-      alias ?= @params._alias ? @S.alias?[if rso.startsWith(@S.index.name + '_') then rso.replace(@S.index.name + '_', '') else rso] ? dtp?._alias
-      if typeof alias is 'string'
-        # TODO add check for alias of daily, weekly, monthly, yearly. If so calculate the current value and check for existence. If it does not exist, do not use the alias, or check the previous day/week etc?
-        alias = '_' + alias if not alias.startsWith '_'
-        alias = alias.replace /\//g, '_'
-        rt = rt.replace(rso, rso + alias) if not rso.endsWith alias
-      prefix ?= dtp?._prefix ? @S.index.name
-      prefix = @S.index.name if prefix is true
-      if typeof prefix is 'string'
-        prefix += '_' if prefix.length and not prefix.endsWith '_'
-        rt = prefix + rt if not rt.startsWith prefix # TODO could allow prefix to be a list of names, and if index name is in the list, alias the index into those namespaces, to share indexes between specific instances rather than just one or global
-    rrso = if rso.startsWith(@S.index.name + '_') then rso.replace(@S.index.name + '_', '') else rso
-    url ?= @S.route?[rrso + alias] ? @S.route?[rrso] ? dtp?._route ? (if this?.S?.index?.url then @S.index.url else S.index?.url)
-    url = url[Math.floor(Math.random()*url.length)] if Array.isArray url
-  return [url, rt]'''
-
 
 # calling this should be given a correct URL route for ES7.x, domain part of the URL is optional though.
 # call the above to have the route constructed. method is optional and will be inferred if possible (may be removed)
