@@ -88,8 +88,6 @@ P.find_internal = (options, metadata={}, content) ->
   res.test ?= true if res.demo # don't save things coming from the demo accounts into the catalogue later
 
   epmc = false
-  if (content? or options.url?) and not (metadata.doi or metadata.pmid? or metadata.pmcid? or metadata.title?)
-    await _metadata await @scrape content ? options.url
 
   if not metadata.doi
     if metadata.pmid or metadata.pmcid
