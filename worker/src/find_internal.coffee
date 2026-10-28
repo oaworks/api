@@ -93,13 +93,6 @@ P.find_internal = (options, metadata={}, content) ->
     if metadata.pmid or metadata.pmcid
       epmc = await @src.epmc[if metadata.pmcid then 'pmc' else 'pmid'] (metadata.pmcid ? metadata.pmid)
       await _metadata epmc
-    if not metadata.doi and metadata.title and metadata.title.length > 8 and metadata.title.split(' ').length > 1
-      metadata.title = metadata.title.replace /\+/g, ' ' # some+titles+come+in+like+this
-      openalex = await @src.openalex.works.title metadata.title
-      await _metadata(openalex) if openalex?.type and openalex?.doi
-      if not metadata.doi and not epmc
-        epmc = await @src.epmc.title metadata.title
-        await _metadata(epmc) if epmc isnt false
 
   await _metadata(openalex) if metadata.doi and openalex = await @src.openalex.works.doi metadata.doi # run this even if ran openalex title search above, because may since have gotten DOI and could get better
   res.doi_not_in_openalex = true if metadata.doi and not openalex?.type_crossref and 'crossref' not in (openalex?.indexed_in ? []) #and openalex?.type not in ['article']
