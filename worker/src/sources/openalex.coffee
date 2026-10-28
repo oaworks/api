@@ -40,10 +40,6 @@ P.src.openalex.rates = ->
 
 
 P.src.openalex.works = _index: {settings: {number_of_shards: 15}}, _prefix: false
-#P.src.openalex.authors = _index: {settings: {number_of_shards: 15}}, _prefix: false
-#P.src.openalex.institutions = _index: true, _prefix: false
-#P.src.openalex.concepts = _index: true, _prefix: false
-#P.src.openalex.venues = _index: true, _prefix: false
 
 P.src.openalex.works._format = (rec) ->
   for kt in ['concepts', 'topics', 'keywords', 'sustainable_development_goals', 'domains', 'fields', 'subfields', 'authorships', 'locations']
@@ -110,23 +106,6 @@ P.src.openalex.works.find = (doi, openalex, pmcid, pmid, refresh) -> # ident can
   if not res and pmid
     res = await @fetch ('https://api.openalex.org/works/pmid:' + pmid + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '')), {rate: ['openalex', 80]}
 
-  if false #not res and pmcid # using filters for pmcid searches is too "expensive"
-    # openalex does not appear to have ids.pmcid on records now, even though ids.pmcid is still a searchable field, and the locations does contain it
-    # example see https://api.openalex.org/works?filter=locations.landing_page_url:https://www.ncbi.nlm.nih.gov/pmc/articles/4306759
-    #if res = await @fetch ('https://api.openalex.org/works?filter=ids.pmcid:https://www.ncbi.nlm.nih.gov/pmc/articles/' + ident.toLowerCase().replace('pmc', '') + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works')), {rate: ['openalexFilter', 20, 10000, 86400]}
-    # landing page can have other relevant formats, see: https://api.openalex.org/works/W4387299001
-    # https://europepmc.org/articles/pmc1078728
-    # this one on openalex currently has PMID but NOT PMCID, but does still have pubmed and ncbi (pmcid) links:
-    # https://api.openalex.org/works/W1964326751
-    # whereas our copy (older) had pmcid too: https://bg.beta.oa.works/src/openalex/works/10.1073/pnas.30.11.362
-    # can also check locations.landing_page_url for PMID: https://pubmed.ncbi.nlm.nih.gov/37788887
-    pml = pmcid.toLowerCase().replace('pmc', '')
-    res = await @fetch ('https://api.openalex.org/works?filter=locations.landing_page_url:https://www.ncbi.nlm.nih.gov/pmc/articles/' + pml + '|https://europepmc.org/articles/pmc' + pml + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '')), {rate: ['openalexFilter', 20, 10000, 86400]}
-    try res = res.results[0]
-    try res = undefined if not res?.id
-    res ?= await @fetch ('https://api.openalex.org/works?filter=ids.pmcid:https://www.ncbi.nlm.nih.gov/pmc/articles/' + pml + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '')), {rate: ['openalexFilter', 20, 10000, 86400]}
-    try res = res.results[0]
-    try res = undefined if not res?.id
   if typeof res is 'object' and res.id
     found = await @src.openalex.works._format res
     await @src.openalex.works found
@@ -165,24 +144,6 @@ P.src.openalex.oa = type: (issns) ->
     return issn: issns, calculated: calculated, types: types
   else
     return issn: issns, calculated: '', types: []
-
-P.src.openalex.manifest = ->
-  what = @params.manifest ? @params.openalex ? 'works'
-  return false if what not in ['works']
-  res = last: '', previous:'', manifest: await @fetch 'https://openalex.s3.amazonaws.com/data/' + what + '/manifest'
-  _ls = (m) =>
-    ret = ''
-    last = 0
-    for entry in m.entries
-      esd = entry.url.split('=')[1].split('/')[0]
-      de = await @epoch esd
-      if de > last
-        last = de
-        ret = esd
-    return ret
-  res.last = await _ls res.manifest
-  try res.previous = await _ls JSON.parse (await fs.readFile @S.directory + '/import/openalex/data/' + what + '/manifest').toString()
-  return res
 
 _openalex_load_running = false
 P.src.openalex.load = (what, changes, clear, sync, last, toalias) ->

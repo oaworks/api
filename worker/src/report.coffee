@@ -886,36 +886,6 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
                   for poaa in _processing_orgs[port].aliases
                     f.country = _processing_orgs[port].country_code if flc.includes poaa.toLowerCase().replace /[^a-z ]/g, ''
     
-    #alternative way to do funder countries regardless or orgs present - but puts more load on orgs queries and maintains a much larger in-memory orgs object
-    #for por in (rec.orgs ? [])
-    #  port = por.toLowerCase().trim()
-    #  everything = true if port not in ['fwf austrian science fund', 'dutch research council', 'national science center', 'uk research and innovation', 'agencia nacional de investigación y desarrollo', 'national natural science foundation of china', 'research foundation - flanders', 'ministry of business, innovation and employment', 'german research foundation']
-    #  if not _processing_orgs[port]?
-    #    _processing_orgs[port] = await @report.orgs 'name:"' + port + '" OR aliases:"' + port + '" OR acronyms:"' + port + '"', 1 # save under every alias / acronym / fundref as well?
-    #    if _processing_orgs[port]?
-    #      for fk in ['name', 'acronyms', 'aliases', 'fundref']
-    #        if Array.isArray _processing_orgs[fk]
-    #         for anfk in _processing_orgs[fk]
-    #          anfkl = anfk.toLowerCase()
-    #           _processing_orgs[anfk] = _processing_orgs[port] if anfkl isnt port
-    #        else if typeof _processing_orgs[fk] is 'string'
-    #          pfkl = _processing_orgs[fk].toLowerCase()
-    #          _processing_orgs[pfkl]] = _processing_orgs[port] if pfkl isnt port
-    #
-    #if rec.funder
-    #  for f in rec.funder
-    #    if f.DOI
-    #      fds = '10.' + f.DOI.split('10.')[1]
-    #      _processing_orgs[fds] ?= await @report.orgs 'fundref:"' + fds + '"', 1 # crossref funder DOIs have also been seen to have errors prefixing
-    #      f.country = _processing_orgs[fds]?.country_code
-    #    if not f.country and f.name # some crossref records have funder objects that are empty or do not have name
-    #      flc = f.name.toLowerCase()
-    #      _processing_orgs[flc] ?= await @report.orgs 'name:"' + flc + '" OR aliases:"' + flc + '" OR acronyms:"' + flc + '"', 1
-    #      for pok of _processing_orgs
-    #        pokl = pok.toLowerCase()
-    #        f.country = _processing_orgs[pok].country_code if pokl.includes(flc) or flc.includes pokl
-    #        break if f.country
-
     if rec.DOI or rec.PMCID
       if epmc ?= (if rec.PMCID then await @src.epmc.pmc(rec.PMCID, refresh) else await @src.epmc.doi rec.DOI, refresh)
         rec.PMCID = epmc.pmcid if not rec.PMCID and epmc.pmcid

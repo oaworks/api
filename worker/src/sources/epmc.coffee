@@ -200,8 +200,6 @@ P.src.epmc.licence = (pmcid, rec, fulltext, refresh) ->
 _last_ncbi = Date.now()
 _ncbi_running = 0
 P.src.epmc.xml = (pmcid, rec, refresh) ->
-  # TODO do a bulk download of all the xml to save getting them one by one, at least sometimes, if we can already have it
-  # https://europepmc.org/downloads
   pmcid ?= @params.xml ? @params.pmcid ? @params.epmc
   pmcid = 'PMC' + pmcid.toLowerCase().replace('pmc','') if pmcid
   refresh ?= @refresh
@@ -211,87 +209,17 @@ P.src.epmc.xml = (pmcid, rec, refresh) ->
         ft = await fs.readFile @S.directory + '/epmc/fulltext/' + pmcid + '.xml'
         return ft.toString()
 
-    #rec ?= await @src.epmc.pmc pmcid, refresh
-    if true #refresh #or not rec?.no_ft
-      #ncdl = Date.now() - _last_ncbi
-      #console.log 'ncbi eutils for epmc xml', _ncbi_running, _last_ncbi, ncdl
-      #while ncdl < 1100 or _ncbi_running >= 2 # should be able to hit 3r/s although it's possible we call from other workers on same server. This will have to do for now
-      #  await @sleep 500 #(500 - ncdl)
-      #  ncdl = Date.now() - _last_ncbi
-      #_last_ncbi = Date.now()
-      #_ncbi_running += 1
-      #await @sleep 2200 # we still got rate limited even below 2s so set a higher sleep
-      # without sleep (and at 150, 300, 400) threw rate limit error on ncbi and ebi - this does not guarantee it because other calls could be made, but is a quick fix
-      # try ncbi first as it is faster but it does not have everything in epmc - however when present the xml files are the same
-      #url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=' + pmcid
-      #ft = await @fetch url, rate: ['ncbi', 3]
-      #_ncbi_running -= 1
-      #if (typeof ft isnt 'string' or not ft.length) and rec? # if it is in epmc, can try getting from there instead
-      #  url = 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML'
-      #  ft = await @fetch url, rate: ['ebi', 8]
+    # because ncbi rate limit is lower and we were calling it more, switch to checking ebi first instead
+    if rec?
+      ft = await @fetch 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML', rate: ['ebi', 8]
+    if typeof ft isnt 'string' or not ft.length
+      ft = await @fetch 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=' + pmcid, rate: ['ncbi', 3]
 
-      # because ncbi rate limit is lower and we were calling it more, switch to checking ebi first instead
-      if rec?
-        ft = await @fetch 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML', rate: ['ebi', 8]
-      if typeof ft isnt 'string' or not ft.length
-        ft = await @fetch 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=' + pmcid, rate: ['ncbi', 3]
+    if typeof ft is 'string' and ft.length
+      try await fs.writeFile @S.directory + '/epmc/fulltext/' + pmcid + '.xml', ft
+      return ft
 
-      if typeof ft is 'string' and ft.length
-        try await fs.writeFile @S.directory + '/epmc/fulltext/' + pmcid + '.xml', ft
-        return ft
-      #else if rec?
-      #  rec.no_ft = true
-      #  await @src.epmc rec.id, rec
   return
-
-'''
-No longer required as per https://github.com/oaworks/discussion/issues/3738#issuecomment-4126645154
-P.src.epmc.fulltext = (pmcid) -> # check fulltext exists in epmc explicitly
-  pmcid ?= @params.fulltext ? @params.pmcid ? @params.epmc
-  if pmcid
-    if pmcid.startsWith '10.'
-      rec = await @src.epmc.doi pmcid
-      pmcid = rec?.pmcid ? undefined
-    if pmcid
-      exists = await @fetch 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML', method: 'HEAD', rate: ['ebi', 8]
-      return result: exists?.status is 200
-  return error: 'no valid pmcid to map to'
-'''
-
-P.src.epmc.aam = (pmcid, rec, fulltext, refresh) ->
-  pmcid ?= @params.aam ? @params.pmcid ? @params.epmc
-  refresh ?= @refresh
-  if typeof fulltext is 'string' and fulltext.includes('pub-id-type=\'manuscript\'') and fulltext.includes('pub-id-type="manuscript"')
-    return aam: true, info: 'fulltext'
-  else
-    # if EPMC API authMan / epmcAuthMan / nihAuthMan become reliable we can use those instead
-    try rec = await @src.epmc.pmc(pmcid, refresh) if pmcid and not rec
-    pmcid ?= rec?.pmcid
-    if pmcid
-      fulltext = await @src.epmc.xml pmcid, rec, refresh
-      if typeof fulltext is 'string' and fulltext.includes('pub-id-type=\'manuscript\'') and fulltext.includes('pub-id-type="manuscript"')
-        return aam: true, info: 'fulltext'
-      else
-        await @sleep 1000
-        url = 'https://europepmc.org/articles/PMC' + pmcid.toLowerCase().replace 'pmc', ''
-        #pg = await @puppet url
-        pg = await @fetch url # just sleep 1000 this instead of rate limit, as a direct web page call prob not same as API call
-        if not pg
-          return aam: false, info: 'not in EPMC (404)'
-        else if typeof pg is 'string'
-          s1 = 'Author Manuscript; Accepted for publication in peer reviewed journal'
-          s2 = 'Author manuscript; available in PMC'
-          s3 = 'logo-nihpa.gif'
-          s4 = 'logo-wtpa2.gif'
-          if pg.includes(s1) or pg.includes(s2) or pg.includes(s3) or pg.includes(s4)
-            return aam: true, info: 'splashpage'
-          else
-            return aam: false, info: 'EPMC splashpage checked, no indicator found'
-        else if pg?
-          return info: 'EPMC was accessed but aam could not be decided from what was returned'
-        else #if typeof pg is 'object' and pg.status is 403
-          return info: 'EPMC may be blocking access, AAM status unknown'
-  return aam: false, info: ''
 
 
 
@@ -420,79 +348,5 @@ P.src.epmc.statement.url = (pmcid, rec, statements, refresh) ->
     await _splurl(d, '10.') if d.includes '10.'
   return if res.length then res else undefined
 
-
-'''P.src.epmc.das = (pmcid, verbose) -> # restrict to report/works records if pmcid is directly provided?
-  max = pmcid ? @params.das ? 100 # ['PMC9722710', 'PMC8012878', 'PMC6198754'] # multiples PMC8012878. code? PMC6198754. Another example for something? was PMC9682356
-  max = max.split(',') if typeof max is 'string'
-  verbose ?= @params.verbose
-  res = total: 0, files: 0, data: 0, available: 0, statement: 0, close: 0, closer: 0, prep: 0, das: 0, records: []
-  for await rec from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', '(PMCID:' + (if typeof max is 'number' then '*' else max.join(' OR PMCID:')) + ') AND orgs:Melinda', include: ['PMCID'], sort: 'PMCID.keyword': 'asc'
-    break if typeof max is 'number' and res.records.length is max
-    try ft = (await fs.readFile @S.directory + '/epmc/fulltext/' + rec.PMCID + '.xml').toString()
-    if ft
-      res.files += 1
-      ex = pmcid: rec.PMCID, file: 'https://static.oa.works/epmc/fulltext/' + rec.PMCID + '.xml', splits: [], tag: [], pre: [], post: [], das: []
-      ftl = ft.toLowerCase()
-      if ftl.includes('>data') or ftl.includes('"data') or ftl.includes(' data') or ftl.includes('>code') or ftl.includes ' code'
-        res.data += 1
-        if ftl.includes 'availab'
-          res.available += 1
-          matches = ftl.match /.{100}[>" ](code|data|availab).{1,50}(availab|code|data).{200}/g
-          if matches? and matches.length and matches[0].includes('data') and matches[0].includes('availab')
-            res.close += 1
-            ex.close = matches
-          if ftl.includes 'statement'
-            res.statement += 1
-            matches = ftl.match /.{100}[>" ](code|data|availab|statement).{1,50}(availab|code|data|statement).{1,50}(availab|code|data|statement).{200}/g
-            if matches? and matches.length and (matches[0].includes('data') or matches[0].includes('code')) and matches[0].includes('availab') and matches[0].includes('statement')
-              res.closer += 1 
-              ex.closer = matches 
-
-      for split in ['"data', '>Data', '>Availab', '>data', '>Code', '>code']
-        if ft.includes split
-          ex.splits.push split
-          pre = ''
-          splits = ft.split split
-          while part = splits.shift()
-            if not pre
-              pre = part
-            else
-              ex.pre.push pre.slice -1000
-              tag = pre.split('<').pop().split('>')[0].split(' ')[0]
-              post = (if split.startsWith('"') then part.split(/\>(.*)/s)[1] else if part.startsWith('il') or part.startsWith('l') then 'Availab' else 'Data') + part #  if part.substr(0,6).includes('ode') then 'Code' else
-              ex.post.push post.slice 0, 1000
-              if post.includes('</' + tag) and post.indexOf('</' + tag) < 40
-                ps = pre.split '<'
-                nt = ps[ps.length-2].split('>')[0].split(' ')[0]
-                if not nt.startsWith '/'
-                  #post = post.replace('</' + tag + '>', ': ').replace('::', ':').replace('.:', ':')
-                  tag = nt
-              ex.tag.push tag
-              #splitter = '\n' + pre.split('<' + tag)[0].split('\n').pop().split('<')[0] + '</' + tag
-              psls = pre.split('<' + tag)
-              splitter = '\n' + (psls.slice(0, psls.length-1)).pop().split('\n').pop() + '</' + tag
-              if post.split('</' + tag)[0].includes '\n'
-                while not post.includes(splitter) and splits[0] #and splits[0].includes splitter
-                  post += (if split.startsWith('>') then '>' else '') + (if splits[0].startsWith('il') or splits[0].startsWith('l') then 'Availab' else 'Data') +  splits.shift()
-              post = post.split(splitter)[0]
-              #post = post.split(/\>(.*)/s)[1]
-              #post = post.replace('</', ': </').replace('::', ':').replace('.:', ':') if post.split('</').length > 2
-              post = post.replace('</title>', '|TTT|').replace(/\n/g, ' ').replace(/\s+/g, ' ').replace /(<([^>]+)>)/ig, ''
-              if post.length > 20 and post.length < 3000 and (pre+post).toLowerCase().includes('availab') and ((pre+post).toLowerCase().includes('data') or (pre+post).toLowerCase().includes('code'))
-                post = post.split('|TTT|')[1] if post.includes '|TTT|'
-                clean = (await @decode post.trim()).replace(/"/g, '').replace(/\s+/g, ' ')
-                ex.das.push(clean) if clean not in ex.das
-                delete ex.close
-                delete ex.closer
-              pre = ''
-
-      res.records.push if verbose is false then {file: ex.file, das: ex.das} else ex
-      res.das += 1 if ex.das.length
-      res.prep += 1 if ex.pre and ex.post
-
-  res.total = res.records.length
-  res = {total: res.total, das: res.das, records: res.records} if verbose is false
-  res = (if res.records.length and res.records[0].das.length then res.records[0].das[0] else false) if verbose is false and res.total is 1
-  return res'''
 
 
