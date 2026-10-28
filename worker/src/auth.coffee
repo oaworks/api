@@ -16,9 +16,9 @@ P.auth = (key) ->
   if not key and @user? and (@fn is 'auth' or key is false)
     user = @user
   else if key isnt false
-    if (@params.access_token and oauth = await @auth._oauth @params.access_token) or ((@params.token or @params.auth) and email = await @kv 'auth/token/' + (@params.token ? @params.auth), '') # true causes delete after found
-      if not user = await @users._get(oauth?.email ? email) # get the user record if it already exists
-        user = await @users._create oauth ? email # create the user record if not existing, as this is the first token login attempt for this email address
+    if (@params.token or @params.auth) and email = await @kv 'auth/token/' + (@params.token ? @params.auth), '' # true causes delete after found
+      if not user = await @users._get email # get the user record if it already exists
+        user = await @users._create email # create the user record if not existing, as this is the first token login attempt for this email address
     if not user and @apikey
       if @S.bg is true
         user = await @users._get undefined, @apikey
@@ -39,13 +39,6 @@ P.auth = (key) ->
 
   if typeof user is 'object' and user._id
     # if 2fa is enabled, request a second form of ID (see below about implementing 2fa)
-
-    # record the user login timestamp, and if login came from a service the user does not yet have a role in, add the service user role
-    # who can add the service param?
-    if @params.service and not user.roles?[@params.service]?
-      user.roles ?= {}
-      user.roles[@params.service] = 'user'
-      @users._update user
 
     if not user.resume? and not @apikey
       user.resume = @uid()
@@ -112,75 +105,8 @@ P.auth.role = (grl, user) ->
   return 'root' if user?.email and user.email in (if typeof @S.root is 'string' then [@S.root] else if Array.isArray(@S.root) then @S.root else [])
   return grl if grl.startsWith('@') and user?.email? and user.email.endsWith grl # a user can be allowed if the required auth is the @domain.com of their email address
     
-  if user?.roles?
-    for g in (if typeof grl is 'string' then grl.split(',') else if grl then grl else [])
-      [group, role] = g.replace('/', '.').split '.'
-
-      return 'owner' if group is user._id # user is owner on their own group
-      if role
-        if role in (user.roles[group] ? [])
-          return role
-        else if user.roles[group]?
-          cascade = ['service', 'owner', 'super', 'admin', 'auth', 'bulk', 'delete', 'remove', 'create', 'insert', 'publish', 'put', 'draft', 'post', 'edit', 'update', 'user', 'get', 'read', 'info', 'public', 'request']
-          if -1 < ri = cascade.indexOf role
-            for rl in cascade.splice 0, ri
-              return rl if rl in user.roles[group]
-
   return false
 
-
-# /auth/:uid/add/:grl
-# add a user to a role, or remove, or deny
-# deny meaning automatically not allowed any other role on the group
-# whereas otherwise a user (or system on behalf of) should be able to request a role (TODO)
-P.auth.add = (grl, user, remove, deny) ->
-  user = if typeof user is 'object' then user else if user or @params.auth then await @users._get(user ? @params.auth) else @user
-  if not grl and @user._id isnt user._id
-    # TODO what about one logged in user acting on the roles route of another? - which groups could a user add another user to?
-    return false if not await @auth.role 'system'
-
-  grl ?= @params.add ? @params.remove ? @params.deny
-  return false if not grl
-
-  [group, role] = grl.replace('/', '.').split '.'
-
-  remove ?= (@request.method is 'DELETE' or @params._delete is true) and @fn is 'auth.roles'
-
-  if group is 'root' or role is 'root' # root only allowed by config. can't be set via API.
-    return false
-  else if deny
-    user.roles[group] = ['deny'] # no other roles can be kept
-    @users._update user
-  else if not role
-    if user.roles[group]?
-      if remove?
-        delete user.roles[group]
-        @users._update user
-    else
-      user.roles[group] = ['user']
-      @users._update user
-  else if user.roles?[group] and role in user.roles[group]
-    if remove?
-      user.roles[group].splice user.roles[group].indexOf(role), 1
-      delete user.roles[group] if not user.roles[group].length
-      @users._update user
-  else if role isnt 'request' or 'deny' not in (user.roles[group] ? []) # a denied user cannot request
-    user.roles[group] ?= []
-    user.roles[group] = user.roles[group].splice(user.roles[group].indexOf('request'), 1) if 'request' in user.roles[group] # when any other role is added, request is removed
-    user.roles.group.push role
-    @users._update user
-    # TODO if role to add is 'request' then notify someone who can authorise - or have a cron job send batch notifications
-
-  return user
-
-P.auth.remove = (grl, user) -> return @auth.add grl, user, true # remove and deny would auth on add
-P.auth.deny = (grl, user) -> return @auth.add grl, user, undefined, true
-
-P.auth.request = (grl, user) ->
-  grl ?= @params.request # anyone can request so no auth needed for request
-  grl = grl.split('/')[0] + '/request'
-  return @auth.add grl, user
-  
 
 P.auth.logout = (user) -> # how about triggering a logout on a different user account
   user ?= @user
@@ -190,33 +116,6 @@ P.auth.logout = (user) -> # how about triggering a logout on a different user ac
   else
     return false
     
-
-P.auth._oauth = (token, cid) ->
-  # https://developers.google.com/identity/protocols/OAuth2UserAgent#validatetoken
-  sets = {}
-  if token #?= @params.access_token
-    try
-      # we did also have facebook oauth in here, still in old code, but decided to drop it unless explicitly required again
-      validate = await @fetch 'https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=' + token, method: 'POST' # has to be a POST even though it sends nothing
-      cid ?= @S.svc[@params.service ? 'z']?.google?.oauth?.client?.id ? S.use?.google?.oauth?.client?.id
-      if cid? and validate.data?.aud is cid
-        ret = await @fetch 'https://www.googleapis.com/oauth2/v2/userinfo?access_token=' + token
-        return
-          email: ret.data.email.toLowerCase()
-          google: {id: ret.data.id}
-          name: ret.data.name ? (ret.data.given_name + (if ret.data.family_name then ' ' + ret.data.family_name else ''))
-          avatar: ret.data.picture
-  return
-# an oauth client-side would require the google oauth client token. It's not a secret, but must be got in advance from google account provider
-# ours is '360291218230-r9lteuqaah0veseihnk7nc6obialug84.apps.googleusercontent.com' - but that's no use to anyone else, unless wanting to login with us
-# the Oauth URL that would trigger something like this would be like:
-# grl = 'https://accounts.google.com/o/oauth2/v2/auth?response_type=token&include_granted_scopes=true'
-# grl += '&scope=https://www.googleapis.com/auth/userinfo.email+https://www.googleapis.com/auth/userinfo.profile'
-# grl += '&state=' + state + '&redirect_uri=' + P.oauthRedirectUri + '&client_id=' + P.oauthGoogleClientId
-# state would be something like Math.random().toString(36).substring(2,8) and would be sent and also kept for checking against the response
-# the response from oauth login page would go back to current page and have a # with access_token= and state=
-# NOTE as it is after a # these would only be available on a browser, as servers don't get the # part of a URL
-# if the states match, send the access_token into the above method and if it validates then we can login the user
 
 
 P.users = _index: true, _auth: 'system'
@@ -249,32 +148,10 @@ P.users._create = (user) ->
   delete user.email
   try u.profile = user # could use other input as profile input data? better for services to store this where necessary though
   try u.creation = @base + '/' + @route # which domain the user was created from
-  u.roles = {}
   u.createdAt = new Date()
   try await @kv 'users/' + u._id, u
   try await @kv 'auth/apikey/' + u.apikey, u._id
   try @waitUntil @index 'users/' + u._id, u
   return u
 
-P.users._update = (uid, user) ->
-  # TODO how to decide who can update users, remotely or locally, and is it always a total update or could be a partial?
-  if typeof uid is 'object' and user._id and not user?
-    user = uid
-    uid = user._id
-  if typeof uid is 'string' and typeof user is 'object' and JSON.stringify(user) isnt '{}'
-    uid = uid.replace('users/','') if uid.startsWith 'users/'
-    uid = @hashhex(uid.trim().toLowerCase()) if uid.includes '@'
-    user.updatedAt = new Date()
-    try await @kv 'users/' + uid, user
-    try @waitUntil @index 'users/' + uid, user
-    return true
-  else
-    return false
-
-P.users._delete = (uid) ->
-  if user = (if typeof uid is 'object' then uid else if @user?._id is uid then @user else await @users._get uid)
-    try await @kv._each 'auth/resume/' + user._id, ''
-    try await @kv 'auth/apikey/' + user.apikey, ''
-    try await @kv 'users/' + user._id, ''
-    try await @index 'users/' + user._id, ''
 

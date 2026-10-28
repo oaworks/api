@@ -30,31 +30,6 @@ P.src.crossref.works.doi = (doi, refresh, save) ->
         await @src.crossref.works(found) if save
   return found
 
-P.src.crossref.works.title = (title) ->
-  title ?= @params.title ? @params.q
-  qr = 'title:"' + title + '"'
-  if title.split(' ').length > 2
-    qr += ' OR ('
-    for t in title.split ' '
-      qr += ' AND ' if not qr.endsWith '('
-      qr += '(title:"' + t + '" OR subtitle:"' + t + '")'
-    qr += ')'
-  rem = await @src.crossref.works qr
-  ltitle = title.toLowerCase().replace(/['".,\/\^&\*;:!\?#\$%{}=\-\+_`~()]/g,' ').replace(/\s{2,}/g,' ').trim()
-  for r in rem?.hits?.hits ? []
-    if r._source.DOI and r._source.title and r._source.title.length
-      rt = (if typeof r._source.title is 'string' then r._source.title else r._source.title[0]).toLowerCase()
-      if r._source.subtitle and r._source.subtitle.length
-        st = (if typeof r._source.subtitle is 'string' then r._source.subtitle else r._source.subtitle[0]).toLowerCase()
-        rt += ' ' + st if typeof st is 'string' and st.length and st not in rt
-      rt = rt.replace(/['".,\/\^&\*;:!\?#\$%{}=\-\+_`~()]/g,' ').replace(/\s{2,}/g,' ').trim()
-      if (ltitle.indexOf(rt) isnt -1 or rt.indexOf(ltitle) isnt -1) and ltitle.length/rt.length > 0.7 and ltitle.length/rt.length < 1.3
-        if r._source.type is 'journal-article'
-          res = r._source
-        else if not res? or (res.type isnt 'journal-article' and r._source.type is 'journal-article')
-          res = r._source
-  return res
-
 P.src.crossref.works._format = (rec) ->
   rec.abstract = rec.abstract.replace(/<.*?>/g, '').replace(/^ABSTRACT/, '') if rec.abstract
   rec._id ?= rec.DOI.replace /\//g, '_'
@@ -207,75 +182,6 @@ P.src.crossref.journals.load._auth = 'root'
 
 
 
-'''P.src.crossref.load = () ->
-  batchsize = 10000 # how many records to batch upload at a time - kept low because large crossref files were causing OOM
-  howmany = @params.howmany ? -1 # max number of lines to process. set to -1 to keep going
-
-  # https://www.crossref.org/blog/new-public-data-file-120-million-metadata-records/
-  # https://academictorrents.com/details/e4287cb7619999709f6e9db5c359dda17e93d515
-  # this requires getting the crossref data dump from a torrent, which is a hassle on some commercial cloud providers
-  # but once the file is on disk, extract it and this process will be able to go from there
-  # there are torrent libs for node that could be used here, but given the infrequency and size of what we want 
-  # to torrent, it's safer to do that step separately. Here's some simple instructions for the Jan 2021 crossref release:
-  # sudo apt-get install aria2
-  # aria2c https://academictorrents.com/download/e4287cb7619999709f6e9db5c359dda17e93d515.torrent
-  
-  # redo with 2022 dump:
-  # https://www.crossref.org/blog/2022-public-data-file-of-more-than-134-million-metadata-records-now-available/
-  # https://academictorrents.com/details/4dcfdf804775f2d92b7a030305fa0350ebef6f3e
-  # https://academictorrents.com/download/4dcfdf804775f2d92b7a030305fa0350ebef6f3e.torrent
-
-  # and 2023 update:
-  # https://www.crossref.org/blog/2023-public-data-file-now-available-with-new-and-improved-retrieval-options/
-  # https://academictorrents.com/details/d9e554f4f0c3047d9f49e448a7004f7aa1701b69
-  # https://academictorrents.com/download/d9e554f4f0c3047d9f49e448a7004f7aa1701b69.torrent
-
-  infolder = @S.directory + '/crossref/data/'
-  lastfile = @S.directory + '/crossref/last' # where to record the ID of the last file processed
-  
-  files = -1 # max number of files to process. set to -1 to keep going
-  filenumber = 0 # crossref files are named by number, from 0, e.g. 0.json.gz
-  try filenumber = parseInt((await fs.readFile lastfile).toString()) if not @refresh
-
-  #await @src.crossref.works('') if filenumber is 0 and @params.clear
-
-  total = 0
-  batch = [] # batch of json records to upload
-
-  # there were 40228 in the 2020 data dump,  but oddly 9999 was missing
-  # for 2022 there are 26810
-  # for 2023 there are 28701
-  while filenumber >= 0 and filenumber isnt files and filenumber < 26810
-    if filenumber not in [] # should make this a file exists check probably (just added 9999 to this list when running 2020)
-      break if total is howmany
-      console.log 'Crossref load starting file', filenumber
-      lines = ''
-      for await line from readline.createInterface input: fs.createReadStream(infolder + filenumber + '.json.gz').pipe zlib.createGunzip()
-        lines += line
-      
-      for rec in JSON.parse(lines).items
-        break if total is howmany
-        total += 1
-        rec = await @src.crossref.works._format rec
-        rec['srcfile'] = filenumber
-        batch.push rec
-        
-        if batch.length is batchsize
-          console.log 'Crossref load ' + filenumber, total
-          await @src.crossref.works batch
-          await fs.writeFile lastfile, filenumber
-          batch = []
-    filenumber += 1
-
-  await @src.crossref.works(batch) if batch.length
-
-  console.log total
-  return total
-
-P.src.crossref.load._bg = true
-P.src.crossref.load._async = true
-P.src.crossref.load._auth = 'root'
-'''
 
 
 P.src.crossref.changes = (startday, endday, created) ->
@@ -334,19 +240,6 @@ P.src.crossref.changes = (startday, endday, created) ->
             fr.srcday = startday
             batch.push fr
             loaded += 1
-
-            '''if (rec.funder? or rec.author?) and rec.year in ['2023', '2022', 2023, 2022]
-              doq = false
-              for f in (rec.funder ? [])
-                break if doq
-                doq = rec.DOI if f.name?
-              if not doq
-                for a in (rec.author ? [])
-                  break if doq
-                  for af in (a.affiliation ? [])
-                    break if doq
-                    doq = rec.DOI if af.name?
-              queued.push(doq) if doq'''
 
           if batch.length >= batchsize
             console.log 'Crossref bulk load', startday, days, totalthisday, fromthisday, loaded, queued.length
@@ -413,22 +306,6 @@ P.src.crossref.plus.load = ->
   srcfile = 0
   lines = ''
   complete = false
-
-  '''for await line from readline.createInterface input: fs.createReadStream(fn).pipe zlib.createGunzip()
-    if not line.startsWith(' ') and line.endsWith('{') and line.includes('.json') and not isNaN (scf = parseInt line.split('.json')[0].replace(/[^0-9]/g, ''))
-      console.log total, srcfile, scf, lines.length
-      if lines.length
-        # on large file readline streams across multiple hours, definitely saw this issue. Not sure why pause/resume would help in this context, but trying it anyway
-        # https://github.com/nodejs/node/issues/42454
-        # https://stackoverflow.com/questions/71588045/javascript-async-sleep-function-somehow-leads-to-silent-exiting-of-program/71589103#71589103
-        # lr.pause() # did not make any difference
-        await _batch()
-        #lr.resume()
-      srcfile = scf
-      lines = '{'
-    else
-      lines += line
-  await _batch(true) if lines.length or batch.length'''
 
   strm = fs.createReadStream(fn).pipe zlib.createGunzip()
   prevline = ''

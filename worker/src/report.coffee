@@ -247,45 +247,6 @@ P.report._doreversequeue._log = false
 P.report._doreversequeue._bg = true
 
 
-P.report.dev2live = (reverse) ->
-  toalias = @params.toalias
-  toalias += '' if typeof toalias is 'number'
-  qry = if @params.org then 'orgs.keyword:"' + @params.org + '"' else @params.q
-  if not reverse
-    f = 'paradigm_b_report_works'
-    t = 'paradigm_report_works'
-  else
-    f = 'paradigm_report_works'
-    t = 'paradigm_b_report_works'
-  if @params.clear
-    await @index._send t, '', undefined, false, toalias
-  counter = 0
-  batch = []
-  console.log 'report works running', (if reverse then 'live2dev' else 'dev2live'), f, t, toalias, qry
-  for await rm from @index._for f, qry, scroll: '30m' # q, opts, prefix, alias
-    counter += 1
-    batch.push rm
-    if batch.length is 50000
-      console.log 'report works', (if reverse then 'live2dev' else 'dev2live'), f, t, toalias, counter
-      await @index._bulk t, batch, undefined, undefined, false, toalias
-      batch = []
-
-  if batch.length
-    console.log 'report works', (if reverse then 'live2dev' else 'dev2live'), f, t, toalias, counter, 'remaining', batch.length
-    await @index._bulk t, batch, undefined, undefined, false, toalias
-    batch = []
-
-  console.log counter, 'report works', (if reverse then 'live2dev' else 'dev2live'), f, t, toalias, 'complete', (if qry then 'for query ' + qry else '')
-  return counter
-P.report.dev2live._async = true
-P.report.dev2live._bg = true
-P.report.dev2live._auth = '@oa.works'
-
-P.report.live2dev = () ->
-  return @report.dev2live true
-P.report.live2dev._async = true
-P.report.live2dev._bg = true
-P.report.live2dev._auth = 'root'
 
 
 P.report.cleandoi = (doi) -> # 10.1002/1096-8628(20000717)93:2<110::aid-ajmg6>3.0.co;2-9 ? or 10.36108_njsa_0202_81(0210 ? or 10.12688_gatesopenres.13118.1)
@@ -495,21 +456,6 @@ P.report.orgs.supplements.load = (orgname, sheetname, clear, immediate) ->
                   rr._id = rr.osdid
                   osdids.push rr.osdid
                   if (rr.DOI ? rr.openalex ? rr.pmcid) not in idents
-                    '''kc = false
-                    if not clear
-                      present = await @report.works 'supplements.osdid.keyword:"' + rr.osdid + '"', 1
-                      present = present.hits.hits[0]._source if present?.hits?.hits? and present.hits.hits.length
-                      try
-                        for prs in present.supplements
-                          if prs.osdid is rr.osdid
-                            present = prs
-                            break
-                      if present?
-                        kc = await @copy rr
-                        delete kc.updated
-                        for k of present
-                          break if k not in ['updated'] and JSON.stringify(rr[k] ? '').toLowerCase() isnt JSON.stringify(present[k]).toLowerCase() # JSON string match on object isn't guaranteed but probably likely enough for the number of times we'll need it
-                          delete kc[k]'''
                     idents.push(rr.DOI ? rr.openalex ? rr.pmcid) #if clear or JSON.stringify(kc) isnt '{}'
                   rr.updated = started
                   sups.push rr
@@ -517,22 +463,8 @@ P.report.orgs.supplements.load = (orgname, sheetname, clear, immediate) ->
               console.log org.name, s.name, sups.length, idents.length
               await @report.orgs.supplements sups
             await @sleep 1000
-            #for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'org.keyword:"' + org.name + '" AND sheets.keyword:"' + s.name + '"', scroll: '30m', include: ['osdid', 'DOI', 'openalex', 'pmcid']
-            #  if sup.osdid not in osdids
-            #    await @report.orgs.supplements sup.osdid, ''
-            #    idents.push(sup.DOI ? sup.openalex ? sup.pmcid) if (sup.DOI ? sup.openalex ? sup.pmcid) not in idents # need to rerun for ones where something has been deleted too so that deleted supplements get removed from the work
           sheets.push org: org.name, sheet: s.name, rows: rc, update: update, supplements: sups.length
           sheetnames.push s.name
-
-  # check for sheets that have since been removed
-  #if not sheetname and sheetname isnt false and not orgname
-  #  for aps in await @report.works.suggest 'supplements.sheets.keyword', undefined, 5000
-  #    if aps not in sheetnames
-  #      console.log 'report orgs supplements queueing idents to clear', aps
-  #      for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'sheets.keyword:"' + aps + '"', scroll: '30m', include: ['osdid']
-  #        await @report.orgs.supplements sup.osdid, ''
-  #      for await osw from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'supplements.sheets.keyword:"' + aps + '"', scroll: '30m', include: ['DOI', 'openalex', 'pmcid']
-  #        idents.push(osw.DOI ? osw.openalex ? osw.pmcid) if (osw.DOI and osw.DOI not in idents) or (not osw.DOI and osw.openalex and osw.openalex not in idents) or (not osw.DOI and not osw.openalex and osw.pmcid and osw.pmcid not in idents)
 
   if clear
     console.log 'report orgs supplements queueing idents to clear for specific sheet', clear
@@ -886,36 +818,6 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
                   for poaa in _processing_orgs[port].aliases
                     f.country = _processing_orgs[port].country_code if flc.includes poaa.toLowerCase().replace /[^a-z ]/g, ''
     
-    #alternative way to do funder countries regardless or orgs present - but puts more load on orgs queries and maintains a much larger in-memory orgs object
-    #for por in (rec.orgs ? [])
-    #  port = por.toLowerCase().trim()
-    #  everything = true if port not in ['fwf austrian science fund', 'dutch research council', 'national science center', 'uk research and innovation', 'agencia nacional de investigación y desarrollo', 'national natural science foundation of china', 'research foundation - flanders', 'ministry of business, innovation and employment', 'german research foundation']
-    #  if not _processing_orgs[port]?
-    #    _processing_orgs[port] = await @report.orgs 'name:"' + port + '" OR aliases:"' + port + '" OR acronyms:"' + port + '"', 1 # save under every alias / acronym / fundref as well?
-    #    if _processing_orgs[port]?
-    #      for fk in ['name', 'acronyms', 'aliases', 'fundref']
-    #        if Array.isArray _processing_orgs[fk]
-    #         for anfk in _processing_orgs[fk]
-    #          anfkl = anfk.toLowerCase()
-    #           _processing_orgs[anfk] = _processing_orgs[port] if anfkl isnt port
-    #        else if typeof _processing_orgs[fk] is 'string'
-    #          pfkl = _processing_orgs[fk].toLowerCase()
-    #          _processing_orgs[pfkl]] = _processing_orgs[port] if pfkl isnt port
-    #
-    #if rec.funder
-    #  for f in rec.funder
-    #    if f.DOI
-    #      fds = '10.' + f.DOI.split('10.')[1]
-    #      _processing_orgs[fds] ?= await @report.orgs 'fundref:"' + fds + '"', 1 # crossref funder DOIs have also been seen to have errors prefixing
-    #      f.country = _processing_orgs[fds]?.country_code
-    #    if not f.country and f.name # some crossref records have funder objects that are empty or do not have name
-    #      flc = f.name.toLowerCase()
-    #      _processing_orgs[flc] ?= await @report.orgs 'name:"' + flc + '" OR aliases:"' + flc + '" OR acronyms:"' + flc + '"', 1
-    #      for pok of _processing_orgs
-    #        pokl = pok.toLowerCase()
-    #        f.country = _processing_orgs[pok].country_code if pokl.includes(flc) or flc.includes pokl
-    #        break if f.country
-
     if rec.DOI or rec.PMCID
       if epmc ?= (if rec.PMCID then await @src.epmc.pmc(rec.PMCID, refresh) else await @src.epmc.doi rec.DOI, refresh)
         rec.PMCID = epmc.pmcid if not rec.PMCID and epmc.pmcid
@@ -1172,17 +1074,6 @@ P.report.works.load._bg = true
 P.report.works.load._async = true
 P.report.works.load._auth = '@oa.works'
 
-P.report.works.load.mains = ->
-  orgs = if @params.orgs then @params.orgs.split(',') else ['Gates Foundation', 'Robert Wood Johnson Foundation', 'Wellcome Trust', 'Michael J. Fox Foundation']
-  if @S.works_load_mains_backup_first
-    await @report.works.backup()
-  for org in orgs
-    await @report.works.load undefined, org, undefined, undefined, undefined, undefined, undefined, undefined, true
-  return true
-P.report.works.load.mains._log = false
-P.report.works.load.mains._bg = true
-P.report.works.load.mains._async = true
-P.report.works.load.mains._auth = '@oa.works'
 
 
 P.report.works.changes = (timestamp, org) ->

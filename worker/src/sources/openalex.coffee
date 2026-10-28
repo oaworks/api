@@ -40,10 +40,6 @@ P.src.openalex.rates = ->
 
 
 P.src.openalex.works = _index: {settings: {number_of_shards: 15}}, _prefix: false
-#P.src.openalex.authors = _index: {settings: {number_of_shards: 15}}, _prefix: false
-#P.src.openalex.institutions = _index: true, _prefix: false
-#P.src.openalex.concepts = _index: true, _prefix: false
-#P.src.openalex.venues = _index: true, _prefix: false
 
 P.src.openalex.works._format = (rec) ->
   for kt in ['concepts', 'topics', 'keywords', 'sustainable_development_goals', 'domains', 'fields', 'subfields', 'authorships', 'locations']
@@ -110,23 +106,6 @@ P.src.openalex.works.find = (doi, openalex, pmcid, pmid, refresh) -> # ident can
   if not res and pmid
     res = await @fetch ('https://api.openalex.org/works/pmid:' + pmid + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '')), {rate: ['openalex', 80]}
 
-  if false #not res and pmcid # using filters for pmcid searches is too "expensive"
-    # openalex does not appear to have ids.pmcid on records now, even though ids.pmcid is still a searchable field, and the locations does contain it
-    # example see https://api.openalex.org/works?filter=locations.landing_page_url:https://www.ncbi.nlm.nih.gov/pmc/articles/4306759
-    #if res = await @fetch ('https://api.openalex.org/works?filter=ids.pmcid:https://www.ncbi.nlm.nih.gov/pmc/articles/' + ident.toLowerCase().replace('pmc', '') + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works')), {rate: ['openalexFilter', 20, 10000, 86400]}
-    # landing page can have other relevant formats, see: https://api.openalex.org/works/W4387299001
-    # https://europepmc.org/articles/pmc1078728
-    # this one on openalex currently has PMID but NOT PMCID, but does still have pubmed and ncbi (pmcid) links:
-    # https://api.openalex.org/works/W1964326751
-    # whereas our copy (older) had pmcid too: https://bg.beta.oa.works/src/openalex/works/10.1073/pnas.30.11.362
-    # can also check locations.landing_page_url for PMID: https://pubmed.ncbi.nlm.nih.gov/37788887
-    pml = pmcid.toLowerCase().replace('pmc', '')
-    res = await @fetch ('https://api.openalex.org/works?filter=locations.landing_page_url:https://www.ncbi.nlm.nih.gov/pmc/articles/' + pml + '|https://europepmc.org/articles/pmc' + pml + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '')), {rate: ['openalexFilter', 20, 10000, 86400]}
-    try res = res.results[0]
-    try res = undefined if not res?.id
-    res ?= await @fetch ('https://api.openalex.org/works?filter=ids.pmcid:https://www.ncbi.nlm.nih.gov/pmc/articles/' + pml + '?mailto=' + (@S.mail?.to ? 'sysadmin@oa.works') + (if @S.src.openalex?.apikey then '&api_key=' + @S.src.openalex.apikey else '')), {rate: ['openalexFilter', 20, 10000, 86400]}
-    try res = res.results[0]
-    try res = undefined if not res?.id
   if typeof res is 'object' and res.id
     found = await @src.openalex.works._format res
     await @src.openalex.works found
@@ -137,52 +116,6 @@ P.src.openalex.works.doi = (doi, refresh) ->
   doi ?= @params.doi
   return @src.openalex.works.find doi, undefined, undefined, undefined, refresh
 
-P.src.openalex.works.title = (title) ->
-  if title ?= @params.title
-    return await @src.openalex.works 'title:"' + title + '"', 1
-  else
-    return
-
-P.src.openalex.oa = type: (issns) ->
-  issns ?= @params.type ? @params.issn ? @params.issns
-  if typeof issns is 'string' and issns.startsWith('10.') and rec = await @src.openalex.works.doi issns
-    issns = rec.primary_location?.source?.issn
-  if typeof issns is 'object' and not Array.isArray issns
-    issns = issns.journal_issns ? issns.ISSN ? issns.primary_location?.source?.issn
-  issns = issns.replace(/\s/g, '').split(',') if typeof issns is 'string'
-  if Array.isArray(issns) and issns.length
-    types = await @src.openalex.works.terms 'open_access.oa_status.keyword', 'locations.source.issn.keyword:"' + issns.join('" OR locations.source.issn.keyword:"') + '"'
-    if types.length is 1
-      calculated = types[0].term
-    else if types.length is 0
-      calculated = 'unknown'
-    else if JSON.stringify(types).toLowerCase().includes '"hybrid"'
-      calculated = await @src.openalex.hybrid issns
-    else if types[1].count / types[0].count > .001
-      calculated = types[0].term
-    else
-      calculated = 'unknown'
-    return issn: issns, calculated: calculated, types: types
-  else
-    return issn: issns, calculated: '', types: []
-
-P.src.openalex.manifest = ->
-  what = @params.manifest ? @params.openalex ? 'works'
-  return false if what not in ['works']
-  res = last: '', previous:'', manifest: await @fetch 'https://openalex.s3.amazonaws.com/data/' + what + '/manifest'
-  _ls = (m) =>
-    ret = ''
-    last = 0
-    for entry in m.entries
-      esd = entry.url.split('=')[1].split('/')[0]
-      de = await @epoch esd
-      if de > last
-        last = de
-        ret = esd
-    return ret
-  res.last = await _ls res.manifest
-  try res.previous = await _ls JSON.parse (await fs.readFile @S.directory + '/import/openalex/data/' + what + '/manifest').toString()
-  return res
 
 _openalex_load_running = false
 P.src.openalex.load = (what, changes, clear, sync, last, toalias) ->
@@ -377,97 +310,3 @@ P.src.openalex.sources.load._bg = true
 
 
 
-P.src.openalex.hybrid = (issns) ->
-  issns ?= @params.hybrid ? @params.issn ? @params.issns
-  issns = issns.replace(/\s/g, '').split(',') if typeof issns is 'string'
-  if Array.isArray(issns) and issns.length
-    q = '(locations.source.issn.keyword:"' + issns.join('" OR locations.source.issn.keyword:"') + '" OR locations.source.issn_l.keyword:"' + issns.join('" OR locations.source.issn_l.keyword:"') + '")'
-    closed = await @src.openalex.works.count q + ' AND open_access.oa_status:"closed"'
-    hybrid = await @src.openalex.works.count q + ' AND open_access.oa_status:"hybrid"'
-    #other = await @src.openalex.works.count q + ' AND NOT open_access.oa_status:"closed" AND NOT open_access.oa_status:"hybrid"'
-    return closed and hybrid / closed > .001
-  else
-    return
-
-
-
-
-
-'''P.src.openalex.changes = (what, last) ->
-  started = await @epoch()
-  what ?= @params.changes ? @params.openalex ? 'works'
-  last = {updated: last} if typeof last isnt 'object'
-  last ?= {}
-  if @params.last # can be a date like 2022-12-13 to match the last updated file date on openalex update files
-    last.updated = @params.last
-    last.created = @params.last
-  # if no last, calculate it as previous day? or read last from index?
-  if not last.updated? or not last.created?
-    try last.updated = (await @src.openalex.works 'updated_date:*', size:1, sort: updated_date:'desc').updated_date
-    try last.created = (await @src.openalex.works 'created_date:*', size:1, sort: created_date:'desc').created_date
-  last.updated ?= (await @datetime await @epoch() - 86400000).replace 'Z', '000' # datetime format for openalex (ISO) 2023-09-25T22:33:51.835860
-  last.created ?= (await @datetime await @epoch() - 86400000).replace 'Z', '000'
-  # doing this only for works now, as it does not appear the other types get updated in the same way any more
-  whats = ['works'] #, 'venues', 'authors', 'institutions', 'concepts']
-  if what
-    return false if what not in whats
-  else
-    what = whats
-
-  # https://docs.openalex.org/how-to-use-the-api/get-lists-of-entities/paging
-  console.log 'Openalex changes checking from', last
-  total = 0
-  queued = []
-  for w in (if Array.isArray(what) then what else [what])
-    for filter in ['updated'] #, 'created'] # apparently, now, (2/10/2023) all records do have an updated_date... 
-      if (await @epoch(last.updated)) < started - 3600000 # if it has been at least an hour since something was updated...
-        batch = []
-        cursor = '*'
-        # doing created and updated separately because although we initially thought updated would include created, there is suggestions it does not, in missing records
-        # https://github.com/ourresearch/openalex-api-tutorials/blob/main/notebooks/getting-started/premium.ipynb
-        url = 'https://api.openalex.org/' + w + '?filter=from_' + filter + '_date:' + last[filter] + '&api_key=' + @S.src.openalex.apikey + '&per-page=200&cursor='
-        console.log 'Openalex changes querying', url + cursor
-        try
-          res = await @fetch url + cursor
-          try console.log 'Openalex changes query retrieved', res.results.length
-          while res? and typeof res is 'object' and Array.isArray(res.results) and res.results.length
-            for rec in res.results
-              if w is 'works'
-                rec = await @src.openalex.works._format rec
-
-                #if rec._id.startsWith('10.') and rec.authorships? and rec.publication_year in ['2023', '2022', 2023, 2022]
-                #  doq = false
-                #  for a in rec.authorships
-                #    break if doq
-                #    for i in (a.institutions ? [])
-                #      if i.display_name?
-                #        queued.push rec._id
-                #        doq = true
-                #        break
-
-              batch.push rec
-            
-            if batch.length >= 10000
-              console.log 'Openalex ' + what + ' ' + filter + ' bulk loading changes', batch.length, total, queued.length
-              total += batch.length
-              await @src.openalex[what] batch
-              batch = []
-
-            if res.meta?.next_cursor
-              cursor = res.meta.next_cursor
-              res = await @fetch url + encodeURIComponent cursor
-      
-        if batch.length
-          total += batch.length
-          await @src.openalex[what] batch
-          batch = []
-
-  await @report.queue(queued, undefined, undefined, undefined, 'changes') if queued.length
-
-  ended = await @epoch() # schedule this to loop, and run at most every hour
-  if @fn isnt 'src.openalex.changes' and ended - started < 3600000
-    console.log 'Openalex changes waiting to loop'
-    await @sleep 3600000 - (ended - started) 
-  console.log 'Openalex changes changed', total, queued.length
-  return total
-'''
