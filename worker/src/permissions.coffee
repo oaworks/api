@@ -79,7 +79,7 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref, best) -> # oadoi and cross
     else if not meta.permissions.includes(' ') and not meta.permissions.includes(',') and meta.permissions.replace(/[0-9]/g, '').length isnt meta.permissions.length
       meta.ror = meta.permissions
     else
-      meta.publisher = meta.permissions # but could be a ROR?
+      meta.publisher = meta.permissions
     delete meta.permissions
 
   if meta.affiliation
@@ -106,12 +106,10 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref, best) -> # oadoi and cross
         delete bp.DOI
         return best_permission: bp
 
-  # NOTE later will want to find affiliations related to the authors of the paper, but for now only act on affiliation provided as a ror
   # we now always try to get the metadata because joe wants to serve a 501 if the doi is not a journal article
   _getmeta = () =>
     psm = @copy meta
     if JSON.stringify(psm) isnt '{}'
-      #try rsm = crossref ? (await @metadata(meta.doi)) ? {}
       try rsm = crossref ? (await @metadata_internal(meta.doi)) ? {}
       for mk of rsm
         meta[mk] ?= rsm[mk]
@@ -120,7 +118,7 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref, best) -> # oadoi and cross
   haddoi = meta.doi?
   if meta.issn
     meta.issn = [meta.issn] if typeof meta.issn is 'string'
-    if not issns.length # they're already meta.issn in this case anyway
+    if not issns.length
       for inisn in meta.issn
         issns.push(inisn) if inisn not in issns # check just in case
     try
@@ -171,12 +169,6 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref, best) -> # oadoi and cross
       indoaj = rec if not indoaj
       issns.push(rec.bibjson.pissn) if rec.bibjson.pissn not in issns
       issns.push(rec.bibjson.eissn) if rec.bibjson.eissn not in issns
-    if false #not indoaj?
-      nisns = []
-      for await rec from @index._for 'src_openalex_venues', 'issn:"' + issns.join('" OR issn:"') + '"'
-        for en in rec.issn
-          nisns.push(en) if en not in nisns
-      issns = nisns
     if issns.length
       ps = await @permissions.journals 'issuer.id:"' + issns.join('" OR issuer.id:"') + '"'
       for p in ps?.hits?.hits ? []
@@ -185,7 +177,7 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref, best) -> # oadoi and cross
         perms.all_permissions.push rp
       
   if meta.publisher
-    qr = 'issuer.id:"' + meta.publisher + '"' # how exact/fuzzy can this be
+    qr = 'issuer.id:"' + meta.publisher + '"'
     ps = await @permissions.publishers qr
     for p in ps?.hits?.hits ? []
       rp = await _format p._source
@@ -232,13 +224,13 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref, best) -> # oadoi and cross
     altoa.issuer.id = meta.publisher
     altoa.meta.creator = ['joe+oapublisher@oa.works']
     altoa.meta.contributors = ['joe+oapublisher@oa.works']
-    altoa.provenance = {oa_evidence: 'OA publisher'} # does this mean embargo_months should be zero too?
+    altoa.provenance = {oa_evidence: 'OA publisher'}
     altoa.score = await _score altoa
     perms.all_permissions.push altoa
 
   if meta.doi
     oadoi ?= await @src.oadoi.doi meta.doi
-    if haddoi and oadoi?.best_oa_location?.license and oadoi.best_oa_location.license.includes 'cc' #  (haddoi or oadoi?.journal_is_oa)
+    if haddoi and oadoi?.best_oa_location?.license and oadoi.best_oa_location.license.includes 'cc'
       doa =
         can_archive: true
         version: oadoi.best_oa_location.version
@@ -332,7 +324,7 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref, best) -> # oadoi and cross
 P.permissions._log = false
 
 
-P.permissions.best = _index: true, _key: 'DOI' # save calculated best permissions for cases where that is good enough. TODO could update them every week
+P.permissions.best = _index: true, _key: 'DOI' # save calculated best permissions for cases where that is good enough.
 
 P.permissions.journals = _sheet: '1ZTcYJUzhNJYIuxsjKzdVFCbOhJsviVik-8K1DpU7-eE/Main', _prefix: false, _format: (recs=[]) ->
   ready = []
@@ -429,7 +421,6 @@ P.permissions.journals.oa.type = (issns, doajrnl, oadoi, crossref) ->
       issns = oadoi?.journal_issns ? crossref?.ISSN
   issns = issns.split(',') if typeof issns is 'string'
 
-  #console.log oadoi, crossref, issns
   js = 'unknown'
   if crossref?.type? and crossref.type isnt 'journal-article'
     js = 'not applicable'

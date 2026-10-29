@@ -208,7 +208,7 @@ P.report._runqueue = (ident, qry, ord, mid) ->
           console.log 'queue midpoint', mid
         qry = '(' + qry + ') AND createdAt:' + (if ord is 'desc' then '<' else '>') + mid
       q = await @report.queued qry, size: 2000, sort: createdAt: ord
-      if not q?.hits?.total and qry is 'action:"default"' #and (not @S.async_runner? or (await @keys(@S.async_runner)).length < 2) #isnt '*' # do anything if there are no specific ones to do
+      if not q?.hits?.total and qry is 'action:"default"'
         console.log 'no queued records found for specified qry', qry, 'checking for any other queued records...'
         q = await @report.queued 'NOT action:*', size: 2000, sort: createdAt: ord
         qry = 'queried * as none for qry ' + qry
@@ -227,7 +227,7 @@ P.report._runqueue = (ident, qry, ord, mid) ->
       qry = ''
     opts = _do_batch.shift()
     ident = opts?.identifier ? opts?.DOI
-  console.log 'report run queue', _processing_idents.length, _do_batch.length #, qry, ident, opts, _done_batch.length, _processed_batch.length, _processing_idents
+  console.log 'report run queue', _processing_idents.length, _do_batch.length
   if typeof ident is 'string' and (ident.startsWith('10.') or ident.startsWith('W') or ident.startsWith('PMC')) and ident not in _processing_idents and ident not in _done_batch
     await @sleep 10
     while _processing_idents.length >= 5
@@ -454,7 +454,7 @@ P.report.orgs.supplements.load = (orgname, sheetname, clear, immediate) ->
                   rr._id = rr.osdid
                   osdids.push rr.osdid
                   if (rr.DOI ? rr.openalex ? rr.pmcid) not in idents
-                    idents.push(rr.DOI ? rr.openalex ? rr.pmcid) #if clear or JSON.stringify(kc) isnt '{}'
+                    idents.push(rr.DOI ? rr.openalex ? rr.pmcid)
                   rr.updated = started
                   sups.push rr
                   total += 1
@@ -472,7 +472,7 @@ P.report.orgs.supplements.load = (orgname, sheetname, clear, immediate) ->
     for await ptc from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'supplements.sheets' + (if typeof clear is 'string' then '.keyword:"' + clear + '"' else ':*'), include: ['DOI', 'openalex', 'pmcid']
       idents.push(ptc.DOI ? ptc.openalex) if (ptc.DOI and ptc.DOI not in idents) or (not ptc.DOI and ptc.openalex and ptc.openalex not in idents) or (not ptc.DOI and not ptc.openalex and ptc.pmcid and ptc.pmcid not in idents)
 
-  await @sleep 20000 # wait a while for the supplements index to finish building and then run the processing for identifiers
+  await @sleep 20000
   console.log 'report orgs supplements load', total, idents.length, await @epoch() - started
   if idents.length
     console.log 'report orgs supplements load ready to call works load', idents.length
@@ -514,7 +514,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
     givenpmcid = false
     refresh = true if refresh is 0
     refresh ?= @refresh
-    everything ?= @params.everything # if so then runs epmc and permissions, which otherwise only run for records with orgs providing supplements
+    everything ?= @params.everything
     refresh = 129600000 if refresh is true and not everything
 
     rec = {}
@@ -544,7 +544,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
     if (typeof openalex is 'object' and openalex.ids?.doi) or (typeof openalex is 'string' and openalex.startsWith '10.')
       soad = (if typeof openalex is 'string' and openalex.length then openalex else openalex.ids.doi.split('.org/')[1]).toLowerCase()
       if soad
-        exists = await @report.works soad # must look up prev record in every case now, in case we need to track orgs by query
+        exists = await @report.works soad
         exists = undefined if exists?.DOI and exists.DOI.toLowerCase() isnt soad
         refresh = true if exists?.updated or (refresh and refresh isnt true and exists and exists.updated < refresh)
     openalex = undefined if typeof openalex is 'string' and not (openalex.startsWith('W') or openalex.startsWith('10.'))
@@ -565,7 +565,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
         rec.data_availability_statement = exists.data_availability_statement if exists.data_availability_statement?
         rec.data_availability_url = exists.data_availability_url if exists.data_availability_url?
         rec.data_availability_doi = exists.data_availability_doi if exists.data_availability_doi?      
-        rec.has_data_availability_statement = true if exists.data_availability_statement #or exists.has_data_availability_statement
+        rec.has_data_availability_statement = true if exists.data_availability_statement
       refresh = true if not exists?.updated or (refresh and refresh isnt true and exists and exists.updated < refresh)
 
     openalex = await @src.openalex.works.find((if typeof cr is 'object' then cr.DOI else cr), undefined, undefined, undefined, refresh) if cr? and not openalex?
@@ -760,7 +760,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
 
     if rec.DOI and not rec.journal_oa_type # restrict permissions only to records with orgs supplements? for now no
       # can permissions work well enough if there is no DOI? For now assume not
-      permissions = await @permissions (await @copy rec), undefined, undefined, oadoi, cr, started - 1209600000 # (if refresh then undefined else started - 1209600000) # use cached best permissions up to two weeks old
+      permissions = await @permissions (await @copy rec), undefined, undefined, oadoi, cr, started - 1209600000
       rec.can_archive = permissions?.best_permission?.can_archive
       rec.can_archive = true if not rec.can_archive? and ((oadoi?.best_oa_location?.license ? '').includes('cc') or oadoi?.journal_is_in_doaj)
       rec.version = permissions?.best_permission?.version
@@ -990,7 +990,6 @@ P.report.works.load = (timestamp, org, idents, year, clear, supplements, everyth
     await _openalex(undefined, 'years') if org isnt true and year is @params.load
 
     for await o from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs', (if typeof org is 'string' then 'name:"' + org + '"' else '*'), scroll: '10m'
-      # if an org has no known records in report/works yet, could default it here to a timestamp of start of current year, or older, to pull in all records first time round
       if o.source?.crossref
         try o.source.crossref = decodeURIComponent(decodeURIComponent(o.source.crossref)) if o.source?.crossref? and o.source.crossref.includes '%'
         console.log 'report works load crossref by org', o.name, o.source.crossref

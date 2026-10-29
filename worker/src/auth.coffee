@@ -9,7 +9,6 @@
 # and store users to the index as well if available
 
 P.auth = (key) ->
-  # if params.auth, someone looking up the URL route for this acc. Who would have the right to see that?
   if typeof key is 'string' # or key can be false, to pass through to unauthorised / login / request page
     return @users._get key
 
@@ -24,7 +23,7 @@ P.auth = (key) ->
         user = await @users._get undefined, @apikey
       if not user and uid = await @kv 'auth/apikey/' + @apikey
         user = await @users._get uid # no user creation if apikey doesn't match here - only create on login token above 
-    if not user and (@params.resume or @cookie) # accept resume on a header too?
+    if not user and (@params.resume or @cookie)
       if not resume = @params.resume # login by resume token if provided in param or cookie
         try
           cookie = JSON.parse decodeURIComponent(@cookie).split((S.auth?.cookie?.name ? 'oaworksLogin') + "=")[1].split(';')[0]
@@ -32,23 +31,19 @@ P.auth = (key) ->
           uid = cookie._id
       uid ?= @headers['x-id']
       if @params.email and not uid
-        uid = @hashhex @params.email.trim().toLowerCase() # accept resume with email instead of id?
+        uid = @hashhex @params.email.trim().toLowerCase()
       if resume and uid and restok = await @kv 'auth/resume/' + uid + '/' + resume
         user = await @users._get uid
         user.resume = resume if user?
 
   if typeof user is 'object' and user._id
-    # if 2fa is enabled, request a second form of ID (see below about implementing 2fa)
 
     if not user.resume? and not @apikey
       user.resume = @uid()
       @kv 'auth/resume/' + user._id + '/' + user.resume, {createdAt: Date.now()}, 7890000 # resume token lasts three months (could make six at 15768000)
 
     if await @auth.role 'root', @user
-      @log msg: 'root login' #, notify: true
-
-  # if this is called with no variables, and no defaults, provide a count of users?
-  # but then if logged in and on this route, what does it provide? the user account?
+      @log msg: 'root login'
   
   if not @format and (@fn is 'auth' or @unauthorised) and @headers['user-agent'] and @headers['user-agent'].toLowerCase().includes('mozilla') and @headers.accept and @headers.accept.includes('/html') and not @headers.accept.includes '/json'
     @format = 'html'
@@ -89,14 +84,11 @@ P.auth.token = (email, from, subject, text, html, template, url) ->
       subject: subject
       text: text ? 'Your login code is:\r\n\r\n' + token + '\r\n\r\nor use this link:\r\n\r\n' + url + '\r\n\r\nnote: this single-use code is only valid for 20 minutes.'
       html: html ? '<html><body><p>Your login code is:</p><p><b>' + token + '</b></p><p>or click on this link</p><p><a href=\"' + url + '\">' + url + '</a></p><p>note: this single-use code is only valid for 10 minutes.</p></body></html>'
-      #template: template
       params: {token: token, url: url}
     return email: email
   else
-    return #@uid 8 # is there a case where this would somehow be useful? It's not getting saved anywhere for later confirmation...
+    return
 
-# auth/:uid/role/:grl
-# check if a user has a role or one of a list of roles
 P.auth.role = (grl, user) ->
   grl ?= @params.role
   user = if typeof user is 'object' then user else if user or @params.auth then await @users._get(user ? @params.auth) else @user
@@ -108,7 +100,7 @@ P.auth.role = (grl, user) ->
   return false
 
 
-P.auth.logout = (user) -> # how about triggering a logout on a different user account
+P.auth.logout = (user) ->
   user ?= @user
   if user
     await @kv._each 'auth/resume/' + (if typeof user is 'string' then (if user.includes('@') then @hashhex(user.trim().toLowerCase()) else user) else user._id), ''
@@ -146,7 +138,7 @@ P.users._create = (user) ->
     email: user.email
     apikey: @uid()
   delete user.email
-  try u.profile = user # could use other input as profile input data? better for services to store this where necessary though
+  try u.profile = user
   try u.creation = @base + '/' + @route # which domain the user was created from
   u.createdAt = new Date()
   try await @kv 'users/' + u._id, u

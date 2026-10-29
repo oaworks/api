@@ -6,9 +6,7 @@
 # NOTE to receive files should send to background server
 # cloudflare will limit file upload size (100mb by default, and enterprise plans required for more)
 
-P.deposits = _index: true, _auth: '@oa.works' # store a record of all deposits. This used to filter to only those for the logged in user, that should be changed to deposited endpoint
-
-#P.undep = -> return @deposits ''
+P.deposits = _index: true, _auth: '@oa.works'
 
 P.deposit = (params, file, dev) ->
   params ?= @copy @params
@@ -33,7 +31,6 @@ P.deposit = (params, file, dev) ->
   dep.confirmed = decodeURIComponent(params.confirmed) if params.confirmed
   dep.doi = params.doi ? params.metadata?.doi
 
-  #try params.metadata = await @metadata(params.doi) if not params.metadata? and params.doi
   try params.metadata = await @metadata_internal(params.doi) if not params.metadata? and params.doi
   dep.metadata = params.metadata
 
@@ -55,7 +52,6 @@ P.deposit = (params, file, dev) ->
     try file_checks.zn.name = zn.name
     try file_checks.zn.length = zn.content.length
     try file_checks.zn.publish = zn.publish
-    console.log file_checks
     creators = []
     for a in params.metadata?.author ? []
       if a.family?
@@ -101,7 +97,7 @@ P.deposit = (params, file, dev) ->
         ee = await @epoch dep.permissions.best_permission.embargo_end
         if ee > Date.now()
           meta['access_right'] = 'embargoed'
-          meta['embargo_date'] = dep.permissions.best_permission.embargo_end # check date format required by zenodo
+          meta['embargo_date'] = dep.permissions.best_permission.embargo_end
           dep.embargo = dep.permissions.best_permission.embargo_end
     try meta['publication_date'] = params.metadata.published if params.metadata.published? and typeof params.metadata.published is 'string'
 
@@ -141,7 +137,7 @@ P.deposit = (params, file, dev) ->
           dep.error = 'Deposit to Zenodo failed'
           try dep.error += ': ' + JSON.stringify z
           dep.type = 'review'
-        if z.id and dep.zenodo? and not dep.zenodo.file # we have intermittent problems with files just not appearing
+        if z.id and dep.zenodo? and not dep.zenodo.file # we have intermittent problems with files just not appearing - it's not us, it's them
           file_checks.succeeded = false
           dep.error = 'Deposit to Zenodo succeeded but file upload appears to have failed'
           dep.type = 'review'
@@ -307,7 +303,6 @@ P.archivable = (file, url, confirmed, meta, permissions, dev) ->
           rts = l['where to search']
           hts = l['how to search']
           ind = l['what it Indicates']
-          #console.log wts, rts, hts, ind
           try
             if wts.includes('<<') and wts.includes '>>'
               wtm = wts.split('<<')[1].split('>>')[0]

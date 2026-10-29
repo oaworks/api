@@ -1,7 +1,5 @@
 
 # global S and P are accessible anywhere, and all files are merged into one on build.
-# NOTE it IS possible for scripts to persist between cloudflare worker requests, but also not guaranteed or intentional
-# so can't rely on them being clean every time, nor rely on them for storing state. Hence every new fetch event builds its own @S and P onto the global
 
 try
   # from CF variable this will need parsed, so just default to passing them as strings and parsing them
@@ -65,8 +63,6 @@ S.src ?= {}
 # otherwise result needs to have a _key or _id
 # cache the result unless _cache is false or it was an index creation or sheet load
 
-# log the request, and whether or not data was sent, and if a result was achieved, and other useful info
-
 try
   addEventListener 'fetch', (event) ->
     event.passThroughOnException() if S.pass isnt false
@@ -89,7 +85,6 @@ P = () ->
     @S.cache ?= false
     @waitUntil = (fn) -> return true # just let it run
   else if not @S.kv # try setting a default key-value store reference on the worker
-    # where will backend overwrite this to true? can this be set on the global S, and overwritten on backend?
     @S.kv = @S.name.replace /\s/g, ''
     delete @S.kv if not global[@S.kv]
 
@@ -98,11 +93,10 @@ P = () ->
   if @request.url? and @request.url.includes '?'
     pkp = ''
     for qp in @request.url.split('?')[1].split '&'
-      #qp = await P.decode qp
       kp = qp.split '='
-      if kp[0].length # avoid &&
+      if kp[0].length
         if kp.length is 1 and pkp and (kp[0].startsWith(' ') or kp[0].includes('%'))
-          @params[pkp] += '&' + decodeURIComponent kp[0] # try to catch things like q="smith & jones"
+          @params[pkp] += '&' + decodeURIComponent kp[0]
         else
           @params[kp[0]] = if kp.length is 1 then true else if typeof kp[1] is 'string' and kp[1].toLowerCase() is 'true' then true else if typeof kp[1] is 'string' and kp[1].toLowerCase() is 'false' then false else if qp.endsWith('=') then true else kp[1]
           if typeof @params[kp[0]] is 'string' and @params[kp[0]].replace(/[0-9]/g,'').length is 0 and (@params[kp[0]] is '0' or not @params[kp[0]].startsWith('0'))
@@ -127,9 +121,6 @@ P = () ->
   else if ct.includes '/json'
     @body = await @request.json()
   else if ct.includes 'form' # NOTE below, multipart may need to go to bg if receiving a file to save
-    # TODO consider checking for request.arrayBuffer() as file content not in a multipart.
-    # and for multipart, check to see if there actually is a file
-    # https://stackoverflow.com/questions/14872460/how-to-detect-a-file-upload-examining-the-http-message
     bd = {}
     fd = await @request.formData()
     for entry of fd.entries()
@@ -141,9 +132,7 @@ P = () ->
           bd[entry[0]] = entry[1]
     @body = bd if bd? and JSON.stringify(bd) isnt '{}'
   if not @body? and @request.method in ['POST', 'PUT', 'DELETE']
-    # TODO get worker to hand off to bg if available, if receiving any sort of file
-    try bd = await @request.text() # NOTE this will always be at least an empty string when request method isnt GET
-    # can also do URL.createObjectURL @request.blob() here, but would that be useful? Or revert to bg?
+    try bd = await @request.text()
     @body = bd if bd
   try @body = JSON.parse(@body) if typeof @body is 'string' and (@body.startsWith('{') or @body.startsWith('['))
   if typeof @body is 'object' and not Array.isArray @body
@@ -154,7 +143,7 @@ P = () ->
   
   # set some request and user IDs / keys in @rid, @apikey, and @refresh
   @rid = @headers['x-' + @S.name.toLowerCase() + '-rid']
-  try @rid ?= @headers['cf-ray'] #.slice 0, -4
+  try @rid ?= @headers['cf-ray']
   @rid ?= P.uid() # @uid is not defined yet
   try @apikey = @headers['x-apikey'] ? @headers.apikey ? @params.apikey
   for rk in ['x-apikey', 'apikey']
@@ -162,7 +151,7 @@ P = () ->
     delete @params[rk] if @params[rk]?
   if @params.refresh
     @refresh = @params.refresh
-    delete @params.refresh # what to do about refresh getting into the cache key?
+    delete @params.refresh
 
   # set the @url, the @base, the @route, and the url route parts in @parts
   if not @request.url.startsWith('http://') and not @request.url.startsWith 'https://'
@@ -207,8 +196,6 @@ P = () ->
   # loop through everything defined on P, wrap and configure all functions, and set them onto @ so they can be called in relation to this fetch event
   # also pick up any URL params provided along the way - anything that doesn't map to a function or an object is considered some sort of param
   # params will be added to @params, keyed to whatever the most recent URL part that DID map to a function was
-  # so for example /svc/oaworks/find maps to svc.oaworks.find, and /svc/oaworks/find/10.1234/567890 ALSO maps to it, 
-  # and puts the remainder of the route (which is a DOI) into @params.find, so the find function can read it from there
   fn = undefined # the actual function to run, once it's found (not just the name of it, which is put in @fn)
   prs = [...@parts]
   pk = undefined
@@ -291,8 +278,8 @@ P = () ->
             pk = prs.shift()
             @fn += (if @fn is '' then '' else '.') + pk
             fn = a[k] if typeof a[k] is 'function' and not n.includes '._' # URL routes can't call _abc functions or ones under them
-          if typeof a[k] is 'function' and nd.replace('src.','').split('.').length is 1 #and ((not nd.startsWith('svc') and not nd.startsWith('src')) or nd.split('.').length < 3)
-            @routes.push nd.replace /\./g, '/' # TODO this could check the auth method, and only show things the current user can access, and also search for description / comment? NOTE this is just about visibility, they're still accessible if given right auth (if any)
+          if typeof a[k] is 'function' and nd.replace('src.','').split('.').length is 1
+            @routes.push nd.replace /\./g, '/'
         _lp(p[k], a[k], nd, (auths ? p[k]._auths), (caches ? p[k]._caches)) if not Array.isArray(p[k]) and (not k.startsWith('_') or typeof a[k] is 'function') and k not in ['fn']
   _lp P, @, ''
   if pk and prs.length # catch any remaining url params beyond the max depth of P
@@ -329,7 +316,6 @@ P = () ->
       if @request.method in ['HEAD', 'OPTIONS']
         res = ''
       else if fn._cache isnt false and not @refresh and (@request.method is 'GET' or (@request.method is 'POST' and await @index.translate @params)) and res = await @cache() # this will return empty if nothing relevant was ever put in there anyway
-        # how about caching of responses to logged in users, by param or header?
         @cached = 'cache'
         res = new Response res.body, res # no need to catch this for backend execution because cache function will never find anything on backend anyway
         res.headers.append 'x-' + @S.name.toLowerCase() + '-cached', 'cache' # this would leave any prior "index" value, for example. Or use .set to overwrite
@@ -355,7 +341,7 @@ P = () ->
       @cache undefined, ''
     @log() if typeof fn in ['object', 'function'] and fn._log isnt false
   if not @completed and not @cached and not @unauthorised and @S.pass isnt false and typeof @S.bg is 'string' and @request.method not in ['HEAD', 'OPTIONS']
-    throw new Error() # TODO check for functions that often timeout and set them to _bg by default
+    throw new Error()
   else
     return resp
 
@@ -492,8 +478,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
       res = status: 302
       if f._sheet.startsWith 'http'
         res.body = f._sheet
-      else if @format is 'json' # TODO make it handle sheet and sheet ID in cases where both are provided
-        #res.body = 'https://spreadsheets.google.com/feeds/list/' + f._sheet + '/' + 'default' + '/public/values?alt=json'
+      else if @format is 'json'
         res.body = 'https://sheets.googleapis.com/v4/spreadsheets/' + f._sheet.split('/')[0] + '/values/' + (f._sheetid ? f._sheet.split('/')[1] ? 'Sheet1') + '?alt=json'
       else
         res.body = 'https://docs.google.com/spreadsheets/d/' + f._sheet.split('/')[0]
@@ -514,9 +499,6 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
       if @fn is n
         lg.key = @route.split(n.split('.').pop()).pop().replace(/\//g, '_').replace(/^_/,'').replace(/_$/,'') if @fn.replace(/\./g, '/') isnt @route # action on a specific keyed record
         qry = await @index.translate(if @request.method is 'POST' then @body else @params) if not lg.key and f._index #and not rec?
-        # TODO who should be allowed to submit a record remotely?
-        #rec = if @request.method is 'PUT' or (lg.key and @request.method is 'POST') then @body else if @request.method is 'DELETE' or @params._delete then '' else undefined
-         # and if there is @params._delete, delete by query?
       else if arguments.length # could be a key string and record or could be a query and options (and query could look like a key)
         # could be key or query string - if query string is ambiguous, make it definitive by sending an object with q: 'query string'
         lg.key = arguments[0].replace(/\//g, '_').trim() if typeof arguments[0] is 'string' and arguments[0].length and not arguments[0].includes('\n') and arguments[0].length is arguments[0].replace(/[\s\*~\?="]/g, '').length # removed \: and % from regex to allow DOIs containing : as ID
@@ -531,7 +513,6 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
         else if rec.length
           for c in rec
             c._id ?= (c[f._key] ? @uid()).replace(/\//g, '_').toLowerCase()
-      #console.log(n, lg.key, JSON.stringify(rec), JSON.stringify(qry), res, @refresh, typeof f, exists) if @S.dev and @S.bg is true
       
       if rec? or not @refresh or typeof f isnt 'function'
         if f._kv and lg.key
@@ -569,7 +550,6 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
               try
                 filecount = (await fs.readdir out).length
                 @mail({to:S.log?.logs, subject: (if @S.dev then 'Dev' else 'Live') + ' oa.report export file count ' + filecount + '/1000', text: 'Info, export file count is ' + filecount + ' they will be deleted at 1000'}) if filecount > 970 and filecount % 20 is 0
-                # add auto deletion of old export files?
               catch
                 await fs.mkdir out
                 filecount = 0
@@ -611,6 +591,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
                     qry._source.excludes = qry._source.excludes.splice(orgsidx, 1) if orgsidx isnt -1
                 if nfeml
                   await @mail to: nfeml, subject: 'Your export has started (ref: ' + flid + '.csv)', text: 'Your export has started. You can download the file any time, it will keep growing until it is complete, when you will get another notification.<br><br><a href="' + eurl + '">Download CSV</a><br><br>Thanks'
+                # NOTE all makecsv stuff should have been factored out properly a long time ago
                 _makecsv = (rt, qry, out, keys, notify, eurl, pfs, afs, pok) =>
                   first = true
                   if pok?
@@ -777,6 +758,7 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
           @waitUntil(@index(rt + id, r)) if f._index
         if f._limit is true
           await @kv 'limit/' + nn, '' # where limit is true only delay until function completes, then delete limit record
+        # NOTE, all schedule stuff should have been factored out properly a long time ago
         if f._async and f._schedule isnt 'loop'
           @kv 'async/' + @rid, (if id? and not Array.isArray(r) then rt + id else if Array.isArray(r) then r.length else r), 172800 # lasts 48 hours
           if @fn is nn and f._notify isnt false
@@ -793,11 +775,6 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
           @waitUntil _as rt, f, arguments, @params.notify, n
       else
         res = await _as rt, f, arguments
-
-    # _log - DISABLED all wrapped logging. Only requests onto the API routes get logged as of 11/10/2023
-    #if f._log isnt false and not f._index and not lg.qry? and not n.includes '._'
-    #  lg.took = Date.now() - started
-    #  @log lg
 
     return res
 
