@@ -100,4 +100,9 @@ P.src.rs.changes._bg = true
 P.src.rs.changes._async = true
 P.src.rs.changes._auth = '@oa.works'
   
-
+P.src.rs.process = (doi) ->
+  # this is for processing a single record, for example if we get a notification of a new RS preprint and want to pull it in
+  doi ?= @params.process ? @params.doi
+  if doi
+    return @src.rs.retrieve undefined, undefined, doi
+  return ''

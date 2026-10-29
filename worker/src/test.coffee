@@ -105,3 +105,4 @@ P.test = (sid, max) ->
     delete res.sheet.content
   return res
 
+P.tests = P.test
