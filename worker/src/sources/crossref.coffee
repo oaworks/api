@@ -1,7 +1,4 @@
 
-# https://github.com/CrossRef/rest-api-doc/blob/master/rest_api.md
-# http://api.crossref.org/works/10.1016/j.paid.2009.02.013
-
 # new crossref rate limits since 05/11/2025
 # https://www.crossref.org/blog/announcing-changes-to-rest-api-rate-limits/
 # if in public pool, single record request e.g. to DOI is 5 per second, one at a time. Query requests are 1 per second, 1 at a time.
@@ -98,8 +95,6 @@ P.src.crossref.works.search = (qrystr, from, size, filter, start, end, sort, ord
   filtered = ''
   if start
     filter ?= sort ? 'updated' # can be published, indexed, deposited, created, updated. indexed catches the most changes but can be very large and takes a long time
-    # updated should only miss crossref internal things like citation count, see https://community.crossref.org/t/date-range-search-of-index-changes-seems-to-retrieve-too-many-records/1468
-    # NOTE updated does NOT work for getting all records for a day because CREATED records can be created on a different day from which they are created, and they have no updated value, so the only way to find them is indexed date.
     start = await @date(start) if typeof start isnt 'string' or start.indexOf('-') is -1 # should be like 2021-01-31
     filtered = 'from-' + filter.replace('lished','').replace('xed','x').replace('ited','it').replace('dated', 'date') + '-date:' + start
   if end
@@ -115,7 +110,7 @@ P.src.crossref.works.search = (qrystr, from, size, filter, start, end, sort, ord
         ky = if k in ['title','citation','issn'] then 'query.bibliographic' else if k is 'journal' then 'query.container-title' else if k in ['author','editor','chair','translator','contributor','affiliation','bibliographic'] then 'query.' + k else k
         url += ky + '=' + encodeURIComponent(qrystr[k]) + '&' 
   else if qrystr and qrystr isnt 'all'
-    qry = qrystr.replace(/\w+?\:/g,'') #.replace(/ AND /g,'+').replace(/ NOT /g,'-')
+    qry = qrystr.replace(/\w+?\:/g,'')
     qry = qry.replace(/ /g,'+')
     url += 'query=' + encodeURIComponent(qry) + '&'
   if from?
@@ -158,9 +153,7 @@ P.src.crossref.changes = (startday, endday, created) ->
   endday ?= @params.end
   endday = await @epoch(endday) if typeof endday is 'string' and (endday.includes('/') or endday.includes('-'))
   created ?= @params.created
-  # tried to use updated and created to reduce unnecessary useless load of indexed which includes lots of irrelevant internal crossref changes
-  # but it does not work, because created records may be created on different days to the day they were created, and do not show up as updated either
-  searchtype = 'indexed' #if created then 'created' else 'updated'
+  searchtype = 'indexed'
 
   batchsize = 10000
   dn = endday ? Date.now()
@@ -208,7 +201,6 @@ P.src.crossref.changes = (startday, endday, created) ->
       startday += 86400000
 
     await @src.crossref.works(batch) if batch.length
-    #await @report.queue(queued, undefined, undefined, undefined, 'changes') if queued.length
     console.log 'crossref works changes completed', loaded, days, queued.length
     if loaded > 0 or (new Date()).getDay() is 1
       dt = await @datetime()

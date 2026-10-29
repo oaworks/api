@@ -1,21 +1,14 @@
 
 # https://ror.readme.io/docs/rest-api
+# https://ror.readme.io/docs/data-dump
 
 # NOTE, TODO, ROR will update their API in 2025:
 # https://ror.org/blog/2025-06-11-v1-sunset/
 
 P.src.ror = _index: true, _prefix: false
 
-P.src.ror._format = (rec, created) ->
-  try rec._id = rec.id.split('/').pop()
-  rec.createdAt ?= created ? await @epoch()
-  return rec
 
 
-
-
-# https://ror.readme.io/docs/rest-api
-# https://ror.readme.io/docs/data-dump
 
 # data dump comes from:
 # https://zenodo.org/api/records/?communities=ror-data&sort=mostrecent
@@ -23,6 +16,18 @@ P.src.ror._format = (rec, created) ->
 # presumably always the first one?
 # it's a zip, once unzipped is a JSON list, and the objects are NOT in jsonlines
 # but they are pretty-printed, so risk identify start and end of objects by their whitespacing
+
+# 29/10/2026 - ROR format is likely too different for a straight load to be of much use.
+# Joe believes other parts of the code would need to be checked to see how they would 
+# read a new structure of ROR object. And the load may not work at all if their structure
+# is too different. So the below is commented out for now.
+
+'''
+
+P.src.ror._format = (rec, created) ->
+  try rec._id = rec.id.split('/').pop()
+  rec.createdAt ?= created ? await @epoch()
+  return rec
 
 P.src.ror.dumps = () ->
   return @fetch 'https://zenodo.org/api/records/?communities=ror-data&sort=mostrecent'
@@ -96,3 +101,4 @@ P.src.ror.load._bg = true
 P.src.ror.load._async = true
 P.src.ror.load._auth = '@oa.works'
 
+'''

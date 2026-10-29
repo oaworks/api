@@ -27,7 +27,6 @@ P.convert.doc2txt = (content) ->
 
 P.convert.docx2txt = (content) ->
   cn = await @convert._content2file content
-  #cn = '/home/cloo/static/ExtendedInterval.docx'
   content = await @_child 'unzip',  ['-p', cn, 'word/document.xml']
   await fs.unlink(cn) if typeof cn is 'string' and cn.startsWith '/tmp/'
   txt = ''

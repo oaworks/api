@@ -6,10 +6,6 @@ P.uid = (length) ->
   if typeof length is 'string'
     rs = parseInt length
     length = if isNaN(rs) then undefined else rs
-  # have to use only lowercase for IDs, because other IDs we receive from users such as DOIs
-  # are often provided in upper OR lowercase forms, and they are case-insensitive, so all IDs
-  # will be normalised to lowercase. This increases the chance of an ID collision, but still, 
-  # without uppercases it's only a 1% chance if generating 1000 IDs per second for 131000 years.
   nanoid = customAlphabet (this?.params?.alphabet ? '0123456789abcdefghijklmnopqrstuvwxyz'), length
   return nanoid()
 P.uid._cache = false
@@ -23,7 +19,7 @@ P.encrypt = (content) ->
   encrypted = Buffer.concat [cipher.update(content), cipher.final()]
   return encrypted.toString 'hex'
 P.encrypt._cache = false
-P.encrypt._bg = true # need to check but presumably createCipheriv and createDecipheriv won't be available on CF worker with crypto.subtle
+P.encrypt._bg = true
 
 P.decrypt = (content) ->
   content ?= @params.decrypt ? @params.content ? @params.q ? @params ? @body
@@ -35,8 +31,6 @@ P.decrypt = (content) ->
   else
     iv = @params.iv ? @S.encrypt.iv
   content = JSON.stringify(content) if typeof content isnt 'string'
-  #decipher = crypto.createDecipheriv 'aes-256-ctr', @S.encrypt.salt, iv
-  #decrypted = Buffer.concat [decipher.update(content), decipher.final()]
   decipher = crypto.createDecipheriv 'aes-256-ctr', @S.encrypt.salt, iv
   decrypted = Buffer.concat [decipher.update(Buffer.from(content, 'hex')), decipher.final()]
   return decrypted.toString()
@@ -44,7 +38,7 @@ P.decrypt._cache = false
 P.decrypt._bg = true
 P.decrypt._auth = '@oa.works'
 
-P.hashcode = (content) -> # java hash code style
+P.hashcode = (content) ->
   content ?= @params.hashcode ? @params.content ? @params.q ? @params ? @body
   content = JSON.stringify(content) if typeof content isnt 'string'
   hash = 0

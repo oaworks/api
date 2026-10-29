@@ -25,11 +25,9 @@ import { createWriteStream } from 'fs'
 fs.createWriteStream = createWriteStream
 
 server = http.createServer (req, res) ->
-  #try console.log req.url
   try
     ct = req.headers?['content-type'] ? req.headers?['Content-Type'] ? ''
     if ct.includes 'form'
-      # example: curl -X POST 'https://example.com/convert?from=xls&to=csv' -F file=@anexcelfile.xlsx
       busboy = new Busboy headers: req.headers
       req.files = []
       waiting = true
@@ -72,11 +70,10 @@ server = http.createServer (req, res) ->
       if haddata
         req.body = bd
   
-  #try console.log(req.body) if S.dev and req.body?
   try
     try console.log('=== ' + S.port + ' BG ' + req.method + ' ===', req.url) if S.dev
     pr = await P.call request: req
-    try console.log('=== ' + S.port + ' BG ' + req.method + ' DONE ===', pr.status) #if S.dev
+    try console.log('=== ' + S.port + ' BG ' + req.method + ' DONE ===', pr.status)
     try pr.headers['x-' + S.name.toLowerCase() + '-bg'] = true
     if req.url is '/'
       try
@@ -84,18 +81,17 @@ server = http.createServer (req, res) ->
         pb.bg = true
         pr.body = JSON.stringify pb, '', 2
         pr.headers['Content-Length'] = Buffer.byteLength pr.body
-    res.writeHead pr.status, pr.headers # where would these be in a Response object from P?
+    res.writeHead pr.status, pr.headers
     res.end pr.body
   catch err
     try console.log err
     headers = {}
     headers['x-' + S.name.toLowerCase() + '-bg'] = true
-    res.writeHead 405, headers # where would these be in a Response object from P?
+    res.writeHead 405, headers
     res.end '405'
 
 pmid = process.env.pm_id
 pmid = parseInt(pmid) if pmid? and typeof pmid isnt 'number'
-#try process.env[k] = v for k, v of JSON.parse (process.env.env ? {}) # note process env vars appear to always be strings, not numbers
 if process.env.port
   S.port = if typeof process.env.port is 'number' then process.env.port else parseInt process.env.port
 else if pen = process.env.name

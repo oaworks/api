@@ -1,4 +1,8 @@
 
+# NOTE: a lot of this is a complex mess and should have been replaced a long time ago.
+# I will leave most comments in to try to help any future re-development, as there is too 
+# much that is too brittle. The evolved usage diverged greatly from what was originally envisaged.
+
 # TODO add alias handling, particularly so that complete new imports can be built in a separate index then just repoint the alias
 # alias can be set on create, and may be best just to use an alias every time
 # https://www.elastic.co/guide/en/elasticsearch/reference/current/indices-aliases.html
@@ -159,7 +163,6 @@ P.index.status = () ->
   shards = await @index._send '_cat/shards?format=json'
   for i of s.indices
     if not i.startsWith('.') and not i.startsWith 'security-'
-      # is primaries or total better for numbers here?
       res.indices[i] = docs: s.indices[i].primaries.docs.count, size: Math.ceil(s.indices[i].primaries.store.size_in_bytes / 1024 / 1024) + 'mb'
       for sh in shards
         if sh.index is i and sh.prirep is 'p'
@@ -175,7 +178,7 @@ P.index.status = () ->
   try
     res.status = 'red' if res.cluster.status not in ['green','yellow'] # accept yellow for single node cluster (or configure ES itself to accept that as green)
     for k in ['cluster_name', 'number_of_nodes', 'number_of_data_nodes', 'unassigned_shards']
-      delete res.cluster[k] # or delete all of cluster info?
+      delete res.cluster[k]
   return res
 
 
@@ -349,7 +352,7 @@ P.index.mapping = (route, map) ->
     mapped = await @index._send route, map, 'PUT'
     console.log route, 'mapped', mapped
   ret = await @index._send route
-  rtm = (await @keys ret)[0] #route.replace('/_mapping', '').replace(/\//g, '_').replace(/^_/, '')
+  rtm = (await @keys ret)[0]
   return ret[rtm].mappings.properties
 
 
@@ -520,8 +523,6 @@ P.index._bulk = (route, data, action='index', bulk=50000, prefix, alias, url) ->
         counter = 0
     return rows.length - errorcount
 
-#P.index._refresh = (route) -> return @index._send route.replace(/^\//, '').split('/')[0] + '/_refresh'
-
 
 
 # query formats that can be accepted:
@@ -679,7 +680,6 @@ P.index.translate = (q, opts) ->
       delete opts[af]
 
   for k, v of opts
-    #v = v.replace(/,\s/g, ',').split(',') if k in ['fields'] and typeof v is 'string' and v.indexOf(',') isnt -1
     if k in ['from', 'size'] and typeof v isnt 'number'
       try
         v = parseInt v
@@ -696,7 +696,6 @@ P.index.translate = (q, opts) ->
         qry.aggregations[ag].terms.order = ords[qry.aggregations[ag].terms.order]
      
   # no filter query or no main query can cause issues on some queries especially if certain aggs/terms are present, so insert some default searches if necessary
-  #qry.query = { match_all: {} } if typeof qry is 'object' and qry.query? and JSON.stringify(qry.query) is '{}'
   # clean slashes out of query strings
   if qry.query?.bool?
     for bm of qry.query.bool
@@ -704,14 +703,7 @@ P.index.translate = (q, opts) ->
         if typeof qry.query.bool[bm][b].query_string?.query is 'string'
           if qry.query.bool[bm][b].query_string.query.indexOf('/') isnt -1 and qry.query.bool[bm][b].query_string.query.indexOf('"') is -1
             qry.query.bool[bm][b].query_string.query = '"' + qry.query.bool[bm][b].query_string.query + '"'
-          # TODO test these, and see if they stop the error from the query, but also if they match the intended target
-          # example 10.1002_1097-0274(200008)38:2<155::aid-ajim6>3.0.co;2-7
-          #if qry.query.bool[bm][b].query_string.query.indexOf('<') > 0
-          #  qry.query.bool[bm][b].query_string.query = qry.query.bool[bm][b].query_string.query.replace(/\</g, '%2C')
-          #if qry.query.bool[bm][b].query_string.query.indexOf('>') > 0
-          #  qry.query.bool[bm][b].query_string.query = qry.query.bool[bm][b].query_string.query.replace(/\>/g, '%2E')
   delete qry._source if qry._source? and qry.fields?
-  #console.log JSON.stringify qry
   return qry
 
 P.index.translate._auth = false
@@ -737,6 +729,7 @@ P.index._send = (route, data, method, prefix, alias, url) ->
   if method is 'DELETE' and not route.includes('_doc') and not route.includes '_search/scroll' # only allow delete by ID, not by query, to avoid accidental mass deletes. _search/scroll is allowed because that's how we do deletes by query, but it requires a scroll ID which should make it safe enough
     console.log data
     console.log typeof data
+    # this was all a nasty fix for a time when discovering causes or updating code was de-prioritised. And then it remained this way.
     if methodexplicit or route in ['src_ror', 'src_openalex_sources', 'report_orgs', 'report_suggestables', 'src_doaj_journals', 'permissions_journals', 'permissions_journals_transformative', 'permissions_publishers', 'permissions_affiliations']
       console.log 'ALLOWING DELETE BY EXPLICIT METHOD OR ALLOW LISTED ROUTE'
       console.log route
@@ -766,7 +759,7 @@ P.index._send = (route, data, method, prefix, alias, url) ->
       prefix = @S.index.name if prefix is true
       if typeof prefix is 'string'
         prefix += '_' if prefix.length and not prefix.endsWith '_'
-        route = prefix + route if not route.startsWith prefix # TODO could allow prefix to be a list of names, and if index name is in the list, alias the index into those namespaces, to share indexes between specific instances rather than just one or global
+        route = prefix + route if not route.startsWith prefix
     rrso = if rso.startsWith(@S.index.name + '_') then rso.replace(@S.index.name + '_', '') else rso
     url ?= @S.route?[rrso + alias] ? @S.route?[rrso] ? dtp?._route ? (if this?.S?.index?.url then @S.index.url else S.index?.url)
     url = url[Math.floor(Math.random()*url.length)] if Array.isArray url
@@ -802,21 +795,10 @@ P.index._send = (route, data, method, prefix, alias, url) ->
   if route.includes('/_doc/') and route.split('/_doc/')[1].includes('%') # fix for messy DOIs as IDs like '10.1002_(sici)1097-4644(19960601)61%3A3%253c452%3A%3Aaid-jcb12%253e3.0.co%3B2-l'
     route = route.split('/_doc/')[0] + '/_doc/' + encodeURIComponent route.split('/_doc/')[1]
 
-  #if @S.dev and @S.bg is true and not data?.query? and not route.includes('/_doc/') and (method is 'DELETE' or not route.includes '_search/scroll')
-  #  console.log 'INDEX', method, route
-    #console.log method(JSON.stringify(if Array.isArray(data) and data.length then data[0] else data).substr(0, 3000)) if data
-
-  #opts.retry = 3
   opts.method = method
   res = await @fetch route, opts
-  #if @S.dev and @S.bg is true
-  #  try console.log 'INDEX QUERY FOUND', res.hits.total, res.hits.hits.length
   if not res? or (typeof res is 'object' and typeof res.status is 'number' and res.status >= 400 and res.status <= 600)
     # fetch returns undefined for 404, otherwise any other error from 400 is returned like status: 400
-    # write a log / send an alert?
-    #em = level: 'debug', msg: 'ES error, but may be OK, 404 for empty lookup, for example', method: method, url: url, route: route, opts: opts, error: err.toString()
-    #if this?.log? then @log(em) else P.log em
-    # do anything for 409 (version mismatch?)
     return undefined
   else
     if @S.dev and typeof res is 'object' and res.hits?

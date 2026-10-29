@@ -28,7 +28,7 @@ P.src.epmc.search = (qrystr, from, size) ->
   # removed sort_date:y from query due to https://github.com/oaworks/discussion/issues/3738#issuecomment-4134013512
   url = 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=' + qrystr + '&resulttype=core&format=json'
   url += '&pageSize=' + size if size? #can handle 1000, have not tried more, docs do not say
-  url += '&cursorMark=' + from if from? # used to be a from pager, but now uses a cursor
+  url += '&cursorMark=' + from if from?
   ret = {}
   try
     res = await @fetch url, rate: ['ebi', 8]
@@ -49,8 +49,7 @@ P.src.epmc.doi = (ident, refresh, year) ->
       yr = ((rt.pubYear ? rt.journalInfo.yearOfPublication ? rt.firstPublicationDate ? '') + '').split('-')[0]
       if typeof yr is 'string' and yr.length is 4 and parseInt(yr) <= ly
         return rt
-    #else if not refresh and Date.now() - ((await @src.epmc.notinepmc ident)?.checkedAt ? 0) < 2419200000 # 1000*60*60*24*28 # if we checked in the last 28 days, don't check again
-    if not refresh and (ne = await @src.epmc.notinepmc ident) and (ne.year ? ly) < ly and Date.now() - (ne.checkedAt ? 0) < 2419200000 # don't check again within 28 days
+    if not refresh and (ne = await @src.epmc.notinepmc ident) and (ne.year ? ly) < ly and Date.now() - (ne.checkedAt ? 0) < 2419200000
       return
     else
       res = await @src.epmc.search 'DOI:' + ident
@@ -128,7 +127,6 @@ P.src.epmc.xml = (pmcid, rec, refresh) ->
         ft = await fs.readFile @S.directory + '/epmc/fulltext/' + pmcid + '.xml'
         return ft.toString()
 
-    # because ncbi rate limit is lower and we were calling it more, switch to checking ebi first instead
     if rec?
       ft = await @fetch 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML', rate: ['ebi', 8]
     if typeof ft isnt 'string' or not ft.length
@@ -143,7 +141,6 @@ P.src.epmc.xml = (pmcid, rec, refresh) ->
 
 
 P.src.epmc.submitted = (pmcid, rec, refresh) ->
-  # some epmc xml appeared to use <date-type="received" ... and then a date value as an attribute, whereas others have <year> ... elements within
   pmcid ?= @params.submitted ? @params.pmc ? @params.pmcid ? @params.PMC ? @params.PMCID
   refresh ?= @refresh
   if pmcid
@@ -177,16 +174,8 @@ P.src.epmc.submitted = (pmcid, rec, refresh) ->
 
 
 P.src.epmc.statement = (pmcid, rec, refresh, verbose) ->
-  # because of xml parsing issues with embedded html in pmc xml, just regex it out if present
-  # pubmed data does not hold corresponding statements to pmc, but the pmc records from ncbi do contain them as they are the same as fulltext records from epmc
-  # see <notes notes-type="data-availability"> in
-  # https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=PMC9206389
-  # or <custom-meta id="data-availability"> in 
-  # https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=PMC9009769
-  # which also has it in "notes" but with no type and no other content <notes> but a <title> of Data Availability
-  # catches most of https://www.ncbi.nlm.nih.gov/books/NBK541158/
   pmcid ?= @params.statement ? @params.pmc ? @params.pmcid ? @params.PMC ? @params.PMCID
-  if pmcid and pmcid.startsWith '10.' # if a doi was provided instead
+  if pmcid and pmcid.startsWith '10.'
     rec ?= await @src.epmc.doi pmcid, refresh
     pmcid = undefined
   pmcid ?= rec?.pmcid
@@ -200,9 +189,9 @@ P.src.epmc.statement = (pmcid, rec, refresh, verbose) ->
   if pmcid and pmcid.toLowerCase().startsWith 'pmc'
     pmcid = 'PMC' + (pmcid + '').toLowerCase().replace('pmc', '')
     if ft = await @src.epmc.xml pmcid, rec, refresh
-      ft = (ft.split('<ref-list')[0] + ft.split('/ref-list>').pop()) #.replace(/\<(p|b|i).*?\>/g, '').replace(/\<\/(p|b|i).*?\>/g, '')
+      ft = (ft.split('<ref-list')[0] + ft.split('/ref-list>').pop())
       sstr = ''
-      for split in ['"data', '>Data', '>Research data', '>Availab', '>data', '>Code', '>code'] # >Research alone is not sufficient
+      for split in ['"data', '>Data', '>Research data', '>Availab', '>data', '>Code', '>code']
         try
           if ft.includes split
             splitted.push split
@@ -212,7 +201,7 @@ P.src.epmc.statement = (pmcid, rec, refresh, verbose) ->
               pres.push pre.slice -1000
               tag = pre.split('<').pop().split('>')[0].split(' ')[0].replace('/', '')
               tag = pre.split('</' + tag + '>').pop().split('><' + tag)[0].split('<').pop().split('>')[0].split(' ')[0].replace('/', '') if not split.startsWith('"') and pre.endsWith '><' + tag
-              post = (if split.startsWith('"') then part.split(/\>(.*)/s)[1] else if part.startsWith('il') or part.startsWith('l') then 'Availab' else if split.startsWith('>Research data') then 'Research data' else 'Data') + part #  if part.substr(0,6).includes('ode') then 'Code' else
+              post = (if split.startsWith('"') then part.split(/\>(.*)/s)[1] else if part.startsWith('il') or part.startsWith('l') then 'Availab' else if split.startsWith('>Research data') then 'Research data' else 'Data') + part
               posts.push post.slice 0, 1000
               if post.includes('</' + tag + '>') and post.indexOf('</' + tag + '>') < 40
                 try
@@ -226,7 +215,7 @@ P.src.epmc.statement = (pmcid, rec, refresh, verbose) ->
               else
                 splitter = '</' + tag + '>'
               if post.split('</' + tag + '>')[0].includes '\n'
-                while not post.includes(splitter) and splits.length #and splits[0].includes splitter
+                while not post.includes(splitter) and splits.length
                   post += (if split.startsWith('>') then '>' else '') + (if splits[0].startsWith('il') or splits[0].startsWith('l') then 'Availab' else 'Data') +  splits.shift()
               post = post.split(splitter)[0]
               post = post.replace('</title>', '|TTT|').replace(/\n/g, ' ').replace(/\s+/g, ' ').replace /(<([^>]+)>)/ig, ''
@@ -239,7 +228,7 @@ P.src.epmc.statement = (pmcid, rec, refresh, verbose) ->
                 clean = clean.trim()
                 clo = clean.toLowerCase()
                 ttlclo = ttl.toLowerCase() + clo
-                if clean.length > 1 and (ttlclo.includes('data') or ttlclo.includes('code') or ttlclo.includes('availab') or ttlclo.includes('accessib')) and not sstr.includes clo # TODO change this to require 2 of 4?
+                if clean.length > 1 and (ttlclo.includes('data') or ttlclo.includes('code') or ttlclo.includes('availab') or ttlclo.includes('accessib')) and not sstr.includes clo
                   sstr += clo
                   statements.push clean
               pre = part

@@ -68,10 +68,6 @@ P.src.oadoi.oa = type: (issns) ->
   else
     return issn: issns, calculated: '', types: []
 
-# if we ever decide to use title search on oadoi (only covers crossref anyway so no additional benefit to us at the moment):
-# https://support.unpaywall.org/support/solutions/articles/44001977396-how-do-i-use-the-title-search-api-
-
-
 
 
 P.src.oadoi._format = (rec) ->

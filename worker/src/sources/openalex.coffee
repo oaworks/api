@@ -3,35 +3,14 @@ S.src.openalex ?= {}
 try S.src.openalex = JSON.parse SECRETS_OPENALEX
 
 # https://docs.openalex.org/api
-# https://docs.openalex.org/download-snapshot/snapshot-data-format
-# https://docs.openalex.org/download-snapshot/download-to-your-machine
-
-# https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
-# curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-# unzip awscliv2.zip
-# sudo ./aws/install
 
 # aws s3 sync 's3://openalex' 'openalex' --no-sign-request
 
-# note for resizing storage volume:
-# sudo resize2fs /dev/sdv (or whatever the identity of the volume is)
-
 # querying openalex
-# https://docs.openalex.org/api-entities/works/filter-works
-# https://docs.openalex.org/how-to-use-the-api/get-lists-of-entities/filter-entity-lists
+# https://help.openalex.org/api/filtering/
 
-# rate limits
-# https://docs.openalex.org/how-to-use-the-api/rate-limits-and-authentication
-# public tier is 10r/s max 100k per day, requires mailto: param
-# premium limits just says "as needed"
-
-# rate limits were CHANGED again:
-# https://docs.openalex.org/how-to-use-the-api/rate-limits-and-authentication
-# now direct GETs of individual records have no "cost"
-# filter queries "cost" means that we can make 10k filter queries per day on the free plan
-# overall rate limit is 100r/s with no day cap
-# this will require some changes to our rate limiting to manage a 10k cap on filters but not on GETS, whilst also maintaining 100r/s overall
-# for now split it 80/20 across two types and hope it works
+# rate limits - they do change them...
+# https://help.openalex.org/api/authentication/
 
 P.src.openalex = -> return true
 
@@ -68,7 +47,7 @@ P.src.openalex.works._format = (rec) ->
   rec.retrievedAt = Date.now()
   return rec
 
-P.src.openalex.works.find = (doi, openalex, pmcid, pmid, refresh) -> # ident can be DOI, openalex ID, or PMCID
+P.src.openalex.works.find = (doi, openalex, pmcid, pmid, refresh) ->
   if not doi and not openalex and not pmcid and not pmid and (ident = @params.find)
     if ident.startsWith '10.'
       doi = ident
@@ -121,7 +100,7 @@ P.src.openalex.load = (what, changes, clear, sync, last, toalias) ->
   _openalex_load_running = true
   started = await @epoch()
   what ?= @params.load ? @params.openalex ? 'works'
-  return false if what not in ['works'] #, 'venues', 'authors', 'institutions', 'concepts']
+  return false if what not in ['works']
 
   onlyinfo = @params.onlyinfo ? false
   changes ?= @params.changes
@@ -129,7 +108,6 @@ P.src.openalex.load = (what, changes, clear, sync, last, toalias) ->
 
   toalias ?= @params.toalias ? '15032024'
   toalias += '' if typeof toalias is 'number'
-  #toalias = '15032024'
 
   clear ?= @params.clear
   if clear
@@ -152,7 +130,7 @@ P.src.openalex.load = (what, changes, clear, sync, last, toalias) ->
         lasth = esd
 
   sync ?= @params.sync ? false
-  if sync # can import all or certain types, e.g s3://openalex or s3://openalex/data/works
+  if sync
     console.log 'Openalex load syncing', what
     synced = await @_child 'aws', ['s3', 'sync', 's3://openalex/data/' + what, infiles, '--no-sign-request']
     console.log 'Openalex sync returned', synced
@@ -185,18 +163,10 @@ P.src.openalex.load = (what, changes, clear, sync, last, toalias) ->
   maxrunners = 5
 
   _dofile = (flo) =>
-    # if we find in future there is no need to download a whole copy of openalex, instead of s3 sync the whole lot it may be better 
-    # to just use streams of the files in each change folder direct from s3, and never have to land them on disk
     batch = []
     for await line from readline.createInterface input: fs.createReadStream(flo).pipe zlib.createGunzip() #, crlfDelay: Infinity
       rec = JSON.parse line.trim().replace /\,$/, ''
       total += 1
-      #if what in ['venues', 'institutions', 'concepts', 'authors']
-      #  rec._id = rec.id.split('/').pop()
-      #  if what is 'authors' and rec.x_concepts?
-      #    for xc in rec.x_concepts
-      #      xc.score = Math.floor(xc.score) if xc.score?
-      #else if what is 'works'
       rec = await @src.openalex.works._format rec
       batch.push rec
       if batch.length >= 20000
@@ -213,7 +183,7 @@ P.src.openalex.load = (what, changes, clear, sync, last, toalias) ->
     return true
 
   for updated in await fs.readdir infiles # folder names are like updated_date=2022-04-30
-    if not updated.startsWith('manifest') #and (not changes? or updated.split('=')[1] in changes) # run any file that exists, and delete once done so not re-used
+    if not updated.startsWith('manifest') # run any file that exists, and delete once done so not re-used
       for inf in await fs.readdir infiles + '/' + updated
         if not caughtup
           console.log 'awaiting catch up', updated, inf, caughtup
@@ -261,7 +231,7 @@ P.src.openalex.changes = (what) ->
   console.log 'Openalex checking for changes by running load on comparison to manifest'
   ret = await @src.openalex.load undefined, true
 
-  ended = await @epoch() # schedule this to loop, and run at most every hour
+  ended = await @epoch()
   took = ended - started
   if @fn isnt 'src.openalex.changes' and P.src.openalex.changes._schedule is 'loop'
     while took < 3600000
@@ -279,7 +249,6 @@ P.src.openalex.changes._async = true
 P.src.openalex.changes._auth = '@oa.works'
 
 
-# https://docs.openalex.org/api-entities/sources/get-lists-of-sources
 P.src.openalex.sources = _index: true, _prefix: false
 P.src.openalex.sources.load = ->
   await @src.openalex.sources ''
