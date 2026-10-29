@@ -46,7 +46,6 @@ P.rate = (rate, blocked, ms) ->
           console.log('FETCH RATE MAXED', rate, _rates[rate[0]].remaining) if S.dev and S.bg is true
           s = _rates[rate[0]].remaining + 1
       if s is 0 and _rates[rate[0]].last and rate[1]
-        console.log('FETCH RATE LIMITING', rate[0], 'max ' + rate[1] + 'r/s', 'avg ' + _rates[rate[0]].average + 'r/s', _rates[rate[0]].count) if S.dev and S.bg is true
         s = Math.round (1000 / rate[1]) - (Date.now() - _rates[rate[0]].last)
       _rates[rate[0]].last = Date.now() + s
       _rates[rate[0]].count += 1

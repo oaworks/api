@@ -291,7 +291,7 @@ P = () ->
       pkn = parseInt @params[cpk]
       @params[cpk] = pkn if not isNaN pkn
 
-  console.log('=== ' + (if @system then 'SYSTEM ' else '') + @request.method + ' ===', @base, @fn, @domain, typeof @body) if @S.dev and @S.bg is true
+  console.log('=== ' + (if @system then 'SYSTEM ' else '') + @request.method + ' ===', @base, @fn, @domain, typeof @body) if @S.dev and @S.bg is true and @fn isnt 'rate'
 
   if typeof fn in ['object', 'function'] and fn._bg and typeof @S.bg is 'string' and @S.bg.startsWith 'http'
     throw new Error()
