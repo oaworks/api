@@ -20,6 +20,7 @@ P.src.pubmed.pmc = (pmc) ->
 
 
 # 29/10/2026 - note this has not been run for years, so it may not be accurate any more.
+# however we do call it on a schedule each night to check for changes, so it may still be working fine.
 P.src.pubmed.load = (changes) ->
   # there are 30k or less records per pubmed file so tried batching by file, but streaming more than one file at a time caused OOM
   # so reduce batch size if necessary. default node heap size is 1400M I think, so increased to 3072M and try again
