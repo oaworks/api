@@ -397,7 +397,7 @@ P.permissions.journals.example = (issn) ->
 P.permissions.journals.example._log = false
 
 P.permissions.journals.transformative = _index: true, _prefix: false
-P.permissions.journals.transformative.load = () ->
+'''P.permissions.journals.transformative.load = () ->
   batch = []
   tfs = await @fetch 'https://api.journalcheckertool.org/journal?q=tj:true&include=issn&size=10000'
   batch.push(rec._source) for rec in tfs.hits.hits
@@ -408,6 +408,7 @@ P.permissions.journals.transformative.load = () ->
 P.permissions.journals.transformative.load._bg = true
 P.permissions.journals.transformative.load._async = true
 P.permissions.journals.transformative.load._auth = '@oa.works'
+'''
 
 P.permissions.journals.oa = {}
 
