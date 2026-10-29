@@ -2,7 +2,7 @@
 S.src.google ?= {}
 try S.src.google.secrets = JSON.parse SECRETS_GOOGLE
 
-P.src.google = -> {}
+P.src.google = {}
 
 P.src.google.sheets = (opts) ->
   # expects a google sheet ID or a URL to a google sheets feed in json format

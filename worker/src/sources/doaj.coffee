@@ -28,5 +28,5 @@ P.src.doaj.journals.load = () ->
   return total
 P.src.doaj.journals.load._bg = true
 P.src.doaj.journals.load._async = true
-P.src.doaj.journals.load._auth = 'root'
+P.src.doaj.journals.load._auth = '@oa.works'
 

@@ -71,30 +71,6 @@ P.rates = ->
 #P.rates._auth = 'system'
 P.rates._log = false
 
-P.rates.check = (url, group, rate, max, per, amount) ->
-  started = Date.now()
-  url ?= @params.url
-  headers = {}
-  if not url?
-    url = 'https://bg.beta.oa.works/rates'
-    headers['x-' + S.name.toLowerCase() + '-system'] = S.system
-  group ?= @params.group ? 'check'
-  rate ?= @params.rate ? 2
-  max ?= @params.max ? 5
-  per ?= @params.per ? 10
-  amount ?= @params.amount ? 16
-  times = []
-  waits = []
-  ret = []
-  for r in [0..amount]
-    times.push Date.now()
-    ret.push await @fetch url, rate: [group, rate, max, per], headers: headers # 2r/s, max 5 per 10s
-    if times.length > 1
-      waits.push times[times.length - 1] - times[times.length - 2]
-  ended = Date.now()
-  return started: started, ended: ended, took: (ended-started), local: (JSON.stringify(_rates) isnt '{}'), url: url, group: group, rate: rate + 'r/s', max: (if max then (max + (if per then ' per ' + per + 's' else '')) else undefined), amount: amount, times: times, waits: waits, results: ret
-P.rates.check._auth = 'root'
-P.rates.check._log = false
 
 P.fetch = (url, params) ->
   if not url? and not params?

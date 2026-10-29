@@ -268,8 +268,6 @@ P.report.cleandoi = (doi) -> # 10.1002/1096-8628(20000717)93:2<110::aid-ajmg6>3.
     return
 P.report.cleandoi._log = false
 
-_report_publishers = []
-P.report.publishers = _sheet: '1M2s1KBycWI5j7SIfIY0mzfkRC4cYr0HoROP7MR6k3GU'
 
 P.report.orgs = _sheet: S.report.orgs_sheet, _format: (recs=[], encrypt) ->
   ready = []
@@ -488,7 +486,6 @@ P.report.orgs.supplements.load._log = false
 
 
 
-P.report.emails = _sheet: S.report.emails_sheet, _key: 'doi', _auth: '@oa.works'
 P.report.email = (doi) ->
   return undefined if not doi and not @params.orgkey
   doi ?= @params.email ? @params.doi
@@ -696,7 +693,6 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
         rec.published_year = oadoi.year if oadoi.year
         rec.oadoi_is_oa = oadoi.is_oa if oadoi.is_oa?
 
-    corresponding_author_ids = []
     rec.supplements = []
     rec.orgs = []
     if rec.DOI or rec.openalex or rec.PMCID
@@ -716,16 +712,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
         rec.has_data_availability_statement = true if sup.mturk_has_data_availability_statement
         rec.has_data_availability_statement = false if rec.has_data_availability_statement isnt true and sup.mturk_has_data_availability_statement is false
         rec.pmc_has_data_availability_statement = sup.pmc_has_data_availability_statement if sup.pmc_has_data_availability_statement?
-        if sup.corresponding_author_ids
-          for cid in (if typeof sup.corresponding_author_ids is 'string' then sup.corresponding_author_ids.split(',') else sup.corresponding_author_ids)
-            corresponding_author_ids.push(cid) if cid not in corresponding_author_ids
         rec.supplements.push sup
-
-    for cid in (rec.openalx?.corresponding_author_ids ? [])
-      corresponding_author_ids.push(cid) if cid not in corresponding_author_ids
-    rec.corresponding_authors = []
-    for atp in (rec.openalx?.authorships ? [])
-      rec.corresponding_authors.push(atp) if atp.author?.id in corresponding_author_ids
 
     rec.openalx.authors_count = rec.openalx.authorships.length if rec.openalx?.authorships? and not rec.openalx.authors_count?
 
@@ -763,17 +750,6 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
 
     rec.email = await @encrypt(rec.email) if typeof rec.email is 'string' and rec.email.includes '@'
 
-    if rec.publisher and (refresh? or not rec.publisher_simple)
-      if not _report_publishers.length
-        rpa = await @report.publishers '*', 10000
-        rpa = rpa.hits.hits if not Array.isArray(rpa) and rpa?.hits?.hits?
-        _report_publishers.push(rp._source ? rp) for rp in (rpa ? [])
-      publ = rec.publisher.toLowerCase()
-      for pub in _report_publishers
-        if pub.publisher and publ.includes pub.publisher.toLowerCase()
-          rec.publisher_simple = pub.publisher_display_name
-          break
-
     if not rec.PMCID or not rec.PMID or not rec.pubtype? or not rec.submitted_date or not rec.accepted_date
       if pubmed = (if rec.PMID then await @src.pubmed(rec.PMID) else if rec.DOI then await @src.pubmed.doi(rec.DOI) else undefined) # pubmed is faster to lookup but can't rely on it being right if no PMC found in it, e.g. 10.1111/nyas.14608
         rec.PMCID = 'PMC' + pubmed.identifier.pmc.toLowerCase().replace('pmc', '') if not rec.PMCID and pubmed?.identifier?.pmc
@@ -791,32 +767,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
       rec.journal_oa_type = await @permissions.journals.oa.type rec.issn, undefined, oadoi, cr # calculate journal oa type separately because it can be different for a journal in general than for what permissions calculates in more specificity
       rec.journal_oa_type ?= 'unsuccessful'
 
-    everything = true if rec.supplements.length #and (refresh or (exists?.orgs ? []).length isnt rec.orgs.length) # control whether to run time-expensive things on less important records
-    for por in (rec.orgs ? [])
-      port = por.toLowerCase().trim()
-      if port not in ['fwf austrian science fund', 'dutch research council', 'national science center', 'uk research and innovation', 'agencia nacional de investigación y desarrollo', 'national natural science foundation of china', 'research foundation - flanders', 'ministry of business, innovation and employment', 'german research foundation', 'national cancer institute']
-        everything = true
-      else if rec.funder
-        try
-          port = port.replace /[^a-z ]/g, ''
-          _processing_orgs[port] ?= await @report.orgs 'name.keyword:"' + por + '"', 1
-          if _processing_orgs[port]?.country_code
-            for f in rec.funder
-              if f.DOI and _processing_orgs[port].fundref
-                for potfr in (if typeof _processing_orgs[port].fundref is 'string' then [_processing_orgs[port].fundref] else _processing_orgs[port].fundref)
-                  if f.DOI.includes potfr # crossref funder DOIs have also been seen to have errors prefixing
-                    f.country = _processing_orgs[port].country_code
-                    break
-              if not f.country and f.name  # some crossref records have funder objects that are empty or do not have name
-                flc = f.name.toLowerCase().replace /[^a-z ]/g, ''
-                if flc.includes(port) or port.includes(flc) or (_processing_orgs[port].aliases ? []).join('').toLowerCase().replace(/[^a-z ]/g, '').includes(flc) or (_processing_orgs[port].acronyms ? '').toLowerCase().includes flc
-                  f.country = _processing_orgs[port].country_code
-                if not f.country and _processing_orgs[port].acronyms
-                  for poac in _processing_orgs[port].acronyms.split ','
-                    f.country = _processing_orgs[port].country_code if poac.replace(/[^a-z A-Z]/g, '') in f.name.split ' '
-                if not f.country and _processing_orgs[port].aliases
-                  for poaa in _processing_orgs[port].aliases
-                    f.country = _processing_orgs[port].country_code if flc.includes poaa.toLowerCase().replace /[^a-z ]/g, ''
+    everything = true if rec.supplements.length
     
     if rec.DOI or rec.PMCID
       if epmc ?= (if rec.PMCID then await @src.epmc.pmc(rec.PMCID, refresh) else await @src.epmc.doi rec.DOI, refresh)
@@ -829,9 +780,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
     if epmc?
       rec.has_epmc_fulltext = epmc.inEPMC is 'Y'
       delete rec.epmc_licence
-      delete rec.tried_epmc_licence
       if rec.has_epmc_fulltext
-        rec.tried_epmc_licence = true
         lic = await @src.epmc.licence rec.PMCID, epmc, undefined, refresh
         rec.epmc_licence = lic?.licence
       rec.data_availability_statement = await @src.epmc.statement rec.PMCID, epmc, refresh
@@ -1074,17 +1023,6 @@ P.report.works.load._bg = true
 P.report.works.load._async = true
 P.report.works.load._auth = '@oa.works'
 
-
-
-P.report.works.changes = (timestamp, org) ->
-  timestamp ?= @params.changes ? @params.timestamp ? Date.now() - 90000000
-  org ?= @params.org
-  @report.works.load timestamp, org # start from timestamp a little more than a day ago, by default
-  return true
-P.report.works.changes._log = false
-P.report.works.changes._bg = true
-P.report.works.changes._async = true
-P.report.works.changes._auth = '@oa.works'
 
 
 P.report.works.queries = (orgs) ->

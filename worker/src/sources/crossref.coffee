@@ -136,52 +136,6 @@ P.src.crossref.works.search = (qrystr, from, size, filter, start, end, sort, ord
   catch
     return
 
-P.src.crossref.journals = _index: true, _prefix: false
-P.src.crossref.journals.load = () ->
-  await @src.crossref.journals ''
-  counter = 0
-  total = 0
-  batch = []
-  cursor = '*'
-  while cursor and (counter is 0 or counter < total)
-    url = 'https://api.crossref.org/journals?cursor=' + cursor + '&rows=' + 1000
-    res = await @fetch url, {rate: ['crossrefFilter', 3], headers: {'User-Agent': (@S.name ? 'OA.Works') + '; mailto:' + (@S.mail?.to ? 'sysadmin@oa.works')}} #, 'Crossref-Plus-API-Token': 'Bearer ' + @S.crossref}}
-    total = res.message['total-results'] if total is 0
-    cursor = res.message['next-cursor']
-    for rec in res.message.items
-      rec.ISSN ?= []
-      rec.issn = []
-      for i in rec.ISSN
-        rec.issn.push(i) if typeof i is 'string' and i.length and i not in rec.issn
-      rec.dois = rec.counts?['total-dois']
-      if rec.breakdowns?['dois-by-issued-year']?
-        rec.years = []
-        for yr in rec.breakdowns['dois-by-issued-year']
-          rec.years.push(yr[0]) if yr.length is 2 and yr[0] not in rec.years
-        rec.years.sort()
-      if not rec.years? or not rec.years.length or not rec.dois
-        rec.discontinued = true
-      else
-        thisyear = new Date().getFullYear()
-        if thisyear not in rec.years and (thisyear-1) not in rec.years and (thisyear-2) not in rec.years and (thisyear-3) not in rec.years
-          rec.discontinued = true
-      batch.push rec
-    counter += 1000
-    if batch.length >= 10000
-      await @src.crossref.journals batch
-      batch = []
-  if batch.length
-    await @src.crossref.journals batch
-    batch = []
-  console.log counter
-  return counter
-
-P.src.crossref.journals.load._bg = true
-P.src.crossref.journals.load._async = true
-P.src.crossref.journals.load._auth = 'root'
-
-
-
 
 
 P.src.crossref.changes = (startday, endday, created) ->
@@ -265,90 +219,8 @@ P.src.crossref.changes = (startday, endday, created) ->
 P.src.crossref.changes._bg = true
 P.src.crossref.changes._async = true
 P.src.crossref.changes._log = false
-P.src.crossref.changes._auth = 'root'
+P.src.crossref.changes._auth = '@oa.works'
 P.src.crossref.changes._notify = false
-
-
-
-P.src.crossref.plus = {}
-P.src.crossref.plus.load = ->
-  # we now have metadata plus: 
-  # https://www.crossref.org/documentation/metadata-plus/metadata-plus-snapshots/
-  # export CRTOKEN='<insert-your-token-here>'
-  # curl -o "all.json.tar.gz" --progress-bar -L -X GET  https://api.crossref.org/snapshots/monthly/latest/all.json.tar.gz -H "Crossref-Plus-API-Token: Bearer ${CRTOKEN}"
-  # and there may be issues downloading, at least FAQ seems to indicate some people may have. If so, redo above command to continue where failed with added -C - 
-
-  started = await @epoch()
-  last = 0
-
-  if @params.clear
-    await @src.crossref.works ''
-    await @src.crossref.works.mapping _crossref_mapping
-  else
-    try last = (await @src.crossref.works 'srcfile:*', size: 1, sort: srcfile: 'desc').srcfile
-
-  fn = @S.directory + '/import/crossref/all.json.tar.gz'
-  try
-    stats = await fs.stat fn # check if file exists in async fs promises which does not have .exists
-  catch
-    console.log 'crossref downloading snapshot'
-    hds = {}
-    hds['Crossref-Plus-API-Token'] = 'Bearer ' + @S.crossref # NOTE we no longer have a token for this
-    resp = await fetch 'https://api.crossref.org/snapshots/monthly/latest/all.json.tar.gz', headers: hds
-    wstr = fs.createWriteStream fn
-    await new Promise (resolve, reject) =>
-      resp.body.pipe wstr
-      resp.body.on 'error', reject
-      wstr.on 'finish', resolve
-    console.log 'snapshot downloaded'
-
-  total = 0
-  srcfile = 0
-  lines = ''
-  complete = false
-
-  strm = fs.createReadStream(fn).pipe zlib.createGunzip()
-  prevline = ''
-  strm.on 'data', (chunk) =>
-    line = chunk.toString 'utf8'
-    lines += line
-    if (prevline + line).includes '\n  "items" : [' # just a shorter space to check than all of lines, and use prevline just in case the inclusion criteria straddled a chunk
-      while lines.includes '\n  "items" : ['
-        [lp, lines] = lines.replace('\n  "items" : [', 'X0X0X0X0X0X0X0X0X0X0X0').split('X0X0X0X0X0X0X0X0X0X0X0') # cheap split on first occurrence
-        if lp.includes '\n  } ]'
-          lps = lp.split('\n  } ]')
-          scf = parseInt lps.pop().split('.json')[0].replace(/[^0-9]/g, '')
-          if srcfile < last
-            console.log 'crossref plus load waiting for file', srcfile, last
-          else
-            recs = []
-            for rec in rp = JSON.parse '[' + lps.join(']') + '}]'
-              rec = await @src.crossref.works._format rec
-              if rec?.DOI
-                rec.srcfile = srcfile
-                recs.push rec
-            console.log 'crossref plus load', rp.length, recs.length
-            total += recs.length
-            await @src.crossref.works(recs) if recs.length
-
-          srcfile = scf
-    prevline = line
-
-  strm.on 'error', (err) => console.log 'crossref plus load file stream error', JSON.stringify err
-  strm.on 'end', () =>
-    console.log 'stream complete for crossref plus load'
-    complete = true
-  while not complete
-    console.log 'crossref plus load streaming file', lines.length, srcfile, total, Math.floor((Date.now()-started)/1000/60) + 'm'
-    await @sleep 30000
-  ended = Date.now()
-  console.log 'crossref plus load complete', srcfile, total, started, ended, Math.floor((ended-started)/1000/60) + 'm'
-  return total
-
-P.src.crossref.plus.load._log = false
-P.src.crossref.plus.load._bg = true
-P.src.crossref.plus.load._async = true
-#P.src.crossref.plus.load._auth = 'root'
 
 
 

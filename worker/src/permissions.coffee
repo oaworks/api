@@ -212,9 +212,6 @@ P.permissions = (meta, ror, getmeta, oadoi, crossref, best) -> # oadoi and cross
       altoa.licence = dl.type if not altoa.licence or altoa.licence.length < dl.type.length # altoa.licence.length > dl.type.length # reversed April 2025 https://github.com/oaworks/discussion/issues/3267
       altoa.licences ?= []
       altoa.licences.push type: dl.type
-    if not altoa.licence? and crj = await @src.crossref.journals 'ISSN.keyword:"' + issns.join('" OR ISSN.keyword:"') + '"', 1
-      for ll in (crj.license ? [])
-        altoa.licence = ll.type if not altoa.licence or altoa.licence.length < ll.type.length # altoa.licence.length > ll.type.length
     if typeof altoa.licence is 'string'
       altoa.licence = altoa.licence.toLowerCase().trim()
       if altoa.licence.startsWith 'cc'
@@ -418,32 +415,9 @@ P.permissions.journals.transformative.load = () ->
   return batch.length
 P.permissions.journals.transformative.load._bg = true
 P.permissions.journals.transformative.load._async = true
-P.permissions.journals.transformative.load._auth = 'root'
+P.permissions.journals.transformative.load._auth = '@oa.works'
 
-P.permissions.journals.oa = (issn, oadoi) ->
-  # NOTE it is still to be decided what licence is acceptable to be counted as OA on the crossref index. For now it's anything CC, including NC
-  try issn ?= @params.journals ? @params.journal ? @params.issn ? @params.oa
-  ret = {}
-  if issn
-    ret.articles = await @src.crossref.works.count 'type:"journal-article" AND ISSN:"' + issn + '"'
-    ret.open = await @src.crossref.works.count 'type:"journal-article" AND ISSN:"' + issn + '" AND is_oa:true' # could add AND NOT licence:nc
-    if ret.articles is ret.open
-      ret.oa = true
-    if jr = await @src.doaj.journals 'bibjson.pissn:"' + issn + '" OR bibjson.eissn:"' + issn + '"', 1
-      ret.open = ret.articles
-      ret.doaj = true
-      ret.oa = true
-    if ex = await @permissions.journals.example issn
-      oadoi ?= await @src.oadoi.doi ex
-      if oadoi?
-        delete ret.oa
-        ret.open = ret.articles
-        ret.oadoi = true
-        ret.oa = oadoi?.best_oa_location?.license and oadoi.best_oa_location.license.includes 'cc' # oadoi.journal_is_oa
-      else
-        ret.oa = false
-  return ret
-P.permissions.journals.oa._log = false
+P.permissions.journals.oa = {}
 
 P.permissions.journals.oa.type = (issns, doajrnl, oadoi, crossref) ->
   issns ?= oadoi?.journal_issns ? crossref?.ISSN ? @params.journals ? @params.journal ? @params.type ? @params.issn ? @params.issns
@@ -479,15 +453,7 @@ P.permissions.journals.oa.type = (issns, doajrnl, oadoi, crossref) ->
 P.permissions.journals.oa.type._log = false
 
 P.permissions.publishers.oa = (publisher) ->
-  ret = publisher: (publisher ? @params.publisher ? @params.oa).replace /&/g, ''
-  if not await @src.crossref.journals 'publisher:"' + ret.publisher + '"', 1
-    if fz = await @src.crossref.journals 'publisher:"' + ret.publisher.split(' ').join('" AND publisher:"') + '"', 1
-      if fz.publisher.toLowerCase() isnt ret.publisher.toLowerCase()
-        lvs = await @levenshtein fz.publisher, ret.publisher
-        ret.publisher = fz.publisher if lvs.distance < 5 or (if lvs.length.a > lvs.length.b then lvs.length.a else lvs.length.b)/lvs.distance > 10
-    else
-      ret.journals = 0
-  ret.journals ?= await @src.crossref.journals.count 'publisher:"' + ret.publisher + '" AND NOT discontinued:true'
+  ret = journals: 0, publisher: (publisher ? @params.publisher ? @params.oa).replace /&/g, ''
   ret.open = await @src.doaj.journals.count 'publisher:"' + ret.publisher + '" AND NOT bibjson.discontinued_date:* AND NOT bibjson.is_replaced_by:*'
   ret.percent = if ret.journals then Math.ceil((ret.open / ret.journals) * 100) else if ret.open then 100 else 0
   ret.oa = (not ret.journals and ret.open) or (ret.journals and ret.journals is ret.open)

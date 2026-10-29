@@ -341,24 +341,6 @@ P.index.range = (route, key, qry) -> return @index.min route, key, qry, 'range'
 P.index.sum = (route, key, qry) -> return @index.min route, key, qry, 'sum'
 P.index.average = (route, key, qry) -> return @index.min route, key, qry, 'average'
 
-# can be used to put new fields into a mapping such as:
-'''{
-  "properties": {
-    "assertion": {
-      "properties": {
-        "label": {
-          "type": "text",
-          "fields": {
-            "keyword": {
-              "type": "keyword",
-              "ignore_above": 256
-            }
-          }
-        }
-      }
-    }
-  }
-}'''
 P.index.mapping = (route, map) ->
   route = route.replace /^\//, '' # remove any leading /
   route = route + '/' if route.indexOf('/') is -1
@@ -755,7 +737,7 @@ P.index._send = (route, data, method, prefix, alias, url) ->
   if method is 'DELETE' and not route.includes('_doc') and not route.includes '_search/scroll' # only allow delete by ID, not by query, to avoid accidental mass deletes. _search/scroll is allowed because that's how we do deletes by query, but it requires a scroll ID which should make it safe enough
     console.log data
     console.log typeof data
-    if methodexplicit or route in ['report_orgs', 'report_emails', 'report_suggestables', 'src_pubmed_availabilities', 'permissions_journals', 'permissions_publishers', 'permissions_affiliations']
+    if methodexplicit or route in ['src_ror', 'src_openalex_sources', 'report_orgs', 'report_suggestables', 'src_doaj_journals', 'permissions_journals', 'permissions_journals_transformative', 'permissions_publishers', 'permissions_affiliations']
       console.log 'ALLOWING DELETE BY EXPLICIT METHOD OR ALLOW LISTED ROUTE'
       console.log route
     else

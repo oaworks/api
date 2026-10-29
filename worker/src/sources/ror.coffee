@@ -94,5 +94,5 @@ P.src.ror.load = (refresh) ->
 
 P.src.ror.load._bg = true
 P.src.ror.load._async = true
-P.src.ror.load._auth = 'root'
+P.src.ror.load._auth = '@oa.works'
 

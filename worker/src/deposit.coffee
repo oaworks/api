@@ -39,11 +39,6 @@ P.deposit = (params, file, dev) ->
 
   uc = params.config # should exist but may not
   uc = JSON.parse(params.config) if typeof params.config is 'string'
-  if not params.config and params.from
-    try
-      uc = await @fetch 'https://' + (if dev then 'dev.' else '') + 'api.cottagelabs.com/service/oab/deposit/config?uid=' + params.from
-      uc.owner = @S.log.logs if @S.log?.logs and uc.owner is 'mark+instantilldemo@cottagelabs.com'
-      uc.email = @S.log.logs if @S.log?.logs and uc.email is 'mark+instantilldemo@cottagelabs.com'
 
   dep.permissions = params.permissions ? await @permissions params.metadata ? params.doi # SYP only works on DOI so far, so deposit only works if permissions can work, which requires a DOI if about a specific article
   if not params.redeposit
@@ -336,14 +331,8 @@ P.archivable = (file, url, confirmed, meta, permissions, dev) ->
   
       f.version = 'publishedVersion' if f.version_evidence.score > 0
       f.version = 'acceptedVersion' if f.version_evidence.score < 0
-      if f.version is 'unknown' and f.version_evidence.strings_checked > 0 #and f.format? and f.format isnt 'pdf'
+      if f.version is 'unknown' and f.version_evidence.strings_checked > 0
         f.version = 'acceptedVersion'
-  
-      try
-        ls = await @licence undefined, lowercontentsmall # check for licence info in the file content
-        if ls?.licence?
-          f.licence = ls.licence
-          f.licence_evidence = ls
   
       f.archivable = false
       if confirmed

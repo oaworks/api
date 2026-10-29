@@ -105,32 +105,3 @@ P.test = (sid, max) ->
     delete res.sheet.content
   return res
 
-P.tests = P.test
-
-
-'''
-P.test.export = ->
-  # https://docs.google.com/spreadsheets/d/1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8
-  sid = '1GQhgRCZ9ovfTN_wwKCvoAqf9QlO7ozcxScBgjEnpfl8/tests'
-  tests = await @src.google.sheets sid # json of all the tests in the sheet
-
-  f = fs.createWriteStream @S.static.folder + '/fixtures/tests_all_no_src_openai_grantid_no_archivable.jsonl'
-  counter = 0
-  for test in tests
-    # TODO allow param config of which groups to include / exclude
-    if not test.GROUP.includes('tg_/src/openai/grantid') and not test.GROUP.includes('tg_/archivable')
-      for k of test
-        if test[k] is '' or test[k] is null or test[k] is undefined
-          delete test[k]
-        else if test[k].startsWith('http') and test[k].includes('oa.works')
-          for d in ['https://bg.beta.oa.works', 'https://bg.api.oa.works', 'https://test.beta.oa.works', 'https://test.api.oa.works', 'https://beta.oa.works', 'https://api.oa.works']
-            test[k] = test[k].replace('http://', 'https://') # there were at least two instances of http:// to our domains where https:// would be expected anyway, then we want to convert to localhost, so just remove them first
-            test[k] = test[k].replace(d, 'http://localhost:4000')
-      f.write('\n') if counter isnt 0
-      f.write JSON.stringify test
-      counter++
-  f.end()
-
-  return counter
-P.test.export._auth = '@oa.works'
-'''

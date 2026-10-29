@@ -14,7 +14,7 @@ S.name ?= 'OA.Works' # this would also be used as the default name for the KV st
 S.kv ?= 'oaworks'
 S.version ?= '6.1.0' # the construct script will use this to overwrite any version in the worker and server package.json files
 # S.pass can be set to false if there is a bg URL but worker errors should NOT pass through on exception to it (otherwise they will by default)
-S.pass = ['docs', 'client', '.well-known'] # if this is a list of strings, any route starting with these will throw error and pass back to bg (this would happen anyway with no function defined for them, but this avoids unnecessary processing)
+S.pass = ['client', '.well-known'] # if this is a list of strings, any route starting with these will throw error and pass back to bg (this would happen anyway with no function defined for them, but this avoids unnecessary processing)
 S.dev ?= true
 try S.async = true if process.env.name and process.env.name.endsWith '_async' # optional setting defining a URL to an async worker to pass requests to
 try S.async_loop = true if process.env.name and process.env.name.endsWith '_loop' # additional setting defining a URL to pass async looped scheduled requests to
@@ -25,7 +25,6 @@ S.headers ?=
   'Access-Control-Allow-Headers': 'X-apikey, X-id, Origin, X-Requested-With, Content-Type, Content-Disposition, Accept, DNT, Keep-Alive, User-Agent, If-Modified-Since, Cache-Control'
   'Permissions-Policy': 'interest-cohort=()'
 S.formats ?= ['html', 'csv', 'json'] # formats to allow to check for
-S.svc ?= {}
 S.src ?= {}
 
 # check _auth, refuse if not appropriate
@@ -292,7 +291,7 @@ P = () ->
             pk = prs.shift()
             @fn += (if @fn is '' then '' else '.') + pk
             fn = a[k] if typeof a[k] is 'function' and not n.includes '._' # URL routes can't call _abc functions or ones under them
-          if typeof a[k] is 'function' and nd.replace('svc.','').replace('src.','').split('.').length is 1 #and ((not nd.startsWith('svc') and not nd.startsWith('src')) or nd.split('.').length < 3)
+          if typeof a[k] is 'function' and nd.replace('src.','').split('.').length is 1 #and ((not nd.startsWith('svc') and not nd.startsWith('src')) or nd.split('.').length < 3)
             @routes.push nd.replace /\./g, '/' # TODO this could check the auth method, and only show things the current user can access, and also search for description / comment? NOTE this is just about visibility, they're still accessible if given right auth (if any)
         _lp(p[k], a[k], nd, (auths ? p[k]._auths), (caches ? p[k]._caches)) if not Array.isArray(p[k]) and (not k.startsWith('_') or typeof a[k] is 'function') and k not in ['fn']
   _lp P, @, ''
@@ -802,7 +801,6 @@ P._wrapper = (f, n) -> # the function to wrap and the string name of the functio
 
     return res
 
-P.svc = {}
 P.src = {}
 
 

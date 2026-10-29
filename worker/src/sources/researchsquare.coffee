@@ -101,38 +101,3 @@ P.src.rs.changes._async = true
 P.src.rs.changes._auth = '@oa.works'
   
 
-P.src.rs.process = (doi) ->
-  # this is for processing a single record, for example if we get a notification of a new RS preprint and want to pull it in
-  doi ?= @params.process ? @params.doi
-  if doi
-    return @src.rs.retrieve undefined, undefined, doi
-  return ''
-
-
-P.src.rs.check = ->
-  res = rows: 0, checked: 0, failed: [], found: 0, not_found: [], dups: 0, ids: []
-  max = @params.max
-  for doi in dois = (await fs.readFile @S.static.folder + '/rscheck.csv', 'utf8').split '\n'
-    break if max and res.rows >= max
-    res.rows += 1
-    if doi
-      id = doi.replace('10.21203/', '').split('/v')[0].split('.').pop()
-      id = 'rs-' + id if id and not id.startsWith 'rs-'
-      doid = doi + '_(' + id + ')'
-      console.log(res.rows, doi, id) if max or res.rows % 50 is 0
-      if id
-        if doid in res.ids
-          res.dups += 1
-        else
-          res.ids.push doid
-        res.checked += 1
-        exists = false
-        if exists = await @src.rs 'identity.keyword:"' + id + '"'
-          console.log exists.identity, 'exists in report/rs'
-          res.found += 1
-        else
-          res.not_found.push '(' + res.rows + ')_' + doid
-          console.log doid, 'not found in report/rs'
-      else
-        res.failed.push '(' + res.rows + ')_' + doid
-  return res

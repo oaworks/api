@@ -24,8 +24,6 @@ fs.createReadStream = createReadStream # since using fs.promises, but there isn
 import { createWriteStream } from 'fs'
 fs.createWriteStream = createWriteStream
 
-import OpenAI from 'openai'
-
 server = http.createServer (req, res) ->
   #try console.log req.url
   try

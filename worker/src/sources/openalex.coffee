@@ -35,10 +35,6 @@ try S.src.openalex = JSON.parse SECRETS_OPENALEX
 
 P.src.openalex = -> return true
 
-P.src.openalex.rates = ->
-  return @fetch 'https://api.openalex.org/rate-limit?api_key=' + @S.src.openalex.apikey, {rate: ['openalex', 80]}
-
-
 P.src.openalex.works = _index: {settings: {number_of_shards: 15}}, _prefix: false
 
 P.src.openalex.works._format = (rec) ->
@@ -258,7 +254,7 @@ P.src.openalex.load = (what, changes, clear, sync, last, toalias) ->
 P.src.openalex.load._bg = true
 P.src.openalex.load._async = true
 P.src.openalex.load._log = false
-P.src.openalex.load._auth = 'root'
+P.src.openalex.load._auth = '@oa.works'
 
 P.src.openalex.changes = (what) ->
   started = await @epoch()
@@ -280,7 +276,7 @@ P.src.openalex.changes = (what) ->
 P.src.openalex.changes._log = false
 P.src.openalex.changes._bg = true
 P.src.openalex.changes._async = true
-P.src.openalex.changes._auth = 'root'
+P.src.openalex.changes._auth = '@oa.works'
 
 
 # https://docs.openalex.org/api-entities/sources/get-lists-of-sources
@@ -307,6 +303,7 @@ P.src.openalex.sources.load = ->
   return total
 P.src.openalex.sources.load._async = true
 P.src.openalex.sources.load._bg = true
+P.src.openalex.sources.load._auth = '@oa.works'
 
 
 
