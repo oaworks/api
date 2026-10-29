@@ -37,12 +37,11 @@ P.levenshtein = (a, b, lowercase) ->
       j++
     i++
 
-  return distance: r[ r.length - 1 ][ r[ r.length - 1 ].length - 1 ], length: {a:m, b:n} #, detail: r
+  return distance: r[ r.length - 1 ][ r[ r.length - 1 ].length - 1 ], length: {a:m, b:n}
 
 P.decode = (content) ->
   content ?= this?.params?.decode ? this?.params?.content ? this?.params?.text ? this?.body
   _decode = (content) ->
-    # https://stackoverflow.com/questions/44195322/a-plain-javascript-way-to-decode-html-entities-works-on-both-browsers-and-node
     translator = /&(nbsp|amp|quot|lt|gt);/g
     translate = "nbsp":" ", "amp" : "&", "quot": "\"", "lt"  : "<", "gt"  : ">"
     return content.replace(translator, ((match, entity) ->

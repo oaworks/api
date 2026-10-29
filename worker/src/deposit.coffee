@@ -6,9 +6,7 @@
 # NOTE to receive files should send to background server
 # cloudflare will limit file upload size (100mb by default, and enterprise plans required for more)
 
-P.deposits = _index: true, _auth: '@oa.works' # store a record of all deposits. This used to filter to only those for the logged in user, that should be changed to deposited endpoint
-
-#P.undep = -> return @deposits ''
+P.deposits = _index: true, _auth: '@oa.works'
 
 P.deposit = (params, file, dev) ->
   params ?= @copy @params
@@ -33,17 +31,11 @@ P.deposit = (params, file, dev) ->
   dep.confirmed = decodeURIComponent(params.confirmed) if params.confirmed
   dep.doi = params.doi ? params.metadata?.doi
 
-  #try params.metadata = await @metadata(params.doi) if not params.metadata? and params.doi
   try params.metadata = await @metadata_internal(params.doi) if not params.metadata? and params.doi
   dep.metadata = params.metadata
 
   uc = params.config # should exist but may not
   uc = JSON.parse(params.config) if typeof params.config is 'string'
-  if not params.config and params.from
-    try
-      uc = await @fetch 'https://' + (if dev then 'dev.' else '') + 'api.cottagelabs.com/service/oab/deposit/config?uid=' + params.from
-      uc.owner = @S.log.logs if @S.log?.logs and uc.owner is 'mark+instantilldemo@cottagelabs.com'
-      uc.email = @S.log.logs if @S.log?.logs and uc.email is 'mark+instantilldemo@cottagelabs.com'
 
   dep.permissions = params.permissions ? await @permissions params.metadata ? params.doi # SYP only works on DOI so far, so deposit only works if permissions can work, which requires a DOI if about a specific article
   if not params.redeposit
@@ -60,7 +52,6 @@ P.deposit = (params, file, dev) ->
     try file_checks.zn.name = zn.name
     try file_checks.zn.length = zn.content.length
     try file_checks.zn.publish = zn.publish
-    console.log file_checks
     creators = []
     for a in params.metadata?.author ? []
       if a.family?
@@ -106,7 +97,7 @@ P.deposit = (params, file, dev) ->
         ee = await @epoch dep.permissions.best_permission.embargo_end
         if ee > Date.now()
           meta['access_right'] = 'embargoed'
-          meta['embargo_date'] = dep.permissions.best_permission.embargo_end # check date format required by zenodo
+          meta['embargo_date'] = dep.permissions.best_permission.embargo_end
           dep.embargo = dep.permissions.best_permission.embargo_end
     try meta['publication_date'] = params.metadata.published if params.metadata.published? and typeof params.metadata.published is 'string'
 
@@ -146,7 +137,7 @@ P.deposit = (params, file, dev) ->
           dep.error = 'Deposit to Zenodo failed'
           try dep.error += ': ' + JSON.stringify z
           dep.type = 'review'
-        if z.id and dep.zenodo? and not dep.zenodo.file # we have intermittent problems with files just not appearing
+        if z.id and dep.zenodo? and not dep.zenodo.file # we have intermittent problems with files just not appearing - it's not us, it's them
           file_checks.succeeded = false
           dep.error = 'Deposit to Zenodo succeeded but file upload appears to have failed'
           dep.type = 'review'
@@ -312,7 +303,6 @@ P.archivable = (file, url, confirmed, meta, permissions, dev) ->
           rts = l['where to search']
           hts = l['how to search']
           ind = l['what it Indicates']
-          #console.log wts, rts, hts, ind
           try
             if wts.includes('<<') and wts.includes '>>'
               wtm = wts.split('<<')[1].split('>>')[0]
@@ -336,14 +326,8 @@ P.archivable = (file, url, confirmed, meta, permissions, dev) ->
   
       f.version = 'publishedVersion' if f.version_evidence.score > 0
       f.version = 'acceptedVersion' if f.version_evidence.score < 0
-      if f.version is 'unknown' and f.version_evidence.strings_checked > 0 #and f.format? and f.format isnt 'pdf'
+      if f.version is 'unknown' and f.version_evidence.strings_checked > 0
         f.version = 'acceptedVersion'
-  
-      try
-        ls = await @licence undefined, lowercontentsmall # check for licence info in the file content
-        if ls?.licence?
-          f.licence = ls.licence
-          f.licence_evidence = ls
   
       f.archivable = false
       if confirmed

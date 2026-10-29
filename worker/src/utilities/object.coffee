@@ -5,8 +5,7 @@ P.copy = (obj) ->
 
 P.copy._log = false
 
-P.dot = (o, k, v, d, ae) -> # ae will attempt to recurse into the last object element of an array rather than return undefined for failing to match a key on the list element
-  #console.log 'dot', o, k
+P.dot = (o, k, v, d, ae) ->
   if typeof k is 'string'
     return P.dot o, k.split('.'), v, d, ae
   else if k.length is 0
@@ -37,7 +36,7 @@ P.dot = (o, k, v, d, ae) -> # ae will attempt to recurse into the last object el
       else
         return undefined
     else
-      if ae and Array.isArray(o) and typeof k[0] isnt 'number' and isNaN(parseInt(k[0])) and o.length and typeof o[o.length-1] is 'object' # and not o[k[0]]? 
+      if ae and Array.isArray(o) and typeof k[0] isnt 'number' and isNaN(parseInt(k[0])) and o.length and typeof o[o.length-1] is 'object'
         o[o.length-1][k[0]] ?= {} if v?
         return P.dot o[o.length-1][k[0]], k.slice(1), v, d, ae
       else
@@ -45,7 +44,7 @@ P.dot = (o, k, v, d, ae) -> # ae will attempt to recurse into the last object el
 P.dot._log = false
 
 P.flatten = (obj, arrayed) ->
-  arrayed ?= @params.arrayed ? false # arrayed puts objects in arrays at keys like author.0.name Whereas not arrayed shoves them all in one author.name (which means some that don't have the value could cause position mismatch in lists)
+  arrayed ?= @params.arrayed ? false
   if not obj?
     obj = @params
     delete obj.arrayed
@@ -73,8 +72,6 @@ P.flatten = (obj, arrayed) ->
             res[pk] ?= [] #''
             res[pk] = [res[pk]] if not Array.isArray res[pk]
             res[pk].push(av) for av in v
-            #res[pk] += (if res[pk] then ', ' else '') + v.join ', '
-            #res[pk] = v.join ', '
         else
           await _flatten v, pk
   if Array.isArray obj
@@ -87,12 +84,6 @@ P.flatten = (obj, arrayed) ->
   else
     await _flatten obj
     return res
-
-#P.flatest = () ->
-#  res = original: await @src.openalex.works 'doi.keyword:"https://doi.org/10.1016/j.mee.2015.04.018"', 1 #@src.crossref.works '10.1016/j.mee.2015.04.018' #@report.works '10.1016/j.socnet.2021.02.007'
-#  res.flat = await @flatten res.original
-#  res.arrayed = await @flatten res.original, true
-#  return [res.arrayed]
 
 P.keys = (obj) ->
   try obj ?= @params

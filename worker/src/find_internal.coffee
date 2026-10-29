@@ -2,7 +2,6 @@
 # the only things find does that could be required separately is it provides a URL to the article, which is actually extracted in @citation
 # so if dropping find altogether, just use @citation to get the URL e.g. in calls to permissions that may also need it such as for shareyourpaper
 # find will also operate without a DOI whereas shareyourpaper and permissions didn't - they could be changed to allow that, or just restrict some of what find used to do
-# find will also give info of any open ILLs
 
 P.metadata_internal = (doi) ->
   res = await @find_internal doi # may not be a DOI, but most likely thing
@@ -50,23 +49,7 @@ P.find_internal = (options, metadata={}, content) ->
     if options.url.replace('doi:','').replace('doi.org/','').trim().startsWith '10.'
       metadata.doi ?= options.url.replace('doi:','').replace('doi.org/','').trim()
       options.url = 'https://doi.org/' + metadata.doi
-    else if options.url.toLowerCase().startsWith 'pmc'
-      metadata.pmcid ?= options.url.toLowerCase().replace('pmcid','').replace('pmc','')
-      options.url = 'http://europepmc.org/articles/PMC' + metadata.pmcid
-    else if options.url.replace(/pmid/i,'').replace(':','').length < 10 and options.url.includes('.') and not isNaN(parseInt(options.url.replace(/pmid/i,'').replace(':','').trim()))
-      metadata.pmid ?= options.url.replace(/pmid/i,'').replace(':','').trim()
-      options.url = 'https://www.ncbi.nlm.nih.gov/pubmed/' + metadata.pmid
-    else if not metadata.title? and not options.url.startsWith 'http'
-      if options.url.includes('{') or (options.url.replace('...','').match(/\./gi) ? []).length > 3 or (options.url.match(/\(/gi) ? []).length > 2
-        options.citation = options.url
-      else
-        metadata.title = options.url
     delete options.url if not options.url.startsWith('http') or not options.url.includes '.'
-  if typeof options.title is 'string' and (options.title.includes('{') or (options.title.replace('...','').match(/\./gi) ? []).length > 3 or (options.title.match(/\(/gi) ? []).length > 2)
-    options.citation = options.title # titles that look like citations
-    try options.doi = '10.' + options.title.split('10.')[1].split(' ')[0].trim() if options.title.includes('10.') and options.title.includes '/'
-    delete options.doi if options.doi.length < 8 or not options.doi.includes '/'
-    delete options.title
 
   options.doi = await @decode(options.doi) if options.doi
   metadata.doi ?= options.doi
@@ -82,35 +65,23 @@ P.find_internal = (options, metadata={}, content) ->
   # switch exlibris URLs for titles, which the scraper knows how to extract, because the exlibris url would always be the same
   delete options.url if not metadata.title and content and typeof options.url is 'string' and (options.url.includes('alma.exlibrisgroup.com') or options.url.includes '/exlibristest')
 
-  # set a demo tag in certain cases e.g. for instantill/shareyourpaper/other demos - dev and live demo accounts
+  # set a demo tag in certain cases e.g. for shareyourpaper/other demos - dev and live demo accounts
   res.demo = options.demo if options.demo?
-  res.demo ?= true if (metadata.doi is '10.1234/567890' or (metadata.doi? and metadata.doi.startsWith '10.1234/oab-syp-')) or metadata.title is 'Engineering a Powerfully Simple Interlibrary Loan Experience with InstantILL' or options.from in ['qZooaHWRz9NLFNcgR','eZwJ83xp3oZDaec86']
+  res.demo ?= true if (metadata.doi is '10.1234/567890' or (metadata.doi? and metadata.doi.startsWith '10.1234/oab-syp-')) or options.from in ['qZooaHWRz9NLFNcgR','eZwJ83xp3oZDaec86']
   res.test ?= true if res.demo # don't save things coming from the demo accounts into the catalogue later
 
   epmc = false
 
-  if not metadata.doi
-    if metadata.pmid or metadata.pmcid
-      epmc = await @src.epmc[if metadata.pmcid then 'pmc' else 'pmid'] (metadata.pmcid ? metadata.pmid)
-      await _metadata epmc
-
-  await _metadata(openalex) if metadata.doi and openalex = await @src.openalex.works.doi metadata.doi # run this even if ran openalex title search above, because may since have gotten DOI and could get better
-  res.doi_not_in_openalex = true if metadata.doi and not openalex?.type_crossref and 'crossref' not in (openalex?.indexed_in ? []) #and openalex?.type not in ['article']
+  await _metadata(openalex) if metadata.doi and openalex = await @src.openalex.works.doi metadata.doi
+  res.doi_not_in_openalex = true if metadata.doi and not openalex?.type_crossref and 'crossref' not in (openalex?.indexed_in ? [])
 
   # temporary until publishers in permissions are re-keyed to match openalex publisher names (which differ from crossref which is what we originally keyed them to)
   # https://github.com/oaworks/discussion/issues/3192#issuecomment-2314515904
   if metadata.doi and cr = await @src.crossref.works.doi metadata.doi # metadata.publisher and 
     metadata.publisher = cr.publisher if cr.publisher
 
-  _ill = () =>
-    if (metadata.doi or (metadata.title and metadata.title.length > 8 and metadata.title.split(' ').length > 1)) and (options.from or options.config?) and (options.plugin is 'instantill' or options.ill is true)
-      try res.ill ?= subscription: await @ill_internal.subscription (options.config ? options.from), metadata
-    return true
-  _permissions = () =>
-    if metadata.doi and (options.permissions or options.plugin is 'shareyourpaper')
-      res.permissions ?= await @permissions metadata, options.config?.ror, false
-    return true
-  await Promise.all [_ill(), _permissions()]
+  if metadata.doi and (options.permissions or options.plugin is 'shareyourpaper')
+    res.permissions ?= await @permissions metadata, options.config?.ror, false
 
   # temporary 
   try
@@ -131,14 +102,7 @@ P.find_internal = (options, metadata={}, content) ->
 
 
 
-# Yi-Jeng Chen. (2016). Young Children's Collaboration on the Computer with Friends and Acquaintances. Journal of Educational Technology & Society, 19(1), 158-170. Retrieved November 19, 2020, from http://www.jstor.org/stable/jeductechsoci.19.1.158
-# Baker, T. S., Eisenberg, D., & Eiserling, F. (1977). Ribulose Bisphosphate Carboxylase: A Two-Layered, Square-Shaped Molecule of Symmetry 422. Science, 196(4287), 293-295. doi:10.1126/science.196.4287.293
-P.citation_internal = (citation) ->  
-  try citation ?= @params.citation_internal ? @params
-  if typeof citation is 'string'
-    try citation = JSON.parse(citation) if citation.startsWith('{') or citation.startsWith '['
-    citation = await @src.openalex.works.doi(citation) if citation.startsWith '10.'
-
+P.citation_internal = (citation) ->
   res = {}
   if typeof citation is 'object' # can be crossref, oadoi, openalex, epmc format
     for id in ['doi', 'pmid', 'pmcid']
@@ -254,141 +218,10 @@ P.citation_internal = (citation) ->
     if typeof res.licence is 'string' and res.licence.includes '/licenses/'
       res.licence = 'cc-' + res.licence.split('/licenses/')[1].replace(/$\//,'').replace(/\//g, '-').replace(/-$/, '')
 
-    # if there is a URL to use but not open, store it as res.paywall?
     res.url ?= citation.best_oa_location?.pdf_url ? citation.best_oa_location?.url_for_pdf ? citation.best_oa_location?.url ? citation.best_oa_location?.landing_page_url #? citation.url # is this always an open URL? check the sources, and check where else the open URL could be. Should it be blacklist checked and dereferenced?
     if not res.url and citation.fullTextUrlList?.fullTextUrl? # epmc fulltexts
       for cf in citation.fullTextUrlList.fullTextUrl
         res.url = cf.url if cf.availabilityCode.toLowerCase() in ['oa','f'] and (not res.url or (cf.documentStyle is 'pdf' and not res.url.includes 'pdf'))
-
-  else if typeof citation is 'string' # worth keeping citiation string extraction? Don't think it's used anywhere any more
-    try
-      citation = citation.replace(/citation\:/gi,'').trim()
-      citation = citation.split('title')[1].trim() if citation.includes 'title'
-      citation = citation.replace(/^"/,'').replace(/^'/,'').replace(/"$/,'').replace(/'$/,'')
-      res.doi = citation.split('doi:')[1].split(',')[0].split(' ')[0].trim() if citation.includes 'doi:'
-      res.doi = citation.split('doi.org/')[1].split(',')[0].split(' ')[0].trim() if citation.includes  'doi.org/'
-      if not res.doi and citation.includes 'http'
-        res.url = 'http' + citation.split('http')[1].split(' ')[0].trim()
-      try
-        if citation.includes('|') or citation.includes '}'
-          res.title = citation.split('|')[0].split('}')[0].trim()
-        if citation.split('"').length > 2
-          res.title = citation.split('"')[1].trim()
-        else if citation.split("'").length > 2
-          res.title ?= citation.split("'")[1].trim()
-      try
-        pts = citation.replace(/,\./g,' ').split ' '
-        for pt in pts
-          if not res.year
-            pt = pt.replace /[^0-9]/g,''
-            if pt.length is 4
-              sy = parseInt pt
-              res.year = sy if typeof sy is 'number' and not isNaN sy
-      try
-        if not res.title and res.year and citation.indexOf(res.year) < (citation.length/4)
-          res.title = citation.split(res.year)[1].trim()
-          res.title = res.title.replace(')','') if not res.title.includes('(') or res.title.indexOf(')') < res.title.indexOf('(')
-          res.title = res.title.replace('.','') if res.title.indexOf('.') < 3
-          res.title = res.title.replace(',','') if res.title.indexOf(',') < 3
-          res.title = res.title.trim()
-          if res.title.includes '.'
-            res.title = res.title.split('.')[0]
-          else if res.title.includes ','
-            res.title = res.title.split(',')[0]
-      if res.title
-        try
-          bt = citation.split(res.title)[0]
-          bt = bt.split(res.year)[0] if res.year and bt.includes res.year
-          bt = bt.split(res.url)[0] if res.url and bt.indexOf(res.url) > 0
-          bt = bt.replace(res.url) if res.url and bt.startsWith res.url
-          bt = bt.replace(res.doi) if res.doi and bt.startsWith res.doi
-          bt = bt.replace('.','') if bt.indexOf('.') < 3
-          bt = bt.replace(',','') if bt.indexOf(',') < 3
-          bt = bt.substring(0,bt.lastIndexOf('(')) if bt.lastIndexOf('(') > (bt.length-3)
-          bt = bt.substring(0,bt.lastIndexOf(')')) if bt.lastIndexOf(')') > (bt.length-3)
-          bt = bt.substring(0,bt.lastIndexOf(',')) if bt.lastIndexOf(',') > (bt.length-3)
-          bt = bt.substring(0,bt.lastIndexOf('.')) if bt.lastIndexOf('.') > (bt.length-3)
-          bt = bt.trim()
-          if bt.length > 6
-            if bt.includes ','
-              res.author = []
-              res.author.push({name: ak}) for ak in bt.split(',')
-            else
-              res.author = [{name: bt}]
-        try
-          rmn = citation.split(res.title)[1]
-          rmn = rmn.replace(res.url) if res.url and rmn.includes res.url
-          rmn = rmn.replace(res.doi) if res.doi and rmn.includes res.doi
-          rmn = rmn.replace('.','') if rmn.indexOf('.') < 3
-          rmn = rmn.replace(',','') if rmn.indexOf(',') < 3
-          rmn = rmn.trim()
-          if rmn.length > 6
-            res.journal = rmn
-            res.journal = res.journal.split(',')[0].replace(/in /gi,'').trim() if rmn.includes ','
-            res.journal = res.journal.replace('.','') if res.journal.indexOf('.') < 3
-            res.journal = res.journal.replace(',','') if res.journal.indexOf(',') < 3
-            res.journal = res.journal.trim()
-      try
-        if res.journal
-          rmn = citation.split(res.journal)[1]
-          rmn = rmn.replace(res.url) if res.url and rmn.includes res.url
-          rmn = rmn.replace(res.doi) if res.doi and rmn.includes res.doi
-          rmn = rmn.replace('.','') if rmn.indexOf('.') < 3
-          rmn = rmn.replace(',','') if rmn.indexOf(',') < 3
-          rmn = rmn.trim()
-          if rmn.length > 4
-            rmn = rmn.split('retrieved')[0] if rmn.includes 'retrieved'
-            rmn = rmn.split('Retrieved')[0] if rmn.includes 'Retrieved'
-            res.volume = rmn
-            if res.volume.includes '('
-              res.volume = res.volume.split('(')[0]
-              res.volume = res.volume.trim()
-              try
-                res.issue = rmn.split('(')[1].split(')')[0]
-                res.issue = res.issue.trim()
-            if res.volume.includes ','
-              res.volume = res.volume.split(',')[0]
-              res.volume = res.volume.trim()
-              try
-                res.issue = rmn.split(',')[1]
-                res.issue = res.issue.trim()
-            if res.volume
-              try
-                delete res.volume if isNaN parseInt res.volume
-            if res.issue
-              if res.issue.includes ','
-                res.issue = res.issue.split(',')[0].trim()
-              try
-                delete res.issue if isNaN parseInt res.issue
-            if res.volume and res.issue
-              try
-                rmn = citation.split(res.journal)[1]
-                rmn = rmn.split('retriev')[0] if rmn.includes 'retriev'
-                rmn = rmn.split('Retriev')[0] if rmn.includes 'Retriev'
-                rmn = rmn.split(res.url)[0] if res.url and rmn.includes res.url
-                rmn = rmn.split(res.doi)[0] if res.doi and rmn.includes res.doi
-                rmn = rmn.substring(rmn.indexOf(res.volume)+(res.volume+'').length)
-                rmn = rmn.substring(rmn.indexOf(res.issue)+(res.issue+'').length)
-                rmn = rmn.replace('.','') if rmn.indexOf('.') < 2
-                rmn = rmn.replace(',','') if rmn.indexOf(',') < 2
-                rmn = rmn.replace(')','') if rmn.indexOf(')') < 2
-                rmn = rmn.trim()
-                if not isNaN parseInt rmn.substring(0,1)
-                  res.pages = rmn.split(' ')[0].split('.')[0].trim()
-                  res.pages = res.pages.split(', ')[0] if res.pages.length > 5
-      if not res.author and citation.includes 'et al'
-        cn = citation.split('et al')[0].trim()
-        if citation.startsWith cn
-          res.author = [{name: cn + 'et al'}]
-      if res.title and not res.volume
-        try
-          clc = citation.split(res.title)[1].toLowerCase().replace('volume','vol').replace('vol.','vol').replace('issue','iss').replace('iss.','iss').replace('pages','page').replace('pp','page')
-          if clc.includes 'vol'
-            res.volume = clc.split('vol')[1].split(',')[0].split('(')[0].split('.')[0].split(' ')[0].trim()
-          if not res.issue and clc.includes 'iss'
-            res.issue = clc.split('iss')[1].split(',')[0].split('.')[0].split(' ')[0].trim()
-          if not res.pages and clc.includes 'page'
-            res.pages = clc.split('page')[1].split('.')[0].split(', ')[0].split(' ')[0].trim()
 
   res.year = res.year.toString() if typeof res.year is 'number'
   return res

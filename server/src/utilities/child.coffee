@@ -2,7 +2,6 @@
 import { spawn } from 'child_process'
 
 P._child = (cmd, args=[], input, path, limit=100) ->
-  #try
   path = process.env.PWD + '/' if path is true
   path = process.env.PWD + '/' + path if typeof path is 'string' and not path.startsWith '/'
   path += '/' if typeof path is 'string' and not path.endsWith '/'
@@ -22,5 +21,3 @@ P._child = (cmd, args=[], input, path, limit=100) ->
 
   try res = JSON.parse res
   return res
-  #catch
-  #  return ''

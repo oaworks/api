@@ -24,7 +24,7 @@ P.convert.json2csv = (recs, params) ->
       if params.es isnt false and (rec._source or rec.fields)
         rs = rec._source ? rec.fields
         rc = {}
-        for nk of rs # could add controls to alter the order here, or customise key names
+        for nk of rs
           rc[nk] ?= rs[nk]
         rec = rc
       if params.flatten
@@ -41,8 +41,7 @@ P.convert.json2csv = (recs, params) ->
           try rec[h] = rec[h][0] if Array.isArray(rec[h]) and rec[h].length is 1 and Array.isArray rec[h][0]
           try rec[h] = rec[h].join(',') if Array.isArray(rec[h]) and rec[h].length and typeof rec[h][0] isnt 'object'
           try rec[h] = JSON.stringify(rec[h]) if typeof rec[h] is 'object'
-          try rec[h] = rec[h].replace(/"/g, quote + quote) if quote is '"' and rec[h].indexOf(quote) isnt -1 # escape quotes with another quote
-          #try rec[h] = rec[h].replace /,,/g, separator # TODO change this for a regex of the separator
+          try rec[h] = rec[h].replace(/"/g, quote + quote) if quote is '"' and rec[h].indexOf(quote) isnt -1
           try rec[h] = rec[h].replace /\n/g, ' '
           try rec[h] = rec[h].replace /\s\s/g, ' '
           try records += rec[h]
@@ -62,7 +61,6 @@ P.convert.csv2json = (csv, params) ->
     lines = csv.split newline
     if lines.length
       headers = lines.shift().split quote + separator
-      # TODO add handling for flattened object headers eg metadata.author.0.name via a utility for it
       pl = ''
       for line in lines
         pl += (if pl then newline else '') + line
@@ -90,7 +88,7 @@ P.convert.csv2html = (csv, params) ->
   quote = '"'
   separator = ','
   newline = '\n'
-  csv = csv.replace /,,/g, separator + quote + quote + separator # TODO change this for a regex of the separator
+  csv = csv.replace /,,/g, separator + quote + quote + separator
   res = '<style>table.paradigm tr:nth-child(even) {background: #eee}\
 table.paradigm tr:nth-child(odd) {background: #fff}</style>\n'
   res += '<table class="paradigm" style="border-collapse: collapse;">\n'
@@ -109,7 +107,7 @@ table.paradigm tr:nth-child(odd) {background: #fff}</style>\n'
         line = line.replace(',"",', ',"XXX_EMPTY_XXX",') while line.indexOf(',"",') isnt -1
         line = line.replace('"",','"XXX_EMPTY_XXX",') while line.startsWith '"",'
         line = line.slice(0,line.length-3) while line.endsWith ',""'
-        line = line.replace /""/g, 'XXX_QUOTER_GOES_HERE_XXX' # TODO change this for a regex of whatever the quote char is
+        line = line.replace /""/g, 'XXX_QUOTER_GOES_HERE_XXX'
         vn = 0
         for v in line.split quote + separator + quote
           vn += 1
@@ -121,8 +119,8 @@ table.paradigm tr:nth-child(odd) {background: #fff}</style>\n'
               res += await @convert.json2html JSON.parse v.replace /XXX_QUOTER_GOES_HERE_XXX/g, quote
               res += '</div>'
             else
-              res += v.replace /XXX_QUOTER_GOES_HERE_XXX/g, quote # .replace(/\</g, '&lt;').replace(/\>/g, '&gt;')
-          res += '</td>' # add a regex replace of the separator, avoiding escaped instances
+              res += v.replace /XXX_QUOTER_GOES_HERE_XXX/g, quote
+          res += '</td>'
         while vn < ln
           res += '<td style="padding:2px; border:1px solid #ccc;vertical-align:text-top;"></td>'
           vn += 1
@@ -139,7 +137,7 @@ P.convert.json2html = (recs, params) ->
     params.edit ?= true
     recs = {}
     for key in await @index.keys @route.replace /\//g, '_'
-      recs[key] = '' # could also get mapping types from here, and need to handle nesting eventually
+      recs[key] = ''
   if params.subset and not Array.isArray recs
     parts = params.subset.split '.'
     while part = parts.shift()
@@ -161,12 +159,9 @@ P.convert.json2html = (recs, params) ->
       res += '<h3>' + params.subset + ':</h3>'
       res += '<input type="hidden" id="options_subset" value="' + params.subset + '">'
     _draw = (rec) =>
-      if params.edit # just for rscvd demo for now
-        rec.comments ?= ''
       if params.keys
         rec[pk] ?= '' for pk in params.keys
       for k of rec
-        # for example crossref date-parts are an array in an array, pretty useless, so dump the external array
         try rec[k] = rec[k][0] if Array.isArray(rec[k]) and rec[k].length is 1 and Array.isArray rec[k][0]
         if rec[k]? and (not Array.isArray(rec[k]) or rec[k].length) and (not params.keys or k in params.keys)
           res += '<div style="clear:both; ' + (if not params.edit then 'border:1px solid #ccc; ' else '') + 'margin:-1px 0px;"><div style="float:left;width: 150px; overflow: scroll;"><b><p>' + k + '</p></b></div>'
@@ -195,76 +190,4 @@ P.convert.json2html = (recs, params) ->
     res += '</div>'
     return res
 
-P.convert.json2txt = (content) ->
-  content ?= @body ? @params
-  content = await @fetch(@params.url) if @params.url
-  strings = []
-  _extract = (content) ->
-    if Array.isArray content
-      await _extract(c) for c in content
-    else if typeof content is 'object'
-      await _extract(content[c]) for c of content
-    else if content
-      strings.push content
-  await _extract content
-  return strings.join ' '
-
-P.convert.xml2json = (x) ->
-  # TODO parse from buffer (file on disk or stream from url)
-  # allow CDATA e.g <![CDATA[<p>your html here</p>]]>
-  # track embedded and unescaped html tags e.g https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=PMC9206389
-  x ?= @params.xml2json ? @params.url
-  res = {}
-  if typeof x is 'string'
-    x = await @fetch(x) if x.startsWith 'http'
-    elem = ''
-    pointer = ''
-    starting = false
-    ending = false
-    while c = x[0]
-      x = x.slice 1
-      if c not in ['\uFEFF', '\t', '\r', '\n'] and (c isnt ' ' or (elem.length and not elem.endsWith '>'))
-        starting = true if elem is '<' and c not in ['/', '?', '!'] # ignore xml and doctype statements - can add later if any use for them is found
-        elem += c
-        ending = true if (elem.endsWith('</') and elem.split('</').length-1 is elem.split('>').length) or (elem.endsWith('/>') and not elem.split('/>')[0].includes '>')
-        if c is '>'
-          console.log pointer
-          if ending
-            ending = false
-            elem = elem.split('</')[0]
-            if elem isnt ''
-              if pv = await @dot res, pointer, undefined, undefined, true
-                if Array.isArray pv
-                  pv = [{}] if not pv.length
-                  if pv[pv.length-1].$?
-                    pv[pv.length-1].$ = [pv[pv.length-1].$] if not Array.isArray pv[pv.length-1].$
-                    pv[pv.length-1].$.push elem
-                  else
-                    pv[pv.length-1].$ = elem
-                else
-                  pv.$ = elem
-                elem = pv
-              else
-                elem = $: elem
-                try elem._ = prv[pointer.split('.').pop()]._ if prv = await @dot res, pointer.slice(0, pointer.lastIndexOf('.')), undefined, undefined, true
-              elem = elem.$ if typeof elem is 'object' and not elem._? and elem.$?
-              await @dot res, pointer, elem, undefined, true
-            pointer = if pointer.includes('.') then pointer.slice(0, pointer.lastIndexOf('.')) else ''
-          else if starting
-            starting = false
-            meta = {}
-            for p in elem.replace('<', '').replace('>', '').split ' '
-              if not p.includes '='
-                pointer += (if pointer and not pointer.endsWith('.') then '.' else '') + p
-              else if p.length
-                [k, v] = p.split '='
-                meta[k.trim().replace(/"/g, '')] = v.trim().replace /"/g, ''
-            if pv = await @dot res, pointer, undefined, undefined, true
-              pv = [pv] if not Array.isArray pv
-              pv.push if JSON.stringify(meta) isnt '{}' then {_: meta} else {}
-              await @dot res, pointer, pv, undefined, true
-            else if JSON.stringify(meta) isnt '{}'
-              await @dot res, pointer + '._', meta, undefined, true
-          elem = ''
-  return res
 

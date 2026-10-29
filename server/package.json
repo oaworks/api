@@ -3,15 +3,15 @@
   "version": "6.1.0",
   "description": "A radically distributed API",
   "author": "Mark MacGillivray",
-  "email": "mark@cottagelabs.com",
+  "email": "mark@leviathan.sh",
   "keywords": [
     "api",
     "cloudflare"
   ],
-  "homepage": "https://github.com/oaworks/paradigm",
+  "homepage": "https://github.com/oaworks/api",
   "repository": {
     "type": "git",
-    "url": "github:oaworks/paradigm"
+    "url": "github:oaworks/api"
   },
   "license": "MIT",
   "main": "dist/server.min.js",
@@ -21,8 +21,6 @@
     "preview": "node dist/server.min.js"
   },
   "devDependencies": {
-    "coffee-loader": "^0.9.0",
-    "coffeescript": "^2.5.1",
     "webpack": "^5.82.0",
     "webpack-cli": "^5.0.2"
   },
@@ -32,7 +30,6 @@
     "nanoid": "^3.1.16",
     "node-cron": "^3.0.0",
     "node-fetch": "^2.6.1",
-    "openai": "^4.74.0",
     "tar": "^6.1.0"
   }
 }

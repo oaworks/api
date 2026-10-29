@@ -2,7 +2,7 @@
 S.src.google ?= {}
 try S.src.google.secrets = JSON.parse SECRETS_GOOGLE
 
-P.src.google = -> {}
+P.src.google = {}
 
 P.src.google.sheets = (opts) ->
   # expects a google sheet ID or a URL to a google sheets feed in json format
@@ -46,7 +46,7 @@ P.src.google.sheets = (opts) ->
         toprow = g.values.shift() # NOTE there is NO WAY to identify column headers any more it seems, certainly not from this response format. Just pop them off the values list
         for hd in toprow
           try hd = hd.trim()
-          headers.push hd #.toLowerCase().replace /[^a-z0-9]/g, ''
+          headers.push hd
     values = []
     for l in g.values ? []
       val = {}

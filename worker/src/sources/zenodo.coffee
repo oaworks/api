@@ -2,22 +2,14 @@
 S.src.zenodo ?= {}
 try S.src.zenodo = JSON.parse SECRETS_ZENODO
 
-# http://zenodo.org/dev
-# https://zenodo.org/api/deposit/depositions
-# api key required: http://zenodo.org/dev#restapi-auth
+# https://developers.zenodo.org/
 # requires a token be provided as query param on all requests, called ?access_token=
-
 # access token would require deposit:write and deposit:actions permission in order to deposit something AND then publish it
-
 # need to POST create a deposition, then POST upload files to the deposition, then POST publish the deposition
 
 P.src.zenodo = deposition: {}, records: {}
 
-# zenodo can now be searched, technically in test, at zenodo.org/api/records
-# see search page for instructions (it is ES) https://help.zenodo.org/guides/search/
 P.src.zenodo.records.search = (q, dev) ->
-  # it does have sort but does not seem to parse direction yet, so not much use sorting on publication_date
-  # does not seem to do paging or cursors yet either - but size works
   q ?= @params
   dev ?= @params.dev
   size = @params.size ? 10
@@ -25,18 +17,16 @@ P.src.zenodo.records.search = (q, dev) ->
   return @fetch url # could do a post if q is more complex... so far this just returns an ES search endpoint
 
 P.src.zenodo.deposition.create = (metadata, up, token, dev) ->
-  # https://zenodo.org/dev#restapi-rep-meta
   dev ?= @params.dev ? @S.dev
   token ?= @params.token
   token ?= if dev then @S.src?.zenodo?.sandbox else @S.src?.zenodo?.token
-  metadata ?= @params.metadata # or try to retrieve from oaworks.metadata?
+  metadata ?= @params.metadata
   return false if not token? or not metadata? or not metadata.title? or not metadata.description?
   url = 'https://' + (if dev then 'sandbox.' else '') + 'zenodo.org/api/deposit/depositions?access_token=' + token
   data = {metadata: metadata}
   if not data.metadata.upload_type
     data.metadata.upload_type = 'publication'
     data.metadata.publication_type = 'article'
-  # required field, will blank list work? If not, need object with name: Surname, name(s) and optional affiliation and creator
   data.metadata.creators ?= [{name:"Works, Open Access"}]
   if up?
     rs = await @fetch url, method: 'POST', body: data, mode: 'cors', credentials: 'include', headers: referer: if @S.dev or dev then 'https://sandbox.zenodo.org' else 'https://zenodo.org'
@@ -61,11 +51,8 @@ P.src.zenodo.deposition.upload = (id, content, file, filename, url, token, dev) 
   return false if not token? or not id?
   url = 'https://' + (if @S.dev or dev then 'sandbox.' else '') + 'zenodo.org/api/deposit/depositions/' + id + '/files?access_token=' + token
   return @fetch url, file: (content ? file), filename: filename, headers: referer: if @S.dev or dev then 'https://sandbox.zenodo.org' else 'https://zenodo.org'
-# NOTE this should not only be run on backend, it should be contacted directly on backend via a DNS pass-through at cloudflare
-# because cloudflare will limit the size of files getting POSTed through. Or whatever method calls this one should be directly contacted on backend
 
 P.src.zenodo.deposition.publish = (id, token, dev) ->
-  # NOTE published things cannot be deteted
   id ?= @params.publish ? @params.id
   dev ?= @params.dev
   token ?= @params.token

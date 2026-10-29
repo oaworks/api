@@ -65,7 +65,7 @@ P.fixtures = ->
     #meta.tests = counter
 
   console.log 'Dumping data to fixtures', max
-  for d in ['permissions_journals_transformative', 'permissions_journals', 'permissions_publishers', 'permissions_affiliations', 'src_doaj_journals', 'report_oapolicy', 'report_publishers', 'report_orgs', 'report_orgs_supplements']
+  for d in ['permissions_journals_transformative', 'permissions_journals', 'permissions_publishers', 'permissions_affiliations', 'src_doaj_journals', 'report_orgs', 'report_orgs_supplements']
     f = fs.createWriteStream @S.static.folder + '/fixtures/' + d + '.jsonl'
     console.log 'Dumping', d, 'to', f.path
     counter = 0

@@ -20,56 +20,6 @@
 P.src.epmc = _index: true, _prefix: false, _key: 'id' # id will be the pubmed ID from the looks of it
 P.src.epmc.notinepmc = _index: true, _prefix: false, _key: 'id', _hide: true # keep track of ones we already looked up
 
-P.src.epmc.notinepmc.years = ->
-  checked = 0
-  updated = 0
-  batch = []
-  for await rec from @index._for 'src_epmc_notinepmc', 'NOT year:*'
-    present = rec.year?
-    checked += 1
-    console.log checked, updated + batch.length, rec.id
-    if batch.length >= 20000
-      updated += batch.length
-      console.log 'not in epmc checking and updating', checked, updated
-      await @src.epmc.notinepmc batch
-      batch = []
-    if not rec.checkedAt or (@params.removenoyears and not rec.year)
-      present = true
-      console.log 'deleting as no checked date', rec.id
-      await @src.epmc.notinepmc rec.id.split('#')[0], ''
-    if not present and ((rec.doi and exists = await @report.works rec.doi) or (rec.pmid and exists = await @report.works 'PMID.keyword:"' + rec.pmid + '"', 1) or (rec.pmcid and exists = await @report.works 'PMCID.keyword:"' + rec.pmcid + '"', 1))
-      if exists?.PMCID
-        check = await @src.epmc 'pmcid:"' + exists.PMCID + '"'
-        if check?.hits?.total
-          present = true
-          console.log 'deleting as in local epmc', rec.id
-          await @src.epmc.notinepmc rec.id, ''
-      if not present and exists?.published_year
-        rec.year = exists.published_year
-        batch.push rec
-    if not present
-      if not rec.year and rec.doi and exists = await @src.crossref.works rec.doi
-        if exists.year
-          rec.year = exists.year
-          batch.push rec
-      if not rec.year and rec.pmid and exists = await @src.pubmed rec.pmid
-        rec.year = exists.dates?.PubDate?.year ? exists.dates?.DateCompleted?.year
-        batch.push(rec) if rec.year
-      if not rec.year and rec.pmcid and exists = await @src.pubmed.pmc rec.pmcid
-        rec.year = exists.dates?.PubDate?.year ? exists.dates?.DateCompleted?.year
-        batch.push(rec) if rec.year
-      # check report works for pmcid or pmid if no doi?
-  if batch.length
-    updated += batch.length
-    await @src.epmc.notinepmc batch
-    batch = []
-  console.log checked, updated
-  return updated
-P.src.epmc.notinepmc.years._bg = true
-P.src.epmc.notinepmc.years._log = false
-P.src.epmc.notinepmc.years._async = true
-P.src.epmc.notinepmc.years._auth = '@oa.works'
-
 P.src.epmc.search = (qrystr, from, size) ->
   qrystr ?= @params.search ? @params.epmc ? @params.doi ? ''
   qrystr = 'DOI:' + qrystr if qrystr.startsWith('10.') and not qrystr.includes(' ') and qrystr.split('/').length >= 2
@@ -78,7 +28,7 @@ P.src.epmc.search = (qrystr, from, size) ->
   # removed sort_date:y from query due to https://github.com/oaworks/discussion/issues/3738#issuecomment-4134013512
   url = 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=' + qrystr + '&resulttype=core&format=json'
   url += '&pageSize=' + size if size? #can handle 1000, have not tried more, docs do not say
-  url += '&cursorMark=' + from if from? # used to be a from pager, but now uses a cursor
+  url += '&cursorMark=' + from if from?
   ret = {}
   try
     res = await @fetch url, rate: ['ebi', 8]
@@ -99,8 +49,7 @@ P.src.epmc.doi = (ident, refresh, year) ->
       yr = ((rt.pubYear ? rt.journalInfo.yearOfPublication ? rt.firstPublicationDate ? '') + '').split('-')[0]
       if typeof yr is 'string' and yr.length is 4 and parseInt(yr) <= ly
         return rt
-    #else if not refresh and Date.now() - ((await @src.epmc.notinepmc ident)?.checkedAt ? 0) < 2419200000 # 1000*60*60*24*28 # if we checked in the last 28 days, don't check again
-    if not refresh and (ne = await @src.epmc.notinepmc ident) and (ne.year ? ly) < ly and Date.now() - (ne.checkedAt ? 0) < 2419200000 # don't check again within 28 days
+    if not refresh and (ne = await @src.epmc.notinepmc ident) and (ne.year ? ly) < ly and Date.now() - (ne.checkedAt ? 0) < 2419200000
       return
     else
       res = await @src.epmc.search 'DOI:' + ident
@@ -111,26 +60,6 @@ P.src.epmc.doi = (ident, refresh, year) ->
         return res.data[0]
       else if res.total? # because on 21/08/2025 the whole API disappeared - we don't want to record that as not being in
         await @src.epmc.notinepmc id: ident.replace(/\//g, '_'), doi: ident, year: year, checkedAt: Date.now()
-  return
-
-P.src.epmc.pmid = (ident, refresh, year) ->
-  refresh ?= @refresh if not ident
-  ident ?= @params.pmid
-  if ident and (typeof ident is 'number' or (typeof parseInt(ident) is 'number' and ident.split('.').length is 1 and ident.split(' ').length is 1))
-    exists = await @src.epmc 'pmid:"' + ident + '"'
-    ly = parseInt((await @date()).split('-')[0]) - 3 # don't check again if already more than 3 years old, it is unlikely to change or turn up
-    if exists?.hits?.total and (rt = exists.hits.hits[0]._source)
-      yr = ((rt.pubYear ? rt.journalInfo.yearOfPublication ? rt.firstPublicationDate ? '') + '').split('-')[0]
-      if typeof yr is 'string' and yr.length is 4 and parseInt(yr) <= ly
-        return rt
-    if not refresh and (ne = await @src.epmc.notinepmc ident) and (ne.year ? ly) < ly and Date.now() - (ne.checkedAt ? 0) < 2419200000 # don't check again within 28 days
-      return
-    else
-      res = await @src.epmc.search 'EXT_ID:' + ident + ' AND SRC:MED'
-      if res.total
-        return res.data[0]
-      else if res.total? # because on 21/08/2025 the whole API disappeared - we don't want to record that as not being in
-        await @src.epmc.notinepmc id: ident, pmid: ident, year: year, checkedAt: Date.now()
   return
 
 P.src.epmc.pmc = (ident, refresh, year) ->
@@ -155,17 +84,6 @@ P.src.epmc.pmc = (ident, refresh, year) ->
         else if res.total? # because on 21/08/2025 the whole API disappeared - we don't want to record that as not being in
           await @src.epmc.notinepmc id: ident, pmcid: ident, year: year, checkedAt: Date.now()
   return
-
-P.src.epmc.title = (title) ->
-  title ?= @params.title
-  if title
-    try title = title.toLowerCase().replace(/(<([^>]+)>)/g,'').replace(/[^a-z0-9 ]+/g, " ").replace(/\s\s+/g, ' ')
-    exists = await @src.epmc 'title:"' + title + '"'
-    if exists?.hits?.total
-      return exists.hits.hits[0]._source
-    else
-      res = await @src.epmc.search 'title:"' + title + '"'
-      return if res.total then res.data[0] else undefined
 
 P.src.epmc.licence = (pmcid, rec, fulltext, refresh) ->
   refresh ?= @refresh if not pmcid
@@ -209,7 +127,6 @@ P.src.epmc.xml = (pmcid, rec, refresh) ->
         ft = await fs.readFile @S.directory + '/epmc/fulltext/' + pmcid + '.xml'
         return ft.toString()
 
-    # because ncbi rate limit is lower and we were calling it more, switch to checking ebi first instead
     if rec?
       ft = await @fetch 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + pmcid + '/fullTextXML', rate: ['ebi', 8]
     if typeof ft isnt 'string' or not ft.length
@@ -224,7 +141,6 @@ P.src.epmc.xml = (pmcid, rec, refresh) ->
 
 
 P.src.epmc.submitted = (pmcid, rec, refresh) ->
-  # some epmc xml appeared to use <date-type="received" ... and then a date value as an attribute, whereas others have <year> ... elements within
   pmcid ?= @params.submitted ? @params.pmc ? @params.pmcid ? @params.PMC ? @params.PMCID
   refresh ?= @refresh
   if pmcid
@@ -258,16 +174,8 @@ P.src.epmc.submitted = (pmcid, rec, refresh) ->
 
 
 P.src.epmc.statement = (pmcid, rec, refresh, verbose) ->
-  # because of xml parsing issues with embedded html in pmc xml, just regex it out if present
-  # pubmed data does not hold corresponding statements to pmc, but the pmc records from ncbi do contain them as they are the same as fulltext records from epmc
-  # see <notes notes-type="data-availability"> in
-  # https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=PMC9206389
-  # or <custom-meta id="data-availability"> in 
-  # https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=PMC9009769
-  # which also has it in "notes" but with no type and no other content <notes> but a <title> of Data Availability
-  # catches most of https://www.ncbi.nlm.nih.gov/books/NBK541158/
   pmcid ?= @params.statement ? @params.pmc ? @params.pmcid ? @params.PMC ? @params.PMCID
-  if pmcid and pmcid.startsWith '10.' # if a doi was provided instead
+  if pmcid and pmcid.startsWith '10.'
     rec ?= await @src.epmc.doi pmcid, refresh
     pmcid = undefined
   pmcid ?= rec?.pmcid
@@ -281,9 +189,9 @@ P.src.epmc.statement = (pmcid, rec, refresh, verbose) ->
   if pmcid and pmcid.toLowerCase().startsWith 'pmc'
     pmcid = 'PMC' + (pmcid + '').toLowerCase().replace('pmc', '')
     if ft = await @src.epmc.xml pmcid, rec, refresh
-      ft = (ft.split('<ref-list')[0] + ft.split('/ref-list>').pop()) #.replace(/\<(p|b|i).*?\>/g, '').replace(/\<\/(p|b|i).*?\>/g, '')
+      ft = (ft.split('<ref-list')[0] + ft.split('/ref-list>').pop())
       sstr = ''
-      for split in ['"data', '>Data', '>Research data', '>Availab', '>data', '>Code', '>code'] # >Research alone is not sufficient
+      for split in ['"data', '>Data', '>Research data', '>Availab', '>data', '>Code', '>code']
         try
           if ft.includes split
             splitted.push split
@@ -293,7 +201,7 @@ P.src.epmc.statement = (pmcid, rec, refresh, verbose) ->
               pres.push pre.slice -1000
               tag = pre.split('<').pop().split('>')[0].split(' ')[0].replace('/', '')
               tag = pre.split('</' + tag + '>').pop().split('><' + tag)[0].split('<').pop().split('>')[0].split(' ')[0].replace('/', '') if not split.startsWith('"') and pre.endsWith '><' + tag
-              post = (if split.startsWith('"') then part.split(/\>(.*)/s)[1] else if part.startsWith('il') or part.startsWith('l') then 'Availab' else if split.startsWith('>Research data') then 'Research data' else 'Data') + part #  if part.substr(0,6).includes('ode') then 'Code' else
+              post = (if split.startsWith('"') then part.split(/\>(.*)/s)[1] else if part.startsWith('il') or part.startsWith('l') then 'Availab' else if split.startsWith('>Research data') then 'Research data' else 'Data') + part
               posts.push post.slice 0, 1000
               if post.includes('</' + tag + '>') and post.indexOf('</' + tag + '>') < 40
                 try
@@ -307,7 +215,7 @@ P.src.epmc.statement = (pmcid, rec, refresh, verbose) ->
               else
                 splitter = '</' + tag + '>'
               if post.split('</' + tag + '>')[0].includes '\n'
-                while not post.includes(splitter) and splits.length #and splits[0].includes splitter
+                while not post.includes(splitter) and splits.length
                   post += (if split.startsWith('>') then '>' else '') + (if splits[0].startsWith('il') or splits[0].startsWith('l') then 'Availab' else 'Data') +  splits.shift()
               post = post.split(splitter)[0]
               post = post.replace('</title>', '|TTT|').replace(/\n/g, ' ').replace(/\s+/g, ' ').replace /(<([^>]+)>)/ig, ''
@@ -320,7 +228,7 @@ P.src.epmc.statement = (pmcid, rec, refresh, verbose) ->
                 clean = clean.trim()
                 clo = clean.toLowerCase()
                 ttlclo = ttl.toLowerCase() + clo
-                if clean.length > 1 and (ttlclo.includes('data') or ttlclo.includes('code') or ttlclo.includes('availab') or ttlclo.includes('accessib')) and not sstr.includes clo # TODO change this to require 2 of 4?
+                if clean.length > 1 and (ttlclo.includes('data') or ttlclo.includes('code') or ttlclo.includes('availab') or ttlclo.includes('accessib')) and not sstr.includes clo
                   sstr += clo
                   statements.push clean
               pre = part

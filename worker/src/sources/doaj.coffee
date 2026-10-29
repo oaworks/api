@@ -11,7 +11,7 @@ P.src.doaj.journals.load = () ->
   await fs.mkdir fldr
   fldr += '/'
   await fs.writeFile fldr + 'doaj.tar', await @fetch 'https://doaj.org/public-data-dump/journal?api_key=' + S.src.doaj.secrets.apikey, buffer: true
-  tar.extract file: fldr + 'doaj.tar', cwd: fldr, sync: true # extracted doaj dump folders end 2020-10-01
+  tar.extract file: fldr + 'doaj.tar', cwd: fldr, sync: true
   current = false
   for f in await fs.readdir fldr
     current = f if f.includes 'doaj_journal_data'
@@ -28,5 +28,5 @@ P.src.doaj.journals.load = () ->
   return total
 P.src.doaj.journals.load._bg = true
 P.src.doaj.journals.load._async = true
-P.src.doaj.journals.load._auth = 'root'
+P.src.doaj.journals.load._auth = '@oa.works'
 

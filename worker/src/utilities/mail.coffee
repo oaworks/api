@@ -29,9 +29,6 @@ P.mail = (opts) ->
   delete opts.body
   opts.html = opts.text if not opts.html and typeof opts.text is 'string' and opts.text.indexOf('<') isnt -1 and opts.text.indexOf('>') isnt -1
 
-  # can also take opts.headers
-  # also takes opts.attachment, but not required. Should be a list of objects
-
   ms = if (opts.svc or opts.service) and @S.svc[opts.svc ? opts.service]?.mail? then @S.svc[opts.svc ? opts.service].mail else (this?.S?.mail ? S.mail)
   opts.from ?= ms.from
   opts.to ?= ms.to

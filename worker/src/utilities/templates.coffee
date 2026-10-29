@@ -37,7 +37,6 @@ P.template = (content, vars) ->
         content = content.replace(kkg,'')
   content = content.replace(kg, '') if content.indexOf('{{') isnt -1 # remove any outstanding vars in content that could not be replaced by provided vars
   ret.content = content
-  # TODO consider if worth putting markdown formatting back in here, and how big a markdown parser is
   return ret # an obj of the content plus any vars found within the template
 
 P.templates = _key: 'name', _sheet: '1Xg-dBpCkVWglditd6gESYRgMtve4CAImXe-321ra2fo/Templates'

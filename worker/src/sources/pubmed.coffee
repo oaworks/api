@@ -1,42 +1,26 @@
 
-# there are pubmed data loaders on the server side, they build an index that can 
-# be queried directly. However some of the below functions may still be useful 
-# for lookups to the pubmed API at other times
-
 # pubmed API http://www.ncbi.nlm.nih.gov/books/NBK25497/
 # examples http://www.ncbi.nlm.nih.gov/books/NBK25498/#chapter3.ESearch__ESummaryEFetch
-# get a pmid - need first to issue a query to get some IDs...
-# http://eutils.ncbi.nlm.nih.gov/entrez/eutils/epost.fcgi?id=21999661&db=pubmed
-# then scrape the QueryKey and WebEnv values from it and use like so:
-# http://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&query_key=1&WebEnv=NCID_1_54953983_165.112.9.28_9001_1461227951_1012752855_0MetA0_S_MegaStore_F_1
 
 # NCBI rate limit appears to be 3 per second without an API key
-# https://www.ncbi.nlm.nih.gov/books/NBK25497/
 
-# NOTE: interestingly there are things in pubmed with PMC IDs that are NOT in EPMC, they return 
-# nothing in the epmc website or API. For example PMID 33685375 has PMC7987225 and DOI 10.2989/16085906.2021.1872664
-# (the crossref record has no PMID or PMC in it, but the pubmed record has all)
-
-# NOTE also there are items in pubmed with identifier.pmc which seem fine but some have
-# identifier.pmcid which may NOT be fine. e.g. PMID 31520348 shows a pmc ID of 6156939
-# but in PMC that is a DIFFERENT article. The DOI provided in pubmed matches the correct 
-# article in EPMC, which is not an article in PMC.
 P.src.pubmed = _key: 'PMID', _prefix: false, _index: settings: number_of_shards: 6
 
 P.src.pubmed.doi = (doi) ->
   doi ?= @params.doi
   if doi and found = await @src.pubmed 'identifier.doi:"' + doi + '"', 1
     return found
-  # otherwise search entrez with DOI?
   return
 
 P.src.pubmed.pmc = (pmc) ->
   pmc ?= @params.pmc
   if pmc and found = await @src.pubmed 'identifier.pmc:"PMC' + pmc.toString().toLowerCase().replace('pmc','') + '"', 1
     return found
-  # otherwise try calling entrez?
   return
 
+
+# 29/10/2026 - note this has not been run for years, so it may not be accurate any more.
+# however we do call it on a schedule each night to check for changes, so it may still be working fine.
 P.src.pubmed.load = (changes) ->
   # there are 30k or less records per pubmed file so tried batching by file, but streaming more than one file at a time caused OOM
   # so reduce batch size if necessary. default node heap size is 1400M I think, so increased to 3072M and try again
@@ -82,8 +66,6 @@ P.src.pubmed.load = (changes) ->
         line = line.trim().replace('&amp;', '&')
         if line is '</PubmedArticle>' # <PubmedArticle>...</PubmedArticle> is a total article record
           total += 1
-          #if published isnt false and published.year
-          #  rec.published = await @dateparts published
           rec.srcfile = fn
           rec._id = rec.PMID
           batch.push rec
@@ -252,15 +234,13 @@ P.src.pubmed.load = (changes) ->
   return if @params.howmany then batch else total
 
 P.src.pubmed.load._bg = true
-#P.src.pubmed.load._async = true
 P.src.pubmed.load._log = false
-#P.src.pubmed.load._auth = 'root'
+P.src.pubmed.load._auth = '@oa.works'
 
 
 P.src.pubmed.changes = -> return @src.pubmed.load true
 P.src.pubmed.changes._bg = true
 P.src.pubmed.changes._log = false
-#P.src.pubmed.changes._async = true
-P#.src.pubmed.changes._auth = 'root'
+P.src.pubmed.changes._auth = '@oa.works'
 P.src.pubmed.changes._notify = false
 
