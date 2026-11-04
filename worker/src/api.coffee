@@ -230,7 +230,7 @@ P = () ->
             a[k][uk] = p[k][uk] if uk.startsWith '_'
         a[k]._name ?= nd
 
-        if a[k]._schedule and not _schedule[nd] and @S.bg is true and @S.cron isnt false
+        if a[k]._schedule and not _schedule[nd] and @S.bg is true and @S.cron isnt false and ((@S.dev and a[k]._dev isnt false) or (not @S.dev and a[k]._live isnt false))
           console.log 'Adding schedule', a[k]._schedule, nd
           _schedule[nd] = schedule: a[k]._schedule, fn: a[k]
           sfn = (fnm) =>
