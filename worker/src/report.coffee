@@ -760,7 +760,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
 
     if rec.DOI and not rec.journal_oa_type # restrict permissions only to records with orgs supplements? for now no
       # can permissions work well enough if there is no DOI? For now assume not
-      permissions = await @permissions (await @copy rec), undefined, undefined, oadoi, cr, started - 1209600000
+      permissions = await @permissions (await @copy rec), undefined, undefined, oadoi, cr
       rec.can_archive = permissions?.best_permission?.can_archive
       rec.can_archive = true if not rec.can_archive? and ((oadoi?.best_oa_location?.license ? '').includes('cc') or oadoi?.journal_is_in_doaj)
       rec.version = permissions?.best_permission?.version
