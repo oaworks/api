@@ -11,11 +11,12 @@
 P.src.crossref.changes._schedule = '0 1 * * *'
 P.src.crossref.changes._live = false
 
-P.src.openalex.changes._schedule = '0 2 * * *'
-P.src.openalex.changes._live = false
-
 P.src.rs.changes._schedule = '0 1 * * *'
 P.src.rs.changes._live = false
+
+# these are disabled as openalex load / change mechanism is changed and we have not updated
+#P.src.openalex.changes._schedule = '0 2 * * *'
+#P.src.openalex.changes._live = false
 
 
 # running these only on live

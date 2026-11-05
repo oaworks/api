@@ -92,6 +92,42 @@ P.src.openalex.works.doi = (doi, refresh) ->
   return @src.openalex.works.find doi, undefined, undefined, undefined, refresh
 
 
+
+
+P.src.openalex.sources = _index: true, _prefix: false
+P.src.openalex.sources.load = ->
+  await @src.openalex.sources ''
+  total = 0
+  batch = []
+  url = 'https://api.openalex.org/sources?' + (if @S.src.openalex?.apikey then 'api_key=' + @S.src.openalex.apikey + '&' else '') + 'per-page=200&cursor='
+  res = await @fetch url + '*'
+  while res? and typeof res is 'object' and Array.isArray(res.results) and res.results.length
+    for rec in res.results
+      rec._id = rec.id.split('/').pop()
+      batch.push rec
+    if batch.length >= 20000
+      total += batch.length
+      await @src.openalex.sources batch
+      batch = []
+    else
+      await @sleep 200
+    if res.meta?.next_cursor
+      res = await @fetch url + encodeURIComponent res.meta.next_cursor
+  await @src.openalex.sources(batch) if batch.length
+  return total
+P.src.openalex.sources.load._async = true
+P.src.openalex.sources.load._bg = true
+P.src.openalex.sources.load._auth = '@oa.works'
+
+
+
+
+'''
+Note, these are the old load and change processes for openalex, they do not 
+work any more, so are left here for future reference. If it is necessary 
+to sync with openalex at a later date, then re-write these to use their new
+approach.
+
 _openalex_load_running = false
 P.src.openalex.load = (what, changes, clear, sync, last, toalias) ->
   if _openalex_load_running
@@ -247,32 +283,8 @@ P.src.openalex.changes._log = false
 P.src.openalex.changes._bg = true
 P.src.openalex.changes._async = true
 P.src.openalex.changes._auth = '@oa.works'
+'''
 
-
-P.src.openalex.sources = _index: true, _prefix: false
-P.src.openalex.sources.load = ->
-  await @src.openalex.sources ''
-  total = 0
-  batch = []
-  url = 'https://api.openalex.org/sources?' + (if @S.src.openalex?.apikey then 'api_key=' + @S.src.openalex.apikey + '&' else '') + 'per-page=200&cursor='
-  res = await @fetch url + '*'
-  while res? and typeof res is 'object' and Array.isArray(res.results) and res.results.length
-    for rec in res.results
-      rec._id = rec.id.split('/').pop()
-      batch.push rec
-    if batch.length >= 20000
-      total += batch.length
-      await @src.openalex.sources batch
-      batch = []
-    else
-      await @sleep 200
-    if res.meta?.next_cursor
-      res = await @fetch url + encodeURIComponent res.meta.next_cursor
-  await @src.openalex.sources(batch) if batch.length
-  return total
-P.src.openalex.sources.load._async = true
-P.src.openalex.sources.load._bg = true
-P.src.openalex.sources.load._auth = '@oa.works'
 
 
 
