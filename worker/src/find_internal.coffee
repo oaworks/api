@@ -1,8 +1,4 @@
 
-# the only things find does that could be required separately is it provides a URL to the article, which is actually extracted in @citation
-# so if dropping find altogether, just use @citation to get the URL e.g. in calls to permissions that may also need it such as for shareyourpaper
-# find will also operate without a DOI whereas shareyourpaper and permissions didn't - they could be changed to allow that, or just restrict some of what find used to do
-
 P.metadata_internal = (doi) ->
   res = await @find_internal doi # may not be a DOI, but most likely thing
   return res?.metadata
@@ -14,7 +10,7 @@ P.find_internal = (options, metadata={}, content) ->
   _metadata = (input) =>
     ct = await @citation_internal input
     for k of ct
-      if k in ['url', 'paywall']
+      if k is 'url'
         res[k] ?= ct[k]
       else
         metadata[k] ?= ct[k]
@@ -23,7 +19,6 @@ P.find_internal = (options, metadata={}, content) ->
     options = if options.split('doi.org/').pop().startsWith('10.') then {doi: options} else {title: options}
   try options ?= @copy @params
   options ?= {}
-  content ?= options.dom ? (if typeof @body is 'string' then @body else undefined)
   
   options.find_internal = options.metadata if options.metadata
   if options.metadata_internal
@@ -48,8 +43,6 @@ P.find_internal = (options, metadata={}, content) ->
         metadata.doi ?= dd
     if options.url.replace('doi:','').replace('doi.org/','').trim().startsWith '10.'
       metadata.doi ?= options.url.replace('doi:','').replace('doi.org/','').trim()
-      options.url = 'https://doi.org/' + metadata.doi
-    delete options.url if not options.url.startsWith('http') or not options.url.includes '.'
 
   options.doi = await @decode(options.doi) if options.doi
   metadata.doi ?= options.doi
@@ -62,15 +55,10 @@ P.find_internal = (options, metadata={}, content) ->
   try metadata.doi = metadata.doi.split(' ')[0].replace('http://','').replace('https://','').replace('doi.org/','').replace('doi:','').trim()
   delete metadata.doi if typeof metadata.doi isnt 'string' or not metadata.doi.startsWith '10.'
 
-  # switch exlibris URLs for titles, which the scraper knows how to extract, because the exlibris url would always be the same
-  delete options.url if not metadata.title and content and typeof options.url is 'string' and (options.url.includes('alma.exlibrisgroup.com') or options.url.includes '/exlibristest')
-
   # set a demo tag in certain cases e.g. for shareyourpaper/other demos - dev and live demo accounts
   res.demo = options.demo if options.demo?
   res.demo ?= true if (metadata.doi is '10.1234/567890' or (metadata.doi? and metadata.doi.startsWith '10.1234/oab-syp-')) or options.from in ['qZooaHWRz9NLFNcgR','eZwJ83xp3oZDaec86']
   res.test ?= true if res.demo # don't save things coming from the demo accounts into the catalogue later
-
-  epmc = false
 
   await _metadata(openalex) if metadata.doi and openalex = await @src.openalex.works.doi metadata.doi
   res.doi_not_in_openalex = true if metadata.doi and not openalex?.type_crossref and 'crossref' not in (openalex?.indexed_in ? [])
@@ -127,8 +115,6 @@ P.citation_internal = (citation) ->
     try res.shortname = citation.journalInfo.journal.isoabbreviation ? citation.journalInfo.journal.medlineAbbreviation
     res.journal ?= citation.journal_name ? citation.journalInfo?.journal?.title ? citation.journal?.title
     res.journal = citation.journal.split('(')[0].trim() if citation.journal
-    res.shortname ?= res.journal # fix for old embed that still expects something here
-    res.journal_short = res.shortname if res.shortname and not res.journal_short # fix for change to old metadata field name
     try res[key] ?= res[key].charAt(0).toUpperCase() + res[key].slice(1) for key in ['title','journal']
     res.publisher = citation.publisher ? citation.primary_location?.source?.publisher ? citation.primary_location?.source?['host_organization_name']
     res.publisher = res.publisher.trim() if res.publisher
