@@ -164,7 +164,7 @@ P.report._handle_processed = ->
   setTimeout @report._handle_processed, 5000
 
 P.report.queued = _index: true #, _auth: '@oa.works'
-P.report.queue = (idents, openalex, refresh, everything, action = 'default') -> # idents could be DOIs, openalex IDs or PMCIDs
+P.report.queue = (idents, refresh, everything, action = 'default') -> # idents could be DOIs, openalex IDs or PMCIDs
   if @params.empty
     if typeof @params.empty is 'string'
       for await qp from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_queued', 'action.keyword:"' + @params.empty + '"'
@@ -186,47 +186,35 @@ P.report.queue = (idents, openalex, refresh, everything, action = 'default') -> 
           theidl = theid.toLowerCase()
           if theid and typeof theid is 'string' and (theid.startsWith('10.') or theid.startsWith('W') or theid.startsWith('PMC')) and theidl not in _queued_batch and theidl not in _done_batch
             _queued_batch.push theidl
-            rf = if typeof ident is 'object' and ident.refresh? then ident.refresh else (refresh ? inq?.refresh)
+            rf = if typeof ident is 'object' and ident.refresh? then ident.refresh else refresh
             rf = if rf is true then 0 else if rf is false then undefined else rf
-            _queue_batch.push identifier: theid, refresh: rf, everything: (if typeof ident is 'object' and ident.everything? then ident.everything else (everything ? inq?.everything)), action: (if typeof ident is 'object' and ident.action? then ident.action else action)
+            _queue_batch.push identifier: theid, refresh: rf, everything: (if typeof ident is 'object' and ident.everything? then ident.everything else everything), action: (if typeof ident is 'object' and ident.action? then ident.action else action)
   return queue: _queue_batch.length
 P.report.queue._bg = true
 P.report.queue._log = false
 P.report.queue._auth = '@oa.works'
 
-P.report._runqueue = (ident, qry, ord, mid) ->
-  qry ?= 'action:"default"'
+P.report._runqueue = (ord) ->
+  qry = 'action:"default"'
   ord ?= 'desc'
-  if ident?
-    qry = 'for requested identifier ' + ident
-  else
-    if not _do_batch.length
-      if mid
-        if mid is true
-          earliest = (await @report.queued qry, size: 1, sort: createdAt: 'asc').createdAt
-          mid = earliest + Math.floor ((await @report.queued qry, size: 1, sort: createdAt: 'desc').createdAt - earliest) / 2
-          console.log 'queue midpoint', mid
-        qry = '(' + qry + ') AND createdAt:' + (if ord is 'desc' then '<' else '>') + mid
-      q = await @report.queued qry, size: 2000, sort: createdAt: ord
-      if not q?.hits?.total and qry is 'action:"default"'
-        console.log 'no queued records found for specified qry', qry, 'checking for any other queued records...'
-        q = await @report.queued 'NOT action:*', size: 2000, sort: createdAt: ord
-        qry = 'queried * as none for qry ' + qry
-      if mid and q?.hits?.total and q.hits.total < 5000
-        console.log 'not queueing on mid ' + ord + ' queue when only ' + q.hits.total + ' records to process, waiting 5s...'
-        await @sleep 5000
-      else if ord isnt 'desc' and q?.hits?.total and q.hits.total < 10000
-        console.log 'not queueing on reverse ' + ord + ' queue when only ' + q.hits.total + ' records to process, waiting 5s...'
-        await @sleep 5000
-      else
-        if not q?.hits?.total and not _queue_batch.length
-          console.log 'no queued records to process, waiting 5s...'
-          await @sleep 5000
-        _do_batch.push(qd._source) for qd in (q?.hits?.hits ? []) when qd._source.identifier not in _processing_idents and qd._source.identifier not in _done_batch and qd._source.identifier not in _do_batch
+  if not _do_batch.length
+    q = await @report.queued qry, size: 2000, sort: createdAt: ord
+    if not q?.hits?.total and qry is 'action:"default"'
+      console.log 'no queued records found for specified qry', qry, 'checking for any other queued records...'
+      q = await @report.queued 'NOT action:*', size: 2000, sort: createdAt: ord
+      qry = 'queried * as none for qry ' + qry
+    if ord isnt 'desc' and q?.hits?.total and q.hits.total < 10000
+      console.log 'not queueing on reverse ' + ord + ' queue when only ' + q.hits.total + ' records to process, waiting 5s...'
+      await @sleep 5000
     else
-      qry = ''
-    opts = _do_batch.shift()
-    ident = opts?.identifier ? opts?.DOI
+      if not q?.hits?.total and not _queue_batch.length
+        console.log 'no queued records to process, waiting 5s...'
+        await @sleep 5000
+      _do_batch.push(qd._source) for qd in (q?.hits?.hits ? []) when qd._source.identifier not in _processing_idents and qd._source.identifier not in _done_batch and qd._source.identifier not in _do_batch
+  else
+    qry = ''
+  opts = _do_batch.shift()
+  ident = opts?.identifier ? opts?.DOI
   console.log 'report run queue', _processing_idents.length, _do_batch.length
   if typeof ident is 'string' and (ident.startsWith('10.') or ident.startsWith('W') or ident.startsWith('PMC')) and ident not in _processing_idents and ident not in _done_batch
     await @sleep 10
@@ -242,7 +230,7 @@ P.report._doqueue = -> return @report._runqueue()
 P.report._doqueue._log = false
 P.report._doqueue._bg = true
 
-P.report._doreversequeue = -> return @report._runqueue undefined, undefined, 'asc'
+P.report._doreversequeue = -> return @report._runqueue 'asc'
 P.report._doreversequeue._log = false
 P.report._doreversequeue._bg = true
 
@@ -269,7 +257,7 @@ P.report.cleandoi = (doi) -> # 10.1002/1096-8628(20000717)93:2<110::aid-ajmg6>3.
 P.report.cleandoi._log = false
 
 
-P.report.orgs = _sheet: S.report.orgs_sheet, _format: (recs=[], encrypt) ->
+P.report.orgs = _sheet: S.report.orgs_sheet, _format: (recs=[]) ->
   ready = []
   bs = 0
   for rec in (if typeof recs is 'object' and not Array.isArray(recs) then [recs] else recs)
@@ -294,9 +282,8 @@ P.report.orgs = _sheet: S.report.orgs_sheet, _format: (recs=[], encrypt) ->
       else
         nr[h] = rec[h]
     if Array.isArray nr.sheets
-      if encrypt isnt false
-        for s in nr.sheets
-          s.url = await @encrypt s.url
+      for s in nr.sheets
+        s.url = await @encrypt s.url
     else
       delete nr.sheets
     ready.push(nr) if JSON.stringify(nr) isnt '{}'
@@ -328,22 +315,19 @@ P.report.orgs.key._log = false
 P.report.orgs.key._auth = '@oa.works'
 
 P.report.orgs.supplements = _index: true, _auth: '@oa.works'
-P.report.orgs.supplements.load = (orgname, sheetname, clear, immediate) ->
+P.report.orgs.supplements.load = (orgname, sheetname, clear) ->
   started = await @epoch()
   if @fn is 'report.orgs.supplements.load'
     clear ?= @params.clear
   await @report.orgs.supplements('') if clear is true
   orgname ?= @params.org
   sheetname ?= @params.sheet
-  immediate = true if @params.immediate or @params.priority
-  refresh = @refresh
   recs = await @src.google.sheets S.report.orgs_sheet
   total = 0
   idents = []
   replacements = {}
   sheets = []
   sheets_latest = {}
-  sheetnames = []
   if not clear
     replacements[sup.replaced] = sup.DOI for await sup from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_orgs_supplements', 'replaced:*'
 
@@ -369,7 +353,6 @@ P.report.orgs.supplements.load = (orgname, sheetname, clear, immediate) ->
         if (not orgname or org.name is orgname) and sheetname isnt false and (not sheetname or s.name is sheetname)
           console.log org.name, s.name, s.url
           rc = 0
-          osdids = []
           headers = []
           rows = []
           update = @params.update ? true
@@ -452,7 +435,6 @@ P.report.orgs.supplements.load = (orgname, sheetname, clear, immediate) ->
                   rr.email = await @encrypt(rr.email) if typeof rr.email is 'string' and rr.email.includes '@'
                   rr.osdid = (org.name.replace(/[^a-zA-Z0-9-_ ]/g, '') + '_' + s.name + '_' + (rr.DOI ? rr.openalex ? rr.pmcid)).replace(/[\u{0080}-\u{FFFF}]/gu, '').toLowerCase().replace(/\//g, '_').replace(/ /g, '_')
                   rr._id = rr.osdid
-                  osdids.push rr.osdid
                   if (rr.DOI ? rr.openalex ? rr.pmcid) not in idents
                     idents.push(rr.DOI ? rr.openalex ? rr.pmcid)
                   rr.updated = started
@@ -462,7 +444,6 @@ P.report.orgs.supplements.load = (orgname, sheetname, clear, immediate) ->
               await @report.orgs.supplements sups
             await @sleep 1000
           sheets.push org: org.name, sheet: s.name, rows: rc, update: update, supplements: sups.length
-          sheetnames.push s.name
 
   if clear
     console.log 'report orgs supplements queueing idents to clear for specific sheet', clear
@@ -835,7 +816,7 @@ P.report.works.process = (cr, openalex, refresh, everything, action, replaced, q
       _processing_errors[queued] ?= 0
       _processing_errors[queued] += 1
       if _processing_errors[queued] isnt 4
-        @report.queue queued, undefined, refresh, everything, action
+        @report.queue queued, refresh, everything, action
       else
         delete _processing_errors[queued]
     return
@@ -960,7 +941,7 @@ P.report.works.load = (timestamp, org, idents, year, clear, supplements, everyth
 
   if Array.isArray idents
     console.log 'report works queueing identifiers batch', idents.length
-    await @report.queue idents, undefined, (timestamp ? refresh), everything
+    await @report.queue idents, (timestamp ? refresh), everything
     total += idents.length
   else
     _crossref = (cq, action) =>
@@ -971,7 +952,7 @@ P.report.works.load = (timestamp, org, idents, year, clear, supplements, everyth
       for await cr from @index._for 'src_crossref_works', cq, include: ['DOI'], scroll: '30m'
         if cr.DOI and cr.DOI.length and (org or year isnt @params.load or not ae = await @report.works cr.DOI)
           total += 1
-          await @report.queue cr.DOI, undefined, (timestamp ? refresh), everything, action
+          await @report.queue cr.DOI, (timestamp ? refresh), everything, action
 
     await _crossref(undefined, 'years') if org isnt true and year is @params.load
 
@@ -985,7 +966,7 @@ P.report.works.load = (timestamp, org, idents, year, clear, supplements, everyth
         if oodoi and oodoi.length
           if org or year isnt @params.load or not oodoi.startsWith('10.') or not ae = await @report.works oodoi
             total += 1
-            await @report.queue oodoi, undefined, (timestamp ? refresh), everything, action
+            await @report.queue oodoi, (timestamp ? refresh), everything, action
       
     await _openalex(undefined, 'years') if org isnt true and year is @params.load
 
@@ -1001,7 +982,7 @@ P.report.works.load = (timestamp, org, idents, year, clear, supplements, everyth
 
     if timestamp
       for await crt from @index._for 'paradigm_' + (if @S.dev then 'b_' else '') + 'report_works', 'orgs:* AND updated:<' + timestamp, scroll: '10m'
-        await @report.queue(crt.DOI, undefined, (timestamp ? refresh), everything) if updated = await @src.crossref.works.count 'DOI.keyword:"' + crt.DOI + '" AND srcday:>' + timestamp
+        await @report.queue(crt.DOI, (timestamp ? refresh), everything) if updated = await @src.crossref.works.count 'DOI.keyword:"' + crt.DOI + '" AND srcday:>' + timestamp
   
   took = await @epoch() - started
   text = 'Report works queued ' + total + (if @S.dev then ' (dev)' else '') + '\n'
@@ -1029,11 +1010,6 @@ P.report.works.queries = (orgs) ->
 
   if @S.works_load_mains_backup_first and @params.backup isnt false
     await @report.works.backup()
-
-  last = @params.since ? 0 # @params.since can be timestamp from which to load changes to report/works (all will get loaded to crossref/openalex anyway)
-  last = Date.now() - (5 * 24 * 60 * 60 * 1000) if not @params.clear and not @params.all and not @params.since # 5 days ago
-
-  supps = @params.supps ? false
 
   orgs = @params.orgs.split(',') if @params.orgs
   orgs ?= []
@@ -1105,7 +1081,7 @@ P.report.works.queries = (orgs) ->
   while (batch = ids.splice(0, 10000)) and batch.length
     queued += batch.length
     console.log 'report works queries queueing', batch.length, queued
-    await @report.queue batch, undefined, true, true
+    await @report.queue batch, true, true
     batch = []
 
   console.log 'report works queries complete', cvl, ovl, svl, queued, 'elapsed', Date.now() - started

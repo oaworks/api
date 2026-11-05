@@ -218,6 +218,9 @@ P.src.crossref.changes._notify = false
 
 # add any specific field mappings necessary to avoid collisions e.g. assertion.value can be text or date or number etc, so force to text
 # note whole object has to be provided otherwise updating mapping with extra values in the object (or saving a record with extra values) overwrites it
+# we used this mapping at a time when there was dirty data in the crossref dumps, but it may no longer be necessary
+# if future problems are found, it can be used to manually create an index mapping before bulk indexing
+# see https://docs.opensearch.org/2.19/field-types/
 _crossref_mapping = {
   "properties": { 
     "assertion": { 
